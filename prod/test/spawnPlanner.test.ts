@@ -4474,6 +4474,54 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('spawns a MOVE-only scout for a persisted E26S47 scout intent at local-stable energy', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E26S49',
+            targetRoom: 'E26S47',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 840
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { E26S49: colony.room }
+    };
+
+    expect(planSpawn(colony, { worker: 5, claimer: 0, claimersByTargetRoom: {} }, 841)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-E26S49-E26S47-841',
+      memory: {
+        role: 'scout',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S47',
+          action: 'scout'
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S47',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 841
+      }
+    ]);
+  });
+
   it('spawns a minimal claimer for E26S48 after scout intel and claim capacity are ready', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E26S49',

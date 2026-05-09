@@ -3,8 +3,10 @@ import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
   ensureTerritoryScoutAttempt,
   getTerritoryScoutIntel,
+  isTerritoryScoutIntelFresh,
   recordVisibleRoomScoutIntel
 } from './scoutIntel';
+import { TERRITORY_EXPANSION_SCOUT_TARGETS } from './expansionConfig';
 
 const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
 const TERRAIN_SCAN_MIN = 2;
@@ -151,6 +153,46 @@ export function refreshExpansionRoomScouting(
   return { colony: colonyName, records };
 }
 
+export function refreshConfiguredExpansionRoomScouting(
+  colony: ColonySnapshot,
+  gameTime = getGameTime(),
+  telemetryEvents: RuntimeTelemetryEvent[] = []
+): RoomScoutingRefreshResult {
+  return refreshExpansionRoomScouting(
+    colony,
+    getConfiguredExpansionRoomScoutingTargets(colony, gameTime),
+    gameTime,
+    telemetryEvents
+  );
+}
+
+export function getConfiguredExpansionRoomScoutingTargets(
+  colony: ColonySnapshot | string,
+  gameTime = getGameTime()
+): RoomScoutingTarget[] {
+  const colonyName = typeof colony === 'string' ? colony : colony.room.name;
+  if (!isNonEmptyString(colonyName)) {
+    return [];
+  }
+
+  return TERRITORY_EXPANSION_SCOUT_TARGETS.flatMap((target) => {
+    if (
+      target.colony !== colonyName ||
+      target.roomName === colonyName ||
+      !shouldRefreshConfiguredExpansionScoutTarget(colonyName, target.roomName, gameTime)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        roomName: target.roomName,
+        distance: target.routeDistance
+      }
+    ];
+  });
+}
+
 export function getAdjacentRoomScoutingTargets(roomName: string): RoomScoutingTarget[] {
   return getAdjacentRoomNames(roomName).map((adjacentRoomName) => ({ roomName: adjacentRoomName }));
 }
@@ -220,6 +262,14 @@ export function classifyRoomTerrain(
 
 function hasCurrentTickScoutIntel(colony: string, roomName: string, gameTime: number): boolean {
   return getTerritoryScoutIntel(colony, roomName)?.updatedAt === gameTime;
+}
+
+function shouldRefreshConfiguredExpansionScoutTarget(
+  colony: string,
+  roomName: string,
+  gameTime: number
+): boolean {
+  return getVisibleRoom(roomName) != null || !isTerritoryScoutIntelFresh(colony, roomName, gameTime);
 }
 
 function getAdjacentRoomNames(roomName: string): string[] {

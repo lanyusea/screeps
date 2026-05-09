@@ -36,6 +36,7 @@ import {
 import { getTerritoryScoutIntel } from './scoutIntel';
 import { refreshExpansionPlannerIntent } from './expansionPlanner';
 import { recordExpansionPipelineClaimState } from './expansionTrigger';
+import { getConfiguredExpansionRoomScoutingTargets } from './roomScouting';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -158,6 +159,7 @@ interface SelectedTerritoryTarget {
 
 type TerritoryCandidateSource =
   | 'configured'
+  | 'configuredExpansionScout'
   | 'occupationIntent'
   | 'satisfiedClaimAdjacent'
   | 'satisfiedReserveAdjacent'
@@ -1193,16 +1195,26 @@ function selectTerritoryTarget(
     colony,
     roleCounts,
     workerTarget,
-    getConfiguredTerritoryCandidates(
-      colony,
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      roleCounts,
-      routeDistanceLookupContext
-    ),
+    [
+      ...getConfiguredTerritoryCandidates(
+        colony,
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        roleCounts,
+        routeDistanceLookupContext
+      ),
+      ...getConfiguredExpansionScoutCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        routeDistanceLookupContext
+      )
+    ],
     gameTime
   );
   const persistedIntentCandidates = applyOccupationRecommendationScores(
@@ -1338,11 +1350,35 @@ function selectTerritoryTarget(
     );
   }
 
+  const bestReadyCandidate = selectBestScoredTerritoryCandidate(
+    getReadyTerritoryCandidates(candidates, roleCounts, colony)
+  );
+  const bestActionableCandidate = selectBestScoredTerritoryCandidate(
+    getActionableTerritoryCandidates(candidates, roleCounts, colony)
+  );
   return toSelectedTerritoryTarget(
-    selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony)) ??
-      selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony)) ??
-      selectBestScoredTerritoryCandidate(candidates),
+    shouldPreferCoveredActionableCandidateOverExpansionScout(
+      bestReadyCandidate,
+      bestActionableCandidate,
+      roleCounts
+    )
+      ? bestActionableCandidate
+      : bestReadyCandidate ?? bestActionableCandidate ?? selectBestScoredTerritoryCandidate(candidates),
     routeDistanceLookupContext
+  );
+}
+
+function shouldPreferCoveredActionableCandidateOverExpansionScout(
+  readyCandidate: ScoredTerritoryTarget | null,
+  actionableCandidate: ScoredTerritoryTarget | null,
+  roleCounts: RoleCounts
+): actionableCandidate is ScoredTerritoryTarget {
+  return (
+    readyCandidate?.source === 'configuredExpansionScout' &&
+    actionableCandidate !== null &&
+    actionableCandidate.source !== 'configuredExpansionScout' &&
+    !isTerritoryCandidateSpawnRequired(actionableCandidate, roleCounts) &&
+    compareTerritoryCandidates(actionableCandidate, readyCandidate) < 0
   );
 }
 
@@ -1695,6 +1731,64 @@ function getConfiguredTerritoryCandidates(
   });
 }
 
+function getConfiguredExpansionScoutCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
+  return getConfiguredExpansionRoomScoutingTargets(colonyName, gameTime).flatMap((target, order) => {
+    if (
+      configuredTargetRooms.has(target.roomName) ||
+      hasRunnableTerritoryIntentForTarget(intents, colonyName, target.roomName, gameTime) ||
+      isKnownDeadZoneRoom(target.roomName) ||
+      isTerritoryRoomSuspendedForColony(intents, colonyName, target.roomName, gameTime) ||
+      isSuppressedTerritoryIntentForAction(intents, colonyName, target.roomName, 'scout', gameTime) ||
+      !isVisibleTerritoryIntentActionable(target.roomName, 'scout', target.controllerId, colonyOwnerUsername)
+    ) {
+      return [];
+    }
+
+    const candidate = scoreTerritoryCandidate(
+      {
+        target: {
+          colony: colonyName,
+          roomName: target.roomName,
+          action: 'reserve',
+          ...(target.controllerId ? { controllerId: target.controllerId } : {})
+        },
+        intentAction: 'scout',
+        commitTarget: false,
+        ...(target.distance !== undefined ? { routeDistance: target.distance } : {})
+      },
+      'configuredExpansionScout',
+      order,
+      colonyName,
+      colonyOwnerUsername,
+      routeDistanceLookupContext
+    );
+    return candidate ? [candidate] : [];
+  });
+}
+
+function hasRunnableTerritoryIntentForTarget(
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  targetRoom: string,
+  gameTime: number
+): boolean {
+  return intents.some(
+    (intent) =>
+      intent.colony === colonyName &&
+      intent.targetRoom === targetRoom &&
+      (intent.status === 'planned' || intent.status === 'active') &&
+      !isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
+}
+
 function getConfiguredTerritoryCandidateAction(
   target: TerritoryTargetMemory,
   colony: ColonySnapshot,
@@ -1919,7 +2013,7 @@ function getPersistedTerritoryIntentCandidates(
       isKnownDeadZoneRoom(intent.targetRoom) ||
       isRecoveredTerritoryFollowUpAttemptCoolingDown(intent, gameTime) ||
       (intent.status !== 'planned' && intent.status !== 'active' && !recoveredFollowUp) ||
-      !isTerritoryControlAction(intent.action) ||
+      !isTerritoryIntentAction(intent.action) ||
       isTerritoryIntentSuspensionActive(intent, gameTime) ||
       isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) ||
       !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
@@ -1936,7 +2030,7 @@ function getPersistedTerritoryIntentCandidates(
     const target: TerritoryTargetMemory = {
       colony: intent.colony,
       roomName: intent.targetRoom,
-      action: intent.action,
+      action: intent.action === 'scout' ? 'reserve' : intent.action,
       ...(intent.createdBy ? { createdBy: intent.createdBy } : {}),
       ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
       ...(intent.postClaimBootstrapReserveEnergy
@@ -2843,7 +2937,7 @@ function scoreTerritoryCandidate(
   if (knownRouteDistance === null) {
     return null;
   }
-  const routeDistance = knownRouteDistance ?? getInferredTerritoryRouteDistance(source);
+  const routeDistance = knownRouteDistance ?? selection.routeDistance ?? getInferredTerritoryRouteDistance(source);
   const roadDistance = getNearestOwnedRoomRouteDistance(
     colonyName,
     selection.target.roomName,
@@ -3101,6 +3195,7 @@ function buildOccupationRecommendationCandidate(
   gameTime: number
 ): OccupationRecommendationCandidateInput {
   const room = getVisibleRoom(candidate.target.roomName);
+  const configuredSource = candidate.source === 'configured' || candidate.source === 'configuredExpansionScout';
   const scoutIntel =
     room ||
     shouldRefreshExpansionCandidateScoutIntel(
@@ -3113,9 +3208,9 @@ function buildOccupationRecommendationCandidate(
       : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, gameTime);
   return {
     roomName: candidate.target.roomName,
-    source: candidate.source === 'configured' ? 'configured' : 'adjacent',
+    source: configuredSource ? 'configured' : 'adjacent',
     order: candidate.order,
-    adjacent: candidate.source !== 'configured',
+    adjacent: !configuredSource,
     visible: room != null,
     actionHint: candidate.target.action,
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
@@ -3501,7 +3596,7 @@ function isLowerConfidenceDistantSameActionCandidate(
 }
 
 function isPrimaryTerritoryCandidateSource(source: TerritoryCandidateSource): boolean {
-  return source === 'configured' || source === 'occupationIntent';
+  return source === 'configured' || source === 'configuredExpansionScout' || source === 'occupationIntent';
 }
 
 function isFartherTerritoryCandidate(candidate: ScoredTerritoryTarget, other: ScoredTerritoryTarget): boolean {
@@ -3523,15 +3618,19 @@ function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): 
     return 0;
   }
 
-  if (source === 'satisfiedClaimAdjacent') {
+  if (source === 'configuredExpansionScout') {
     return 1;
   }
 
-  if (source === 'satisfiedReserveAdjacent') {
+  if (source === 'satisfiedClaimAdjacent') {
     return 2;
   }
 
-  return source === 'activeReserveAdjacent' ? 3 : 4;
+  if (source === 'satisfiedReserveAdjacent') {
+    return 3;
+  }
+
+  return source === 'activeReserveAdjacent' ? 4 : 5;
 }
 
 function buildTerritoryFollowUp(

@@ -1,6 +1,7 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   collectVisibleRoomScoutingSnapshot,
+  refreshConfiguredExpansionRoomScouting,
   getNearbyRoomScoutingTargets,
   refreshNearbyRoomScouting,
   refreshAdjacentRoomScouting
@@ -163,15 +164,70 @@ describe('room scouting', () => {
       'W3N1'
     ]);
   });
+
+  it('requests configured E26S47 expansion scouting when its intel is missing', () => {
+    const colony = makeColony('E26S49');
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'E26S49>E26S50': {
+            colony: 'E26S49',
+            roomName: 'E26S50',
+            updatedAt: 300,
+            sourceIds: [],
+            sourceCount: 0,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 300,
+      rooms: {
+        E26S49: colony.room
+      }
+    };
+
+    const result = refreshConfiguredExpansionRoomScouting(colony, 300);
+
+    expect(result.records).toEqual([
+      {
+        colony: 'E26S49',
+        roomName: 'E26S47',
+        status: 'requested',
+        updatedAt: 300,
+        distance: 2
+      }
+    ]);
+    expect(Memory.territory?.scoutAttempts?.['E26S49>E26S47']).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S47',
+      status: 'requested',
+      requestedAt: 300,
+      updatedAt: 300,
+      attemptCount: 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S47',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 300
+      }
+    ]);
+  });
 });
 
-function makeColony(): ColonySnapshot {
+function makeColony(roomName = 'W1N1'): ColonySnapshot {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable: 650,
     energyCapacityAvailable: 650,
     controller: {
-      id: 'controller-W1N1',
+      id: `controller-${roomName}`,
       my: true,
       level: 3,
       owner: { username: 'me' }
