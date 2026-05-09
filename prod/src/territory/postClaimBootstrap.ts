@@ -295,13 +295,18 @@ function isPostClaimBootstrapDeferred(
 }
 
 function isPostClaimDefenseConstructionRoom(roomName: string): boolean {
-  if (getPostClaimBootstrapRecord(roomName)) {
-    return true;
+  const record = getPostClaimBootstrapRecord(roomName);
+  if (!record) {
+    return false;
   }
 
+  return !isClaimedRoomEstablished(roomName, record.claimedAt);
+}
+
+function isClaimedRoomEstablished(roomName: string, claimedAt: number): boolean {
   const claimedRoomRecord = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.claimedRoomBootstrapper
     ?.rooms?.[roomName];
-  return claimedRoomRecord?.owned === true && claimedRoomRecord.claimedAt !== undefined;
+  return claimedRoomRecord?.completedAt !== undefined && claimedRoomRecord.completedAt >= claimedAt;
 }
 
 export function recordPostClaimBootstrapWorkerSpawn(

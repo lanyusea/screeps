@@ -18,6 +18,12 @@ const CROSS_ROOM_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const DELIVERY_PRIORITY_SPAWN = 4;
+const DELIVERY_PRIORITY_EXTENSION = 3;
+const DELIVERY_PRIORITY_TOWER = 2;
+const DELIVERY_PRIORITY_CONTAINER = 1;
+const DELIVERY_PRIORITY_STORAGE = 0;
+const DELIVERY_PRIORITY_TERMINAL = -1;
 
 type DeliveryTarget =
   | StructureSpawn
@@ -366,26 +372,26 @@ function compareDeliveryTargets(left: DeliveryTarget, right: DeliveryTarget): nu
 
 function getDeliveryPriority(target: DeliveryTarget): number {
   if (matchesStructureType(target.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
-    return 3;
+    return DELIVERY_PRIORITY_SPAWN;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
-    return 2;
+    return DELIVERY_PRIORITY_EXTENSION;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_TOWER', 'tower')) {
-    return 1;
+    return DELIVERY_PRIORITY_TOWER;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_STORAGE', 'storage')) {
-    return 0;
+    return DELIVERY_PRIORITY_STORAGE;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_TERMINAL', 'terminal')) {
-    return -1;
+    return DELIVERY_PRIORITY_TERMINAL;
   }
 
-  return 1;
+  return DELIVERY_PRIORITY_CONTAINER;
 }
 
 function selectSourceEnergyStructure(room: Room): EnergySourceStructure | null {

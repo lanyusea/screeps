@@ -86,6 +86,35 @@ describe('post-claim defense construction refresh', () => {
     );
     expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
+
+  it('does not run defense planning when the post-claim bootstrap record is missing', () => {
+    const territory = (globalThis as unknown as { Memory: Partial<Memory> }).Memory.territory;
+    if (territory?.postClaimBootstraps) {
+      delete territory.postClaimBootstraps.E26S48;
+    }
+    const { colony, room } = makePostClaimDefenseColony();
+    installGame(room);
+
+    const result = refreshPostClaimDefenseConstruction(colony);
+
+    expect(result).toEqual({ active: false, tower: null, barrier: null });
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
+  it('does not run defense planning after the claimed room bootstrap is established', () => {
+    const claimedRoomRecord = (globalThis as unknown as { Memory: Partial<Memory> }).Memory.territory
+      ?.claimedRoomBootstrapper?.rooms.E26S48;
+    if (claimedRoomRecord) {
+      claimedRoomRecord.completedAt = 900;
+    }
+    const { colony, room } = makePostClaimDefenseColony();
+    installGame(room);
+
+    const result = refreshPostClaimDefenseConstruction(colony);
+
+    expect(result).toEqual({ active: false, tower: null, barrier: null });
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
 });
 
 interface PostClaimDefenseRoom extends Room {

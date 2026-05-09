@@ -411,6 +411,37 @@ describe('cross-room energy logistics', () => {
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-tower' });
   });
 
+  it('delivers imported energy to a tower before a container fallback with an earlier id', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const tower = makeTower('E26S48-z-tower', 100, 900);
+    const container = makeContainer('E26S48-a-container', 0, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      myStructures: [tower as unknown as AnyOwnedStructure],
+      structures: [container as unknown as Structure]
+    });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: targetRoom,
+      carriedEnergy: () => 100,
+      transfer: jest.fn(() => OK_CODE)
+    });
+    creep.memory.colony = 'E26S49';
+    creep.memory.crossRoomHauler = {
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48',
+      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      state: 'delivering',
+      route: ['E26S48']
+    };
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-z-tower' });
+  });
+
   it('delivers to deficit-room storage when transient sinks are unavailable', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });

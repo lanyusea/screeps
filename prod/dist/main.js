@@ -15471,6 +15471,12 @@ var CROSS_ROOM_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var OK_CODE5 = 0;
 var ERR_NO_PATH_CODE6 = -2;
 var ERR_NOT_IN_RANGE_CODE4 = -9;
+var DELIVERY_PRIORITY_SPAWN = 4;
+var DELIVERY_PRIORITY_EXTENSION = 3;
+var DELIVERY_PRIORITY_TOWER = 2;
+var DELIVERY_PRIORITY_CONTAINER = 1;
+var DELIVERY_PRIORITY_STORAGE = 0;
+var DELIVERY_PRIORITY_TERMINAL = -1;
 function planCrossRoomHauler(getEnergyBudget = getDefaultCrossRoomHaulerEnergyBudget) {
   const transfer = selectCrossRoomEnergyTransfer();
   if (!transfer) {
@@ -15725,21 +15731,21 @@ function compareDeliveryTargets(left, right) {
 }
 function getDeliveryPriority(target) {
   if (matchesStructureType11(target.structureType, "STRUCTURE_SPAWN", "spawn")) {
-    return 3;
+    return DELIVERY_PRIORITY_SPAWN;
   }
   if (matchesStructureType11(target.structureType, "STRUCTURE_EXTENSION", "extension")) {
-    return 2;
+    return DELIVERY_PRIORITY_EXTENSION;
   }
   if (matchesStructureType11(target.structureType, "STRUCTURE_TOWER", "tower")) {
-    return 1;
+    return DELIVERY_PRIORITY_TOWER;
   }
   if (matchesStructureType11(target.structureType, "STRUCTURE_STORAGE", "storage")) {
-    return 0;
+    return DELIVERY_PRIORITY_STORAGE;
   }
   if (matchesStructureType11(target.structureType, "STRUCTURE_TERMINAL", "terminal")) {
-    return -1;
+    return DELIVERY_PRIORITY_TERMINAL;
   }
-  return 1;
+  return DELIVERY_PRIORITY_CONTAINER;
 }
 function selectSourceEnergyStructure(room) {
   var _a;
@@ -26987,12 +26993,16 @@ function isPostClaimBootstrapDeferred(roomName, focusRoomName) {
   return isNonEmptyString20(focusRoomName) && roomName !== focusRoomName && record !== null && record.status !== "ready";
 }
 function isPostClaimDefenseConstructionRoom(roomName) {
-  var _a, _b, _c, _d;
-  if (getPostClaimBootstrapRecord(roomName)) {
-    return true;
+  const record = getPostClaimBootstrapRecord(roomName);
+  if (!record) {
+    return false;
   }
+  return !isClaimedRoomEstablished(roomName, record.claimedAt);
+}
+function isClaimedRoomEstablished(roomName, claimedAt) {
+  var _a, _b, _c, _d;
   const claimedRoomRecord = (_d = (_c = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.claimedRoomBootstrapper) == null ? void 0 : _c.rooms) == null ? void 0 : _d[roomName];
-  return (claimedRoomRecord == null ? void 0 : claimedRoomRecord.owned) === true && claimedRoomRecord.claimedAt !== void 0;
+  return (claimedRoomRecord == null ? void 0 : claimedRoomRecord.completedAt) !== void 0 && claimedRoomRecord.completedAt >= claimedAt;
 }
 function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, result, telemetryEvents = []) {
   if (!isNonEmptyString20(roomName)) {
