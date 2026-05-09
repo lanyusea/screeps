@@ -1,3 +1,5 @@
+import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+
 interface StoreLike {
   getUsedCapacity?: (resource?: ResourceConstant) => number | null;
   [resource: string]: unknown;
@@ -10,8 +12,11 @@ export interface EnergyReservationScore {
   terminalEnergy: number;
   pendingHaulerDeliveryEnergy: number;
   confirmedReserveEnergy: number;
+  reservedSpawnEnergy: number;
+  reservedSpawnRefillEnergy: number;
   energyCapacityAvailable: number;
   reservationScore: number;
+  unmetSpawnEnergyReservation: number;
 }
 
 export interface EnergyReservationScoreOptions {
@@ -39,10 +44,18 @@ export function getEnergyReservationScore(
   const storageEnergy = getRoomStorageEnergy(room);
   const terminalEnergy = getRoomTerminalEnergy(room);
   const pendingHaulerDeliveryEnergy = getPendingHaulerDeliveryEnergy(roomName);
+  const spawnEnergyReservation = getRoomSpawnEnergyReservationState(room);
+  const reserveAllocation = allocateReserveEnergyForSpawnReservation(
+    spawnEnergyReservation.unmetReservedEnergy,
+    storageEnergy + terminalEnergy + pendingHaulerDeliveryEnergy
+  );
   const confirmedReserveEnergy =
-    getConfirmedStorageReserveEnergy(spawnEnergy, storageEnergy, energyCapacityAvailable) +
-    terminalEnergy +
-    pendingHaulerDeliveryEnergy;
+    reserveAllocation.reservedSpawnRefillEnergy +
+    getConfirmedStorageReserveEnergy(
+      spawnEnergy + reserveAllocation.reservedSpawnRefillEnergy,
+      reserveAllocation.remainingReserveEnergy,
+      energyCapacityAvailable
+    );
   const uncappedReservationScore = spawnEnergy + confirmedReserveEnergy;
   const reservationScore = energyCapacityAvailable > 0
     ? Math.min(energyCapacityAvailable, uncappedReservationScore)
@@ -55,8 +68,11 @@ export function getEnergyReservationScore(
     terminalEnergy,
     pendingHaulerDeliveryEnergy,
     confirmedReserveEnergy,
+    reservedSpawnEnergy: spawnEnergyReservation.reservedEnergy,
+    reservedSpawnRefillEnergy: reserveAllocation.reservedSpawnRefillEnergy,
     energyCapacityAvailable,
-    reservationScore
+    reservationScore,
+    unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy
   };
 }
 
@@ -79,6 +95,21 @@ function getConfirmedStorageReserveEnergy(
 
   const refillDeficit = Math.max(0, energyCapacityAvailable - spawnEnergy);
   return refillDeficit <= 0 || storageEnergy >= refillDeficit ? storageEnergy : 0;
+}
+
+function allocateReserveEnergyForSpawnReservation(
+  unmetSpawnEnergyReservation: number,
+  reserveEnergy: number
+): { remainingReserveEnergy: number; reservedSpawnRefillEnergy: number } {
+  const reservedSpawnRefillEnergy = Math.min(
+    normalizeEnergyAmount(unmetSpawnEnergyReservation),
+    normalizeEnergyAmount(reserveEnergy)
+  );
+
+  return {
+    remainingReserveEnergy: Math.max(0, normalizeEnergyAmount(reserveEnergy) - reservedSpawnRefillEnergy),
+    reservedSpawnRefillEnergy
+  };
 }
 
 function getPendingHaulerDeliveryEnergy(roomName: string): number {

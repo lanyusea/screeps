@@ -348,10 +348,7 @@ export function planSpawnEnergyReservationCandidate(
 
 function createSpawnEnergyReservationForecastColony(colony: ColonySnapshot): ColonySnapshot {
   const energyCapacityAvailable = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
-  const explicitEnergyBudget = colony.spawnEnergyBudget;
-  const energyBudget = explicitEnergyBudget !== undefined
-    ? normalizeNonNegativeInteger(explicitEnergyBudget)
-    : getSpawnEnergyReservationForecastBudget(colony, energyCapacityAvailable);
+  const energyBudget = getSpawnEnergyReservationForecastBudget(colony, energyCapacityAvailable);
 
   return {
     ...colony,
