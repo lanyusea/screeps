@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import sys
 from dataclasses import dataclass, field
@@ -116,7 +117,7 @@ def parse_runtime_summary_line(line: str) -> tuple[JsonObject | None, bool]:
         return None, saw_prefix
 
     try:
-        payload = json.loads(payload_text)
+        payload = json.loads(html.unescape(payload_text))
     except json.JSONDecodeError:
         return None, saw_prefix
 
