@@ -6,6 +6,7 @@ export const MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 export type MultiRoomEnergyTransferAuditStatus = 'planned' | 'suppressed' | 'blocked';
 export type MultiRoomEnergyTransferAuditReason =
   | 'storage-balance'
+  | 'spawn-energy-buffer'
   | 'local-first-sufficient'
   | 'local-first-policy'
   | 'insufficient-exportable-energy'
@@ -123,8 +124,11 @@ function buildMultiRoomEnergyRoom(input: MultiRoomEnergyRoomInput): EconomyMulti
     spawnEnergyAvailable: spawnEnergy.available,
     spawnEnergyCapacity: spawnEnergy.capacity,
     spawnEnergyDeficit: spawnEnergy.deficit,
+    spawnEnergyBufferThreshold: roomState.spawnEnergyBufferThreshold,
+    spawnEnergyBufferDeficit: roomState.spawnEnergyBufferDeficit,
+    criticalSpawnEnergyDeficit: roomState.criticalSpawnEnergyDeficit,
     storageDeficit,
-    deficitEnergy: storageDeficit + spawnEnergy.deficit,
+    deficitEnergy: storageDeficit + roomState.spawnEnergyBufferDeficit,
     surplusEnergy,
     suppressedImportEnergy,
     blockedImportEnergy,

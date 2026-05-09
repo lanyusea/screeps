@@ -362,6 +362,11 @@ declare global {
     ratio: number;
     exportableEnergy: number;
     importDemand: number;
+    spawnEnergyAvailable?: number;
+    spawnEnergyCapacity?: number;
+    spawnEnergyBufferThreshold?: number;
+    spawnEnergyBufferDeficit?: number;
+    criticalSpawnEnergyDeficit?: number;
     reservedSpawnEnergy?: number;
     unmetSpawnEnergyReservation?: number;
     storageEnergy?: number;
@@ -393,6 +398,7 @@ declare global {
 
   type EconomyMultiRoomEnergyTransferReason =
     | 'storage-balance'
+    | 'spawn-energy-buffer'
     | 'local-first-sufficient'
     | 'local-first-policy'
     | 'insufficient-exportable-energy'
@@ -424,6 +430,9 @@ declare global {
     spawnEnergyAvailable: number;
     spawnEnergyCapacity: number;
     spawnEnergyDeficit: number;
+    spawnEnergyBufferThreshold: number;
+    spawnEnergyBufferDeficit: number;
+    criticalSpawnEnergyDeficit: number;
     storageDeficit: number;
     deficitEnergy: number;
     surplusEnergy: number;

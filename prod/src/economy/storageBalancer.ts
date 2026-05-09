@@ -9,6 +9,7 @@ import {
   type MultiRoomEnergyTransferAudit,
   type MultiRoomEnergyTransferAuditReason
 } from './multiRoomEnergy';
+import { getRoomSpawnEnergyBufferNeed } from './spawnEnergyBuffer';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 import {
   canFindOwnedLogisticsRoute,
@@ -36,6 +37,11 @@ export interface RoomStoredEnergyState {
   terminalTargetEnergy: number;
   terminalEnergyDeficit: number;
   terminalEnergySurplus: number;
+  spawnEnergyAvailable: number;
+  spawnEnergyCapacity: number;
+  spawnEnergyBufferThreshold: number;
+  spawnEnergyBufferDeficit: number;
+  criticalSpawnEnergyDeficit: number;
   reservedSpawnEnergy: number;
   unmetSpawnEnergyReservation: number;
   mode: EconomyStorageBalanceMode;
@@ -105,15 +111,22 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
   const capacity = stores.reduce((total, structure) => total + getEnergyCapacity(structure), 0);
   const ratio = capacity > 0 ? energy / capacity : 0;
   const spawnEnergyReservation = getRoomSpawnEnergyReservationState(room);
+  const spawnEnergyBufferNeed = getRoomSpawnEnergyBufferNeed(room);
   const rawExportableEnergy =
     capacity > 0 && ratio > STORAGE_BALANCE_EXPORT_RATIO
       ? Math.floor(energy - capacity * STORAGE_BALANCE_EXPORT_RATIO)
       : 0;
-  const exportableEnergy = Math.max(0, rawExportableEnergy - spawnEnergyReservation.unmetReservedEnergy);
-  const importDemand =
+  const exportableEnergy = Math.max(
+    0,
+    rawExportableEnergy -
+      spawnEnergyReservation.unmetReservedEnergy -
+      spawnEnergyBufferNeed.deficit
+  );
+  const storageImportDemand =
     capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO
       ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy)
       : 0;
+  const importDemand = storageImportDemand + spawnEnergyBufferNeed.deficit;
 
   return {
     roomName: room.name,
@@ -131,16 +144,21 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
     terminalTargetEnergy,
     terminalEnergyDeficit,
     terminalEnergySurplus,
+    spawnEnergyAvailable: spawnEnergyBufferNeed.currentEnergy,
+    spawnEnergyCapacity: normalizeNonNegativeInteger(room.energyCapacityAvailable),
+    spawnEnergyBufferThreshold: spawnEnergyBufferNeed.threshold,
+    spawnEnergyBufferDeficit: spawnEnergyBufferNeed.deficit,
+    criticalSpawnEnergyDeficit: spawnEnergyBufferNeed.criticalDeficit,
     reservedSpawnEnergy: spawnEnergyReservation.reservedEnergy,
     unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy,
-    mode: selectStorageBalanceMode(capacity, ratio)
+    mode: selectStorageBalanceMode(capacity, ratio, exportableEnergy, importDemand)
   };
 }
 
 function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory {
   const roomStates = getOwnedRooms()
     .map(getRoomStoredEnergyState)
-    .filter((state) => state.capacity > 0);
+    .filter((state) => state.capacity > 0 || state.spawnEnergyBufferThreshold > 0);
   const transferPlan = buildStorageTransfers(roomStates, gameTime);
   const state = {
     updatedAt: gameTime,
@@ -164,6 +182,11 @@ function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory
           terminalTargetEnergy: state.terminalTargetEnergy,
           terminalEnergyDeficit: state.terminalEnergyDeficit,
           terminalEnergySurplus: state.terminalEnergySurplus,
+          spawnEnergyAvailable: state.spawnEnergyAvailable,
+          spawnEnergyCapacity: state.spawnEnergyCapacity,
+          spawnEnergyBufferThreshold: state.spawnEnergyBufferThreshold,
+          spawnEnergyBufferDeficit: state.spawnEnergyBufferDeficit,
+          criticalSpawnEnergyDeficit: state.criticalSpawnEnergyDeficit,
           reservedSpawnEnergy: state.reservedSpawnEnergy,
           unmetSpawnEnergyReservation: state.unmetSpawnEnergyReservation,
           updatedAt: gameTime
@@ -259,7 +282,7 @@ function buildStorageTransfers(
         targetRoom: importer.roomName,
         amount,
         status: 'planned',
-        reason: 'storage-balance',
+        reason: selectPlannedTransferReason(importer),
         updatedAt: gameTime
       });
       remainingExport.set(exporter.roomName, exportableEnergy - amount);
@@ -302,6 +325,10 @@ function getStorageTransferSuppressionReason(
   sourceRoom: string,
   localEnergyAudit: StorageTransferLocalEnergyAudit | undefined
 ): MultiRoomEnergyTransferAuditReason | null {
+  if (importer.criticalSpawnEnergyDeficit > 0 || importer.unmetSpawnEnergyReservation > 0) {
+    return null;
+  }
+
   if (!localEnergyAudit) {
     return null;
   }
@@ -388,7 +415,9 @@ export function getRoomStorageImportPriorityRank(roomName: string): number {
 }
 
 function getImportRoomPriorityRank(state: RoomStoredEnergyState): number {
-  return state.unmetSpawnEnergyReservation > 0 ? 0 : getRoomStorageImportPriorityRank(state.roomName);
+  return state.unmetSpawnEnergyReservation > 0 || state.criticalSpawnEnergyDeficit > 0
+    ? 0
+    : getRoomStorageImportPriorityRank(state.roomName);
 }
 
 function getControllerUpgradeImportPriorityRank(roomName: string): number | null {
@@ -421,12 +450,11 @@ function hasCriticalSpawnEnergyPressure(roomName: string): boolean {
     return false;
   }
 
-  const capacity = normalizeNonNegativeInteger(room.energyCapacityAvailable);
-  if (capacity <= 0 || !hasOwnedSpawn(room)) {
-    return false;
-  }
+  return hasOwnedSpawn(room) && getRoomSpawnEnergyBufferNeed(room).criticalDeficit > 0;
+}
 
-  return normalizeNonNegativeInteger(room.energyAvailable) < Math.min(200, capacity);
+function selectPlannedTransferReason(importer: RoomStoredEnergyState): MultiRoomEnergyTransferAuditReason {
+  return importer.spawnEnergyBufferDeficit > 0 ? 'spawn-energy-buffer' : 'storage-balance';
 }
 
 function hasOwnedSpawn(room: Room): boolean {
@@ -489,14 +517,20 @@ function getCachedOwnedLogisticsRoute(
 
 function selectStorageBalanceMode(
   capacity: number,
-  ratio: number
+  ratio: number,
+  exportableEnergy: number,
+  importDemand: number
 ): EconomyStorageBalanceMode {
   if (capacity <= 0) {
-    return 'balanced';
+    return importDemand > 0 ? 'import' : 'balanced';
   }
 
-  if (ratio > STORAGE_BALANCE_EXPORT_RATIO) {
+  if (ratio > STORAGE_BALANCE_EXPORT_RATIO && exportableEnergy > 0) {
     return 'export';
+  }
+
+  if (importDemand > 0) {
+    return 'import';
   }
 
   if (ratio < STORAGE_BALANCE_IMPORT_RATIO) {

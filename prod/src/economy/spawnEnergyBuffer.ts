@@ -32,6 +32,17 @@ export interface SpawnEnergyBufferSnapshot {
   unmetReservedEnergy: number;
 }
 
+export interface RoomSpawnEnergyBufferNeed {
+  criticalDeficit: number;
+  criticalThreshold: number;
+  currentEnergy: number;
+  deficit: number;
+  healthy: boolean;
+  roomName: string;
+  spawnCount: number;
+  threshold: number;
+}
+
 export interface RefreshSpawnEnergyBufferOptions {
   currentEnergy?: number;
 }
@@ -105,6 +116,26 @@ export function getSpawnEnergyBufferSnapshot(
     threshold,
     thresholdPerSpawn,
     unmetReservedEnergy: reservation.unmetReservedEnergy
+  };
+}
+
+export function getRoomSpawnEnergyBufferNeed(
+  room: Room,
+  spawns = getRoomSpawns(room),
+  currentEnergy = getRoomEnergyAvailable(room)
+): RoomSpawnEnergyBufferNeed {
+  const snapshot = getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy);
+  const threshold = snapshot.spawnCount > 0 ? snapshot.threshold : 0;
+  const criticalThreshold = getCriticalSpawnEnergyBufferThreshold(threshold, snapshot.spawnCount);
+  return {
+    criticalDeficit: Math.max(0, criticalThreshold - snapshot.currentEnergy),
+    criticalThreshold,
+    currentEnergy: snapshot.currentEnergy,
+    deficit: Math.max(0, threshold - snapshot.currentEnergy),
+    healthy: snapshot.currentEnergy >= threshold,
+    roomName: snapshot.roomName,
+    spawnCount: snapshot.spawnCount,
+    threshold
   };
 }
 
@@ -247,6 +278,14 @@ function getSpawnEnergyBufferRequirementForReservation(
   return Math.max(normalizeEnergyAmount(baseRequirement), normalizeEnergyAmount(reservedSpawnEnergy));
 }
 
+function getCriticalSpawnEnergyBufferThreshold(threshold: number, spawnCount: number): number {
+  if (spawnCount <= 0 || threshold <= 0) {
+    return 0;
+  }
+
+  return Math.min(threshold, MINIMUM_SPAWN_ENERGY_BUFFER_PER_SPAWN * spawnCount);
+}
+
 function normalizeConfiguredThreshold(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null;
@@ -260,6 +299,9 @@ function getSpawnBufferCount(spawns: StructureSpawn[]): number {
 }
 
 function getRoomSpawns(room: Room): StructureSpawn[] {
+  const gameSpawns = Object.values((globalThis as { Game?: Partial<Game> }).Game?.spawns ?? {}).filter(
+    (spawn) => spawn.room?.name === getRoomName(room)
+  );
   const findMyStructures = (globalThis as { FIND_MY_STRUCTURES?: number }).FIND_MY_STRUCTURES;
   const find = (room as {
     find?: (
@@ -268,14 +310,24 @@ function getRoomSpawns(room: Room): StructureSpawn[] {
     ) => AnyOwnedStructure[];
   }).find;
   if (typeof findMyStructures === 'number' && typeof find === 'function') {
-    return find
+    const foundSpawns = find
       .call(room, findMyStructures, { filter: (structure) => isSpawnStructure(structure) })
       .filter(isSpawnStructure);
+    return mergeSpawnLists(foundSpawns, gameSpawns);
   }
 
-  return Object.values((globalThis as { Game?: Partial<Game> }).Game?.spawns ?? {}).filter(
-    (spawn) => spawn.room?.name === getRoomName(room)
-  );
+  return gameSpawns;
+}
+
+function mergeSpawnLists(left: StructureSpawn[], right: StructureSpawn[]): StructureSpawn[] {
+  const merged: StructureSpawn[] = [];
+  for (const spawn of [...left, ...right]) {
+    if (!merged.some((existing) => isSameSpawn(existing, spawn))) {
+      merged.push(spawn);
+    }
+  }
+
+  return merged;
 }
 
 function ensureSpawnListIncludesTarget(spawns: StructureSpawn[], target: StructureSpawn): StructureSpawn[] {
