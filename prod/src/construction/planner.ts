@@ -322,7 +322,7 @@ function planStorage(
   options: ConstructionPlannerOptions
 ): void {
   if (
-    options.includeStorage !== true ||
+    options.includeStorage === false ||
     !hasRemainingStructureCapacity(colony.room, 'storage') ||
     !canReserveConstructionEnergy(colony.room, budgetState, 'storage', options)
   ) {

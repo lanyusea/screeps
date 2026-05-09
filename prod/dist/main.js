@@ -8917,7 +8917,7 @@ function planTowers(colony, result, budgetState, options) {
   }
 }
 function planStorage(colony, result, budgetState, options) {
-  if (options.includeStorage !== true || !hasRemainingStructureCapacity(colony.room, "storage") || !canReserveConstructionEnergy(colony.room, budgetState, "storage", options)) {
+  if (options.includeStorage === false || !hasRemainingStructureCapacity(colony.room, "storage") || !canReserveConstructionEnergy(colony.room, budgetState, "storage", options)) {
     return;
   }
   const storageResult = planStorageConstruction(colony);
