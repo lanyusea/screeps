@@ -66,7 +66,7 @@ export function auditLocalEnergyImport(
 ): LocalEnergyImportAudit {
   const roomName = room.name;
   const config = getLocalEnergyRoomConfig(roomName);
-  const storedEnergy = normalizeNonNegativeInteger(options.storedEnergy ?? 0);
+  const storedEnergy = normalizeNonNegativeInteger(options.storedEnergy ?? getRoomStorageAndTerminalEnergy(room));
   const spawnEnergyAvailable = normalizeNonNegativeInteger(room.energyAvailable);
   const spawnEnergyCapacity = normalizeNonNegativeInteger(room.energyCapacityAvailable);
 
@@ -174,6 +174,10 @@ export function shouldAllowLocalFirstEnergyImport(
 }
 
 export function shouldApplyLocalFirstEnergyImportPolicy(roomName: string, sourceRoom: string | undefined): boolean {
+  if (!sourceRoom) {
+    return false;
+  }
+
   const config = getLocalEnergyRoomConfig(roomName);
   return config !== null && isSourceRoomAllowed(config, sourceRoom);
 }
@@ -273,6 +277,10 @@ function getRoomLooseStoredEnergy(room: Room): number {
       matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link')
     )
     .reduce((total, structure) => total + getStoredEnergy(structure), 0);
+}
+
+function getRoomStorageAndTerminalEnergy(room: Room): number {
+  return getStoredEnergy(room.storage) + getStoredEnergy(room.terminal);
 }
 
 function findRoomStructures(room: Room): Structure[] {
