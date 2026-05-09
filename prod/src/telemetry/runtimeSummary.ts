@@ -155,7 +155,7 @@ export interface RuntimePostClaimBootstrapTelemetryEvent {
   type: 'postClaimBootstrap';
   roomName: string;
   colony: string;
-  phase: 'detected' | 'spawnSite' | 'workerSpawn' | 'ready';
+  phase: TerritoryPostClaimBootstrapStatus | 'spawnSite' | 'workerSpawn';
   controllerId?: Id<StructureController>;
   spawnName?: string;
   creepName?: string;

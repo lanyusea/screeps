@@ -183,28 +183,32 @@ export function recordPostClaimBootstrapClaimSuccess(
   const gameTime = getGameTime();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = existing?.status === 'ready' ? gameTime : existing?.claimedAt ?? gameTime;
-  bootstraps[input.roomName] = {
+  const status = getRefreshedPostClaimBootstrapStatus(existing);
+  const workerTarget = existing
+    ? getPostClaimBootstrapWorkerTarget(existing)
+    : POST_CLAIM_BOOTSTRAP_WORKER_TARGET;
+  const controllerId = input.controllerId ?? existing?.controllerId;
+  const record: TerritoryPostClaimBootstrapMemory = {
     colony: input.colony,
     roomName: input.roomName,
-    status: getRefreshedPostClaimBootstrapStatus(existing),
+    status,
     claimedAt,
     updatedAt: gameTime,
-    workerTarget: existing?.workerTarget ?? POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
-    ...(input.controllerId ?? existing?.controllerId
-      ? { controllerId: (input.controllerId ?? existing?.controllerId) as Id<StructureController> }
-      : {}),
+    workerTarget,
+    ...(controllerId ? { controllerId } : {}),
     ...(existing?.spawnSite ? { spawnSite: existing.spawnSite } : {}),
     ...(existing?.lastResult !== undefined ? { lastResult: existing.lastResult } : {})
   };
+  bootstraps[input.roomName] = record;
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
 
   telemetryEvents.push({
     type: 'postClaimBootstrap',
     roomName: input.roomName,
     colony: input.colony,
-    phase: 'detected',
-    ...(input.controllerId ? { controllerId: input.controllerId } : {}),
-    workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
+    phase: record.status,
+    ...(record.controllerId ? { controllerId: record.controllerId } : {}),
+    workerTarget: record.workerTarget
   });
 
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);

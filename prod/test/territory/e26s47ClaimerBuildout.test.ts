@@ -218,7 +218,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
           status: 'spawningWorkers',
           claimedAt: 910,
           updatedAt: 919,
-          workerTarget: 2,
+          workerTarget: 3,
           controllerId: 'controller-e26s47' as Id<StructureController>,
           spawnSite: { roomName: 'E26S47', x: 23, y: 23 },
           lastResult: OK_CODE
@@ -226,11 +226,12 @@ describe('E26S47 claimer dispatch and buildout', () => {
       }
     };
 
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
     recordPostClaimBootstrapClaimSuccess({
       colony: 'E26S49',
       roomName: 'E26S47',
       controllerId: 'controller-e26s47' as Id<StructureController>
-    });
+    }, telemetryEvents);
 
     expect(Memory.territory.postClaimBootstraps?.E26S47).toEqual({
       colony: 'E26S49',
@@ -238,10 +239,18 @@ describe('E26S47 claimer dispatch and buildout', () => {
       status: 'spawningWorkers',
       claimedAt: 910,
       updatedAt: 920,
-      workerTarget: 2,
+      workerTarget: 3,
       controllerId: 'controller-e26s47',
       spawnSite: { roomName: 'E26S47', x: 23, y: 23 },
       lastResult: OK_CODE
+    });
+    expect(telemetryEvents).toContainEqual({
+      type: 'postClaimBootstrap',
+      roomName: 'E26S47',
+      colony: 'E26S49',
+      phase: 'spawningWorkers',
+      controllerId: 'controller-e26s47',
+      workerTarget: 3
     });
   });
 
