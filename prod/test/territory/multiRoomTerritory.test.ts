@@ -1,5 +1,6 @@
 import type { ColonySnapshot } from '../../src/colony/colonyRegistry';
 import { refreshExpansionExecutorIntent } from '../../src/territory/expansionExecutor';
+import { selectTerritoryClaimOwner } from '../../src/territory/multiRoomTerritory';
 import { planTerritoryIntent } from '../../src/territory/territoryPlanner';
 
 describe('multi-room territory coordination', () => {
@@ -109,6 +110,28 @@ describe('multi-room territory coordination', () => {
       targetRoom: 'W2N1',
       action: 'claim'
     });
+  });
+
+  it('ignores destroyed spawn references while selecting a claim owner', () => {
+    const west = makeColony('W1N1');
+    installGame([west], 930);
+    (west.spawns as unknown as Array<StructureSpawn | null>).push(null);
+
+    expect(() => selectTerritoryClaimOwner({ colony: west, targetRoom: 'W2N1' })).not.toThrow();
+  });
+
+  it('reuses route distances for the same room pairs during one tick', () => {
+    const west = makeColony('W1N1');
+    const east = makeColony('W3N1');
+    installGame([west, east], 940);
+    const findRoute = (Game.map.findRoute as jest.Mock).mockClear();
+
+    selectTerritoryClaimOwner({ colony: west, targetRoom: 'W4N1' });
+    selectTerritoryClaimOwner({ colony: west, targetRoom: 'W4N1' });
+
+    expect(findRoute).toHaveBeenCalledTimes(2);
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W4N1');
+    expect(findRoute).toHaveBeenCalledWith('W3N1', 'W4N1');
   });
 });
 

@@ -27,6 +27,21 @@ interface ClaimOwnerCandidate {
 
 const DEFAULT_NO_PATH_CODE = -2 as ScreepsReturnCode;
 
+interface VisibleRoomsCache {
+  time: number;
+  rooms: Game['rooms'];
+  visibleRooms: Room[];
+}
+
+interface RouteDistanceCache {
+  time: number;
+  map: Partial<GameMap> & { findRoute?: (fromRoom: string, toRoom: string) => unknown };
+  distances: Map<string, number | undefined>;
+}
+
+let visibleRoomsCache: VisibleRoomsCache | null = null;
+let routeDistanceCache: RouteDistanceCache | null = null;
+
 export function filterExpansionCandidateReportForColonyNetwork(
   colony: ColonySnapshot,
   report: ExpansionCandidateReport,
@@ -256,19 +271,17 @@ function compareOptionalNumbers(left: number | undefined, right: number | undefi
 
 function getVisibleOwnedRooms(colony: ColonySnapshot): Room[] {
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
-  const rooms = getGameRooms();
+  const rooms = getVisibleRoomsForTick();
   const ownedRooms = new Map<string, Room>();
   ownedRooms.set(colony.room.name, colony.room);
 
-  if (rooms) {
-    for (const room of Object.values(rooms)) {
-      if (
-        room?.controller?.my === true &&
-        isNonEmptyString(room.name) &&
-        (!ownerUsername || getControllerOwnerUsername(room.controller) === ownerUsername)
-      ) {
-        ownedRooms.set(room.name, room);
-      }
+  for (const room of rooms) {
+    if (
+      room?.controller?.my === true &&
+      isNonEmptyString(room.name) &&
+      (!ownerUsername || getControllerOwnerUsername(room.controller) === ownerUsername)
+    ) {
+      ownedRooms.set(room.name, room);
     }
   }
 
@@ -291,6 +304,10 @@ function getActiveSpawnCount(roomName: string, currentColony: ColonySnapshot): n
   const seenSpawns = new Set<string>();
   let activeCount = 0;
   for (const spawn of spawns) {
+    if (!spawn) {
+      continue;
+    }
+
     const spawnKey = isNonEmptyString(spawn.name) ? spawn.name : String(spawn.id ?? activeCount);
     if (seenSpawns.has(spawnKey)) {
       continue;
@@ -345,12 +362,59 @@ function findRouteDistance(fromRoom: string, targetRoom: string): number | undef
     return undefined;
   }
 
-  const route = gameMap.findRoute(fromRoom, targetRoom);
-  if (route === getNoPathResultCode()) {
-    return Number.POSITIVE_INFINITY;
+  const cache = getRouteDistanceCache(gameMap);
+  const routeKey = getRouteDistanceCacheKey(fromRoom, targetRoom);
+  if (cache?.has(routeKey)) {
+    return cache.get(routeKey);
   }
 
-  return Array.isArray(route) ? route.length : undefined;
+  const route = gameMap.findRoute(fromRoom, targetRoom);
+  const distance =
+    route === getNoPathResultCode() ? Number.POSITIVE_INFINITY : Array.isArray(route) ? route.length : undefined;
+  cache?.set(routeKey, distance);
+  return distance;
+}
+
+function getVisibleRoomsForTick(): Room[] {
+  const rooms = getGameRooms();
+  if (!rooms) {
+    return [];
+  }
+
+  const time = getGameTime();
+  if (time !== undefined && visibleRoomsCache?.time === time && visibleRoomsCache.rooms === rooms) {
+    return visibleRoomsCache.visibleRooms;
+  }
+
+  const visibleRooms = Object.values(rooms);
+  if (time !== undefined) {
+    visibleRoomsCache = { time, rooms, visibleRooms };
+  }
+
+  return visibleRooms;
+}
+
+function getRouteDistanceCache(
+  gameMap: Partial<GameMap> & { findRoute?: (fromRoom: string, toRoom: string) => unknown }
+): Map<string, number | undefined> | undefined {
+  const time = getGameTime();
+  if (time === undefined) {
+    return undefined;
+  }
+
+  if (routeDistanceCache?.time !== time || routeDistanceCache.map !== gameMap) {
+    routeDistanceCache = {
+      time,
+      map: gameMap,
+      distances: new Map<string, number | undefined>()
+    };
+  }
+
+  return routeDistanceCache.distances;
+}
+
+function getRouteDistanceCacheKey(fromRoom: string, targetRoom: string): string {
+  return `${fromRoom}>${targetRoom}`;
 }
 
 function getLinearRoomDistance(fromRoom: string, targetRoom: string): number | undefined {
@@ -416,6 +480,11 @@ function getControllerOwnerUsername(controller: StructureController | undefined)
 
 function getGameRooms(): Game['rooms'] | undefined {
   return (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+}
+
+function getGameTime(): number | undefined {
+  const time = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof time === 'number' && Number.isFinite(time) ? Math.floor(time) : undefined;
 }
 
 function getTerritoryMemoryRecord(): TerritoryMemory | null {
