@@ -14,7 +14,11 @@ import {
   hasActiveAutonomousExpansionPipeline,
   refreshAutonomousExpansionPipeline
 } from './expansionTrigger';
-import { refreshExpansionRoomScouting } from './roomScouting';
+import {
+  getConfiguredExpansionRoomScoutingTargets,
+  refreshExpansionRoomScouting,
+  type RoomScoutingTarget
+} from './roomScouting';
 import { getTerritoryScoutIntel } from './scoutIntel';
 import { logBestClaimTarget } from './territoryRunner';
 
@@ -59,7 +63,10 @@ export function refreshExpansionExecutorIntent(
     scoutTargetRooms.push(selection.targetRoom);
   }
   if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
-    const scoutTargets = selectExpansionScoutTargets(report);
+    const scoutTargets = dedupeRoomScoutingTargets([
+      ...selectExpansionScoutTargets(report),
+      ...getConfiguredExpansionRoomScoutingTargets(colony, gameTime)
+    ]);
     scoutTargetRooms.push(...scoutTargets.map((target) => target.roomName));
     refreshExpansionRoomScouting(colony, scoutTargets, gameTime, telemetryEvents);
   }
@@ -77,6 +84,18 @@ export function refreshExpansionExecutorIntent(
     stateKey
   };
   return selection;
+}
+
+function dedupeRoomScoutingTargets(targets: RoomScoutingTarget[]): RoomScoutingTarget[] {
+  const seenRooms = new Set<string>();
+  return targets.filter((target) => {
+    if (seenRooms.has(target.roomName)) {
+      return false;
+    }
+
+    seenRooms.add(target.roomName);
+    return true;
+  });
 }
 
 export function runExpansionExecutorClaimer(

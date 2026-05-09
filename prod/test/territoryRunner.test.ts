@@ -121,7 +121,7 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
-  it('records scout intel and clears target attribution after entering the target room', () => {
+  it('records scout intel and sends an idle scout home after entering the target room', () => {
     const telemetryEvents: RuntimeTelemetryEvent[] = [];
     const creep = {
       name: 'Scout1',
@@ -155,7 +155,7 @@ describe('runTerritoryControllerCreep', () => {
 
     runTerritoryControllerCreep(creep, telemetryEvents);
 
-    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N1' });
     expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.scoutIntel?.['W1N1>W1N2']).toEqual({
@@ -194,6 +194,46 @@ describe('runTerritoryControllerCreep', () => {
         hostileSpawnCount: 0
       }
     ]);
+  });
+
+  it('retasks a scout to the next unscouted configured room after collecting intel', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 841,
+      rooms: {
+        E26S49: { name: 'E26S49' } as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E26S49',
+            targetRoom: 'E26S47',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 840
+          }
+        ]
+      }
+    };
+    const creep = {
+      name: 'ScoutE26S50',
+      memory: { role: 'scout', colony: 'E26S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
+      room: makeScoutRoom('E26S50'),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(Memory.territory?.scoutIntel?.['E26S49>E26S50']).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S50',
+      updatedAt: 841,
+      scoutName: 'ScoutE26S50'
+    });
+    expect(creep.memory.territory).toEqual({ targetRoom: 'E26S47', action: 'scout' });
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
   });
 
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {
@@ -1546,6 +1586,19 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.claimController).not.toHaveBeenCalled();
   });
 });
+
+function makeScoutRoom(roomName: string): Room {
+  return {
+    name: roomName,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false,
+      pos: { x: 25, y: 25, roomName } as RoomPosition
+    } as StructureController,
+    getTerrain: jest.fn(() => makeTerrain()),
+    find: jest.fn(() => [])
+  } as unknown as Room;
+}
 
 function makeTerrain(): RoomTerrain {
   return {

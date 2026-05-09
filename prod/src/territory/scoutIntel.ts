@@ -533,6 +533,24 @@ export function getTerritoryScoutIntel(colony: string, targetRoom: string): Terr
   return normalizeTerritoryScoutIntel(rawIntel) ?? getLegacyScoutIntel(colony, targetRoom);
 }
 
+export function isTerritoryScoutIntelFresh(
+  colony: string,
+  targetRoom: string,
+  gameTime = getGameTime(),
+  maxAge = TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS
+): boolean {
+  const intel = getTerritoryScoutIntel(colony, targetRoom);
+  if (!intel) {
+    return false;
+  }
+
+  if (gameTime < intel.updatedAt) {
+    return true;
+  }
+
+  return gameTime - intel.updatedAt <= maxAge;
+}
+
 function getTerritoryScoutAttempt(colony: string, targetRoom: string): TerritoryScoutAttemptMemory | null {
   const rawAttempt = getTerritoryMemoryRecord()?.scoutAttempts?.[getTerritoryScoutMemoryKey(colony, targetRoom)];
   return normalizeTerritoryScoutAttempt(rawAttempt);

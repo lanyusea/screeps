@@ -255,7 +255,7 @@ describe('expansion executor', () => {
     ]);
   });
 
-  it('requests the configured E26S50 scout target for E26S49 expansion evaluation', () => {
+  it('requests configured E26S49 expansion scout targets', () => {
     const colony = makeColony({ roomName: 'E26S49' });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 821,
@@ -293,10 +293,25 @@ describe('expansion executor', () => {
       updatedAt: 821,
       attemptCount: 1
     });
+    expect(Memory.territory?.scoutAttempts?.['E26S49>E26S47']).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S47',
+      status: 'requested',
+      requestedAt: 821,
+      updatedAt: 821,
+      attemptCount: 1
+    });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E26S49',
         targetRoom: 'E26S50',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 821
+      },
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S47',
         action: 'scout',
         status: 'planned',
         updatedAt: 821
