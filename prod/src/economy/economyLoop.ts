@@ -157,7 +157,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const reservedSpawnEnergyByRoom = new Map<string, number>();
   const plannedRoleCountsByRoom = new Map<string, RoleCounts>(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
-  refreshClaimedRoomBootstrapperOwnership();
+  refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
   const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
   const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms(colonies);
 

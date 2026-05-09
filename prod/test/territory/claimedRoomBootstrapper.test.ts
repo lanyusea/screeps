@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../../src/colony/colonyRegistry';
+import type { RuntimeTelemetryEvent } from '../../src/telemetry/runtimeSummary';
 import {
   refreshClaimedRoomBootstrapperOwnership,
   runClaimedRoomBootstrapper
@@ -68,6 +69,72 @@ describe('claimed room bootstrapper', () => {
       claimedAt: 100,
       updatedAt: 100
     });
+  });
+
+  it('transitions a newly owned E26S50 claim into post-claim bootstrap and places the first spawn', () => {
+    const { room } = makeBootstrapRoom({
+      roomName: 'E26S50',
+      controllerLevel: 1,
+      sources: [makeSource('e26s50-source-a', 21, 21, 'E26S50')]
+    });
+    (room as Room & { memory?: RoomMemory }).memory = {};
+    const homeRoom = {
+      name: 'E26S49',
+      controller: { my: true },
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    } as Room;
+    const homeSpawn = { name: 'Spawn1', room: homeRoom, spawning: null } as StructureSpawn;
+    Memory.territory = {
+      claimedRoomBootstrapper: {
+        rooms: {
+          E26S50: { roomName: 'E26S50', owned: false, updatedAt: 836 }
+        }
+      },
+      targets: [
+        {
+          colony: 'E26S49',
+          roomName: 'E26S50',
+          action: 'claim',
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller1' as Id<StructureController>
+        }
+      ]
+    };
+    installGameRooms([homeRoom, room], 837);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.spawns = { Spawn1: homeSpawn };
+
+    const events: RuntimeTelemetryEvent[] = [];
+    const result = refreshClaimedRoomBootstrapperOwnership(events);
+
+    expect(result.detectedRoomNames).toEqual(['E26S50']);
+    expect(Memory.territory?.postClaimBootstraps?.E26S50).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S50',
+      status: 'spawnSitePending',
+      claimedAt: 837,
+      updatedAt: 837,
+      controllerId: 'controller1',
+      spawnSite: { roomName: 'E26S50', x: 23, y: 23 },
+      lastResult: OK_CODE
+    });
+    expect((room as Room & { memory: RoomMemory }).memory.colonyStage?.mode).toBe('BOOTSTRAP');
+    expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);
+    const [[x, y]] = room.createConstructionSite.mock.calls;
+    expect(x).toBeGreaterThanOrEqual(2);
+    expect(y).toBeGreaterThanOrEqual(2);
+    expect(x).toBeLessThanOrEqual(47);
+    expect(y).toBeLessThanOrEqual(47);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'postClaimBootstrap',
+          roomName: 'E26S50',
+          colony: 'E26S49',
+          phase: 'spawnSite'
+        })
+      ])
+    );
   });
 
   it('places the initial spawn site before other infrastructure', () => {
@@ -497,10 +564,10 @@ function makeExtensions(count: number): Structure[] {
   );
 }
 
-function makeSource(id: string, x: number, y: number): Source {
+function makeSource(id: string, x: number, y: number, roomName = 'W2N1'): Source {
   return {
     id,
-    pos: makeRoomPosition({ x, y }, 'W2N1')
+    pos: makeRoomPosition({ x, y }, roomName)
   } as unknown as Source;
 }
 
