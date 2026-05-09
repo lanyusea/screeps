@@ -244,7 +244,7 @@ function getReservedCrossRoomTransferEnergy(transfer: EconomyStorageTransferMemo
   }
 
   return Object.values(creeps).reduce(
-    (total, creep) => total + getCreepCrossRoomTransferReservation(creep, transfer),
+    (total, creep) => total + (creep ? getCreepCrossRoomTransferReservation(creep, transfer) : 0),
     0
   );
 }
@@ -304,7 +304,7 @@ function getWorkerInterRoomTransferReservation(
     return null;
   }
 
-  return isWorkerOnInterRoomHaulLeg(creep, assignment)
+  return isWorkerOnInterRoomHaulLeg(creep, assignment) && creep.memory?.task?.type === 'withdraw'
     ? getEnergyCapacity(creep)
     : getCarriedEnergy(creep);
 }

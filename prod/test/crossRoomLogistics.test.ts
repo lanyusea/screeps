@@ -536,6 +536,55 @@ describe('cross-room energy logistics', () => {
     expect(buildCrossRoomHaulerBody(800, 150)).toEqual(plan?.body);
   });
 
+  it('ignores undefined Game.creeps entries when computing cross-room reservations', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 900, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame(
+      [sourceRoom, targetRoom],
+      [sourceSpawn],
+      { MissingCreep: undefined as unknown as Creep }
+    );
+    balanceStorage();
+
+    expect(() => planCrossRoomHauler()).not.toThrow();
+
+    const plan = planCrossRoomHauler();
+    expect(plan?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'W1N1',
+      targetRoom: 'W2N1'
+    });
+  });
+
+  it('only reserves full worker inter-room haul capacity while withdrawing', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 900, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    const worker = makeWorker(
+      'Worker1',
+      targetRoom,
+      { type: 'transfer', targetId: 'W2N1-storage' as Id<AnyStoreStructure> },
+      1
+    );
+    worker.memory.interRoomEnergyHaul = {
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-storage' as Id<AnyStoreStructure>,
+      targetId: 'W2N1-storage' as Id<AnyStoreStructure>
+    };
+    installGame([sourceRoom, targetRoom], [sourceSpawn], { Worker1: worker });
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 100, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()?.body).toEqual(['carry', 'move']);
+
+    worker.memory.task = { type: 'withdraw', targetId: 'W1N1-storage' as Id<AnyStoreStructure> };
+
+    expect(planCrossRoomHauler()).toBeNull();
+  });
+
   it('selects the nearest eligible source store for an E26S49 to E26S48 hauler', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
     (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('E26S49-terminal', 850, 1_000, 2, 2);

@@ -19358,7 +19358,7 @@ function getReservedCrossRoomTransferEnergy(transfer) {
     return 0;
   }
   return Object.values(creeps).reduce(
-    (total, creep) => total + getCreepCrossRoomTransferReservation(creep, transfer),
+    (total, creep) => total + (creep ? getCreepCrossRoomTransferReservation(creep, transfer) : 0),
     0
   );
 }
@@ -19387,7 +19387,7 @@ function getDedicatedCrossRoomHaulerTransferReservation(creep, transfer) {
   return getEnergyCapacity3(creep);
 }
 function getWorkerInterRoomTransferReservation(creep, transfer) {
-  var _a;
+  var _a, _b, _c;
   if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
     return null;
   }
@@ -19395,7 +19395,7 @@ function getWorkerInterRoomTransferReservation(creep, transfer) {
   if ((assignment == null ? void 0 : assignment.sourceRoom) !== transfer.sourceRoom || assignment.targetRoom !== transfer.targetRoom) {
     return null;
   }
-  return isWorkerOnInterRoomHaulLeg(creep, assignment) ? getEnergyCapacity3(creep) : getCarriedEnergy(creep);
+  return isWorkerOnInterRoomHaulLeg(creep, assignment) && ((_c = (_b = creep.memory) == null ? void 0 : _b.task) == null ? void 0 : _c.type) === "withdraw" ? getEnergyCapacity3(creep) : getCarriedEnergy(creep);
 }
 function isWorkerOnInterRoomHaulLeg(creep, assignment) {
   var _a;
