@@ -571,6 +571,7 @@ declare global {
   interface CreepMineralHarvesterMemory {
     homeRoom: string;
     mineralId: Id<Mineral>;
+    mineralAmount?: number;
     mineralType?: ResourceConstant;
     targetId: Id<AnyStoreStructure>;
   }

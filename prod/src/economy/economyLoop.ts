@@ -53,7 +53,7 @@ import {
   MINERAL_HARVESTER_ROLE,
   planMineralHarvesterSpawn,
   runMineralHarvester
-} from './mineral-harvesting';
+} from './mineralHarvester';
 import { refreshRoomEnergySurplusState } from './energySurplus';
 import {
   clearSpawnEnergyReservation,
