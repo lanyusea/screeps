@@ -1,4 +1,8 @@
-import { compareSpawnSourceRouteDistances, runEconomy } from '../src/economy/economyLoop';
+import {
+  compareSpawnSourceRouteDistances,
+  orderCreepsForEconomyTaskPriority,
+  runEconomy
+} from '../src/economy/economyLoop';
 import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
@@ -47,6 +51,56 @@ describe('runEconomy', () => {
     expect(comparisons).toContain(0);
     expect(comparisons.every(Number.isFinite)).toBe(true);
     expect(sortedSources.map((source) => source.roomName)).toEqual(['W3N1', 'W2N1']);
+  });
+
+  it('orders low-energy hauling and harvesting before optional worker tasks', () => {
+    const room = { name: 'W1N1', energyAvailable: 250, energyCapacityAvailable: 800 } as Room;
+    const builder = {
+      name: 'Builder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const harvester = {
+      name: 'Harvester',
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const hauler = {
+      name: 'Hauler',
+      memory: { role: 'hauler', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(orderCreepsForEconomyTaskPriority([builder, harvester, hauler]).map((creep) => creep.name)).toEqual([
+      'Hauler',
+      'Harvester',
+      'Builder'
+    ]);
+  });
+
+  it('keeps creep execution order stable when room energy is healthy', () => {
+    const room = { name: 'W1N1', energyAvailable: 800, energyCapacityAvailable: 800 } as Room;
+    const first = { name: 'First', memory: { role: 'worker' }, room } as unknown as Creep;
+    const second = { name: 'Second', memory: { role: 'hauler' }, room } as unknown as Creep;
+    const third = { name: 'Third', memory: { role: 'sourceHarvester' }, room } as unknown as Creep;
+
+    expect(orderCreepsForEconomyTaskPriority([first, second, third]).map((creep) => creep.name)).toEqual([
+      'First',
+      'Second',
+      'Third'
+    ]);
   });
 
   it('spawns a worker request for an owned colony below target workers', () => {
@@ -1292,6 +1346,80 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('preempts optional worker upgrading for spawn refill when room energy is low', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CREEPS: number;
+      FIND_SOURCES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_SPAWN: StructureConstant;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 3;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(150),
+        getFreeCapacity: jest.fn().mockReturnValue(150)
+      }
+    } as unknown as StructureSpawn;
+    let worker = {} as Creep;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 250,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return [worker];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const transfer = jest.fn().mockReturnValue(OK_CODE);
+    worker = {
+      memory: { role: 'worker', colony: 'W1N1', task: { type: 'upgrade', targetId: controller.id } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer,
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 124,
+      rooms: {},
+      spawns: {},
+      creeps: { Worker1: worker },
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : controller))
+    };
+
+    runEconomy();
+
+    expect(worker.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(worker.upgradeController).not.toHaveBeenCalled();
   });
 
   it('runs existing territory controller creeps', () => {

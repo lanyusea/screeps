@@ -24370,16 +24370,24 @@ var WORKER_BODY_SCALING_PROFILES = [
   },
   {
     minimumEnergyCapacity: 300,
+    minimumControllerLevel: 1,
     body: ["work", "work", "carry", "move"]
   },
   {
     minimumEnergyCapacity: 550,
+    minimumControllerLevel: 2,
     body: ["work", "work", "carry", "carry", "move", "move"]
   },
   {
     minimumEnergyCapacity: 800,
+    minimumControllerLevel: 3,
     body: ["work", "work", "work", "carry", "carry", "move", "move", "move"]
   }
+];
+var WORKER_BODY_SCALING_BOOTSTRAP_CAPS = [
+  { maxCurrentWorkerCount: 0, maximumEnergyCapacity: 200 },
+  { maxCurrentWorkerCount: 1, maximumEnergyCapacity: 300 },
+  { maxCurrentWorkerCount: 2, maximumEnergyCapacity: 550 }
 ];
 var BODY_PART_COSTS3 = {
   move: 50,
@@ -24392,12 +24400,18 @@ var BODY_PART_COSTS3 = {
   tough: 10
 };
 function buildScaledWorkerBody(energyCapacityAvailable, options = {}) {
-  const roomEnergyCapacity = normalizeEnergyAmount4(energyCapacityAvailable);
+  const roomEnergyCapacity = getEffectiveWorkerBodyEnergyCapacity(
+    normalizeEnergyAmount4(energyCapacityAvailable),
+    options
+  );
   const availableEnergy = normalizeOptionalEnergyAmount2(options.energyAvailable);
+  const controllerLevel = normalizeOptionalEnergyAmount2(options.controllerLevel);
   if (options.emergency === true && availableEnergy !== void 0 && availableEnergy < WORKER_BODY_SCALING_EMERGENCY_ENERGY_THRESHOLD) {
     return canAffordBody(WORKER_BODY_SCALING_EMERGENCY_FALLBACK, availableEnergy) ? [...WORKER_BODY_SCALING_EMERGENCY_FALLBACK] : [];
   }
-  const profile = [...WORKER_BODY_SCALING_PROFILES].filter((candidate) => normalizeEnergyAmount4(candidate.minimumEnergyCapacity) <= roomEnergyCapacity).sort((left, right) => right.minimumEnergyCapacity - left.minimumEnergyCapacity).find((candidate) => availableEnergy === void 0 || canAffordBody(candidate.body, availableEnergy));
+  const profile = [...WORKER_BODY_SCALING_PROFILES].filter(
+    (candidate) => normalizeEnergyAmount4(candidate.minimumEnergyCapacity) <= roomEnergyCapacity && satisfiesControllerLevel(candidate, controllerLevel)
+  ).sort((left, right) => right.minimumEnergyCapacity - left.minimumEnergyCapacity).find((candidate) => availableEnergy === void 0 || canAffordBody(candidate.body, availableEnergy));
   return profile ? [...profile.body] : [];
 }
 function getScaledWorkerBodyCost(body) {
@@ -24405,6 +24419,19 @@ function getScaledWorkerBodyCost(body) {
 }
 function canAffordBody(body, energyAvailable) {
   return getScaledWorkerBodyCost(body) <= energyAvailable;
+}
+function getEffectiveWorkerBodyEnergyCapacity(roomEnergyCapacity, options) {
+  const currentWorkerCount = normalizeOptionalEnergyAmount2(options.currentWorkerCount);
+  if (currentWorkerCount === void 0) {
+    return roomEnergyCapacity;
+  }
+  const bootstrapCap = WORKER_BODY_SCALING_BOOTSTRAP_CAPS.find(
+    (cap) => currentWorkerCount <= cap.maxCurrentWorkerCount
+  );
+  return bootstrapCap ? Math.min(roomEnergyCapacity, bootstrapCap.maximumEnergyCapacity) : roomEnergyCapacity;
+}
+function satisfiesControllerLevel(profile, controllerLevel) {
+  return controllerLevel === void 0 || profile.minimumControllerLevel === void 0 || controllerLevel >= profile.minimumControllerLevel;
 }
 function normalizeOptionalEnergyAmount2(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -26192,7 +26219,10 @@ function selectWorkerBody(colony, roleCounts) {
   );
 }
 function buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget) {
+  var _a;
   return buildScaledWorkerBody(colony.energyCapacityAvailable, {
+    controllerLevel: (_a = colony.room.controller) == null ? void 0 : _a.level,
+    currentWorkerCount: roleCounts.worker,
     energyAvailable: energyBudget,
     emergency: roleCounts.worker === 0
   });
@@ -36788,6 +36818,7 @@ var ERR_BUSY_CODE = -4;
 var ERR_NO_PATH_CODE8 = -2;
 var OK_CODE19 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
+var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 function runEconomy(preludeTelemetryEvents = []) {
   var _a, _b, _c, _d;
   const creeps = Object.values(Game.creeps);
@@ -36927,7 +36958,7 @@ function runEconomy(preludeTelemetryEvents = []) {
   attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
-  for (const creep of creeps) {
+  for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
     if (shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
@@ -36954,6 +36985,85 @@ function runEconomy(preludeTelemetryEvents = []) {
     }
   }
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+function orderCreepsForEconomyTaskPriority(creeps) {
+  return creeps.map((creep, index) => ({
+    creep,
+    index,
+    priority: getEconomyCreepTaskPriority(creep)
+  })).sort(
+    (left, right) => left.priority - right.priority || left.index - right.index
+  ).map((entry) => entry.creep);
+}
+function getEconomyCreepTaskPriority(creep) {
+  if (!isLowRoomEnergyForWorkerTaskPriority(creep.room)) {
+    return 100;
+  }
+  const role = creep.memory.role;
+  if (role === SOURCE_HARVESTER_ROLE) {
+    return 0;
+  }
+  if (role === HAULER_ROLE || role === CROSS_ROOM_HAULER_ROLE) {
+    return 1;
+  }
+  if (role !== "worker") {
+    return 50;
+  }
+  return getLowEnergyWorkerTaskPriority(creep);
+}
+function getLowEnergyWorkerTaskPriority(creep) {
+  const task = creep.memory.task;
+  const carriedEnergy = getCreepStoredEnergy(creep);
+  if (carriedEnergy > 0) {
+    return isTransferTask2(task) ? 0 : 2;
+  }
+  if (isEnergyAcquisitionTask3(task) || getCreepFreeEnergyCapacity(creep) > 0) {
+    return 3;
+  }
+  return isOptionalWorkerTask(task) ? 5 : 4;
+}
+function isLowRoomEnergyForWorkerTaskPriority(room) {
+  const energyAvailable = normalizeOptionalNonNegativeInteger3(room == null ? void 0 : room.energyAvailable);
+  const energyCapacityAvailable = normalizeOptionalNonNegativeInteger3(room == null ? void 0 : room.energyCapacityAvailable);
+  if (energyAvailable === void 0 || energyCapacityAvailable === void 0 || energyCapacityAvailable <= 0) {
+    return false;
+  }
+  const threshold = Math.min(
+    energyCapacityAvailable,
+    Math.max(
+      BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY,
+      Math.floor(energyCapacityAvailable * LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO)
+    )
+  );
+  return energyAvailable < threshold;
+}
+function isEnergyAcquisitionTask3(task) {
+  return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
+}
+function isTransferTask2(task) {
+  return (task == null ? void 0 : task.type) === "transfer";
+}
+function isOptionalWorkerTask(task) {
+  return (task == null ? void 0 : task.type) === "build" || (task == null ? void 0 : task.type) === "repair" || (task == null ? void 0 : task.type) === "upgrade";
+}
+function getCreepStoredEnergy(creep) {
+  return getCreepStoreAmount(creep, "getUsedCapacity");
+}
+function getCreepFreeEnergyCapacity(creep) {
+  return getCreepStoreAmount(creep, "getFreeCapacity");
+}
+function getCreepStoreAmount(creep, method) {
+  var _a;
+  const storeMethod = (_a = creep.store) == null ? void 0 : _a[method];
+  if (typeof storeMethod !== "function") {
+    return 0;
+  }
+  const value = storeMethod.call(creep.store, getResourceEnergyConstant());
+  return normalizeNonNegativeInteger15(value);
+}
+function getResourceEnergyConstant() {
+  var _a;
+  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
 function shouldRunLabManagement(room) {
   var _a, _b;
@@ -37111,6 +37221,9 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
 }
 function normalizeNonNegativeInteger15(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function normalizeOptionalNonNegativeInteger3(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : void 0;
 }
 function planCoordinatedSpawn(colony, roleCounts, gameTime, options, colonies, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom, survivalAssessment) {
   var _a;
