@@ -754,11 +754,16 @@ declare global {
   interface TerritoryControllerManagementMemory {
     roomName: string;
     controllerId: Id<StructureController>;
+    controllerLevel?: number;
+    desiredControllerLevel?: number;
     signNeeded: boolean;
     upgradePriority: ControllerUpgradePriority;
     desiredUpgraderCount: number;
     activeUpgraderCount: number;
     updatedAt: number;
+    progress?: number;
+    progressTotal?: number;
+    progressRemaining?: number;
     progressRatio?: number;
     ticksToDowngrade?: number;
     spawnDemand?: TerritoryControllerUpgradeDemandMemory;

@@ -18,6 +18,7 @@ export interface ControllerManagementOptions {
   competingSpawnDemand?: boolean;
   constructionDemand?: boolean;
   defenseDemand?: boolean;
+  desiredControllerLevel?: number;
   energyBufferHealthy?: boolean;
   hasEnergySurplus?: boolean;
   activeUpgraderCount?: number;
@@ -36,16 +37,22 @@ export interface ControllerManagementPlan {
   roomName: string;
   updatedAt: number;
   controllerId?: Id<StructureController>;
+  controllerLevel?: number;
+  desiredControllerLevel?: number;
   signNeeded: boolean;
   upgradePriority: ControllerUpgradePriority;
   desiredUpgraderCount: number;
   activeUpgraderCount: number;
+  progress?: number;
+  progressTotal?: number;
+  progressRemaining?: number;
   progressRatio?: number;
   ticksToDowngrade?: number;
   spawnDemand?: ControllerUpgradeSpawnDemand;
 }
 
 const CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = MIN_UPGRADER_BODY_COST;
+const MAX_CONTROLLER_LEVEL = 8;
 
 export function refreshControllerManagement(
   colony: ColonySnapshot,
@@ -106,6 +113,8 @@ export function buildControllerManagementPlan(
   }
 
   const controllerId = controller.id;
+  const controllerLevel = getControllerLevel(controller);
+  const desiredControllerLevel = normalizeDesiredControllerLevel(options.desiredControllerLevel);
   const activeUpgraderCount =
     options.activeUpgraderCount ??
     Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
@@ -122,16 +131,22 @@ export function buildControllerManagementPlan(
     energyBufferHealthy,
     hasEnergySurplus: options.hasEnergySurplus ?? hasRecordedEnergySurplus(roomName)
   });
-  const desiredUpgraderCount = getDesiredControllerUpgraderCount(upgradePriority, colony);
+  const desiredUpgraderCount = getDesiredControllerUpgraderCount(
+    upgradePriority,
+    colony,
+    desiredControllerLevel
+  );
   const plan: ControllerManagementPlan = {
     roomName,
     updatedAt: gameTime,
     controllerId,
+    controllerLevel,
+    desiredControllerLevel,
     signNeeded: shouldSignOccupiedController(controller),
     upgradePriority,
     desiredUpgraderCount,
     activeUpgraderCount,
-    ...getControllerProgressRatioField(controller),
+    ...getControllerProgressFields(controller),
     ...getControllerTicksToDowngradeField(controller)
   };
 
@@ -196,9 +211,10 @@ function isControllerUpgradeSpawnPriority(priority: ControllerUpgradePriority): 
 
 function getDesiredControllerUpgraderCount(
   priority: ControllerUpgradePriority,
-  colony: ColonySnapshot
+  colony: ColonySnapshot,
+  desiredControllerLevel: number
 ): number {
-  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller)) {
+  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller, desiredControllerLevel)) {
     return 0;
   }
 
@@ -215,11 +231,14 @@ function getDesiredControllerUpgraderCount(
   }
 }
 
-function canMaintainDedicatedControllerUpgrader(controller: StructureController | undefined): boolean {
+function canMaintainDedicatedControllerUpgrader(
+  controller: StructureController | undefined,
+  desiredControllerLevel: number
+): boolean {
   return controller?.my === true &&
     typeof controller.level === 'number' &&
     Number.isFinite(controller.level) &&
-    controller.level < 8;
+    controller.level < Math.min(MAX_CONTROLLER_LEVEL, desiredControllerLevel);
 }
 
 function countActiveControllerUpgraders(
@@ -311,11 +330,18 @@ function persistControllerManagementPlan(plan: ControllerManagementPlan): void {
   controllers[plan.roomName] = {
     roomName: plan.roomName,
     controllerId: plan.controllerId,
+    ...(typeof plan.controllerLevel === 'number' ? { controllerLevel: plan.controllerLevel } : {}),
+    ...(typeof plan.desiredControllerLevel === 'number'
+      ? { desiredControllerLevel: plan.desiredControllerLevel }
+      : {}),
     signNeeded: plan.signNeeded,
     upgradePriority: plan.upgradePriority,
     desiredUpgraderCount: plan.desiredUpgraderCount,
     activeUpgraderCount: plan.activeUpgraderCount,
     updatedAt: plan.updatedAt,
+    ...(typeof plan.progress === 'number' ? { progress: plan.progress } : {}),
+    ...(typeof plan.progressTotal === 'number' ? { progressTotal: plan.progressTotal } : {}),
+    ...(typeof plan.progressRemaining === 'number' ? { progressRemaining: plan.progressRemaining } : {}),
     ...(typeof plan.progressRatio === 'number' ? { progressRatio: plan.progressRatio } : {}),
     ...(typeof plan.ticksToDowngrade === 'number' ? { ticksToDowngrade: plan.ticksToDowngrade } : {}),
     ...(plan.spawnDemand
@@ -331,22 +357,40 @@ function persistControllerManagementPlan(plan: ControllerManagementPlan): void {
   };
 }
 
-function getControllerProgressRatioField(
+function getControllerProgressFields(
   controller: StructureController
-): Pick<ControllerManagementPlan, 'progressRatio'> {
-  if (!isControllerProgressPressure(controller)) {
+): Pick<ControllerManagementPlan, 'progress' | 'progressTotal' | 'progressRemaining' | 'progressRatio'> {
+  const progress = controller.progress;
+  const progressTotal = controller.progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal) ||
+    progressTotal <= 0
+  ) {
     return {};
   }
 
-  const progress = controller.progress;
-  const progressTotal = controller.progressTotal;
-  return typeof progress === 'number' &&
-    typeof progressTotal === 'number' &&
-    Number.isFinite(progress) &&
-    Number.isFinite(progressTotal) &&
-    progressTotal > 0
-    ? { progressRatio: Math.max(0, progress) / progressTotal }
-    : {};
+  const normalizedProgress = Math.max(0, progress);
+  return {
+    progress: normalizedProgress,
+    progressTotal,
+    progressRemaining: Math.max(0, progressTotal - normalizedProgress),
+    progressRatio: normalizedProgress / progressTotal
+  };
+}
+
+function getControllerLevel(controller: StructureController): number {
+  return typeof controller.level === 'number' && Number.isFinite(controller.level)
+    ? Math.max(0, Math.min(MAX_CONTROLLER_LEVEL, Math.floor(controller.level)))
+    : 0;
+}
+
+function normalizeDesiredControllerLevel(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.min(MAX_CONTROLLER_LEVEL, Math.floor(value)))
+    : MAX_CONTROLLER_LEVEL;
 }
 
 function getControllerTicksToDowngradeField(

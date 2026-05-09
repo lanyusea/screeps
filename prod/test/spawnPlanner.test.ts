@@ -1968,7 +1968,7 @@ describe('planSpawn', () => {
   });
 
   it('lets an operational claimed-room spawn handle its own workers when it has usable energy', () => {
-    const { colony } = makeColony({
+    const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       controller: makeSafeOwnedController()
@@ -1998,7 +1998,17 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 4 }, 179)).toBeNull();
+    expect(planSpawn(colony, { worker: 4 }, 179)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-W2N1-multiroom-upgrader-179',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      }
+    });
   });
 
   it('plans a dedicated remote harvester for a claimed adjacent room source with an active container', () => {
