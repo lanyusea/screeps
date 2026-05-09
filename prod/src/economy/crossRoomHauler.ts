@@ -156,7 +156,7 @@ export function runCrossRoomHauler(creep: Creep): void {
   collectEnergy(creep, assignment);
 }
 
-function selectCrossRoomEnergyTransfer(): EconomyStorageTransferMemory | null {
+export function selectCrossRoomEnergyTransfer(): EconomyStorageTransferMemory | null {
   const balance = getStorageBalanceState();
   return (
     balance.transfers
