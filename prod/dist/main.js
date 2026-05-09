@@ -36610,7 +36610,24 @@ function canUseCrossRoomSpawnSource(sourceColony, creeps, usedSpawnsByRoom, rese
   return survival.mode === "TERRITORY_READY" && !survival.controllerDowngradeGuard && !survival.hostilePresence;
 }
 function compareCoordinatedSpawnSources(left, right, targetColony, reservedSpawnEnergyByRoom) {
-  return getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name) - getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name) || getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) - getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) || normalizeNonNegativeInteger15(right.energyCapacityAvailable) - normalizeNonNegativeInteger15(left.energyCapacityAvailable) || left.room.name.localeCompare(right.room.name);
+  return compareSpawnSourceRouteDistances(
+    getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name),
+    getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name)
+  ) || getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) - getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) || normalizeNonNegativeInteger15(right.energyCapacityAvailable) - normalizeNonNegativeInteger15(left.energyCapacityAvailable) || left.room.name.localeCompare(right.room.name);
+}
+function compareSpawnSourceRouteDistances(leftDistance, rightDistance) {
+  if (leftDistance === rightDistance) {
+    return 0;
+  }
+  const leftFinite = Number.isFinite(leftDistance);
+  const rightFinite = Number.isFinite(rightDistance);
+  if (!leftFinite || !rightFinite) {
+    if (!leftFinite && !rightFinite) {
+      return 0;
+    }
+    return leftFinite ? -1 : 1;
+  }
+  return leftDistance < rightDistance ? -1 : 1;
 }
 function getCrossRoomSpawnRouteDistance(sourceRoomName, targetRoomName) {
   var _a;

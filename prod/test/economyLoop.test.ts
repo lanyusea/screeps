@@ -1,4 +1,4 @@
-import { runEconomy } from '../src/economy/economyLoop';
+import { compareSpawnSourceRouteDistances, runEconomy } from '../src/economy/economyLoop';
 import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
@@ -27,6 +27,26 @@ describe('runEconomy', () => {
 
   afterEach(() => {
     logSpy.mockRestore();
+  });
+
+  it('keeps spawn source route sorting numeric when unreachable routes compare', () => {
+    const comparisons: number[] = [];
+    const sortedSources = [
+      { roomName: 'W2N1', distance: Number.POSITIVE_INFINITY, availableEnergy: 650 },
+      { roomName: 'W3N1', distance: Number.POSITIVE_INFINITY, availableEnergy: 950 }
+    ].sort((left, right) => {
+      const routeComparison = compareSpawnSourceRouteDistances(left.distance, right.distance);
+      comparisons.push(routeComparison);
+      return (
+        routeComparison ||
+        right.availableEnergy - left.availableEnergy ||
+        left.roomName.localeCompare(right.roomName)
+      );
+    });
+
+    expect(comparisons).toContain(0);
+    expect(comparisons.every(Number.isFinite)).toBe(true);
+    expect(sortedSources.map((source) => source.roomName)).toEqual(['W3N1', 'W2N1']);
   });
 
   it('spawns a worker request for an owned colony below target workers', () => {

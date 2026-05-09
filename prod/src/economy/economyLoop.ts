@@ -704,14 +704,34 @@ function compareCoordinatedSpawnSources(
   reservedSpawnEnergyByRoom: Map<string, number>
 ): number {
   return (
-    getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name) -
-      getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name) ||
+    compareSpawnSourceRouteDistances(
+      getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name),
+      getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name)
+    ) ||
     getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) -
       getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) ||
     normalizeNonNegativeInteger(right.energyCapacityAvailable) -
       normalizeNonNegativeInteger(left.energyCapacityAvailable) ||
     left.room.name.localeCompare(right.room.name)
   );
+}
+
+export function compareSpawnSourceRouteDistances(leftDistance: number, rightDistance: number): number {
+  if (leftDistance === rightDistance) {
+    return 0;
+  }
+
+  const leftFinite = Number.isFinite(leftDistance);
+  const rightFinite = Number.isFinite(rightDistance);
+  if (!leftFinite || !rightFinite) {
+    if (!leftFinite && !rightFinite) {
+      return 0;
+    }
+
+    return leftFinite ? -1 : 1;
+  }
+
+  return leftDistance < rightDistance ? -1 : 1;
 }
 
 function getCrossRoomSpawnRouteDistance(sourceRoomName: string, targetRoomName: string): number {
