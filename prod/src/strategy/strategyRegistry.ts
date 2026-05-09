@@ -157,10 +157,10 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     ],
     defaultValues: {
       baseScoreWeight: 1,
-      territorySignalWeight: 22,
-      resourceSignalWeight: 3,
+      territorySignalWeight: 10,
+      resourceSignalWeight: 8,
       killSignalWeight: 5,
-      riskPenalty: 4
+      riskPenalty: 5
     },
     rolloutStatus: 'shadow',
     evidenceLinks: [

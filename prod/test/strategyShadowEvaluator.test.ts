@@ -35,36 +35,7 @@ describe('strategy shadow evaluator', () => {
     expect(report.kpi.reliability.passed).toBe(true);
 
     const constructionReport = report.modelReports.find((modelReport) => modelReport.family === 'construction-priority');
-    expect(constructionReport?.rankingDiffs).toHaveLength(1);
-    expect(constructionReport?.rankingDiffs[0]).toMatchObject({
-      artifactIndex: 0,
-      tick: 200,
-      roomName: 'E26S49',
-      context: 'construction-priority',
-      changedTop: true,
-      incumbentTop: {
-        label: 'build extension capacity',
-        rank: 1
-      },
-      candidateTop: {
-        label: 'build remote road/container logistics',
-        rank: 1
-      },
-      rankChanges: [
-        {
-          label: 'build extension capacity',
-          incumbentRank: 1,
-          candidateRank: 2,
-          delta: -1
-        },
-        {
-          label: 'build remote road/container logistics',
-          incumbentRank: 2,
-          candidateRank: 1,
-          delta: 1
-        }
-      ]
-    });
+    expect(constructionReport?.rankingDiffs).toEqual([]);
 
     const expansionReport = report.modelReports.find(
       (modelReport) => modelReport.family === 'expansion-remote-candidate'
@@ -82,6 +53,39 @@ describe('strategy shadow evaluator', () => {
         rank: 1
       }
     });
+  });
+
+  it('keeps extension scoring elevated without demoting source-container or road logistics', () => {
+    const report = evaluateStrategyShadowReplay({
+      artifacts: makeConstructionPriorityScoringFixture(),
+      config: {
+        enabled: true,
+        candidateStrategyIds: ['construction-priority.territory-shadow.v1']
+      }
+    }, { enabled: false });
+
+    const constructionReport = report.modelReports.find((modelReport) => modelReport.family === 'construction-priority');
+    expect(constructionReport?.rankingDiffs).toHaveLength(1);
+
+    const rankingDiff = constructionReport?.rankingDiffs[0];
+    expect(rankingDiff).toMatchObject({
+      artifactIndex: 0,
+      tick: 739_620,
+      roomName: 'E26S49',
+      context: 'construction-priority',
+      changedTop: false,
+      incumbentTop: {
+        label: 'finish extension site',
+        rank: 1
+      },
+      candidateTop: {
+        label: 'finish extension site',
+        rank: 1
+      }
+    });
+    expect(rankingDiff?.candidateTop?.score).toBeGreaterThan(rankingDiff?.incumbentTop?.score ?? 0);
+    expectRankNotRegressed(rankingDiff, 'build source containers');
+    expectRankNotRegressed(rankingDiff, 'build source/controller roads');
   });
 
   it('injects candidate variance that varies by seed', () => {
@@ -207,4 +211,91 @@ function calculatePerturbationMagnitude(seedCandidate: (typeof DEFAULT_STRATEGY_
     }
     return total + Math.abs(perturbedValue - defaultValue);
   }, 0);
+}
+
+function expectRankNotRegressed(
+  rankingDiff: NonNullable<ReturnType<typeof evaluateStrategyShadowReplay>['modelReports'][number]['rankingDiffs'][number]> | undefined,
+  label: string
+): void {
+  const rankChange = rankingDiff?.rankChanges.find((change) => change.label === label);
+  expect(rankChange?.delta ?? 0).toBeGreaterThanOrEqual(0);
+}
+
+function makeConstructionPriorityScoringFixture(): string {
+  return `#runtime-summary ${JSON.stringify({
+    type: 'runtime-summary',
+    tick: 739_620,
+    rooms: [
+      {
+        roomName: 'E26S49',
+        energyAvailable: 300,
+        energyCapacity: 300,
+        workerCount: 5,
+        controller: {
+          level: 4,
+          progress: 95_914,
+          progressTotal: 405_000
+        },
+        resources: {
+          storedEnergy: 300,
+          workerCarriedEnergy: 0,
+          sourceCount: 2
+        },
+        constructionPriority: {
+          candidates: [
+            constructionCandidate(
+              'finish extension site',
+              55,
+              'high',
+              ['raises spawn energy capacity', 'unlocks larger workers and faster RCL progress']
+            ),
+            constructionCandidate(
+              'build source containers',
+              25,
+              'low',
+              ['improves source harvest throughput', 'stabilizes energy resource capacity for workers']
+            ),
+            constructionCandidate(
+              'build source/controller roads',
+              20,
+              'low',
+              ['improves source harvest throughput', 'keeps worker energy route moving to controller']
+            ),
+            constructionCandidate('finish generic container site', 47, 'low', ['finishes queued local storage work']),
+            constructionCandidate(
+              'build remote road/container logistics',
+              1,
+              'medium',
+              ['opens remote territory route', 'supports reserve room economy', 'improves harvest throughput']
+            ),
+            constructionCandidate(
+              'build rampart defense',
+              8,
+              'medium',
+              ['protects controller territory', 'adds rampart defense survivability'],
+              ['decays without sustained repair budget']
+            )
+          ]
+        }
+      }
+    ]
+  })}`;
+}
+
+function constructionCandidate(
+  buildItem: string,
+  score: number,
+  urgency: string,
+  expectedKpiMovement: string[],
+  risk: string[] = []
+): Record<string, unknown> {
+  return {
+    buildItem,
+    room: 'E26S49',
+    score,
+    urgency,
+    preconditions: [],
+    expectedKpiMovement,
+    risk
+  };
 }
