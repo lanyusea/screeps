@@ -457,6 +457,56 @@ describe('cross-room energy logistics', () => {
     ]);
   });
 
+  it('treats unmet spawn queue reservations as local-first import pressure', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const targetOwnedStructures: AnyOwnedStructure[] = [];
+    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      energyAvailable: 300,
+      energyCapacityAvailable: 650,
+      myStructures: targetOwnedStructures,
+      structures: [sourceContainer]
+    });
+    const targetSpawn = makeSpawn('Spawn2', targetRoom, 0);
+    targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      },
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          E26S48: {
+            bodyCost: 650,
+            creepName: 'worker-E26S48-101',
+            reservedAt: 99,
+            reservedEnergy: 650,
+            role: 'worker',
+            roomName: 'E26S48',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+      localEnergy: 550,
+      localEnergyDeficit: 0,
+      localHarvestSufficient: true,
+      spawnCollapseRisk: true,
+      shouldImport: true,
+      reason: 'spawn-collapse-risk'
+    });
+  });
+
   it('plans a proportional CARRY/MOVE hauler from a surplus room to a deficit room', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });

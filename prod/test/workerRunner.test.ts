@@ -2402,6 +2402,102 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('uses carried energy on a nearby spawn reservation refill before low-load acquisition', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 51 : 0)),
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 249 : 0))
+      }
+    } as unknown as StructureSpawn;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-near': 1,
+        source1: 3,
+        spawn1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = {
+      name: 'W1N1',
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 300,
+      memory: { spawnEnergyReservation: { transferThreshold: 250 } },
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [droppedEnergy];
+          }
+
+          if (type === FIND_SOURCES) {
+            return [source];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 10 : 0)),
+        getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 40 : 0))
+      },
+      pos: { getRangeTo },
+      room,
+      harvest: jest.fn(),
+      pickup: jest.fn(),
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 776,
+          rooms: {
+            W1N1: {
+              bodyCost: 650,
+              creepName: 'worker-W1N1-778',
+              reservedAt: 776,
+              reservedEnergy: 650,
+              role: 'worker',
+              roomName: 'W1N1',
+              updatedAt: 776
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      rooms: { W1N1: room },
+      time: 778,
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'drop-near' ? droppedEnergy : source;
+      })
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.pickup).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
   it('preempts a low-yield active pickup for a higher-yield stored source when spawn energy is stable', () => {
     const currentDrop = { id: 'drop-low', resourceType: 'energy', amount: 5 } as Resource<ResourceConstant>;
     const container = {

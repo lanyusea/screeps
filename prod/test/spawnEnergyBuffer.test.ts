@@ -116,6 +116,40 @@ describe('spawnEnergyBuffer', () => {
     expect(isSpawnEnergyBufferViolated(room, [spawn], 650, 451)).toBe(true);
   });
 
+  it('uses the full next queued body cost as the room spawn buffer requirement', () => {
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          W1N1: {
+            bodyCost: 650,
+            creepName: 'worker-W1N1-100',
+            reservedAt: 99,
+            reservedEnergy: 650,
+            role: 'worker',
+            roomName: 'W1N1',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+    const room = makeRoom({ energyAvailable: 500, level: 1 });
+    const spawn = makeSpawn('spawn1', room, 300);
+
+    expect(getSpawnEnergyBufferRequirement(room, [spawn])).toBe(650);
+    expect(getBufferedSpawnEnergyBudget(room, [spawn], 500)).toBe(0);
+    expect(isSpawnEnergyBufferViolated(room, [spawn], 500, 1)).toBe(true);
+    expect(getSpawnEnergyBufferSnapshot(room, [spawn])).toMatchObject({
+      currentEnergy: 500,
+      healthy: false,
+      reservedEnergy: 650,
+      threshold: 650,
+      thresholdPerSpawn: 300,
+      unmetReservedEnergy: 150
+    });
+    expect(getSpawnEnergyAvailableForWithdrawal(room, spawn)).toBe(0);
+  });
+
   it('applies miner throughput credit once before splitting a multi-spawn buffer', () => {
     const room = makeRoom({ energyAvailable: 1_000, level: 4 });
     const spawns = [makeSpawn('spawn1', room, 300), makeSpawn('spawn2', room, 300)];
