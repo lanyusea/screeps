@@ -389,7 +389,7 @@ function compareControllerSustainStoredEnergySources(
   left: AnyStoreStructure,
   right: AnyStoreStructure
 ): number {
-  return getStoredEnergy(right) - getStoredEnergy(left) || compareRoomObjectsByRangeAndId(creep, left, right);
+  return compareRoomObjectsByRangeAndId(creep, left, right) || getStoredEnergy(right) - getStoredEnergy(left);
 }
 
 function selectControllerSustainDroppedEnergyTask(
