@@ -193,6 +193,63 @@ describe('construction priority scoring', () => {
     );
   });
 
+  it('ranks source logistics above extension capacity during RCL4 energy starvation', () => {
+    const state = makeRoomState({
+      rcl: 4,
+      energyAvailable: 120,
+      energyCapacity: 300,
+      workerCount: 4,
+      constructionSiteCount: 16,
+      sourceCount: 2
+    });
+
+    const report = scoreConstructionPriorities(state, [
+      {
+        buildItem: 'build extension capacity',
+        buildType: 'extension',
+        minimumRcl: 2,
+        requiredObservations: ['room-controller', 'energy-capacity', 'worker-count', 'construction-sites'],
+        expectedKpiMovement: ['raises spawn energy capacity'],
+        risk: ['adds build backlog before roads/containers if worker capacity is low'],
+        estimatedEnergyCost: 3_000,
+        signals: { energyBottleneck: 0.85, spawnUtilization: 0.8, rclAcceleration: 0.65 },
+        vision: { resources: 1, territory: 0.35 }
+      },
+      {
+        buildItem: 'build source containers',
+        buildType: 'container',
+        minimumRcl: 2,
+        requiredObservations: ['room-controller', 'sources', 'worker-count'],
+        expectedKpiMovement: ['raises harvest throughput', 'reduces dropped-energy waste'],
+        risk: ['large early build cost and decay upkeep'],
+        estimatedEnergyCost: 5_000,
+        pathExposure: 'low',
+        signals: { harvestThroughput: 0.9, storageLogistics: 0.65, rclAcceleration: 0.35 },
+        vision: { resources: 1, territory: 0.35 }
+      },
+      {
+        buildItem: 'build source/controller roads',
+        buildType: 'road',
+        minimumRcl: 2,
+        requiredObservations: ['room-controller', 'sources', 'repair-decay', 'worker-count'],
+        expectedKpiMovement: ['reduces worker travel time', 'improves harvest-to-spawn throughput'],
+        risk: ['road decay creates recurring repair load'],
+        estimatedEnergyCost: 300,
+        pathExposure: 'low',
+        signals: { harvestThroughput: 0.55, rclAcceleration: 0.45 },
+        vision: { resources: 0.8, territory: 0.45 }
+      }
+    ]);
+
+    expect(report.nextPrimary?.buildItem).toBe('build source containers');
+    expect(scoreFor(report.candidates, 'build source containers')).toBeGreaterThan(
+      scoreFor(report.candidates, 'build extension capacity')
+    );
+    expect(scoreFor(report.candidates, 'build source/controller roads')).toBeGreaterThan(
+      scoreFor(report.candidates, 'build extension capacity')
+    );
+  });
+
   it('returns a missing-observation precondition instead of scoring unsupported remote certainty', () => {
     const state = makeRoomState({
       activeTerritoryIntentCount: 1,
@@ -297,6 +354,45 @@ describe('impact-weighted construction site selection', () => {
 
       expect(selectImpactWeightedConstructionSite(origin, [sourceContainerSite, criticalRoadSite], context)?.id).toBe(
         'controller-source-road-site'
+      );
+    } finally {
+      clearTestGlobals();
+    }
+  });
+
+  it('prioritizes source containers and critical roads over extensions during RCL4 energy starvation', () => {
+    installTestGlobals();
+    try {
+      const source = { id: 'source1', pos: makeRoomPosition(40, 10) } as Source;
+      const spawn = makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10);
+      const extensionSite = makeConstructionSite('extension-site', 'extension', 20, 20);
+      const sourceContainerSite = makeConstructionSite('source-container-site', 'container', 41, 10);
+      const criticalRoadSite = makeConstructionSite('source-road-site', 'road', 25, 10);
+      const room = {
+        name: 'W1N1',
+        energyAvailable: 120,
+        energyCapacityAvailable: 300,
+        controller: { my: true, level: 4, pos: makeRoomPosition(25, 25) } as StructureController,
+        find: jest.fn((findType: number) => {
+          if (findType === TEST_GLOBALS.FIND_MY_STRUCTURES) {
+            return [spawn];
+          }
+
+          return findType === TEST_GLOBALS.FIND_SOURCES ? [source] : [];
+        })
+      } as unknown as Room;
+      const origin = makeSelectionOrigin({
+        'extension-site': 2,
+        'source-container-site': 8,
+        'source-road-site': 4
+      });
+      const context = buildConstructionSiteImpactPriorityContext(room);
+
+      expect(
+        selectImpactWeightedConstructionSite(origin, [extensionSite, criticalRoadSite, sourceContainerSite], context)?.id
+      ).toBe('source-container-site');
+      expect(selectImpactWeightedConstructionSite(origin, [extensionSite, criticalRoadSite], context)?.id).toBe(
+        'source-road-site'
       );
     } finally {
       clearTestGlobals();

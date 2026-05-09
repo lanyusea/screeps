@@ -21,6 +21,7 @@ export interface EarlyRoadPlannerOptions {
   maxPendingRoadSites?: number;
   maxTargetsPerTick?: number;
   maxPathOpsPerTarget?: number;
+  countOnlyRouteRoadSitesForPendingLimit?: boolean;
 }
 
 interface RoadPlannerLimits {
@@ -87,12 +88,6 @@ export function planEarlyRoadConstruction(
     return [];
   }
 
-  const pendingRoadSites = countPendingRoadConstructionSites(colony.room);
-  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
-  if (remainingSiteBudget <= 0) {
-    return [];
-  }
-
   const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
   if (routes.length === 0) {
     return [];
@@ -100,6 +95,14 @@ export function planEarlyRoadConstruction(
 
   const lookups = createRoadPlannerLookups(colony.room);
   if (!lookups) {
+    return [];
+  }
+
+  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true
+    ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits)
+    : countPendingRoadConstructionSites(colony.room);
+  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
+  if (remainingSiteBudget <= 0) {
     return [];
   }
 
@@ -223,6 +226,25 @@ function countPendingRoadConstructionSites(room: Room): number {
   return room.find(FIND_MY_CONSTRUCTION_SITES, {
     filter: isRoadConstructionSite
   }).length;
+}
+
+function countPendingRoadConstructionSitesOnRoutes(
+  roomName: string,
+  routes: RoadRoute[],
+  lookups: RoadPlannerLookups,
+  limits: RoadPlannerLimits
+): number {
+  const routePendingRoadSites = new Set<string>();
+  for (const route of routes) {
+    for (const position of findRoadPath(roomName, route.origin, route.target, lookups, limits)) {
+      const key = getPositionKey(position);
+      if (lookups.pendingRoadSitePositions.has(key)) {
+        routePendingRoadSites.add(key);
+      }
+    }
+  }
+
+  return routePendingRoadSites.size;
 }
 
 function createRoadPlannerLookups(room: Room): RoadPlannerLookups | null {

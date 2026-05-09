@@ -9884,6 +9884,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('builds source container construction before extensions during RCL4 energy starvation', () => {
+    const source = makeSource('source1', 20, 10);
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      structureType: 'container',
+      pos: makeRoomPosition(19, 10)
+    } as ConstructionSite;
+    const extensionSite = {
+      id: 'extension-site1',
+      structureType: 'extension',
+      pos: makeRoomPosition(10, 10)
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      pos: makeRoomPosition(25, 25),
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [extensionSite, sourceContainerSite],
+        controller,
+        energyAvailable: 120,
+        energyCapacityAvailable: 300,
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'source-container-site1' });
+  });
+
   it('gates construction spending when the room energy buffer would be breached', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;

@@ -137,6 +137,7 @@ export interface ConstructionPriorityPlanningResult {
 export interface ConstructionSiteImpactPriorityContext {
   criticalRoadContext?: CriticalRoadLogisticsContext;
   claimedRoomName?: string;
+  prioritizeSourceLogisticsForEnergyStarvation?: boolean;
   protectedRampartAnchors?: RoomPosition[];
   sources?: Source[];
 }
@@ -183,6 +184,7 @@ const MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
 const MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
 const MIN_RCL_FOR_AUTOMATED_ROADS = 4;
 const MIN_RCL_FOR_STORAGE = 4;
+const MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY = 4;
 const STORAGE_STRUCTURE_LIMIT = 1;
 const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
@@ -208,8 +210,11 @@ const MAX_RISK_COST = 25;
 const CRITICAL_REPAIR_HITS_RATIO = 0.5;
 const DECAYING_REPAIR_HITS_RATIO = 0.8;
 const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
+const SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO = 0.5;
 export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   claimedRoomSpawn: 110,
+  energyStarvedSourceContainer: 108,
+  energyStarvedCriticalRoad: 106,
   extension: 100,
   spawn: 95,
   tower: 92,
@@ -320,7 +325,8 @@ export function scoreConstructionCandidate(
     factors.economicBenefit +
     factors.visionWeight -
     factors.riskCost;
-  const gatedScore = applySurvivalGate(roomState, candidate, rawScore);
+  const survivalGatedScore = applySurvivalGate(roomState, candidate, rawScore);
+  const gatedScore = applySourceLogisticsEnergyStarvationPriority(roomState, candidate, survivalGatedScore);
   const score = clampScore(Math.round(gatedScore));
 
   return {
@@ -356,9 +362,20 @@ export function buildConstructionSiteImpactPriorityContext(
   return {
     criticalRoadContext: buildCriticalRoadLogisticsContext(room),
     ...(room.controller?.my === true ? { claimedRoomName: room.name } : {}),
+    ...(shouldPrioritizeSourceLogisticsConstruction(room)
+      ? { prioritizeSourceLogisticsForEnergyStarvation: true }
+      : {}),
     protectedRampartAnchors: getProtectedRampartAnchorPositions(room, ownedStructures),
     ...(sources === null ? {} : { sources })
   };
+}
+
+export function shouldPrioritizeSourceLogisticsConstruction(room: Room): boolean {
+  return isSourceLogisticsEnergyStarved(
+    getOwnedRoomRcl(room),
+    getRoomEnergyAvailable(room),
+    getRoomEnergyCapacityAvailable(room)
+  );
 }
 
 export function getConstructionSiteImpactPriority(
@@ -376,15 +393,23 @@ export function getConstructionSiteImpactPriority(
   }
 
   if (matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')) {
-    return isSourceContainerConstructionSite(site, context)
-      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer
-      : CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
+    if (isSourceContainerConstructionSite(site, context)) {
+      return context.prioritizeSourceLogisticsForEnergyStarvation === true
+        ? CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer
+        : CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer;
+    }
+
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
   }
 
   if (matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road')) {
-    return context.criticalRoadContext && isCriticalRoadLogisticsWork(site, context.criticalRoadContext)
-      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad
-      : CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
+    if (context.criticalRoadContext && isCriticalRoadLogisticsWork(site, context.criticalRoadContext)) {
+      return context.prioritizeSourceLogisticsForEnergyStarvation === true
+        ? CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad
+        : CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad;
+    }
+
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
   }
 
   if (matchesStructureType(site.structureType, 'STRUCTURE_TOWER', 'tower')) {
@@ -576,6 +601,35 @@ export function planSourceContainerConstruction(
 function getOwnedRoomRcl(room: Room): number {
   const level = room.controller?.my === true ? room.controller.level : 0;
   return typeof level === 'number' && Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+}
+
+function getRoomEnergyAvailable(room: Room): number | undefined {
+  const energyAvailable = (room as Partial<Room>).energyAvailable;
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable)
+    ? Math.max(0, energyAvailable)
+    : undefined;
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number | undefined {
+  const energyCapacityAvailable = (room as Partial<Room>).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? Math.max(0, energyCapacityAvailable)
+    : undefined;
+}
+
+function isSourceLogisticsEnergyStarved(
+  rcl: number | undefined,
+  energyAvailable: number | undefined,
+  energyCapacity: number | undefined
+): boolean {
+  return (
+    typeof rcl === 'number' &&
+    rcl >= MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY &&
+    typeof energyAvailable === 'number' &&
+    typeof energyCapacity === 'number' &&
+    energyCapacity > 0 &&
+    energyAvailable < energyCapacity * SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO
+  );
 }
 
 function createEmptyConstructionPriorityPlanningResult(): ConstructionPriorityPlanningResult {
@@ -1439,6 +1493,30 @@ function applySurvivalGate(
     getDefensePressure(roomState) >= 0.9;
 
   return Math.min(rawScore, hardRecoveryPressure ? 45 : 60);
+}
+
+function applySourceLogisticsEnergyStarvationPriority(
+  roomState: ConstructionPriorityRoomState,
+  candidate: ConstructionBuildCandidate,
+  rawScore: number
+): number {
+  if (!isSourceLogisticsEnergyStarved(roomState.rcl, roomState.energyAvailable, roomState.energyCapacity)) {
+    return rawScore;
+  }
+
+  if (candidate.buildType === 'container') {
+    return rawScore + 55;
+  }
+
+  if (candidate.buildType === 'road') {
+    return rawScore + 58;
+  }
+
+  if (candidate.buildType === 'extension') {
+    return Math.min(rawScore, 45);
+  }
+
+  return rawScore;
 }
 
 function classifyUrgency(score: number, urgencyMagnitude: number): ConstructionPriorityUrgency {
