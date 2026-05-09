@@ -2,6 +2,7 @@ import {
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   buildConstructionSiteImpactPriorityContext,
   buildRuntimeConstructionPriorityReport,
+  isPostClaimConstructionRoom,
   planTowerConstruction,
   selectImpactWeightedConstructionSite,
   scoreConstructionPriorities,
@@ -312,6 +313,43 @@ describe('impact-weighted construction site selection', () => {
     ).toBe('spawn-site');
   });
 
+  it('uses post-claim room construction priority before distance tie-breaks', () => {
+    const sites = [
+      makeConstructionSite('storage-site', 'storage', 10, 10),
+      makeConstructionSite('tower-site', 'tower', 11, 10),
+      makeConstructionSite('rampart-site', 'rampart', 12, 10),
+      makeConstructionSite('container-site', 'container', 13, 10),
+      makeConstructionSite('road-site', 'road', 14, 10),
+      makeConstructionSite('extension-site', 'extension', 15, 10),
+      makeConstructionSite('spawn-site', 'spawn', 16, 10)
+    ];
+    const origin = makeSelectionOrigin(
+      Object.fromEntries(sites.map((site) => [String(site.id), 1]))
+    );
+    const context: ConstructionSiteImpactPriorityContext = {
+      postClaimRoomName: 'W1N1'
+    };
+
+    const selectedOrder: string[] = [];
+    const remainingSites = [...sites];
+    while (remainingSites.length > 0) {
+      const selected = selectImpactWeightedConstructionSite(origin, remainingSites, context);
+      expect(selected).not.toBeNull();
+      selectedOrder.push(String(selected?.id));
+      remainingSites.splice(remainingSites.findIndex((site) => site.id === selected?.id), 1);
+    }
+
+    expect(selectedOrder).toEqual([
+      'spawn-site',
+      'extension-site',
+      'road-site',
+      'container-site',
+      'rampart-site',
+      'tower-site',
+      'storage-site'
+    ]);
+  });
+
   it('prioritizes a source container over a generic road', () => {
     const source = { id: 'source1', pos: makeRoomPosition(10, 10) } as Source;
     const containerSite = makeConstructionSite('source-container-site', 'container', 11, 10);
@@ -603,6 +641,52 @@ describe('runtime construction priority report', () => {
   });
 });
 
+describe('post-claim construction room detection', () => {
+  beforeEach(() => {
+    installTestGlobals();
+  });
+
+  afterEach(() => {
+    clearTestGlobals();
+  });
+
+  it('keeps completed claimed rooms active while storage construction is still missing', () => {
+    const { room } = makeRuntimeColony({
+      controllerLevel: 4,
+      ownedStructures: [makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20)]
+    });
+    installCompletedClaimedRoomMemory(room.name);
+    installVisibleRoom(room);
+
+    expect(isPostClaimConstructionRoom(room.name)).toBe(true);
+  });
+
+  it('keeps completed claimed rooms active while rampart coverage is still missing', () => {
+    const { room } = makeRuntimeColony({
+      controllerLevel: 3,
+      ownedStructures: [makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20)]
+    });
+    installCompletedClaimedRoomMemory(room.name);
+    installVisibleRoom(room);
+
+    expect(isPostClaimConstructionRoom(room.name)).toBe(true);
+  });
+
+  it('retires completed claimed rooms when visible post-claim milestones are covered', () => {
+    const { room } = makeRuntimeColony({
+      controllerLevel: 4,
+      ownedStructures: [
+        makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+        makeOwnedStructure('storage1', TEST_GLOBALS.STRUCTURE_STORAGE, 21, 20)
+      ]
+    });
+    installCompletedClaimedRoomMemory(room.name);
+    installVisibleRoom(room, TEST_GLOBALS.TERRAIN_MASK_WALL);
+
+    expect(isPostClaimConstructionRoom(room.name)).toBe(false);
+  });
+});
+
 describe('fixed structure construction planning', () => {
   beforeEach(() => {
     installTestGlobals();
@@ -785,6 +869,35 @@ function makeTerritoryIntent(
     action: 'reserve',
     status,
     updatedAt: 1
+  };
+}
+
+function installCompletedClaimedRoomMemory(roomName: string): void {
+  (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+    territory: {
+      claimedRoomBootstrapper: {
+        rooms: {
+          [roomName]: {
+            roomName,
+            owned: true,
+            claimedAt: 1,
+            completedAt: 2,
+            updatedAt: 2
+          }
+        }
+      }
+    }
+  };
+}
+
+function installVisibleRoom(room: Room, terrainValue = 0): void {
+  (globalThis as unknown as { Game: Partial<Game> & { rooms: Record<string, Room> } }).Game = {
+    rooms: {
+      [room.name]: room
+    },
+    map: {
+      getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(terrainValue) })
+    } as unknown as GameMap
   };
 }
 

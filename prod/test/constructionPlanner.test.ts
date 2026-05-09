@@ -1,5 +1,13 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { planConstructionForColony } from '../src/construction/planner';
+import { planExpansionDefenseBarrierPlacements } from '../src/territory/expansionPlanner';
+
+jest.mock('../src/territory/expansionPlanner', () => ({
+  planExpansionDefenseBarrierPlacements: jest.fn()
+}));
+
+const mockPlanExpansionDefenseBarrierPlacements =
+  planExpansionDefenseBarrierPlacements as jest.MockedFunction<typeof planExpansionDefenseBarrierPlacements>;
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
@@ -16,6 +24,8 @@ const TEST_GLOBALS = {
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_WALL: 'constructedWall',
   STRUCTURE_TOWER: 'tower',
   TERRAIN_MASK_WALL: 1,
   OK: OK_CODE
@@ -27,6 +37,7 @@ describe('owned room construction planner', () => {
     for (const [key, value] of Object.entries(TEST_GLOBALS)) {
       globals[key] = value;
     }
+    mockPlanExpansionDefenseBarrierPlacements.mockReset();
     globals.CONTROLLER_STRUCTURES = makeControllerStructures();
   });
 
@@ -203,6 +214,67 @@ describe('owned room construction planner', () => {
     ]);
     expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
   });
+
+  it('skips same-room entrance wall sites for post-claim barrier progression', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([
+      {
+        roomName: 'W2N1',
+        x: 24,
+        y: 1,
+        structureType: TEST_GLOBALS.STRUCTURE_WALL,
+        stage: 'entranceWall',
+        priority: 3
+      },
+      {
+        roomName: 'W1N1',
+        x: 26,
+        y: 1,
+        structureType: TEST_GLOBALS.STRUCTURE_WALL,
+        stage: 'entranceWall',
+        priority: 3
+      },
+      {
+        roomName: 'W1N1',
+        x: 26,
+        y: 24,
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        stage: 'coreRampart',
+        priority: 2
+      }
+    ]);
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      includePostClaimRamparts: true,
+      respectRoomEnergyBuffer: false
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 26,
+        y: 24
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
 });
 
 interface MockRoom extends Room {
@@ -337,6 +409,8 @@ function makeControllerStructures(): Record<string, number[]> {
     extension: [0, 0, 5, 10, 20, 30, 40, 50, 60],
     road: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
     container: [0, 0, 5, 5, 5, 5, 5, 5, 5],
+    rampart: [0, 0, 300, 300, 300, 300, 300, 300, 300],
+    constructedWall: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
     tower: [0, 0, 0, 1, 1, 2, 2, 3, 6]
   };
 }

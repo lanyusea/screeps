@@ -1,10 +1,19 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
-import { planSourceContainerConstruction, planTowerConstruction } from './constructionPriority';
+import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
+import { planSourceContainerConstruction, planStorageConstruction, planTowerConstruction } from './constructionPriority';
 import { planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
 
-export type ConstructionPlannerPriority = 'spawn' | 'extension' | 'road' | 'container' | 'tower';
+export type ConstructionPlannerPriority =
+  | 'spawn'
+  | 'extension'
+  | 'road'
+  | 'container'
+  | 'rampart'
+  | 'wall'
+  | 'tower'
+  | 'storage';
 
 export interface ConstructionPlannerOptions {
   colonies?: ColonySnapshot[];
@@ -14,6 +23,8 @@ export interface ConstructionPlannerOptions {
   roadOptions?: EarlyRoadPlannerOptions;
   maxContainerSitesPerTick?: number;
   maxPendingContainerSites?: number;
+  includePostClaimRamparts?: boolean;
+  includeStorage?: boolean;
 }
 
 export interface ConstructionPlannerPlacement {
@@ -54,7 +65,10 @@ type StructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
-  | 'STRUCTURE_TOWER';
+  | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_WALL'
+  | 'STRUCTURE_TOWER'
+  | 'STRUCTURE_STORAGE';
 type ReturnCodeGlobal = 'ERR_FULL' | 'ERR_RCL_NOT_ENOUGH';
 
 interface CandidatePosition {
@@ -102,7 +116,10 @@ const FALLBACK_CONTROLLER_STRUCTURES: Record<StructureConstantGlobal, number[]> 
   STRUCTURE_EXTENSION: [0, 0, 5, 10, 20, 30, 40, 50, 60],
   STRUCTURE_ROAD: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
   STRUCTURE_CONTAINER: [0, 0, 5, 5, 5, 5, 5, 5, 5],
-  STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6]
+  STRUCTURE_RAMPART: [0, 0, 300, 300, 300, 300, 300, 300, 300],
+  STRUCTURE_WALL: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
+  STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6],
+  STRUCTURE_STORAGE: [0, 0, 0, 0, 1, 1, 1, 1, 1]
 };
 
 const PRIORITY_STRUCTURE_TYPES: Record<ConstructionPlannerPriority, StructureConstantGlobal> = {
@@ -110,7 +127,10 @@ const PRIORITY_STRUCTURE_TYPES: Record<ConstructionPlannerPriority, StructureCon
   extension: 'STRUCTURE_EXTENSION',
   road: 'STRUCTURE_ROAD',
   container: 'STRUCTURE_CONTAINER',
-  tower: 'STRUCTURE_TOWER'
+  rampart: 'STRUCTURE_RAMPART',
+  wall: 'STRUCTURE_WALL',
+  tower: 'STRUCTURE_TOWER',
+  storage: 'STRUCTURE_STORAGE'
 };
 
 const STRUCTURE_TYPE_FALLBACKS: Record<StructureConstantGlobal, string> = {
@@ -118,7 +138,10 @@ const STRUCTURE_TYPE_FALLBACKS: Record<StructureConstantGlobal, string> = {
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
-  STRUCTURE_TOWER: 'tower'
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_WALL: 'constructedWall',
+  STRUCTURE_TOWER: 'tower',
+  STRUCTURE_STORAGE: 'storage'
 };
 
 export function runConstructionPlanner(options: ConstructionPlannerOptions = {}): ConstructionPlannerResult {
@@ -203,10 +226,28 @@ export function planConstructionForColony(
     }
   }
 
+  if (options.includePostClaimRamparts === true) {
+    planRamparts(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+  }
+
   if (hasRemainingStructureCapacity(room, 'tower') && canReserveConstructionEnergy(room, budgetState, 'tower', options)) {
     const towerResult = planTowerConstruction(colony);
     if (towerResult !== null) {
       recordPlacement(result, budgetState, 'tower', towerResult, options);
+    }
+  }
+
+  if (
+    options.includeStorage === true &&
+    hasRemainingStructureCapacity(room, 'storage') &&
+    canReserveConstructionEnergy(room, budgetState, 'storage', options)
+  ) {
+    const storageResult = planStorageConstruction(colony);
+    if (storageResult !== null) {
+      recordPlacement(result, budgetState, 'storage', storageResult, options);
     }
   }
 
@@ -302,6 +343,89 @@ function planContainers(
       return;
     }
   }
+}
+
+function planRamparts(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  const barrierPlacement = planPostClaimBarrierConstruction(colony, budgetState, options);
+  if (barrierPlacement) {
+    recordPlacement(
+      result,
+      budgetState,
+      barrierPlacement.priority,
+      barrierPlacement.result,
+      options,
+      barrierPlacement.position
+    );
+  }
+}
+
+interface BarrierPlacementResult extends SpawnPlacementResult {
+  priority: Extract<ConstructionPlannerPriority, 'rampart' | 'wall'>;
+}
+
+function planPostClaimBarrierConstruction(
+  colony: ColonySnapshot,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): BarrierPlacementResult | null {
+  const room = colony.room;
+  if (typeof room.find !== 'function' || typeof room.createConstructionSite !== 'function') {
+    return null;
+  }
+
+  const rampartStructureType = getStructureConstant('STRUCTURE_RAMPART');
+  const wallStructureType = getStructureConstant('STRUCTURE_WALL');
+  const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 })
+    .filter((placement) => placement.stage !== 'entranceWall')
+    .filter((placement) => placement.roomName === room.name)
+    .filter(
+      (placement) => placement.structureType === rampartStructureType || placement.structureType === wallStructureType
+    );
+  for (const placement of placements) {
+    const priority = getBarrierPlacementPriority(placement.structureType, rampartStructureType, wallStructureType);
+    if (
+      priority === null ||
+      !hasRemainingStructureCapacity(room, priority) ||
+      !canReserveConstructionEnergy(room, budgetState, priority, options)
+    ) {
+      continue;
+    }
+
+    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
+    if (result === getOkCode() || isFatalConstructionSiteResult(result)) {
+      return {
+        priority,
+        result,
+        position: {
+          x: placement.x,
+          y: placement.y,
+          roomName: placement.roomName
+        }
+      };
+    }
+  }
+
+  return null;
+}
+
+function getBarrierPlacementPriority(
+  structureType: BuildableStructureConstant,
+  rampartStructureType: BuildableStructureConstant,
+  wallStructureType: BuildableStructureConstant
+): BarrierPlacementResult['priority'] | null {
+  if (structureType === rampartStructureType) {
+    return 'rampart';
+  }
+  if (structureType === wallStructureType) {
+    return 'wall';
+  }
+
+  return null;
 }
 
 function recordPlacement(

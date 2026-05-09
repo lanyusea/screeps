@@ -16,7 +16,10 @@ const TEST_GLOBALS = {
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_RAMPART: 'rampart',
   STRUCTURE_TOWER: 'tower',
+  STRUCTURE_STORAGE: 'storage',
+  STRUCTURE_WALL: 'constructedWall',
   TERRAIN_MASK_WALL: 1,
   OK: OK_CODE
 } as const;
@@ -38,6 +41,7 @@ describe('claimed room construction planner', () => {
     }
     delete globals.CONTROLLER_STRUCTURES;
     delete globals.Game;
+    delete globals.Memory;
     delete globals.PathFinder;
   });
 
@@ -95,6 +99,58 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 11, 10, STRUCTURE_ROAD);
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 11, STRUCTURE_ROAD);
   });
+
+  it('plans post-claim spawn construction before follow-up sites when the room has no spawn', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 813,
+            updatedAt: 813,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_000,
+      controllerPosition: { x: 25, y: 25 },
+      includeSpawn: false,
+      sources: [makeSource('source-a', 20, 10)],
+      structures: makeExtensions(19),
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+    installPathFinder(room);
+
+    const result = planClaimedRoomConstruction(colony, {
+      maxContainerSitesPerTick: 1,
+      respectRoomEnergyBuffer: false
+    });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual([
+      'spawn',
+      'extension',
+      'container',
+      'rampart',
+      'tower',
+      'storage'
+    ]);
+    expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
+      STRUCTURE_SPAWN,
+      STRUCTURE_EXTENSION,
+      STRUCTURE_CONTAINER,
+      STRUCTURE_RAMPART,
+      STRUCTURE_TOWER,
+      STRUCTURE_STORAGE
+    ]);
+  });
 });
 
 interface TestPosition {
@@ -109,7 +165,9 @@ interface MockRoom extends Room {
 interface MakeColonyOptions {
   controllerLevel: number;
   energyAvailable: number;
+  energyCapacityAvailable?: number;
   controllerPosition?: TestPosition;
+  includeSpawn?: boolean;
   sources: Source[];
   structures?: Structure[];
   pathsByTarget?: Record<string, TestPosition[]>;
@@ -140,7 +198,7 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
   const room = {
     name: roomName,
     energyAvailable: options.energyAvailable,
-    energyCapacityAvailable: Math.max(300, options.energyAvailable),
+    energyCapacityAvailable: options.energyCapacityAvailable ?? Math.max(300, options.energyAvailable),
     controller,
     find: jest.fn((findType: number, findOptions?: { filter?: (target: unknown) => boolean }) => {
       const targets =
@@ -179,15 +237,18 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
     structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
     pos: makeRoomPosition({ x: 25, y: 25 }, roomName)
   } as unknown as StructureSpawn;
-  const structures = [spawn as unknown as Structure, ...(options.structures ?? [])];
+  const structures = [
+    ...(options.includeSpawn === false ? [] : [spawn as unknown as Structure]),
+    ...(options.structures ?? [])
+  ];
 
   return {
     room,
     colony: {
       room,
-      spawns: [spawn],
+      spawns: options.includeSpawn === false ? [] : [spawn],
       energyAvailable: options.energyAvailable,
-      energyCapacityAvailable: Math.max(300, options.energyAvailable)
+      energyCapacityAvailable: options.energyCapacityAvailable ?? Math.max(300, options.energyAvailable)
     }
   };
 }
@@ -198,7 +259,9 @@ function makeControllerStructures(): Record<string, number[]> {
     extension: [0, 0, 5, 10, 20, 30, 40, 50, 60],
     road: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
     container: [0, 0, 5, 5, 5, 5, 5, 5, 5],
-    tower: [0, 0, 0, 1, 1, 2, 2, 3, 6]
+    rampart: [0, 0, 300, 300, 300, 300, 300, 300, 300],
+    tower: [0, 0, 0, 1, 1, 2, 2, 3, 6],
+    storage: [0, 0, 0, 0, 1, 1, 1, 1, 1]
   };
 }
 

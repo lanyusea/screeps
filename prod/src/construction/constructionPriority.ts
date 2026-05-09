@@ -6,6 +6,7 @@ import {
 } from './criticalRoads';
 import { getExtensionLimitForRcl, planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
+import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
 
 export type ConstructionVisionLayer = 'survival' | 'territory' | 'resources' | 'enemyKills';
 
@@ -137,6 +138,7 @@ export interface ConstructionPriorityPlanningResult {
 export interface ConstructionSiteImpactPriorityContext {
   criticalRoadContext?: CriticalRoadLogisticsContext;
   claimedRoomName?: string;
+  postClaimRoomName?: string;
   prioritizeSourceLogisticsForEnergyStarvation?: boolean;
   protectedRampartAnchors?: RoomPosition[];
   sources?: Source[];
@@ -224,6 +226,18 @@ export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   criticalRoad: 80,
   road: 55,
   container: 45,
+  other: 35,
+  wall: 5
+} as const;
+
+const POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY = {
+  spawn: 170,
+  extension: 160,
+  road: 150,
+  container: 140,
+  rampart: 130,
+  tower: 120,
+  storage: 110,
   other: 35,
   wall: 5
 } as const;
@@ -362,6 +376,7 @@ export function buildConstructionSiteImpactPriorityContext(
   return {
     criticalRoadContext: buildCriticalRoadLogisticsContext(room),
     ...(room.controller?.my === true ? { claimedRoomName: room.name } : {}),
+    ...(isPostClaimConstructionRoom(room.name) ? { postClaimRoomName: room.name } : {}),
     ...(shouldPrioritizeSourceLogisticsConstruction(room)
       ? { prioritizeSourceLogisticsForEnergyStarvation: true }
       : {}),
@@ -382,6 +397,11 @@ export function getConstructionSiteImpactPriority(
   site: ConstructionSite,
   context: ConstructionSiteImpactPriorityContext = {}
 ): number {
+  const postClaimPriority = getPostClaimConstructionSiteImpactPriority(site, context);
+  if (postClaimPriority !== null) {
+    return postClaimPriority;
+  }
+
   if (matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
     return CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
   }
@@ -426,7 +446,54 @@ export function getConstructionSiteImpactPriority(
     return CONSTRUCTION_SITE_IMPACT_PRIORITY.wall;
   }
 
+  if (matchesStructureType(site.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
+  }
+
   return CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
+}
+
+function getPostClaimConstructionSiteImpactPriority(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext
+): number | null {
+  if (!isPostClaimConstructionSite(site, context)) {
+    return null;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_RAMPART', 'rampart')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.rampart;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_TOWER', 'tower')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.tower;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.storage;
+  }
+
+  if (isWallConstructionSite(site)) {
+    return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.wall;
+  }
+
+  return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
 }
 
 export function selectImpactWeightedConstructionSite(
@@ -1125,6 +1192,87 @@ function isClaimedRoomConstructionSite(
   }
 
   return context.claimedRoomName !== undefined && isSameRoomPosition(getRoomObjectPosition(site), context.claimedRoomName);
+}
+
+function isPostClaimConstructionSite(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext
+): boolean {
+  const postClaimRoomName = getPostClaimConstructionRoomName(context);
+  if (!postClaimRoomName) {
+    return false;
+  }
+
+  const siteRoom = (site as ConstructionSite & { room?: Room }).room;
+  if (siteRoom?.name === postClaimRoomName) {
+    return true;
+  }
+
+  return isSameRoomPosition(getRoomObjectPosition(site), postClaimRoomName);
+}
+
+function getPostClaimConstructionRoomName(
+  context: ConstructionSiteImpactPriorityContext
+): string | null {
+  if (context.postClaimRoomName) {
+    return context.postClaimRoomName ?? null;
+  }
+
+  if (isPostClaimConstructionRoom(context.claimedRoomName)) {
+    return context.claimedRoomName ?? null;
+  }
+
+  return null;
+}
+
+export function isPostClaimConstructionRoom(roomName: string | undefined): boolean {
+  if (!roomName) {
+    return false;
+  }
+
+  const territory = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory;
+  const postClaimRecord = territory?.postClaimBootstraps?.[roomName];
+  if (postClaimRecord && postClaimRecord.status !== 'ready') {
+    return true;
+  }
+
+  const claimedRoomRecord = territory?.claimedRoomBootstrapper?.rooms?.[roomName];
+  return claimedRoomRecord?.owned === true &&
+    claimedRoomRecord.claimedAt !== undefined &&
+    (claimedRoomRecord.completedAt === undefined || hasIncompletePostClaimConstructionMilestones(roomName));
+}
+
+function hasIncompletePostClaimConstructionMilestones(roomName: string): boolean {
+  const room = getVisibleOwnedRoom(roomName);
+  if (!room) {
+    return false;
+  }
+
+  return needsPostClaimRampartCoverage(room) || needsPostClaimStorageConstruction(room);
+}
+
+function needsPostClaimRampartCoverage(room: Room): boolean {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_AUTOMATED_CONSTRUCTION) {
+    return false;
+  }
+
+  return planExpansionDefenseBarrierPlacements(room, { maxPlacements: 1 })
+    .some((placement) => placement.stage !== 'entranceWall');
+}
+
+function needsPostClaimStorageConstruction(room: Room): boolean {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_STORAGE) {
+    return false;
+  }
+
+  const storageCount = countExistingAndPendingFixedStructures(room, 'STRUCTURE_STORAGE', 'storage');
+  return storageCount !== null && storageCount < STORAGE_STRUCTURE_LIMIT;
+}
+
+function getVisibleOwnedRoom(roomName: string): Room | null {
+  const room = (globalThis as { Game?: Partial<Game> & { rooms?: Record<string, Room | undefined> } }).Game
+    ?.rooms?.[roomName];
+  return room?.controller?.my === true ? room : null;
 }
 
 function isProtectedRampartConstructionSite(
