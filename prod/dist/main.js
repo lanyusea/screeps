@@ -17381,10 +17381,20 @@ function selectColonyRecallEnergySink(room) {
 function selectControllerSustainUpgradeTask(creep, controller) {
   var _a, _b;
   const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
-  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || (controller == null ? void 0 : controller.my) !== true || !canLevelUpController2(controller)) {
+  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || (controller == null ? void 0 : controller.my) !== true || !canLevelUpController2(controller) || shouldYieldControllerSustainUpgradeToConstruction(creep, sustain)) {
     return null;
   }
   return { type: "upgrade", targetId: controller.id };
+}
+function shouldYieldControllerSustainUpgradeToConstruction(creep, sustain) {
+  return sustain.homeRoom !== sustain.targetRoom && hasVisibleOwnedConstructionDemand(creep.room);
+}
+function hasVisibleOwnedConstructionDemand(room) {
+  if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
+    return false;
+  }
+  const sites = room.find(FIND_CONSTRUCTION_SITES);
+  return sites.some((site) => site.my !== false);
 }
 function selectManagedControllerUpgradeTask(creep, controller, carriedEnergy) {
   var _a, _b;

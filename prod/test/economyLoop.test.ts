@@ -3127,6 +3127,119 @@ describe('runEconomy', () => {
     });
   });
 
+  it('registers all visible E26S48 sources for post-claim remote mining from E26S49', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      OK: ScreepsReturnCode;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 2;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 4;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S48: {
+            colony: 'E26S49',
+            roomName: 'E26S48',
+            status: 'ready',
+            claimedAt: 814,
+            updatedAt: 815,
+            workerTarget: 2,
+            controllerId: 'controller-e26s48' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const homeRoom = makeTerritoryReadyEconomyRoom();
+    (homeRoom as Room & { name: string }).name = 'E26S49';
+    const constructionSites: ConstructionSite[] = [];
+    const claimedRoom = {
+      name: 'E26S48',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller-e26s48',
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName: 'E26S48' } as RoomPosition
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [
+            { id: 'e26s48-source-a', pos: { x: 10, y: 10, roomName: 'E26S48' } as RoomPosition } as Source,
+            { id: 'e26s48-source-b', pos: { x: 35, y: 35, roomName: 'E26S48' } as RoomPosition } as Source
+          ];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return [];
+        }
+
+        return [];
+      }),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'E26S48' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room & { createConstructionSite: jest.Mock };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 816,
+      rooms: { E26S49: homeRoom, E26S48: claimedRoom },
+      spawns: {},
+      creeps: {
+        Worker1: makeEconomyWorker(homeRoom),
+        Worker2: makeEconomyWorker(homeRoom),
+        Worker3: makeEconomyWorker(homeRoom),
+        Worker4: makeEconomyWorker(homeRoom),
+        Worker5: makeEconomyWorker(homeRoom)
+      },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(Object.keys(Memory.territory?.remoteMining?.['E26S49:E26S48']?.sources ?? {})).toEqual([
+      'e26s48-source-a',
+      'e26s48-source-b'
+    ]);
+    expect(Memory.territory?.remoteMining?.['E26S49:E26S48']).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S48',
+      status: 'containerPending',
+      sources: {
+        'e26s48-source-a': {
+          sourceId: 'e26s48-source-a'
+        },
+        'e26s48-source-b': {
+          sourceId: 'e26s48-source-b'
+        }
+      }
+    });
+  });
+
   it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

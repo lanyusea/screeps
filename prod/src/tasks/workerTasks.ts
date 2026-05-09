@@ -722,12 +722,29 @@ function selectControllerSustainUpgradeTask(
     sustain?.role !== 'upgrader' ||
     sustain.targetRoom !== creep.room?.name ||
     controller?.my !== true ||
-    !canLevelUpController(controller)
+    !canLevelUpController(controller) ||
+    shouldYieldControllerSustainUpgradeToConstruction(creep, sustain)
   ) {
     return null;
   }
 
   return { type: 'upgrade', targetId: controller.id };
+}
+
+function shouldYieldControllerSustainUpgradeToConstruction(
+  creep: Creep,
+  sustain: CreepControllerSustainMemory
+): boolean {
+  return sustain.homeRoom !== sustain.targetRoom && hasVisibleOwnedConstructionDemand(creep.room);
+}
+
+function hasVisibleOwnedConstructionDemand(room: Room | undefined): boolean {
+  if (typeof FIND_CONSTRUCTION_SITES !== 'number' || typeof room?.find !== 'function') {
+    return false;
+  }
+
+  const sites = room.find(FIND_CONSTRUCTION_SITES) as ConstructionSite[];
+  return sites.some((site) => site.my !== false);
 }
 
 function selectManagedControllerUpgradeTask(

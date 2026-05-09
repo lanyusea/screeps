@@ -7948,7 +7948,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
-  it('keeps a dedicated claimed-room controller sustainer on upgrading before spawn construction', () => {
+  it('uses dedicated claimed-room sustain energy on construction before controller upgrade', () => {
     const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
     const site = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
     const creep = {
@@ -7968,7 +7968,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller2' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
   it('does not spend dedicated controller sustain energy on a maxed controller', () => {

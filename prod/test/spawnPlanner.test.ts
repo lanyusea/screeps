@@ -1940,6 +1940,61 @@ describe('planSpawn', () => {
     });
   });
 
+  it('assigns a dedicated remote miner to an E26S48 source after the room is claimed', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const source = makeRemoteSource('e26s48-source-a', 10, 10, 'E26S48');
+    const claimedRoom = makeRemoteEconomyRoom({
+      roomName: 'E26S48',
+      source,
+      container: null,
+      controller: {
+        id: 'controller-e26s48',
+        my: true,
+        level: 1
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 814,
+      rooms: { E26S49: colony.room, E26S48: claimedRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteUpgrader: makePostClaimSustainUpgrader('E26S48')
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S48: {
+            ...makeSatisfiedPostClaimRemoteMemory('E26S48'),
+            colony: 'E26S49',
+            controllerId: 'controller-e26s48' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 815)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'remoteHarvester-E26S49-E26S48-e26s48-source-a-815',
+      memory: {
+        role: 'remoteHarvester',
+        colony: 'E26S49',
+        remoteHarvester: {
+          homeRoom: 'E26S49',
+          targetRoom: 'E26S48',
+          sourceId: 'e26s48-source-a'
+        }
+      }
+    });
+  });
+
   it('dispatches a remote hauler only when the assigned remote container is above threshold', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
