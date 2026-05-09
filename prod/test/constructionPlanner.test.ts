@@ -258,6 +258,7 @@ describe('owned room construction planner', () => {
 
     const result = planConstructionForColony(colony, {
       includePostClaimRamparts: true,
+      includeStorage: false,
       respectRoomEnergyBuffer: false
     });
 

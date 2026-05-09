@@ -138,16 +138,69 @@ describe('claimed room construction planner', () => {
       'spawn',
       'extension',
       'container',
-      'rampart',
       'tower',
+      'rampart',
       'storage'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
       STRUCTURE_SPAWN,
       STRUCTURE_EXTENSION,
       STRUCTURE_CONTAINER,
-      STRUCTURE_RAMPART,
       STRUCTURE_TOWER,
+      STRUCTURE_RAMPART,
+      STRUCTURE_STORAGE
+    ]);
+  });
+
+  it('uses the E26S50 post-claim construction order after the first spawn exists', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S50: {
+            colony: 'E26S49',
+            roomName: 'E26S50',
+            status: 'spawningWorkers',
+            claimedAt: 837,
+            updatedAt: 838,
+            workerTarget: 2,
+            controllerId: 'controller-e26s50' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const { room, colony } = makeColony({
+      roomName: 'E26S50',
+      controllerLevel: 4,
+      energyAvailable: 2_000,
+      energyCapacityAvailable: 2_000,
+      controllerPosition: { x: 25, y: 25 },
+      sources: [makeSource('e26s50-source-a', 20, 10, 'E26S50')],
+      structures: makeExtensions(19, 'E26S50'),
+      pathsByTarget: {
+        '20,10': [{ x: 23, y: 25 }]
+      }
+    });
+    installPathFinder(room);
+
+    const result = planClaimedRoomConstruction(colony, {
+      maxContainerSitesPerTick: 1,
+      respectRoomEnergyBuffer: false
+    });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual([
+      'extension',
+      'container',
+      'road',
+      'tower',
+      'rampart',
+      'storage'
+    ]);
+    expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
+      STRUCTURE_EXTENSION,
+      STRUCTURE_CONTAINER,
+      STRUCTURE_ROAD,
+      STRUCTURE_TOWER,
+      STRUCTURE_RAMPART,
       STRUCTURE_STORAGE
     ]);
   });
@@ -166,6 +219,7 @@ interface MakeColonyOptions {
   controllerLevel: number;
   energyAvailable: number;
   energyCapacityAvailable?: number;
+  roomName?: string;
   controllerPosition?: TestPosition;
   includeSpawn?: boolean;
   sources: Source[];
@@ -188,7 +242,7 @@ class MockCostMatrix {
 
 function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: ColonySnapshot } {
   const constructionSites: ConstructionSite[] = [];
-  const roomName = 'W2N1';
+  const roomName = options.roomName ?? 'W2N1';
   const controller = {
     id: 'controller1',
     my: true,
@@ -295,24 +349,30 @@ function installPathFinder(room: MockRoom): void {
   };
 }
 
-function makeExtensions(count: number): Structure[] {
+function makeExtensions(count: number, roomName = 'W2N1'): Structure[] {
   return Array.from({ length: count }, (_, index) =>
-    makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 35 + index, 35)
+    makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 35 + index, 35, roomName)
   );
 }
 
-function makeSource(id: string, x: number, y: number): Source {
+function makeSource(id: string, x: number, y: number, roomName = 'W2N1'): Source {
   return {
     id,
-    pos: makeRoomPosition({ x, y }, 'W2N1')
+    pos: makeRoomPosition({ x, y }, roomName)
   } as unknown as Source;
 }
 
-function makeStructure(id: string, structureType: StructureConstant, x: number, y: number): Structure {
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  roomName = 'W2N1'
+): Structure {
   return {
     id,
     structureType,
-    pos: makeRoomPosition({ x, y }, 'W2N1')
+    pos: makeRoomPosition({ x, y }, roomName)
   } as unknown as Structure;
 }
 

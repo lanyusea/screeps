@@ -164,6 +164,37 @@ describe('cross-room energy logistics', () => {
     });
   });
 
+  it('audits E26S50 local energy as sufficient before importing from E26S49', () => {
+    const sourceContainer = makeContainer('E26S50-source-container', 450, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S50',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([targetRoom], []);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S50: {
+          updatedAt: 100,
+          sources: {
+            'E26S50-source': makeSourceWorkload('E26S50-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+      enabled: true,
+      sourceRoomAllowed: true,
+      localEnergy: 550,
+      importThreshold: 500,
+      localEnergyDeficit: 0,
+      localHarvestSufficient: true,
+      shouldImport: false,
+      reason: 'local-harvest-sufficient'
+    });
+  });
+
   it('suppresses routine E26S49 to E26S48 transfers when local harvesting is sufficient', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
