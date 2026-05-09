@@ -186,11 +186,15 @@ export function recordPostClaimBootstrapClaimSuccess(
   bootstraps[input.roomName] = {
     colony: input.colony,
     roomName: input.roomName,
-    status: 'detected',
+    status: getRefreshedPostClaimBootstrapStatus(existing),
     claimedAt,
     updatedAt: gameTime,
     workerTarget: existing?.workerTarget ?? POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
-    ...(input.controllerId ? { controllerId: input.controllerId } : {})
+    ...(input.controllerId ?? existing?.controllerId
+      ? { controllerId: (input.controllerId ?? existing?.controllerId) as Id<StructureController> }
+      : {}),
+    ...(existing?.spawnSite ? { spawnSite: existing.spawnSite } : {}),
+    ...(existing?.lastResult !== undefined ? { lastResult: existing.lastResult } : {})
   };
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
 
@@ -204,6 +208,16 @@ export function recordPostClaimBootstrapClaimSuccess(
   });
 
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+
+function getRefreshedPostClaimBootstrapStatus(
+  existing: TerritoryPostClaimBootstrapMemory | null
+): TerritoryPostClaimBootstrapStatus {
+  if (!existing || existing.status === 'ready') {
+    return 'detected';
+  }
+
+  return existing.status;
 }
 
 function recordClaimedRoomOccupation(roomName: string, claimedAt: number, gameTime: number): void {
