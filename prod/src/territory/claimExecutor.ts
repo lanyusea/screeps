@@ -46,6 +46,7 @@ import {
   getExpansionPlannerClaimRecommendations,
   type ExpansionPlannerClaimRecommendation
 } from './expansionPlanner';
+import { recordExpansionPipelineClaimState } from './expansionTrigger';
 
 export const AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource =
   'autonomousExpansionClaim';
@@ -595,6 +596,7 @@ function getScoutValidationClaimSkipReason(
       return 'controllerOwned';
     case 'controllerReserved':
       return 'controllerReserved';
+    case 'hostilePresence':
     case 'hostileSpawn':
       return 'hostilePresence';
     case 'sourcesMissing':
@@ -1357,6 +1359,13 @@ function recordRecommendedClaimSuccess(
     telemetryEvents
   );
   recordClaimedRoomBootstrapStage(targetRoom, getGameTime());
+  recordExpansionPipelineClaimState({
+    colony,
+    targetRoom,
+    claimState: 'claimed',
+    controllerId: controller.id,
+    gameTime: getGameTime()
+  });
   completeRecommendedClaimIntent(colony, targetRoom, controller.id);
   recordColonyExpansionClaimVerification({
     colony,

@@ -35,6 +35,7 @@ import {
 } from '../economy/sourceContainers';
 import { getTerritoryScoutIntel } from './scoutIntel';
 import { refreshExpansionPlannerIntent } from './expansionPlanner';
+import { recordExpansionPipelineClaimState } from './expansionTrigger';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -3850,8 +3851,27 @@ function recordTerritoryIntent(
   };
 
   upsertTerritoryIntent(intents, nextIntent);
+  recordTerritoryClaimState(plan, status, gameTime);
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext);
+}
+
+function recordTerritoryClaimState(
+  plan: TerritoryIntentPlan,
+  status: TerritoryIntentMemory['status'],
+  gameTime: number
+): void {
+  if (plan.action !== 'claim' || (status !== 'planned' && status !== 'active')) {
+    return;
+  }
+
+  recordExpansionPipelineClaimState({
+    colony: plan.colony,
+    targetRoom: plan.targetRoom,
+    claimState: status === 'active' ? 'claiming' : 'scouted',
+    gameTime,
+    ...(plan.controllerId ? { controllerId: plan.controllerId } : {})
+  });
 }
 
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {

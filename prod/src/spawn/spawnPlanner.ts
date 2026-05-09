@@ -69,6 +69,7 @@ import {
   buildMultiRoomUpgraderMemory,
   selectMultiRoomUpgradePlans
 } from '../territory/multiRoomUpgrader';
+import { NEXT_EXPANSION_TARGET_CREATOR } from '../territory/expansionScoring';
 import {
   buildControllerUpgradeCreepMemory,
   selectControllerUpgradeSpawnDemand
@@ -215,12 +216,12 @@ const SPAWN_QUEUE: SpawnQueueDefinition[] = [
   { tier: 'localSourceMining', getPriority: getLocalSourceMiningSpawnQueuePriority },
   { tier: 'controllerDowngradeGuard', getPriority: () => 'critical' },
   { tier: 'localEnergyHauling', getPriority: getLocalEnergyHaulingSpawnQueuePriority },
+  { tier: 'territoryRemote', getPriority: getTerritoryRemoteSpawnQueuePriority },
   { tier: 'remoteEconomy', getPriority: () => 'high' },
   { tier: 'localRefillSurvival', getPriority: () => 'normal' },
   { tier: 'postClaimControllerSustain', getPriority: getPostClaimControllerSustainSpawnQueuePriority },
   { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
-  { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' },
-  { tier: 'territoryRemote', getPriority: () => 'low' }
+  { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' }
 ];
 
 export function planSpawn(
@@ -457,6 +458,10 @@ function getPostClaimControllerSustainSpawnQueuePriority(context: SpawnPlanningC
     selectPostClaimControllerSustainPlan(context.colony) !== null
     ? 'critical'
     : 'normal';
+}
+
+function getTerritoryRemoteSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return hasExpansionClaimSpawnDemand(context.colony.room.name) ? 'high' : 'low';
 }
 
 function shouldDeferSpawnQueueEntryForLowEnergy(
@@ -1544,6 +1549,65 @@ function hasActiveTerritoryIntentBacklog(colonyName: string): boolean {
 
     return intent.status === 'planned' || intent.status === 'active' || intent.followUp !== undefined;
   });
+}
+
+function hasExpansionClaimSpawnDemand(colonyName: string): boolean {
+  const territory = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory;
+  if (!territory) {
+    return false;
+  }
+
+  return (
+    hasActiveExpansionClaimPipeline(territory, colonyName) ||
+    hasRunnableExpansionClaimIntent(territory, colonyName) ||
+    hasRunnableExpansionClaimTarget(territory, colonyName)
+  );
+}
+
+function hasActiveExpansionClaimPipeline(territory: TerritoryMemory, colonyName: string): boolean {
+  const pipeline = territory.expansionPipelines?.[colonyName];
+  return (
+    isRecord(pipeline) &&
+    pipeline.status === 'active' &&
+    pipeline.stage === 'claiming' &&
+    pipeline.targetRoom !== colonyName
+  );
+}
+
+function hasRunnableExpansionClaimIntent(territory: TerritoryMemory, colonyName: string): boolean {
+  return Array.isArray(territory.intents)
+    ? territory.intents.some(
+        (intent) =>
+          isRecord(intent) &&
+          intent.colony === colonyName &&
+          intent.targetRoom !== colonyName &&
+          intent.action === 'claim' &&
+          (intent.status === 'planned' || intent.status === 'active') &&
+          isExpansionClaimSource(intent.createdBy)
+      )
+    : false;
+}
+
+function hasRunnableExpansionClaimTarget(territory: TerritoryMemory, colonyName: string): boolean {
+  return Array.isArray(territory.targets)
+    ? territory.targets.some(
+        (target) =>
+          isRecord(target) &&
+          target.colony === colonyName &&
+          target.roomName !== colonyName &&
+          target.enabled !== false &&
+          target.action === 'claim' &&
+          isExpansionClaimSource(target.createdBy)
+      )
+    : false;
+}
+
+function isExpansionClaimSource(source: unknown): boolean {
+  return (
+    source === NEXT_EXPANSION_TARGET_CREATOR ||
+    source === 'expansionPlanner' ||
+    source === 'autonomousExpansionClaim'
+  );
 }
 
 function hasVisibleForeignReservedTerritoryTarget(colony: ColonySnapshot): boolean {
