@@ -117,19 +117,19 @@ describe('multi-room spawn energy buffer coordination', () => {
       unmetSpawnEnergyReservation: 450
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S47', amount: 400, updatedAt: 100 }
+      { sourceRoom: 'E26S49', targetRoom: 'E26S47', amount: 450, updatedAt: 100 }
     ]);
     expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
-      plannedImportEnergy: 400,
+      plannedImportEnergy: 450,
       spawnEnergyBufferThreshold: 650,
       spawnEnergyBufferDeficit: 450,
-      storageDeficit: 50,
-      deficitEnergy: 50
+      storageDeficit: 0,
+      deficitEnergy: 0
     });
     expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
       sourceRoom: 'E26S49',
       targetRoom: 'E26S47',
-      amount: 400,
+      amount: 450,
       status: 'planned',
       reason: 'spawn-energy-buffer',
       updatedAt: 100
@@ -226,6 +226,71 @@ describe('multi-room spawn energy buffer coordination', () => {
           targetRoom: 'E26S47',
           sourceId: 'E26S49-storage',
           route: ['E26S47']
+        }
+      }
+    });
+  });
+
+  it('uses balanced-room reserve energy above the import floor for spawn buffer imports', () => {
+    const sourceStructures: AnyOwnedStructure[] = [];
+    const targetStructures: AnyOwnedStructure[] = [];
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'E26S49',
+      storageEnergy: 700,
+      storageCapacity: 1_000,
+      energyAvailable: 800,
+      myStructures: sourceStructures
+    });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S47',
+      storageEnergy: 500,
+      storageCapacity: 1_000,
+      energyAvailable: 100,
+      myStructures: targetStructures
+    });
+    const sourceSpawn = makeSpawn('SpawnE26S49', sourceRoom, 0);
+    const targetSpawn = makeSpawn('SpawnE26S47', targetRoom, 200);
+    sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
+    targetStructures.push(targetSpawn as unknown as AnyOwnedStructure);
+    installGame([sourceRoom, targetRoom], [sourceSpawn, targetSpawn]);
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E26S49).toMatchObject({
+      mode: 'balanced',
+      exportableEnergy: 0
+    });
+    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+      spawnEnergyBufferDeficit: 400,
+      importDemand: 400
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S47', amount: 400, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()).toMatchObject({
+      spawn: sourceSpawn,
+      body: [
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move'
+      ],
+      memory: {
+        crossRoomHauler: {
+          homeRoom: 'E26S49',
+          targetRoom: 'E26S47'
         }
       }
     });

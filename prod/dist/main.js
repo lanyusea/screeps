@@ -18827,9 +18827,8 @@ function buildStorageBalanceState(gameTime) {
 }
 function buildStorageTransfers(roomStates, gameTime) {
   var _a;
-  const exporters = roomStates.filter((state) => state.mode === "export" && state.exportableEnergy > 0).sort(compareExportRooms);
   const importers = roomStates.filter((state) => state.mode === "import" && state.importDemand > 0).sort(compareImportRooms);
-  const remainingExport = new Map(exporters.map((state) => [state.roomName, state.exportableEnergy]));
+  const allocatedExport = /* @__PURE__ */ new Map();
   const transfers = [];
   const audits = [];
   const routeContext = {
@@ -18838,6 +18837,7 @@ function buildStorageTransfers(roomStates, gameTime) {
   };
   for (const importer of importers) {
     const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
+    const exporters = getPotentialExportersForImporter(roomStates, importer);
     let remainingDemand = importer.importDemand;
     let suppressedByLocalFirstPolicy = false;
     let blockedByNoPath = false;
@@ -18845,7 +18845,11 @@ function buildStorageTransfers(roomStates, gameTime) {
       if (remainingDemand <= 0) {
         break;
       }
-      const exportableEnergy = (_a = remainingExport.get(exporter.roomName)) != null ? _a : 0;
+      const exportableEnergy = getRemainingExportEnergyForImporter(
+        exporter,
+        importer,
+        allocatedExport
+      );
       if (exportableEnergy <= 0) {
         continue;
       }
@@ -18888,7 +18892,10 @@ function buildStorageTransfers(roomStates, gameTime) {
         reason: selectPlannedTransferReason(importer),
         updatedAt: gameTime
       });
-      remainingExport.set(exporter.roomName, exportableEnergy - amount);
+      allocatedExport.set(
+        exporter.roomName,
+        ((_a = allocatedExport.get(exporter.roomName)) != null ? _a : 0) + amount
+      );
       remainingDemand -= amount;
     }
     if (remainingDemand > 0 && !suppressedByLocalFirstPolicy) {
@@ -18902,6 +18909,41 @@ function buildStorageTransfers(roomStates, gameTime) {
     }
   }
   return { transfers, audits };
+}
+function getPotentialExportersForImporter(roomStates, importer) {
+  return roomStates.filter(
+    (state) => state.roomName !== importer.roomName && getRoomEnergyTransferExportLimit(state, importer) > 0
+  );
+}
+function getRemainingExportEnergyForImporter(exporter, importer, allocatedExport) {
+  var _a;
+  return Math.max(
+    0,
+    getRoomEnergyTransferExportLimit(exporter, importer) - ((_a = allocatedExport.get(exporter.roomName)) != null ? _a : 0)
+  );
+}
+function getRoomEnergyTransferExportLimit(exporter, importer) {
+  if (exporter.roomName === importer.roomName) {
+    return 0;
+  }
+  if (hasSpawnEnergyImportPressure(importer)) {
+    return Math.max(exporter.exportableEnergy, getSpawnSupportExportableEnergy(exporter));
+  }
+  return exporter.exportableEnergy;
+}
+function hasSpawnEnergyImportPressure(state) {
+  return state.spawnEnergyBufferDeficit > 0 || state.criticalSpawnEnergyDeficit > 0 || state.unmetSpawnEnergyReservation > 0;
+}
+function getSpawnSupportExportableEnergy(state) {
+  if (state.capacity <= 0 || state.importDemand > 0) {
+    return 0;
+  }
+  const storageImportFloor = Math.ceil(state.capacity * STORAGE_BALANCE_IMPORT_RATIO);
+  const localSpawnReserve = Math.max(
+    state.spawnEnergyBufferDeficit,
+    state.unmetSpawnEnergyReservation
+  );
+  return Math.max(0, state.energy - storageImportFloor - localSpawnReserve);
 }
 function getStorageTransferLocalEnergyAudit(importer) {
   const targetRoom = getVisibleRoom6(importer.roomName);
@@ -18938,7 +18980,7 @@ function sortExportersForImporter(exporters, importer, routeContext) {
 function compareExportRoomsForImporter(left, right, importer, routeContext) {
   const leftRouteDistance = getStorageTransferRouteDistance(left.roomName, importer.roomName, routeContext);
   const rightRouteDistance = getStorageTransferRouteDistance(right.roomName, importer.roomName, routeContext);
-  return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || compareExportRooms(left, right);
+  return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || getRoomEnergyTransferExportLimit(right, importer) - getRoomEnergyTransferExportLimit(left, importer) || compareExportRooms(left, right);
 }
 function getCorridorExporterPriority(sourceRoom, targetRoom) {
   if (sourceRoom === "E26S49" && targetRoom === "E26S50") {
@@ -19187,7 +19229,12 @@ function planCrossRoomHauler(getEnergyBudget = getDefaultCrossRoomHaulerEnergyBu
     return null;
   }
   const sourceState = getRoomStoredEnergyState(sourceRoom);
-  const transferableEnergy = Math.min(transfer.amount, sourceState.exportableEnergy);
+  const targetState = getRoomStoredEnergyState(targetRoom);
+  const remainingTransferEnergy = getRemainingCrossRoomTransferEnergy(transfer);
+  const transferableEnergy = Math.min(
+    remainingTransferEnergy,
+    getRoomEnergyTransferExportLimit(sourceState, targetState)
+  );
   const body = buildCrossRoomHaulerBody(getEnergyBudget(sourceRoom.name), transferableEnergy);
   if (body.length === 0) {
     return null;
@@ -19263,7 +19310,7 @@ function runCrossRoomHauler(creep) {
 function selectCrossRoomEnergyTransfer() {
   var _a;
   const balance = getStorageBalanceState();
-  return (_a = balance.transfers.filter((transfer) => transfer.amount > 0).filter((transfer) => !hasActiveCrossRoomHauler(transfer)).filter((transfer) => isLiveTransferCandidate(transfer)).sort(compareTransfers)[0]) != null ? _a : null;
+  return (_a = balance.transfers.filter((transfer) => transfer.amount > 0).filter((transfer) => getRemainingCrossRoomTransferEnergy(transfer) > 0).filter((transfer) => isLiveTransferCandidate(transfer)).sort(compareTransfers)[0]) != null ? _a : null;
 }
 function isLiveTransferCandidate(transfer) {
   const sourceRoom = getVisibleRoom7(transfer.sourceRoom);
@@ -19276,7 +19323,7 @@ function isLiveTransferCandidate(transfer) {
   }
   const sourceState = getRoomStoredEnergyState(sourceRoom);
   const targetState = getRoomStoredEnergyState(targetRoom);
-  if (sourceState.mode !== "export" || targetState.mode !== "import") {
+  if (targetState.mode !== "import" || getRoomEnergyTransferExportLimit(sourceState, targetState) <= 0) {
     return false;
   }
   if (!shouldAllowLocalFirstEnergyImport(targetRoom, {
@@ -19291,25 +19338,75 @@ function compareTransfers(left, right) {
   var _a, _b, _c, _d;
   const leftRouteDistance = (_b = (_a = findOwnedLogisticsRoute(left.sourceRoom, left.targetRoom)) == null ? void 0 : _a.distance) != null ? _b : Number.POSITIVE_INFINITY;
   const rightRouteDistance = (_d = (_c = findOwnedLogisticsRoute(right.sourceRoom, right.targetRoom)) == null ? void 0 : _c.distance) != null ? _d : Number.POSITIVE_INFINITY;
-  return getRoomStorageImportPriorityRank(left.targetRoom) - getRoomStorageImportPriorityRank(right.targetRoom) || getTransferRoundTripEfficiency(right, rightRouteDistance) - getTransferRoundTripEfficiency(left, leftRouteDistance) || right.amount - left.amount || leftRouteDistance - rightRouteDistance || left.sourceRoom.localeCompare(right.sourceRoom) || left.targetRoom.localeCompare(right.targetRoom);
+  const leftRemainingEnergy = getRemainingCrossRoomTransferEnergy(left);
+  const rightRemainingEnergy = getRemainingCrossRoomTransferEnergy(right);
+  return getRoomStorageImportPriorityRank(left.targetRoom) - getRoomStorageImportPriorityRank(right.targetRoom) || getTransferRoundTripEfficiency(rightRemainingEnergy, rightRouteDistance) - getTransferRoundTripEfficiency(leftRemainingEnergy, leftRouteDistance) || rightRemainingEnergy - leftRemainingEnergy || leftRouteDistance - rightRouteDistance || left.sourceRoom.localeCompare(right.sourceRoom) || left.targetRoom.localeCompare(right.targetRoom);
 }
-function getTransferRoundTripEfficiency(transfer, routeDistance) {
+function getTransferRoundTripEfficiency(remainingEnergy, routeDistance) {
   if (!Number.isFinite(routeDistance)) {
     return 0;
   }
-  return transfer.amount / Math.max(1, routeDistance * 2);
+  return remainingEnergy / Math.max(1, routeDistance * 2);
 }
-function hasActiveCrossRoomHauler(transfer) {
+function getRemainingCrossRoomTransferEnergy(transfer) {
+  return Math.max(0, transfer.amount - getReservedCrossRoomTransferEnergy(transfer));
+}
+function getReservedCrossRoomTransferEnergy(transfer) {
   var _a;
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
   if (!creeps) {
-    return false;
+    return 0;
   }
-  return Object.values(creeps).some((creep) => {
-    var _a2, _b;
-    const memory = normalizeCrossRoomHaulerMemory((_a2 = creep.memory) == null ? void 0 : _a2.crossRoomHauler);
-    return ((_b = creep.memory) == null ? void 0 : _b.role) === CROSS_ROOM_HAULER_ROLE && (memory == null ? void 0 : memory.homeRoom) === transfer.sourceRoom && memory.targetRoom === transfer.targetRoom && (creep.ticksToLive === void 0 || creep.ticksToLive > CROSS_ROOM_HAULER_REPLACEMENT_TICKS);
-  });
+  return Object.values(creeps).reduce(
+    (total, creep) => total + getCreepCrossRoomTransferReservation(creep, transfer),
+    0
+  );
+}
+function getCreepCrossRoomTransferReservation(creep, transfer) {
+  var _a, _b;
+  if (creep.ticksToLive !== void 0 && creep.ticksToLive <= CROSS_ROOM_HAULER_REPLACEMENT_TICKS) {
+    return 0;
+  }
+  return (_b = (_a = getDedicatedCrossRoomHaulerTransferReservation(creep, transfer)) != null ? _a : getWorkerInterRoomTransferReservation(creep, transfer)) != null ? _b : 0;
+}
+function getDedicatedCrossRoomHaulerTransferReservation(creep, transfer) {
+  var _a;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== CROSS_ROOM_HAULER_ROLE) {
+    return null;
+  }
+  const memory = normalizeCrossRoomHaulerMemory(creep.memory.crossRoomHauler);
+  if ((memory == null ? void 0 : memory.homeRoom) !== transfer.sourceRoom || memory.targetRoom !== transfer.targetRoom) {
+    return null;
+  }
+  if (memory.state === "returning" || memory.state === "unassigned") {
+    return 0;
+  }
+  if (memory.state === "delivering") {
+    return getCarriedEnergy(creep);
+  }
+  return getEnergyCapacity3(creep);
+}
+function getWorkerInterRoomTransferReservation(creep, transfer) {
+  var _a;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
+    return null;
+  }
+  const assignment = creep.memory.interRoomEnergyHaul;
+  if ((assignment == null ? void 0 : assignment.sourceRoom) !== transfer.sourceRoom || assignment.targetRoom !== transfer.targetRoom) {
+    return null;
+  }
+  return isWorkerOnInterRoomHaulLeg(creep, assignment) ? getEnergyCapacity3(creep) : getCarriedEnergy(creep);
+}
+function isWorkerOnInterRoomHaulLeg(creep, assignment) {
+  var _a;
+  const task = (_a = creep.memory) == null ? void 0 : _a.task;
+  if ((task == null ? void 0 : task.type) === "withdraw" && assignment.sourceId) {
+    return String(task.targetId) === String(assignment.sourceId);
+  }
+  if ((task == null ? void 0 : task.type) === "transfer" && assignment.targetId) {
+    return String(task.targetId) === String(assignment.targetId);
+  }
+  return false;
 }
 function collectEnergy(creep, assignment) {
   var _a, _b;
@@ -19461,7 +19558,11 @@ function hasSourceSurplusEnergy(assignment) {
   if (!source || getStoredEnergy11(source) <= 0) {
     source = selectReplacementSource(assignment, room);
   }
-  return getRoomStoredEnergyState(room).mode === "export" && source !== null && getStoredEnergy11(source) > 0;
+  const targetRoom = getVisibleRoom7(assignment.targetRoom);
+  const sourceState = getRoomStoredEnergyState(room);
+  const targetState = targetRoom ? getRoomStoredEnergyState(targetRoom) : null;
+  const exportLimit = targetState ? getRoomEnergyTransferExportLimit(sourceState, targetState) : sourceState.exportableEnergy;
+  return exportLimit > 0 && source !== null && getStoredEnergy11(source) > 0;
 }
 function recoverSourceAssignment(creep, assignment) {
   var _a;
@@ -19623,6 +19724,9 @@ function getFreeEnergyCapacity4(target) {
   const store = target == null ? void 0 : target.store;
   const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource14());
   return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+function getEnergyCapacity3(target) {
+  return getStoredEnergy11(target) + getFreeEnergyCapacity4(target);
 }
 function getRangeToRoomObject3(origin, target) {
   const originPosition = origin == null ? void 0 : origin.pos;
@@ -21341,7 +21445,7 @@ function isControllerNearLevelUp(controller) {
 function hasLowEnergyForUpgraderBoost(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
   const freeCapacity = getFreeEnergyCapacity8(creep);
-  const capacity = getEnergyCapacity3(creep, carriedEnergy, freeCapacity);
+  const capacity = getEnergyCapacity4(creep, carriedEnergy, freeCapacity);
   return capacity > 0 && carriedEnergy < capacity * UPGRADER_BOOST_LOW_ENERGY_RATIO;
 }
 function isUpgraderBoostStoredEnergySource(source) {
@@ -21440,7 +21544,7 @@ function getLowLoadWorkerEnergyContext(creep) {
   if (carriedEnergy <= 0 || freeCapacity <= 0) {
     return null;
   }
-  const capacity = getEnergyCapacity3(creep, carriedEnergy, freeCapacity);
+  const capacity = getEnergyCapacity4(creep, carriedEnergy, freeCapacity);
   return capacity > 0 && carriedEnergy < capacity * MINIMUM_USEFUL_LOAD_RATIO ? { carriedEnergy, capacity, freeCapacity } : null;
 }
 function applyMinimumUsefulLoadPolicy(creep, task) {
@@ -21943,7 +22047,7 @@ function getInterRoomWorkerHaulReservation(creep, selectedTask) {
     return null;
   }
   return {
-    energy: isOnInterRoomHaulLeg(creep, assignment, selectedTask) ? getEnergyCapacity3(creep) : getUsedEnergy2(creep),
+    energy: isOnInterRoomHaulLeg(creep, assignment, selectedTask) ? getEnergyCapacity4(creep) : getUsedEnergy2(creep),
     transferKey: getInterRoomTransferKey(assignment.sourceRoom, assignment.targetRoom)
   };
 }
@@ -23633,7 +23737,7 @@ function findNearestNearbyWorkerLinkRefillCandidate(creep, reservationContext = 
 function hasLowEnergyForNearbyLinkRefill(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
   const freeCapacity = getFreeEnergyCapacity8(creep);
-  const capacity = getEnergyCapacity3(creep, carriedEnergy, freeCapacity);
+  const capacity = getEnergyCapacity4(creep, carriedEnergy, freeCapacity);
   return freeCapacity > 0 && capacity > 0 && carriedEnergy < capacity * MINIMUM_USEFUL_LOAD_RATIO;
 }
 function findOwnedWorkerEnergyLinks(room) {
@@ -24700,7 +24804,7 @@ function getFreeStoredEnergyCapacity(object) {
   const freeCapacity = (_a = store.getFreeCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
   return typeof freeCapacity === "number" ? freeCapacity : 0;
 }
-function getEnergyCapacity3(creep, carriedEnergy = getUsedEnergy2(creep), freeCapacity = getFreeEnergyCapacity8(creep)) {
+function getEnergyCapacity4(creep, carriedEnergy = getUsedEnergy2(creep), freeCapacity = getFreeEnergyCapacity8(creep)) {
   var _a;
   const store = getStore(creep);
   const capacity = (_a = store == null ? void 0 : store.getCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
@@ -28163,6 +28267,7 @@ function normalizeEnergyAmount4(value) {
 }
 
 // src/economy/energyReservation.ts
+var CROSS_ROOM_HAULER_ROLE2 = "crossRoomHauler";
 var pendingHaulerDeliveryEnergyCache;
 function getEnergyReservationScore(room, options = {}) {
   var _a, _b;
@@ -28258,16 +28363,32 @@ function getPendingHaulerDeliveryEnergyByRoomName(creeps) {
   return energyByRoomName;
 }
 function getHaulerDeliveryRoomName(creep) {
-  var _a, _b, _c, _d, _e;
-  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "hauler" || isCollectingEnergyTask(creep.memory.task)) {
+  var _a, _b, _c, _d, _e, _f;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) === CROSS_ROOM_HAULER_ROLE2) {
+    return getCrossRoomHaulerDeliveryRoomName(creep);
+  }
+  if (((_b = creep.memory) == null ? void 0 : _b.role) !== "hauler" || isCollectingEnergyTask(creep.memory.task)) {
     return void 0;
   }
-  const localRoomName = (_b = creep.memory.energyHauler) == null ? void 0 : _b.roomName;
-  if (isNonEmptyString19(localRoomName) && (((_c = creep.room) == null ? void 0 : _c.name) === void 0 || creep.room.name === localRoomName || ((_d = creep.memory.task) == null ? void 0 : _d.type) === "transfer")) {
+  const localRoomName = (_c = creep.memory.energyHauler) == null ? void 0 : _c.roomName;
+  if (isNonEmptyString19(localRoomName) && (((_d = creep.room) == null ? void 0 : _d.name) === void 0 || creep.room.name === localRoomName || ((_e = creep.memory.task) == null ? void 0 : _e.type) === "transfer")) {
     return localRoomName;
   }
-  const remoteHomeRoom = (_e = creep.memory.remoteHauler) == null ? void 0 : _e.homeRoom;
+  const remoteHomeRoom = (_f = creep.memory.remoteHauler) == null ? void 0 : _f.homeRoom;
   return isNonEmptyString19(remoteHomeRoom) ? remoteHomeRoom : void 0;
+}
+function getCrossRoomHaulerDeliveryRoomName(creep) {
+  if (isCollectingEnergyTask(creep.memory.task)) {
+    return void 0;
+  }
+  const assignment = creep.memory.crossRoomHauler;
+  if (!isNonEmptyString19(assignment == null ? void 0 : assignment.targetRoom)) {
+    return void 0;
+  }
+  if (assignment.state !== void 0 && assignment.state !== "delivering") {
+    return void 0;
+  }
+  return assignment.targetRoom;
 }
 function isCollectingEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
@@ -32758,10 +32879,10 @@ function getFreeEnergyCapacity15(target) {
   if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
     return Math.max(0, freeCapacity);
   }
-  const capacity = getEnergyCapacity4(target);
+  const capacity = getEnergyCapacity5(target);
   return capacity > 0 ? Math.max(0, capacity - getStoredEnergy23(target)) : 0;
 }
-function getEnergyCapacity4(target) {
+function getEnergyCapacity5(target) {
   var _a, _b, _c;
   const store = getStore2(target);
   const resource = getEnergyResource24();

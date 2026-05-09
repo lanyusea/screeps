@@ -1,6 +1,7 @@
 import type { SpawnRequest } from '../spawn/spawnPlanner';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
+  getRoomEnergyTransferExportLimit,
   getRoomStoredEnergyState,
   getRoomStorageImportPriorityRank,
   getStorageBalanceState
@@ -68,7 +69,12 @@ export function planCrossRoomHauler(
   }
 
   const sourceState = getRoomStoredEnergyState(sourceRoom);
-  const transferableEnergy = Math.min(transfer.amount, sourceState.exportableEnergy);
+  const targetState = getRoomStoredEnergyState(targetRoom);
+  const remainingTransferEnergy = getRemainingCrossRoomTransferEnergy(transfer);
+  const transferableEnergy = Math.min(
+    remainingTransferEnergy,
+    getRoomEnergyTransferExportLimit(sourceState, targetState)
+  );
   const body = buildCrossRoomHaulerBody(getEnergyBudget(sourceRoom.name), transferableEnergy);
   if (body.length === 0) {
     return null;
@@ -161,7 +167,7 @@ export function selectCrossRoomEnergyTransfer(): EconomyStorageTransferMemory | 
   return (
     balance.transfers
       .filter((transfer) => transfer.amount > 0)
-      .filter((transfer) => !hasActiveCrossRoomHauler(transfer))
+      .filter((transfer) => getRemainingCrossRoomTransferEnergy(transfer) > 0)
       .filter((transfer) => isLiveTransferCandidate(transfer))
       .sort(compareTransfers)[0] ?? null
   );
@@ -180,7 +186,10 @@ export function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory):
 
   const sourceState = getRoomStoredEnergyState(sourceRoom);
   const targetState = getRoomStoredEnergyState(targetRoom);
-  if (sourceState.mode !== 'export' || targetState.mode !== 'import') {
+  if (
+    targetState.mode !== 'import' ||
+    getRoomEnergyTransferExportLimit(sourceState, targetState) <= 0
+  ) {
     return false;
   }
 
@@ -202,41 +211,118 @@ function compareTransfers(
 ): number {
   const leftRouteDistance = findOwnedLogisticsRoute(left.sourceRoom, left.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
   const rightRouteDistance = findOwnedLogisticsRoute(right.sourceRoom, right.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
+  const leftRemainingEnergy = getRemainingCrossRoomTransferEnergy(left);
+  const rightRemainingEnergy = getRemainingCrossRoomTransferEnergy(right);
   return (
     getRoomStorageImportPriorityRank(left.targetRoom) -
       getRoomStorageImportPriorityRank(right.targetRoom) ||
-    getTransferRoundTripEfficiency(right, rightRouteDistance) -
-      getTransferRoundTripEfficiency(left, leftRouteDistance) ||
-    right.amount - left.amount ||
+    getTransferRoundTripEfficiency(rightRemainingEnergy, rightRouteDistance) -
+      getTransferRoundTripEfficiency(leftRemainingEnergy, leftRouteDistance) ||
+    rightRemainingEnergy - leftRemainingEnergy ||
     leftRouteDistance - rightRouteDistance ||
     left.sourceRoom.localeCompare(right.sourceRoom) ||
     left.targetRoom.localeCompare(right.targetRoom)
   );
 }
 
-function getTransferRoundTripEfficiency(transfer: EconomyStorageTransferMemory, routeDistance: number): number {
+function getTransferRoundTripEfficiency(remainingEnergy: number, routeDistance: number): number {
   if (!Number.isFinite(routeDistance)) {
     return 0;
   }
 
-  return transfer.amount / Math.max(1, routeDistance * 2);
+  return remainingEnergy / Math.max(1, routeDistance * 2);
 }
 
-function hasActiveCrossRoomHauler(transfer: EconomyStorageTransferMemory): boolean {
+function getRemainingCrossRoomTransferEnergy(transfer: EconomyStorageTransferMemory): number {
+  return Math.max(0, transfer.amount - getReservedCrossRoomTransferEnergy(transfer));
+}
+
+function getReservedCrossRoomTransferEnergy(transfer: EconomyStorageTransferMemory): number {
   const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
   if (!creeps) {
-    return false;
+    return 0;
   }
 
-  return Object.values(creeps).some((creep) => {
-    const memory = normalizeCrossRoomHaulerMemory(creep.memory?.crossRoomHauler);
-    return (
-      creep.memory?.role === CROSS_ROOM_HAULER_ROLE &&
-      memory?.homeRoom === transfer.sourceRoom &&
-      memory.targetRoom === transfer.targetRoom &&
-      (creep.ticksToLive === undefined || creep.ticksToLive > CROSS_ROOM_HAULER_REPLACEMENT_TICKS)
-    );
-  });
+  return Object.values(creeps).reduce(
+    (total, creep) => total + getCreepCrossRoomTransferReservation(creep, transfer),
+    0
+  );
+}
+
+function getCreepCrossRoomTransferReservation(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): number {
+  if (creep.ticksToLive !== undefined && creep.ticksToLive <= CROSS_ROOM_HAULER_REPLACEMENT_TICKS) {
+    return 0;
+  }
+
+  return (
+    getDedicatedCrossRoomHaulerTransferReservation(creep, transfer) ??
+    getWorkerInterRoomTransferReservation(creep, transfer) ??
+    0
+  );
+}
+
+function getDedicatedCrossRoomHaulerTransferReservation(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): number | null {
+  if (creep.memory?.role !== CROSS_ROOM_HAULER_ROLE) {
+    return null;
+  }
+
+  const memory = normalizeCrossRoomHaulerMemory(creep.memory.crossRoomHauler);
+  if (memory?.homeRoom !== transfer.sourceRoom || memory.targetRoom !== transfer.targetRoom) {
+    return null;
+  }
+
+  if (memory.state === 'returning' || memory.state === 'unassigned') {
+    return 0;
+  }
+
+  if (memory.state === 'delivering') {
+    return getCarriedEnergy(creep);
+  }
+
+  return getEnergyCapacity(creep);
+}
+
+function getWorkerInterRoomTransferReservation(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): number | null {
+  if (creep.memory?.role !== 'worker') {
+    return null;
+  }
+
+  const assignment = creep.memory.interRoomEnergyHaul;
+  if (
+    assignment?.sourceRoom !== transfer.sourceRoom ||
+    assignment.targetRoom !== transfer.targetRoom
+  ) {
+    return null;
+  }
+
+  return isWorkerOnInterRoomHaulLeg(creep, assignment)
+    ? getEnergyCapacity(creep)
+    : getCarriedEnergy(creep);
+}
+
+function isWorkerOnInterRoomHaulLeg(
+  creep: Creep,
+  assignment: CreepInterRoomEnergyHaulMemory
+): boolean {
+  const task = creep.memory?.task;
+  if (task?.type === 'withdraw' && assignment.sourceId) {
+    return String(task.targetId) === String(assignment.sourceId);
+  }
+
+  if (task?.type === 'transfer' && assignment.targetId) {
+    return String(task.targetId) === String(assignment.targetId);
+  }
+
+  return false;
 }
 
 function collectEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void {
@@ -431,7 +517,14 @@ function hasSourceSurplusEnergy(assignment: CreepCrossRoomHaulerMemory): boolean
     source = selectReplacementSource(assignment, room);
   }
 
-  return getRoomStoredEnergyState(room).mode === 'export' && source !== null && getStoredEnergy(source) > 0;
+  const targetRoom = getVisibleRoom(assignment.targetRoom);
+  const sourceState = getRoomStoredEnergyState(room);
+  const targetState = targetRoom ? getRoomStoredEnergyState(targetRoom) : null;
+  const exportLimit = targetState
+    ? getRoomEnergyTransferExportLimit(sourceState, targetState)
+    : sourceState.exportableEnergy;
+
+  return exportLimit > 0 && source !== null && getStoredEnergy(source) > 0;
 }
 
 function recoverSourceAssignment(creep: Creep, assignment: CreepCrossRoomHaulerMemory): boolean {
@@ -644,6 +737,10 @@ function getFreeEnergyCapacity(target: unknown): number {
     ?.store;
   const freeCapacity = store?.getFreeCapacity?.(getEnergyResource());
   return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+
+function getEnergyCapacity(target: unknown): number {
+  return getStoredEnergy(target) + getFreeEnergyCapacity(target);
 }
 
 function getRangeToRoomObject(origin: RoomObject | undefined, target: RoomObject): number {

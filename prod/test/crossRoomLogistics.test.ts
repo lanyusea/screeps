@@ -454,7 +454,7 @@ describe('cross-room energy logistics', () => {
       reason: 'spawn-collapse-risk'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 400, updatedAt: 100 }
     ]);
   });
 
@@ -623,6 +623,45 @@ describe('cross-room energy logistics', () => {
     expect(plan?.memory.crossRoomHauler).toMatchObject({
       targetRoom: 'W2N1',
       route: ['W2N1']
+    });
+  });
+
+  it('plans another cross-room hauler when active haul capacity only covers part of spawn demand', () => {
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 1_300,
+      storageCapacity: 2_000,
+      energyAvailable: 800
+    });
+    const targetOwnedStructures: AnyOwnedStructure[] = [];
+    const targetRoom = makeOwnedRoom({
+      roomName: 'W2N1',
+      storageEnergy: 500,
+      energyAvailable: 100,
+      myStructures: targetOwnedStructures
+    });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    const targetSpawn = makeSpawn('Spawn2', targetRoom, 200);
+    targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
+    const activeHauler = makeCrossRoomHauler({
+      room: sourceRoom,
+      carriedEnergy: () => 0
+    });
+    installGame([sourceRoom, targetRoom], [sourceSpawn, targetSpawn], { ActiveHauler: activeHauler });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 400, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()).toMatchObject({
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      memory: {
+        crossRoomHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1'
+        }
+      }
     });
   });
 
