@@ -1,5 +1,9 @@
 import type { ColonySnapshot } from '../../src/colony/colonyRegistry';
-import { selectColonyUpgradeTarget } from '../../src/territory/colonyUpgradePriority';
+import {
+  COLONY_UPGRADE_DOWNGRADE_RISK_TICKS,
+  selectColonyUpgradeTarget,
+  selectColonyUpgradeTargets
+} from '../../src/territory/colonyUpgradePriority';
 
 describe('colony upgrade priority', () => {
   afterEach(() => {
@@ -19,6 +23,29 @@ describe('colony upgrade priority', () => {
     installWorkers(['W1N1', 'W2N1']);
 
     expect(selectColonyUpgradeTarget([slowProgress, nearLevel])).toBe(nearLevel);
+    expect(selectColonyUpgradeTargets([slowProgress, nearLevel])).toEqual([nearLevel]);
+  });
+
+  it('keeps downgrade-risk rooms eligible alongside the level-up target', () => {
+    const nearLevel = makeColony({
+      roomName: 'W1N1',
+      progress: 950,
+      progressTotal: 1_000,
+      ticksToDowngrade: 20_000
+    });
+    const downgradeRisk = makeColony({
+      roomName: 'W2N1',
+      progress: 100,
+      progressTotal: 1_000,
+      ticksToDowngrade: COLONY_UPGRADE_DOWNGRADE_RISK_TICKS
+    });
+    installWorkers(['W1N1', 'W2N1']);
+
+    expect(selectColonyUpgradeTarget([nearLevel, downgradeRisk])).toBe(downgradeRisk);
+    expect(selectColonyUpgradeTargets([nearLevel, downgradeRisk])).toEqual([
+      downgradeRisk,
+      nearLevel
+    ]);
   });
 
   it('skips rooms without available workers', () => {
@@ -52,13 +79,15 @@ function makeColony({
   level = 3,
   progress = 100,
   progressTotal = 1_000,
-  spawnCount = 1
+  spawnCount = 1,
+  ticksToDowngrade
 }: {
   roomName: string;
   level?: number;
   progress?: number;
   progressTotal?: number;
   spawnCount?: number;
+  ticksToDowngrade?: number;
 }): ColonySnapshot {
   const room = {
     name: roomName,
@@ -67,7 +96,8 @@ function makeColony({
       my: true,
       level,
       progress,
-      progressTotal
+      progressTotal,
+      ...(typeof ticksToDowngrade === 'number' ? { ticksToDowngrade } : {})
     } as StructureController
   } as Room;
   const spawns = Array.from(

@@ -2,9 +2,11 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../creeps/roleCounts';
 
 const MAX_CONTROLLER_LEVEL = 8;
+export const COLONY_UPGRADE_DOWNGRADE_RISK_TICKS = 5_000;
 
 interface ColonyUpgradeCandidate {
   colony: ColonySnapshot;
+  controllerTicksToDowngrade?: number;
   roomName: string;
   remainingProgress: number;
   progress: number;
@@ -13,12 +15,27 @@ interface ColonyUpgradeCandidate {
 }
 
 export function selectColonyUpgradeTarget(colonies: ColonySnapshot[]): ColonySnapshot | null {
+  return selectColonyUpgradeTargets(colonies)[0] ?? null;
+}
+
+export function selectColonyUpgradeTargets(colonies: ColonySnapshot[]): ColonySnapshot[] {
   const candidates = colonies.flatMap((colony) => {
     const candidate = buildColonyUpgradeCandidate(colony);
     return candidate && candidate.workerCount > 0 ? [candidate] : [];
   });
+  if (candidates.length === 0) {
+    return [];
+  }
 
-  return candidates.sort(compareColonyUpgradeCandidates)[0]?.colony ?? null;
+  const levelUpTarget = [...candidates].sort(compareColonyLevelUpgradeCandidates)[0];
+  const downgradeRiskTargets = candidates
+    .filter(isControllerDowngradeRiskCandidate)
+    .sort(compareColonyDowngradeRiskCandidates);
+
+  return uniqueColonyUpgradeCandidates([
+    ...downgradeRiskTargets,
+    ...(levelUpTarget ? [levelUpTarget] : [])
+  ]).map((candidate) => candidate.colony);
 }
 
 function buildColonyUpgradeCandidate(colony: ColonySnapshot): ColonyUpgradeCandidate | null {
@@ -29,6 +46,7 @@ function buildColonyUpgradeCandidate(colony: ColonySnapshot): ColonyUpgradeCandi
 
   return {
     colony,
+    ...getControllerTicksToDowngradeField(controller),
     roomName: colony.room.name,
     remainingProgress: getControllerRemainingProgress(controller),
     progress: getControllerProgress(controller),
@@ -37,7 +55,17 @@ function buildColonyUpgradeCandidate(colony: ColonySnapshot): ColonyUpgradeCandi
   };
 }
 
-function compareColonyUpgradeCandidates(
+function compareColonyDowngradeRiskCandidates(
+  left: ColonyUpgradeCandidate,
+  right: ColonyUpgradeCandidate
+): number {
+  return (
+    compareOptionalNumbers(left.controllerTicksToDowngrade, right.controllerTicksToDowngrade) ||
+    compareColonyLevelUpgradeCandidates(left, right)
+  );
+}
+
+function compareColonyLevelUpgradeCandidates(
   left: ColonyUpgradeCandidate,
   right: ColonyUpgradeCandidate
 ): number {
@@ -47,6 +75,31 @@ function compareColonyUpgradeCandidates(
     left.roleRank - right.roleRank ||
     right.workerCount - left.workerCount ||
     left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function uniqueColonyUpgradeCandidates(
+  candidates: ColonyUpgradeCandidate[]
+): ColonyUpgradeCandidate[] {
+  const seenRooms = new Set<string>();
+  const uniqueCandidates: ColonyUpgradeCandidate[] = [];
+
+  for (const candidate of candidates) {
+    if (seenRooms.has(candidate.roomName)) {
+      continue;
+    }
+
+    seenRooms.add(candidate.roomName);
+    uniqueCandidates.push(candidate);
+  }
+
+  return uniqueCandidates;
+}
+
+function isControllerDowngradeRiskCandidate(candidate: ColonyUpgradeCandidate): boolean {
+  return (
+    typeof candidate.controllerTicksToDowngrade === 'number' &&
+    candidate.controllerTicksToDowngrade <= COLONY_UPGRADE_DOWNGRADE_RISK_TICKS
   );
 }
 
@@ -76,6 +129,14 @@ function getControllerProgress(controller: StructureController): number {
 
 function getControllerProgressTotal(controller: StructureController): number {
   return normalizeNonNegativeNumber(controller.progressTotal);
+}
+
+function getControllerTicksToDowngradeField(
+  controller: StructureController
+): Pick<ColonyUpgradeCandidate, 'controllerTicksToDowngrade'> {
+  return typeof controller.ticksToDowngrade === 'number' && Number.isFinite(controller.ticksToDowngrade)
+    ? { controllerTicksToDowngrade: Math.max(0, Math.floor(controller.ticksToDowngrade)) }
+    : {};
 }
 
 function getColonyRoleRank(colony: ColonySnapshot): number {
@@ -122,4 +183,8 @@ function isAvailableWorkerForRoom(creep: Creep, roomName: string): boolean {
 
 function normalizeNonNegativeNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function compareOptionalNumbers(left: number | undefined, right: number | undefined): number {
+  return (left ?? Number.POSITIVE_INFINITY) - (right ?? Number.POSITIVE_INFINITY);
 }

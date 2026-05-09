@@ -94,7 +94,7 @@ import {
   refreshClaimedRoomBootstrapperOwnership,
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
-import { selectColonyUpgradeTarget } from '../territory/colonyUpgradePriority';
+import { selectColonyUpgradeTargets } from '../territory/colonyUpgradePriority';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
@@ -159,7 +159,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
   const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
-  const controllerUpgradeTargetRoom = selectColonyUpgradeTarget(colonies)?.room.name ?? null;
+  const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
@@ -212,7 +212,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         colony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRoom),
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRooms),
         colonies,
         creeps,
         usedSpawnsByRoom,
@@ -264,7 +264,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         coordinatedPlan.sourceColony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRoom),
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRooms),
         spawnRequest,
         reservedSpawnEnergyByRoom.get(spawnRoomName) ?? bodyCost
       );
@@ -1218,13 +1218,13 @@ function buildAffordableCrossRoomHaulerBody(
 function getSpawnPlanningOptions(
   successfulSpawnCount: number,
   hasPendingTerritoryFollowUp: boolean,
-  controllerUpgradeTargetRoom: string | null
+  controllerUpgradeTargetRooms: readonly string[] | null
 ): SpawnPlanningOptions {
   const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
   if (successfulSpawnCount === 0) {
     return allowTerritoryFollowUp
-      ? { allowTerritoryFollowUp, controllerUpgradeTargetRoom }
-      : { controllerUpgradeTargetRoom };
+      ? { allowTerritoryFollowUp, controllerUpgradeTargetRooms }
+      : { controllerUpgradeTargetRooms };
   }
 
   return {
@@ -1232,8 +1232,13 @@ function getSpawnPlanningOptions(
     workersOnly: true,
     allowTerritoryControllerPressure: true,
     allowTerritoryFollowUp,
-    controllerUpgradeTargetRoom
+    controllerUpgradeTargetRooms
   };
+}
+
+function getControllerUpgradeTargetRooms(colonies: ColonySnapshot[]): readonly string[] | null {
+  const targetRooms = selectColonyUpgradeTargets(colonies).map((colony) => colony.room.name);
+  return targetRooms.length > 0 ? targetRooms : null;
 }
 
 function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
