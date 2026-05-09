@@ -17,6 +17,7 @@ import {
 } from './scoutIntel';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import { TERRITORY_EXPANSION_SCOUT_TARGETS } from './expansionConfig';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
@@ -94,8 +95,47 @@ export function getAutonomousExpansionPipelineStateKey(colony: string): string {
     pipeline.controllerId ?? 'unknown',
     pipeline.reservationConfirmedAt ?? 0,
     pipeline.claimedAt ?? 0,
+    pipeline.claimState ?? 'none',
     pipeline.updatedAt
   ].join(':');
+}
+
+export function recordExpansionPipelineClaimState({
+  colony,
+  targetRoom,
+  claimState,
+  gameTime = getGameTime(),
+  controllerId
+}: {
+  colony: string;
+  targetRoom: string;
+  claimState: TerritoryExpansionClaimState;
+  gameTime?: number;
+  controllerId?: Id<StructureController>;
+}): void {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const activePipeline = getActiveExpansionPipeline(territoryMemory, colony);
+  if (!activePipeline || activePipeline.targetRoom !== targetRoom) {
+    return;
+  }
+
+  const nextPipeline =
+    claimState === 'claimed' && controllerId
+      ? markPipelineClaimed(activePipeline, controllerId, gameTime)
+      : {
+          ...activePipeline,
+          stage: 'claiming' as const,
+          claimState,
+          updatedAt: gameTime,
+          ...(controllerId ?? activePipeline.controllerId
+            ? { controllerId: (controllerId ?? activePipeline.controllerId) as Id<StructureController> }
+            : {})
+        };
+  setExpansionPipeline(territoryMemory, nextPipeline);
 }
 
 function refreshExpansionPipelineStage(
@@ -179,14 +219,24 @@ function refreshScoutingStage(
     return toPlannedSelection(pipeline, controllerId);
   }
 
-  const nextPipeline = {
-    ...pipeline,
-    stage: 'reserving' as const,
-    updatedAt: gameTime,
-    ...(controllerId ? { controllerId } : {})
-  };
+  const nextPipeline = shouldDirectClaimScoutedPipeline(pipeline)
+    ? {
+        ...pipeline,
+        stage: 'claiming' as const,
+        claimState: 'scouted' as const,
+        updatedAt: gameTime,
+        ...(controllerId ? { controllerId } : {})
+      }
+    : {
+        ...pipeline,
+        stage: 'reserving' as const,
+        updatedAt: gameTime,
+        ...(controllerId ? { controllerId } : {})
+      };
   setExpansionPipeline(territoryMemory, nextPipeline);
-  return refreshReservingStage(colony, nextPipeline, gameTime, telemetryEvents, territoryMemory, colonyOwnerUsername);
+  return nextPipeline.stage === 'claiming'
+    ? refreshClaimingStage(colony, nextPipeline, gameTime, telemetryEvents, territoryMemory, colonyOwnerUsername)
+    : refreshReservingStage(colony, nextPipeline, gameTime, telemetryEvents, territoryMemory, colonyOwnerUsername);
 }
 
 function refreshReservingStage(
@@ -266,7 +316,11 @@ function refreshClaimingStage(
     return abortExpansionPipeline(territoryMemory, pipeline, 'reservationLost', gameTime);
   }
 
-  setExpansionPipeline(territoryMemory, { ...pipeline, updatedAt: gameTime });
+  setExpansionPipeline(territoryMemory, {
+    ...pipeline,
+    claimState: pipeline.claimState === 'claiming' ? 'claiming' : 'scouted',
+    updatedAt: gameTime
+  });
   persistPipelineControlPlan(territoryMemory, pipeline, 'claim', gameTime);
   return toPlannedSelection(pipeline);
 }
@@ -386,17 +440,41 @@ function createExpansionPipeline(
   config: ExpansionTriggerConfig,
   gameTime: number
 ): TerritoryExpansionPipelineMemory {
+  const directClaim = shouldDirectClaimScoutedCandidate(colony, candidate);
   return {
     colony,
     targetRoom: candidate.roomName,
     status: 'active',
-    stage: candidate.evidenceStatus === 'sufficient' ? 'reserving' : 'scouting',
+    stage: directClaim ? 'claiming' : candidate.evidenceStatus === 'sufficient' ? 'reserving' : 'scouting',
+    ...(directClaim ? { claimState: 'scouted' as const } : {}),
     score: candidate.score,
     threshold: config.scoreThreshold,
     startedAt: gameTime,
     updatedAt: gameTime,
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
+}
+
+function shouldDirectClaimScoutedCandidate(colony: string, candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.evidenceStatus === 'sufficient' &&
+    candidate.visible === false &&
+    isConfiguredAdjacentClaimTarget(colony, candidate.roomName)
+  );
+}
+
+function shouldDirectClaimScoutedPipeline(pipeline: TerritoryExpansionPipelineMemory): boolean {
+  return isConfiguredAdjacentClaimTarget(pipeline.colony, pipeline.targetRoom);
+}
+
+function isConfiguredAdjacentClaimTarget(colony: string, targetRoom: string): boolean {
+  return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
+    (target) =>
+      target.colony === colony &&
+      target.roomName === targetRoom &&
+      target.adjacentToOwnedRoom === true &&
+      target.routeDistance <= 1
+  );
 }
 
 function markPipelineClaimed(
@@ -407,6 +485,7 @@ function markPipelineClaimed(
   return {
     ...pipeline,
     stage: 'bootstrapping',
+    claimState: 'claimed',
     updatedAt: gameTime,
     claimedAt: pipeline.claimedAt ?? gameTime,
     controllerId
@@ -471,6 +550,7 @@ function getScoutValidationAbortReason(
       return 'controllerOwned';
     case 'controllerReserved':
       return 'controllerReserved';
+    case 'hostilePresence':
     case 'hostileSpawn':
       return 'targetHostile';
     case 'sourcesMissing':
@@ -680,6 +760,7 @@ function normalizeExpansionPipeline(
     targetRoom: rawPipeline.targetRoom,
     status: rawPipeline.status,
     stage: rawPipeline.stage,
+    ...(isExpansionClaimState(rawPipeline.claimState) ? { claimState: rawPipeline.claimState } : {}),
     score: rawPipeline.score,
     threshold: rawPipeline.threshold,
     startedAt: rawPipeline.startedAt,
@@ -965,6 +1046,10 @@ function isExpansionPipelineStatus(status: unknown): status is TerritoryExpansio
 
 function isExpansionPipelineStage(stage: unknown): stage is TerritoryExpansionPipelineStage {
   return stage === 'scouting' || stage === 'reserving' || stage === 'claiming' || stage === 'bootstrapping';
+}
+
+function isExpansionClaimState(state: unknown): state is TerritoryExpansionClaimState {
+  return state === 'scouted' || state === 'claiming' || state === 'claimed';
 }
 
 function isExpansionAbortReason(reason: unknown): reason is TerritoryExpansionAbortReason {

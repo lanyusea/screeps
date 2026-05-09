@@ -6,6 +6,7 @@ declare global {
       version: number;
     };
     defense?: DefenseMemory;
+    scout?: Record<string, unknown>;
     enableMarketTrading?: boolean;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
@@ -556,12 +557,14 @@ declare global {
     | 'controllerMissing'
     | 'controllerOwned'
     | 'controllerReserved'
+    | 'hostilePresence'
     | 'hostileSpawn'
     | 'sourcesMissing';
   type TerritoryExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
   type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'reserve' | 'scout';
   type TerritoryExpansionPipelineStage = 'scouting' | 'reserving' | 'claiming' | 'bootstrapping';
   type TerritoryExpansionPipelineStatus = 'active' | 'aborted' | 'completed';
+  type TerritoryExpansionClaimState = 'scouted' | 'claiming' | 'claimed';
   type TerritoryExpansionAbortReason =
     | 'homeUnstable'
     | 'existingExpansion'
@@ -807,6 +810,7 @@ declare global {
     targetRoom: string;
     status: TerritoryExpansionPipelineStatus;
     stage: TerritoryExpansionPipelineStage;
+    claimState?: TerritoryExpansionClaimState;
     score: number;
     threshold: number;
     startedAt: number;

@@ -1,0 +1,316 @@
+import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { runClaimer } from '../src/creeps/claimerRunner';
+import { planSpawn } from '../src/spawn/spawnPlanner';
+import { refreshExpansionExecutorIntent } from '../src/territory/expansionExecutor';
+import { planTerritoryIntent } from '../src/territory/territoryPlanner';
+
+describe('E26S50 claim pipeline', () => {
+  beforeEach(() => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
+      move: 50,
+      work: 100,
+      carry: 50,
+      attack: 80,
+      ranged_attack: 150,
+      heal: 250,
+      claim: 600,
+      tough: 10
+    };
+    (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
+      (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
+    ) as unknown as typeof RoomPosition;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+  });
+
+  afterEach(() => {
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
+    delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
+    delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
+    delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
+    delete (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
+    delete (globalThis as { BODYPART_COST?: Record<BodyPartConstant, number> }).BODYPART_COST;
+    delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
+  });
+
+  it('plans a direct E26S50 claim from viable legacy scout evidence', () => {
+    const colony = makeColony();
+    setGame(colony, 822);
+    setSafeHomeThreat('E26S49', 822);
+    Memory.scout = {
+      E26S50: makeLegacyScoutIntel()
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 822)).toMatchObject({
+      status: 'planned',
+      colony: 'E26S49',
+      targetRoom: 'E26S50',
+      controllerId: 'controller-e26s50'
+    });
+    expect(Memory.territory?.expansionPipelines?.E26S49).toMatchObject({
+      colony: 'E26S49',
+      targetRoom: 'E26S50',
+      status: 'active',
+      stage: 'claiming',
+      claimState: 'scouted',
+      controllerId: 'controller-e26s50'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E26S49',
+        roomName: 'E26S50',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller-e26s50',
+        postClaimBootstrapReserveEnergy: 400
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S50',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 822,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller-e26s50',
+        postClaimBootstrapReserveEnergy: 400
+      }
+    ]);
+  });
+
+  it.each([
+    ['hostile scout evidence', { hostileCreepCount: 1 }],
+    [
+      'occupied controller evidence',
+      { controller: { id: 'controller-e26s50' as Id<StructureController>, ownerUsername: 'enemy' } }
+    ]
+  ])('does not claim E26S50 from %s', (_label, overrides: Partial<TerritoryScoutIntelMemory>) => {
+    const colony = makeColony();
+    setGame(colony, 823);
+    setSafeHomeThreat('E26S49', 823);
+    Memory.scout = {
+      E26S50: makeLegacyScoutIntel(overrides)
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 823)).toEqual({
+      status: 'skipped',
+      colony: 'E26S49',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('spawns a CLAIM/MOVE claimer and advances pipeline state once a claimer is active', () => {
+    const colony = makeColony();
+    setGame(colony, 824);
+    Memory.scout = {
+      E26S50: makeLegacyScoutIntel()
+    };
+    Memory.territory = {
+      expansionPipelines: {
+        E26S49: {
+          colony: 'E26S49',
+          targetRoom: 'E26S50',
+          status: 'active',
+          stage: 'claiming',
+          claimState: 'scouted',
+          score: 1_100,
+          threshold: 700,
+          startedAt: 822,
+          updatedAt: 822,
+          controllerId: 'controller-e26s50' as Id<StructureController>
+        }
+      },
+      targets: [
+        {
+          colony: 'E26S49',
+          roomName: 'E26S50',
+          action: 'claim',
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller-e26s50' as Id<StructureController>
+        }
+      ],
+      intents: [
+        {
+          colony: 'E26S49',
+          targetRoom: 'E26S50',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 823,
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller-e26s50' as Id<StructureController>
+        }
+      ]
+    };
+
+    expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 824)).toEqual({
+      spawn: colony.spawns[0],
+      body: ['claim', 'move'],
+      name: 'claimer-E26S49-E26S50-824',
+      memory: {
+        role: 'claimer',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S50',
+          action: 'claim',
+          controllerId: 'controller-e26s50'
+        }
+      }
+    });
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { E26S50: 1 },
+          claimersByTargetRoomAction: { claim: { E26S50: 1 } }
+        },
+        3,
+        825
+      )
+    ).toMatchObject({
+      colony: 'E26S49',
+      targetRoom: 'E26S50',
+      action: 'claim',
+      controllerId: 'controller-e26s50'
+    });
+    expect(Memory.territory?.expansionPipelines?.E26S49).toMatchObject({
+      stage: 'claiming',
+      claimState: 'claiming',
+      updatedAt: 825
+    });
+  });
+
+  it('routes an E26S50 claimer to the visible target controller before claiming', () => {
+    const controller = { id: 'controller-e26s50', my: false } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 826,
+      rooms: {
+        E26S50: { name: 'E26S50', controller } as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+    const creep = {
+      name: 'claimer-E26S49-E26S50-826',
+      memory: {
+        role: 'claimer',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S50',
+          action: 'claim',
+          controllerId: 'controller-e26s50' as Id<StructureController>
+        }
+      },
+      room: { name: 'E26S49' },
+      moveTo: jest.fn(),
+      claimController: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.claimController).not.toHaveBeenCalled();
+  });
+});
+
+function makeColony(): ColonySnapshot {
+  const room = {
+    name: 'E26S49',
+    energyAvailable: 1_300,
+    energyCapacityAvailable: 1_300,
+    controller: {
+      id: 'controller-e26s49' as Id<StructureController>,
+      my: true,
+      owner: { username: 'me' },
+      level: 4,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    storage: {
+      store: {
+        getUsedCapacity: jest.fn(() => 0)
+      }
+    },
+    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('E26S49') : [])),
+    memory: {}
+  } as unknown as Room & { memory: RoomMemory };
+  const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
+
+  return {
+    room,
+    spawns: [spawn],
+    energyAvailable: 1_300,
+    energyCapacityAvailable: 1_300,
+    spawnEnergyBudget: 1_300,
+    memory: room.memory
+  };
+}
+
+function setGame(colony: ColonySnapshot, gameTime: number): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    time: gameTime,
+    rooms: {
+      E26S49: colony.room
+    },
+    map: {
+      describeExits: jest.fn((roomName: string) => (roomName === 'E26S49' ? { '5': 'E26S50' } : {}))
+    } as unknown as GameMap
+  };
+}
+
+function makeLegacyScoutIntel(overrides: Partial<TerritoryScoutIntelMemory> = {}): Record<string, unknown> {
+  return {
+    updatedAt: 821,
+    controller: { id: 'controller-e26s50', my: false },
+    sourceIds: ['source-e26s50-a', 'source-e26s50-b'],
+    sourceCount: 2,
+    sourceAccessPoints: 7,
+    controllerSourceRange: 9,
+    terrain: { walkableRatio: 0.92, swampRatio: 0.03, wallRatio: 0.08 },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0,
+    ...overrides
+  };
+}
+
+function makeSources(roomName: string): Source[] {
+  return [
+    { id: `${roomName}-source-a` as Id<Source>, pos: { x: 10, y: 10, roomName } as RoomPosition },
+    { id: `${roomName}-source-b` as Id<Source>, pos: { x: 40, y: 40, roomName } as RoomPosition }
+  ] as Source[];
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  Memory.defense = {
+    ...(Memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(Memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
+}

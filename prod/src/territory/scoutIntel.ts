@@ -173,8 +173,12 @@ export function validateTerritoryScoutIntelForClaim({
     return { status: 'blocked', reason: 'controllerReserved', intel };
   }
 
-  if (intel.hostileSpawnCount > 0) {
-    return { status: 'blocked', reason: 'hostileSpawn', intel };
+  if (intel.hostileCreepCount > 0 || intel.hostileStructureCount > 0 || intel.hostileSpawnCount > 0) {
+    return {
+      status: 'blocked',
+      reason: intel.hostileSpawnCount > 0 ? 'hostileSpawn' : 'hostilePresence',
+      intel
+    };
   }
 
   if (intel.sourceCount <= 0) {
@@ -526,12 +530,146 @@ function getTelemetryValidationResult(
 
 export function getTerritoryScoutIntel(colony: string, targetRoom: string): TerritoryScoutIntelMemory | null {
   const rawIntel = getTerritoryMemoryRecord()?.scoutIntel?.[getTerritoryScoutMemoryKey(colony, targetRoom)];
-  return normalizeTerritoryScoutIntel(rawIntel);
+  return normalizeTerritoryScoutIntel(rawIntel) ?? getLegacyScoutIntel(colony, targetRoom);
 }
 
 function getTerritoryScoutAttempt(colony: string, targetRoom: string): TerritoryScoutAttemptMemory | null {
   const rawAttempt = getTerritoryMemoryRecord()?.scoutAttempts?.[getTerritoryScoutMemoryKey(colony, targetRoom)];
   return normalizeTerritoryScoutAttempt(rawAttempt);
+}
+
+function getLegacyScoutIntel(colony: string, targetRoom: string): TerritoryScoutIntelMemory | null {
+  const scoutMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.scout;
+  if (!isRecord(scoutMemory)) {
+    return null;
+  }
+
+  const rawIntel =
+    getLegacyScoutRecord(scoutMemory, getTerritoryScoutMemoryKey(colony, targetRoom)) ??
+    getLegacyScoutRecord(scoutMemory, targetRoom);
+  if (!rawIntel) {
+    return null;
+  }
+
+  return normalizeLegacyScoutIntel(colony, targetRoom, rawIntel);
+}
+
+function getLegacyScoutRecord(memory: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const directRecord = memory[key];
+  if (isRecord(directRecord)) {
+    return directRecord;
+  }
+
+  const rooms = memory.rooms;
+  if (isRecord(rooms) && isRecord(rooms[key])) {
+    return rooms[key];
+  }
+
+  return null;
+}
+
+function normalizeLegacyScoutIntel(
+  colony: string,
+  targetRoom: string,
+  rawIntel: Record<string, unknown>
+): TerritoryScoutIntelMemory | null {
+  const updatedAt = getLegacyScoutUpdatedAt(rawIntel);
+  if (updatedAt === null) {
+    return null;
+  }
+
+  return normalizeTerritoryScoutIntel({
+    colony: isNonEmptyString(rawIntel.colony) ? rawIntel.colony : colony,
+    roomName: isNonEmptyString(rawIntel.roomName) ? rawIntel.roomName : targetRoom,
+    updatedAt,
+    controller: normalizeLegacyScoutController(rawIntel),
+    sourceIds: getLegacyScoutSourceIds(rawIntel),
+    sourceCount: getLegacyScoutSourceCount(rawIntel),
+    sourceAccessPoints: rawIntel.sourceAccessPoints,
+    controllerSourceRange: rawIntel.controllerSourceRange,
+    terrain: rawIntel.terrain,
+    mineral: rawIntel.mineral,
+    hostileCreepCount: getLegacyScoutCount(rawIntel, 'hostileCreepCount', 'hostileCreeps'),
+    hostileStructureCount: getLegacyScoutCount(rawIntel, 'hostileStructureCount', 'hostileStructures'),
+    hostileSpawnCount: getLegacyScoutCount(rawIntel, 'hostileSpawnCount', 'hostileSpawns'),
+    scoutName: rawIntel.scoutName
+  });
+}
+
+function getLegacyScoutUpdatedAt(rawIntel: Record<string, unknown>): number | null {
+  for (const key of ['updatedAt', 'scoutedAt', 'lastScouted', 'lastObservedAt', 'tick']) {
+    const value = rawIntel[key];
+    if (isFiniteNumber(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeLegacyScoutController(
+  rawIntel: Record<string, unknown>
+): TerritoryScoutControllerIntelMemory | null {
+  const controller = isRecord(rawIntel.controller) ? rawIntel.controller : rawIntel;
+  return normalizeTerritoryScoutControllerIntel({
+    id: controller.id ?? rawIntel.controllerId,
+    my: controller.my,
+    ownerUsername: controller.ownerUsername ?? getNestedUsername(controller.owner),
+    reservationUsername: controller.reservationUsername ?? getNestedUsername(controller.reservation),
+    reservationTicksToEnd: controller.reservationTicksToEnd ?? getNestedTicksToEnd(controller.reservation)
+  });
+}
+
+function getLegacyScoutSourceIds(rawIntel: Record<string, unknown>): string[] {
+  if (Array.isArray(rawIntel.sourceIds)) {
+    return rawIntel.sourceIds.flatMap((sourceId) => (isNonEmptyString(sourceId) ? [sourceId] : []));
+  }
+
+  if (Array.isArray(rawIntel.sources)) {
+    return rawIntel.sources.flatMap((source, index) => {
+      if (isNonEmptyString(source)) {
+        return [source];
+      }
+
+      if (isRecord(source) && isNonEmptyString(source.id)) {
+        return [source.id];
+      }
+
+      return [`legacy-source-${index}`];
+    });
+  }
+
+  return [];
+}
+
+function getLegacyScoutSourceCount(rawIntel: Record<string, unknown>): number {
+  if (isFiniteNumber(rawIntel.sourceCount)) {
+    return Math.max(0, Math.floor(rawIntel.sourceCount));
+  }
+
+  return getLegacyScoutSourceIds(rawIntel).length;
+}
+
+function getLegacyScoutCount(
+  rawIntel: Record<string, unknown>,
+  countKey: string,
+  collectionKey: string
+): number {
+  const count = rawIntel[countKey];
+  if (isFiniteNumber(count)) {
+    return Math.max(0, Math.floor(count));
+  }
+
+  const collection = rawIntel[collectionKey];
+  return Array.isArray(collection) ? collection.length : 0;
+}
+
+function getNestedUsername(value: unknown): string | undefined {
+  return isRecord(value) && isNonEmptyString(value.username) ? value.username : undefined;
+}
+
+function getNestedTicksToEnd(value: unknown): number | undefined {
+  return isRecord(value) && isFiniteNumber(value.ticksToEnd) ? value.ticksToEnd : undefined;
 }
 
 function getUnavailableScoutIntelValidationResult(
@@ -884,6 +1022,7 @@ function isTerritoryScoutValidationReason(reason: unknown): reason is TerritoryS
     reason === 'controllerMissing' ||
     reason === 'controllerOwned' ||
     reason === 'controllerReserved' ||
+    reason === 'hostilePresence' ||
     reason === 'hostileSpawn' ||
     reason === 'sourcesMissing'
   );
