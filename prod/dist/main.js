@@ -15377,6 +15377,10 @@ function auditLocalEnergyImport(room, options = {}) {
 function shouldAllowLocalFirstEnergyImport(room, options = {}) {
   return auditLocalEnergyImport(room, options).shouldImport;
 }
+function shouldApplyLocalFirstEnergyImportPolicy(roomName, sourceRoom) {
+  const config = getLocalEnergyRoomConfig(roomName);
+  return config !== null && isSourceRoomAllowed(config, sourceRoom);
+}
 function getLocalEnergyRoomConfig(roomName) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   const configured = getConfiguredRoomMemory(roomName);
@@ -15613,13 +15617,14 @@ function buildStorageTransfers(roomStates, gameTime) {
   const remainingExport = new Map(exporters.map((state) => [state.roomName, state.exportableEnergy]));
   const transfers = [];
   for (const importer of importers) {
+    const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
     let remainingDemand = importer.importDemand;
     for (const exporter of exporters) {
       if (remainingDemand <= 0) {
         break;
       }
       const exportableEnergy = (_a = remainingExport.get(exporter.roomName)) != null ? _a : 0;
-      if (!shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName)) {
+      if (!shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName, localEnergyAudit)) {
         continue;
       }
       const amount = Math.min(exportableEnergy, remainingDemand);
@@ -15638,15 +15643,26 @@ function buildStorageTransfers(roomStates, gameTime) {
   }
   return transfers;
 }
-function shouldAllowStorageTransferForLocalEnergyStrategy(importer, sourceRoom) {
+function getStorageTransferLocalEnergyAudit(importer) {
   const targetRoom = getVisibleRoom3(importer.roomName);
   if (!targetRoom) {
-    return true;
+    return void 0;
   }
-  return shouldAllowLocalFirstEnergyImport(targetRoom, {
-    sourceRoom,
+  const audit = auditLocalEnergyImport(targetRoom, {
     storedEnergy: importer.energy
   });
+  return {
+    audit
+  };
+}
+function shouldAllowStorageTransferForLocalEnergyStrategy(importer, sourceRoom, localEnergyAudit) {
+  if (!localEnergyAudit) {
+    return true;
+  }
+  if (!shouldApplyLocalFirstEnergyImportPolicy(importer.roomName, sourceRoom)) {
+    return true;
+  }
+  return localEnergyAudit.audit.shouldImport;
 }
 function compareExportRooms(left, right) {
   return right.exportableEnergy - left.exportableEnergy || right.ratio - left.ratio || left.roomName.localeCompare(right.roomName);

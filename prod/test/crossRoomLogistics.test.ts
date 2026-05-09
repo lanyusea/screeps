@@ -228,6 +228,38 @@ describe('cross-room energy logistics', () => {
     });
   });
 
+  it('reuses the E26S48 local energy structure scan across multiple storage exporters', () => {
+    const primarySourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const secondarySourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const sourceContainer = makeContainer('E26S48-source-container', 100, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([primarySourceRoom, secondarySourceRoom, targetRoom], []);
+    Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E26S48: {
+            importThreshold: 700,
+            sourceRooms: ['E26S49', 'W1N1']
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    const targetFind = targetRoom.find as jest.Mock;
+    const structureScanCount = targetFind.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
+    expect(structureScanCount).toBe(1);
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 },
+      { sourceRoom: 'W1N1', targetRoom: 'E26S48', amount: 50, updatedAt: 100 }
+    ]);
+  });
+
   it('preserves E26S48 emergency imports for spawn collapse prevention', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
     const targetOwnedStructures: AnyOwnedStructure[] = [];

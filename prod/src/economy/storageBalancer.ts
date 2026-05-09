@@ -1,5 +1,9 @@
 import { getTerminalEnergyTarget } from './energySurplus';
-import { shouldAllowLocalFirstEnergyImport } from './localEnergyStrategy';
+import {
+  auditLocalEnergyImport,
+  shouldApplyLocalFirstEnergyImportPolicy,
+  type LocalEnergyImportAudit
+} from './localEnergyStrategy';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
@@ -34,6 +38,10 @@ interface RoomEnergyStore {
     getFreeCapacity?: (resource?: ResourceConstant) => number | null;
     [resource: string]: unknown;
   };
+}
+
+interface StorageTransferLocalEnergyAudit {
+  audit: LocalEnergyImportAudit;
 }
 
 export function balanceStorage(): void {
@@ -161,6 +169,7 @@ function buildStorageTransfers(
   const transfers: EconomyStorageTransferMemory[] = [];
 
   for (const importer of importers) {
+    const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
     let remainingDemand = importer.importDemand;
     for (const exporter of exporters) {
       if (remainingDemand <= 0) {
@@ -169,7 +178,7 @@ function buildStorageTransfers(
 
       const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
       if (
-        !shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName)
+        !shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName, localEnergyAudit)
       ) {
         continue;
       }
@@ -193,19 +202,37 @@ function buildStorageTransfers(
   return transfers;
 }
 
-function shouldAllowStorageTransferForLocalEnergyStrategy(
-  importer: RoomStoredEnergyState,
-  sourceRoom: string
-): boolean {
+function getStorageTransferLocalEnergyAudit(
+  importer: RoomStoredEnergyState
+): StorageTransferLocalEnergyAudit | undefined {
   const targetRoom = getVisibleRoom(importer.roomName);
   if (!targetRoom) {
+    return undefined;
+  }
+
+  const audit = auditLocalEnergyImport(targetRoom, {
+    storedEnergy: importer.energy
+  });
+
+  return {
+    audit
+  };
+}
+
+function shouldAllowStorageTransferForLocalEnergyStrategy(
+  importer: RoomStoredEnergyState,
+  sourceRoom: string,
+  localEnergyAudit: StorageTransferLocalEnergyAudit | undefined
+): boolean {
+  if (!localEnergyAudit) {
     return true;
   }
 
-  return shouldAllowLocalFirstEnergyImport(targetRoom, {
-    sourceRoom,
-    storedEnergy: importer.energy
-  });
+  if (!shouldApplyLocalFirstEnergyImportPolicy(importer.roomName, sourceRoom)) {
+    return true;
+  }
+
+  return localEnergyAudit.audit.shouldImport;
 }
 
 function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {

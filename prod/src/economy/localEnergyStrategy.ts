@@ -173,6 +173,11 @@ export function shouldAllowLocalFirstEnergyImport(
   return auditLocalEnergyImport(room, options).shouldImport;
 }
 
+export function shouldApplyLocalFirstEnergyImportPolicy(roomName: string, sourceRoom: string | undefined): boolean {
+  const config = getLocalEnergyRoomConfig(roomName);
+  return config !== null && isSourceRoomAllowed(config, sourceRoom);
+}
+
 function getLocalEnergyRoomConfig(roomName: string): LocalEnergyRoomConfig | null {
   const configured = getConfiguredRoomMemory(roomName);
   const defaults = DEFAULT_ROOM_CONFIGS[roomName];
