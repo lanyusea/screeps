@@ -106,9 +106,18 @@ def iter_directory_files(root: Path, result: ScanResult) -> list[Path]:
     return sorted(files, key=lambda path: str(path))
 
 
+# Files from the external runtime monitor contain a separate summary format with
+# zero-valued energy fields.  Skip them so RL datasets are not contaminated.
+_MONITOR_FILE_PREFIX = "runtime-summary-monitor-"
+
+
 def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
     if path.is_symlink():
         result.skip(path, "symlink")
+        return
+
+    if path.name.startswith(_MONITOR_FILE_PREFIX):
+        result.skip(path, "monitor_source")
         return
 
     try:
