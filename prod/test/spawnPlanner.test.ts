@@ -1467,7 +1467,7 @@ describe('planSpawn', () => {
     });
   });
 
-  it('spawns a post-claim controller upgrader as soon as the home room can afford the minimum body', () => {
+  it('spawns a post-claim controller upgrader with a minimum body after the home worker target is met', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 200,
       energyCapacityAvailable: 650,
@@ -1502,7 +1502,7 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 3 }, 813)).toEqual({
+    expect(planSpawn(colony, { worker: 4 }, 813)).toEqual({
       spawn,
       body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-E26S48-upgrader-813',

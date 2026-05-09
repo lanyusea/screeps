@@ -100,7 +100,7 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 11, STRUCTURE_ROAD);
   });
 
-  it('plans post-claim construction in spawn, extension, road, container, rampart, tower, storage order', () => {
+  it('plans post-claim spawn construction before follow-up sites when the room has no spawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
@@ -120,6 +120,7 @@ describe('claimed room construction planner', () => {
       energyAvailable: 1_000,
       energyCapacityAvailable: 1_000,
       controllerPosition: { x: 25, y: 25 },
+      includeSpawn: false,
       sources: [makeSource('source-a', 20, 10)],
       structures: makeExtensions(19),
       pathsByTarget: {
@@ -134,16 +135,16 @@ describe('claimed room construction planner', () => {
     });
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
+      'spawn',
       'extension',
-      'road',
       'container',
       'rampart',
       'tower',
       'storage'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
+      STRUCTURE_SPAWN,
       STRUCTURE_EXTENSION,
-      STRUCTURE_ROAD,
       STRUCTURE_CONTAINER,
       STRUCTURE_RAMPART,
       STRUCTURE_TOWER,
@@ -166,6 +167,7 @@ interface MakeColonyOptions {
   energyAvailable: number;
   energyCapacityAvailable?: number;
   controllerPosition?: TestPosition;
+  includeSpawn?: boolean;
   sources: Source[];
   structures?: Structure[];
   pathsByTarget?: Record<string, TestPosition[]>;
@@ -235,13 +237,16 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
     structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
     pos: makeRoomPosition({ x: 25, y: 25 }, roomName)
   } as unknown as StructureSpawn;
-  const structures = [spawn as unknown as Structure, ...(options.structures ?? [])];
+  const structures = [
+    ...(options.includeSpawn === false ? [] : [spawn as unknown as Structure]),
+    ...(options.structures ?? [])
+  ];
 
   return {
     room,
     colony: {
       room,
-      spawns: [spawn],
+      spawns: options.includeSpawn === false ? [] : [spawn],
       energyAvailable: options.energyAvailable,
       energyCapacityAvailable: options.energyCapacityAvailable ?? Math.max(300, options.energyAvailable)
     }

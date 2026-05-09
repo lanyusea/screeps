@@ -8413,6 +8413,7 @@ var FALLBACK_CONTROLLER_STRUCTURES = {
   STRUCTURE_ROAD: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
   STRUCTURE_CONTAINER: [0, 0, 5, 5, 5, 5, 5, 5, 5],
   STRUCTURE_RAMPART: [0, 0, 300, 300, 300, 300, 300, 300, 300],
+  STRUCTURE_WALL: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
   STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6],
   STRUCTURE_STORAGE: [0, 0, 0, 0, 1, 1, 1, 1, 1]
 };
@@ -8422,6 +8423,7 @@ var PRIORITY_STRUCTURE_TYPES = {
   road: "STRUCTURE_ROAD",
   container: "STRUCTURE_CONTAINER",
   rampart: "STRUCTURE_RAMPART",
+  wall: "STRUCTURE_WALL",
   tower: "STRUCTURE_TOWER",
   storage: "STRUCTURE_STORAGE"
 };
@@ -8431,6 +8433,7 @@ var STRUCTURE_TYPE_FALLBACKS = {
   STRUCTURE_ROAD: "road",
   STRUCTURE_CONTAINER: "container",
   STRUCTURE_RAMPART: "rampart",
+  STRUCTURE_WALL: "constructedWall",
   STRUCTURE_TOWER: "tower",
   STRUCTURE_STORAGE: "storage"
 };
@@ -8586,25 +8589,37 @@ function planContainers(colony, result, budgetState, options) {
   }
 }
 function planRamparts(colony, result, budgetState, options) {
-  if (!hasRemainingStructureCapacity(colony.room, "rampart") || !canReserveConstructionEnergy(colony.room, budgetState, "rampart", options)) {
-    return;
-  }
-  const rampartPlacement = planPostClaimRampartConstruction(colony);
-  if (rampartPlacement) {
-    recordPlacement(result, budgetState, "rampart", rampartPlacement.result, options, rampartPlacement.position);
+  const barrierPlacement = planPostClaimBarrierConstruction(colony, budgetState, options);
+  if (barrierPlacement) {
+    recordPlacement(
+      result,
+      budgetState,
+      barrierPlacement.priority,
+      barrierPlacement.result,
+      options,
+      barrierPlacement.position
+    );
   }
 }
-function planPostClaimRampartConstruction(colony) {
+function planPostClaimBarrierConstruction(colony, budgetState, options) {
   const room = colony.room;
   if (typeof room.find !== "function" || typeof room.createConstructionSite !== "function") {
     return null;
   }
   const rampartStructureType = getStructureConstant("STRUCTURE_RAMPART");
-  const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 }).filter((placement) => placement.structureType === rampartStructureType);
+  const wallStructureType = getStructureConstant("STRUCTURE_WALL");
+  const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 }).filter((placement) => placement.roomName === room.name).filter(
+    (placement) => placement.structureType === rampartStructureType || placement.structureType === wallStructureType
+  );
   for (const placement of placements) {
-    const result = room.createConstructionSite(placement.x, placement.y, rampartStructureType);
+    const priority = getBarrierPlacementPriority(placement.structureType, rampartStructureType, wallStructureType);
+    if (priority === null || !hasRemainingStructureCapacity(room, priority) || !canReserveConstructionEnergy(room, budgetState, priority, options)) {
+      continue;
+    }
+    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
     if (result === getOkCode3() || isFatalConstructionSiteResult(result)) {
       return {
+        priority,
         result,
         position: {
           x: placement.x,
@@ -8613,6 +8628,15 @@ function planPostClaimRampartConstruction(colony) {
         }
       };
     }
+  }
+  return null;
+}
+function getBarrierPlacementPriority(structureType, rampartStructureType, wallStructureType) {
+  if (structureType === rampartStructureType) {
+    return "rampart";
+  }
+  if (structureType === wallStructureType) {
+    return "wall";
   }
   return null;
 }
@@ -25355,7 +25379,7 @@ function isActiveRoomDefender(creep, roomName) {
   return isAssignedRoomDefender(creep, roomName) && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
 }
 function hasPostClaimSustainLocalWorkerFloor(context) {
-  return context.workerCapacity >= context.survival.survivalWorkerFloor;
+  return context.workerCapacity >= context.survival.survivalWorkerFloor && context.workerCapacity >= context.workerTarget;
 }
 function isAssignedRoomDefender(creep, roomName) {
   var _a, _b;

@@ -846,7 +846,10 @@ function isActiveRoomDefender(creep: Creep, roomName: string): boolean {
 }
 
 function hasPostClaimSustainLocalWorkerFloor(context: SpawnPlanningContext): boolean {
-  return context.workerCapacity >= context.survival.survivalWorkerFloor;
+  return (
+    context.workerCapacity >= context.survival.survivalWorkerFloor &&
+    context.workerCapacity >= context.workerTarget
+  );
 }
 
 function isAssignedRoomDefender(creep: Creep, roomName: string): boolean {

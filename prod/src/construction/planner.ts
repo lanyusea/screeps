@@ -11,6 +11,7 @@ export type ConstructionPlannerPriority =
   | 'road'
   | 'container'
   | 'rampart'
+  | 'wall'
   | 'tower'
   | 'storage';
 
@@ -65,6 +66,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_WALL'
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_STORAGE';
 type ReturnCodeGlobal = 'ERR_FULL' | 'ERR_RCL_NOT_ENOUGH';
@@ -115,6 +117,7 @@ const FALLBACK_CONTROLLER_STRUCTURES: Record<StructureConstantGlobal, number[]> 
   STRUCTURE_ROAD: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
   STRUCTURE_CONTAINER: [0, 0, 5, 5, 5, 5, 5, 5, 5],
   STRUCTURE_RAMPART: [0, 0, 300, 300, 300, 300, 300, 300, 300],
+  STRUCTURE_WALL: [0, 0, 2500, 2500, 2500, 2500, 2500, 2500, 2500],
   STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6],
   STRUCTURE_STORAGE: [0, 0, 0, 0, 1, 1, 1, 1, 1]
 };
@@ -125,6 +128,7 @@ const PRIORITY_STRUCTURE_TYPES: Record<ConstructionPlannerPriority, StructureCon
   road: 'STRUCTURE_ROAD',
   container: 'STRUCTURE_CONTAINER',
   rampart: 'STRUCTURE_RAMPART',
+  wall: 'STRUCTURE_WALL',
   tower: 'STRUCTURE_TOWER',
   storage: 'STRUCTURE_STORAGE'
 };
@@ -135,6 +139,7 @@ const STRUCTURE_TYPE_FALLBACKS: Record<StructureConstantGlobal, string> = {
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
   STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_WALL: 'constructedWall',
   STRUCTURE_TOWER: 'tower',
   STRUCTURE_STORAGE: 'storage'
 };
@@ -346,32 +351,54 @@ function planRamparts(
   budgetState: ConstructionBudgetState,
   options: ConstructionPlannerOptions
 ): void {
-  if (
-    !hasRemainingStructureCapacity(colony.room, 'rampart') ||
-    !canReserveConstructionEnergy(colony.room, budgetState, 'rampart', options)
-  ) {
-    return;
-  }
-
-  const rampartPlacement = planPostClaimRampartConstruction(colony);
-  if (rampartPlacement) {
-    recordPlacement(result, budgetState, 'rampart', rampartPlacement.result, options, rampartPlacement.position);
+  const barrierPlacement = planPostClaimBarrierConstruction(colony, budgetState, options);
+  if (barrierPlacement) {
+    recordPlacement(
+      result,
+      budgetState,
+      barrierPlacement.priority,
+      barrierPlacement.result,
+      options,
+      barrierPlacement.position
+    );
   }
 }
 
-function planPostClaimRampartConstruction(colony: ColonySnapshot): SpawnPlacementResult | null {
+interface BarrierPlacementResult extends SpawnPlacementResult {
+  priority: Extract<ConstructionPlannerPriority, 'rampart' | 'wall'>;
+}
+
+function planPostClaimBarrierConstruction(
+  colony: ColonySnapshot,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): BarrierPlacementResult | null {
   const room = colony.room;
   if (typeof room.find !== 'function' || typeof room.createConstructionSite !== 'function') {
     return null;
   }
 
   const rampartStructureType = getStructureConstant('STRUCTURE_RAMPART');
+  const wallStructureType = getStructureConstant('STRUCTURE_WALL');
   const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 })
-    .filter((placement) => placement.structureType === rampartStructureType);
+    .filter((placement) => placement.roomName === room.name)
+    .filter(
+      (placement) => placement.structureType === rampartStructureType || placement.structureType === wallStructureType
+    );
   for (const placement of placements) {
-    const result = room.createConstructionSite(placement.x, placement.y, rampartStructureType);
+    const priority = getBarrierPlacementPriority(placement.structureType, rampartStructureType, wallStructureType);
+    if (
+      priority === null ||
+      !hasRemainingStructureCapacity(room, priority) ||
+      !canReserveConstructionEnergy(room, budgetState, priority, options)
+    ) {
+      continue;
+    }
+
+    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
     if (result === getOkCode() || isFatalConstructionSiteResult(result)) {
       return {
+        priority,
         result,
         position: {
           x: placement.x,
@@ -380,6 +407,21 @@ function planPostClaimRampartConstruction(colony: ColonySnapshot): SpawnPlacemen
         }
       };
     }
+  }
+
+  return null;
+}
+
+function getBarrierPlacementPriority(
+  structureType: BuildableStructureConstant,
+  rampartStructureType: BuildableStructureConstant,
+  wallStructureType: BuildableStructureConstant
+): BarrierPlacementResult['priority'] | null {
+  if (structureType === rampartStructureType) {
+    return 'rampart';
+  }
+  if (structureType === wallStructureType) {
+    return 'wall';
   }
 
   return null;
