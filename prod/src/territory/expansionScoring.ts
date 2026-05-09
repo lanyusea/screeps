@@ -16,6 +16,10 @@ import {
   getNearbyRoomScoutingTargets,
   type RoomScoutingTarget
 } from './roomScouting';
+import {
+  TERRITORY_EXPANSION_SCOUT_TARGETS,
+  type TerritoryExpansionScoutTargetConfig
+} from './expansionConfig';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
@@ -380,6 +384,10 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, ownerUsername);
   const nearbyRoomDistancesByOwnedRoom = getNearbyRoomDistancesByOwnedRoom(ownedRoomNames);
+  const configuredScoutTargets = getConfiguredExpansionScoutTargets(colonyName, ownedRoomNames);
+  const configuredScoutTargetsByRoom = new Map(
+    configuredScoutTargets.map((target) => [target.roomName, target])
+  );
   const candidateOrders = new Map<string, number>();
   const gameTime = getGameTime();
   let order = 0;
@@ -398,6 +406,19 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
       candidateOrders.set(roomName, order);
       order += 1;
     }
+  }
+
+  for (const target of configuredScoutTargets) {
+    if (
+      target.roomName === colonyName ||
+      ownedRoomNames.has(target.roomName) ||
+      candidateOrders.has(target.roomName)
+    ) {
+      continue;
+    }
+
+    candidateOrders.set(target.roomName, order);
+    order += 1;
   }
 
   for (const room of Object.values(rooms)) {
@@ -425,13 +446,18 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
   }
 
   return Array.from(candidateOrders.entries()).flatMap(([roomName, candidateOrder]) => {
-    const routeDistance = getKnownRouteLength(colonyName, roomName);
-    const nearestOwnedDistance = getNearestOwnedRoomDistance(
-      ownedRoomNames,
-      roomName,
-      nearbyRoomDistancesByOwnedRoom
-    );
-    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(roomName, nearbyRoomDistancesByOwnedRoom);
+    const configuredScoutTarget = configuredScoutTargetsByRoom.get(roomName);
+    const routeDistance = configuredScoutTarget?.routeDistance ?? getKnownRouteLength(colonyName, roomName);
+    const nearestOwnedDistance =
+      getConfiguredNearestOwnedRoomDistance(configuredScoutTarget) ??
+      getNearestOwnedRoomDistance(
+        ownedRoomNames,
+        roomName,
+        nearbyRoomDistancesByOwnedRoom
+      );
+    const adjacentToOwnedRoom =
+      configuredScoutTarget?.adjacentToOwnedRoom === true ||
+      isAdjacentToOwnedRoom(roomName, nearbyRoomDistancesByOwnedRoom);
     if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
       return [];
     }
@@ -457,6 +483,28 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
       }
     ];
   });
+}
+
+function getConfiguredExpansionScoutTargets(
+  colonyName: string,
+  ownedRoomNames: Set<string>
+): TerritoryExpansionScoutTargetConfig[] {
+  return TERRITORY_EXPANSION_SCOUT_TARGETS.filter(
+    (target) => target.colony === colonyName && ownedRoomNames.has(target.nearestOwnedRoom)
+  );
+}
+
+function getConfiguredNearestOwnedRoomDistance(
+  target: TerritoryExpansionScoutTargetConfig | undefined
+): { roomName?: string; distance?: number } | undefined {
+  if (!target) {
+    return undefined;
+  }
+
+  return {
+    roomName: target.nearestOwnedRoom,
+    distance: target.nearestOwnedRoomDistance
+  };
 }
 
 function buildUnseenExpansionCandidateEvidence(

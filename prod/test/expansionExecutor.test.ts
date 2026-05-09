@@ -255,6 +255,55 @@ describe('expansion executor', () => {
     ]);
   });
 
+  it('requests the configured E26S50 scout target for E26S49 expansion evaluation', () => {
+    const colony = makeColony({ roomName: 'E26S49' });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 821,
+      rooms: {
+        E26S49: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({})),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+    setSafeHomeThreat('E26S49', 821);
+
+    expect(refreshExpansionExecutorIntent(colony, 821)).toEqual({
+      status: 'skipped',
+      colony: 'E26S49',
+      reason: 'insufficientEvidence'
+    });
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S50',
+      evidenceStatus: 'insufficient-evidence',
+      recommendedAction: 'scout',
+      visible: false,
+      adjacentToOwnedRoom: true,
+      nearestOwnedRoom: 'E26S49',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1
+    });
+    expect(Memory.territory?.scoutAttempts?.['E26S49>E26S50']).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S50',
+      status: 'requested',
+      requestedAt: 821,
+      updatedAt: 821,
+      attemptCount: 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S50',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 821
+      }
+    ]);
+  });
+
   it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {
     const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     Memory.territory = {
@@ -303,32 +352,35 @@ describe('expansion executor', () => {
 });
 
 function makeColony({
+  roomName = 'W1N1',
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300,
-  spawns = [makeActiveSpawn('spawn-W1N1')]
+  spawns
 }: {
+  roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   spawns?: StructureSpawn[];
 } = {}): ColonySnapshot {
+  const colonySpawns = spawns ?? [makeActiveSpawn(`spawn-${roomName}`)];
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable,
     energyCapacityAvailable,
     controller: {
-      id: 'controller1' as Id<StructureController>,
+      id: `controller-${roomName}` as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
       level: 3,
       ticksToDowngrade: 10_000
     } as StructureController,
     memory: {},
-    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('W1N1', 2) : []))
+    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources(roomName, 2) : []))
   } as unknown as Room & { memory: RoomMemory };
 
   return {
     room,
-    spawns,
+    spawns: colonySpawns,
     energyAvailable,
     energyCapacityAvailable,
     memory: room.memory
