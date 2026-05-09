@@ -4,6 +4,11 @@ import {
   shouldApplyLocalFirstEnergyImportPolicy,
   type LocalEnergyImportAudit
 } from './localEnergyStrategy';
+import {
+  buildMultiRoomEnergyState,
+  type MultiRoomEnergyTransferAudit,
+  type MultiRoomEnergyTransferAuditReason
+} from './multiRoomEnergy';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
@@ -42,6 +47,11 @@ interface RoomEnergyStore {
 
 interface StorageTransferLocalEnergyAudit {
   audit: LocalEnergyImportAudit;
+}
+
+interface StorageTransferPlan {
+  transfers: EconomyStorageTransferMemory[];
+  audits: MultiRoomEnergyTransferAudit[];
 }
 
 export function balanceStorage(): void {
@@ -121,8 +131,8 @@ function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory
   const roomStates = getOwnedRooms()
     .map(getRoomStoredEnergyState)
     .filter((state) => state.capacity > 0);
-
-  return {
+  const transferPlan = buildStorageTransfers(roomStates, gameTime);
+  const state = {
     updatedAt: gameTime,
     rooms: Object.fromEntries(
       roomStates.map((state) => [
@@ -150,14 +160,23 @@ function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory
         }
       ])
     ),
-    transfers: buildStorageTransfers(roomStates, gameTime)
+    transfers: transferPlan.transfers
   };
+
+  getEconomyMemory().multiRoomEnergy = buildMultiRoomEnergyState(
+    roomStates,
+    transferPlan.transfers,
+    transferPlan.audits,
+    gameTime
+  );
+
+  return state;
 }
 
 function buildStorageTransfers(
   roomStates: RoomStoredEnergyState[],
   gameTime: number
-): EconomyStorageTransferMemory[] {
+): StorageTransferPlan {
   const exporters = roomStates
     .filter((state) => state.mode === 'export' && state.exportableEnergy > 0)
     .sort(compareExportRooms);
@@ -167,19 +186,37 @@ function buildStorageTransfers(
 
   const remainingExport = new Map(exporters.map((state) => [state.roomName, state.exportableEnergy]));
   const transfers: EconomyStorageTransferMemory[] = [];
+  const audits: MultiRoomEnergyTransferAudit[] = [];
 
   for (const importer of importers) {
     const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
     let remainingDemand = importer.importDemand;
-    for (const exporter of exporters) {
+    let suppressedByLocalFirstPolicy = false;
+    for (const exporter of sortExportersForImporter(exporters, importer)) {
       if (remainingDemand <= 0) {
         break;
       }
 
       const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
-      if (
-        !shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName, localEnergyAudit)
-      ) {
+      if (exportableEnergy <= 0) {
+        continue;
+      }
+
+      const suppressionReason = getStorageTransferSuppressionReason(
+        importer,
+        exporter.roomName,
+        localEnergyAudit
+      );
+      if (suppressionReason) {
+        audits.push({
+          sourceRoom: exporter.roomName,
+          targetRoom: importer.roomName,
+          amount: Math.min(exportableEnergy, remainingDemand),
+          status: 'suppressed',
+          reason: suppressionReason,
+          updatedAt: gameTime
+        });
+        suppressedByLocalFirstPolicy = true;
         continue;
       }
 
@@ -194,12 +231,30 @@ function buildStorageTransfers(
         amount,
         updatedAt: gameTime
       });
+      audits.push({
+        sourceRoom: exporter.roomName,
+        targetRoom: importer.roomName,
+        amount,
+        status: 'planned',
+        reason: 'storage-balance',
+        updatedAt: gameTime
+      });
       remainingExport.set(exporter.roomName, exportableEnergy - amount);
       remainingDemand -= amount;
     }
+
+    if (remainingDemand > 0 && !suppressedByLocalFirstPolicy) {
+      audits.push({
+        targetRoom: importer.roomName,
+        amount: remainingDemand,
+        status: 'blocked',
+        reason: exporters.length > 0 ? 'insufficient-exportable-energy' : 'no-exporter',
+        updatedAt: gameTime
+      });
+    }
   }
 
-  return transfers;
+  return { transfers, audits };
 }
 
 function getStorageTransferLocalEnergyAudit(
@@ -219,20 +274,55 @@ function getStorageTransferLocalEnergyAudit(
   };
 }
 
-function shouldAllowStorageTransferForLocalEnergyStrategy(
+function getStorageTransferSuppressionReason(
   importer: RoomStoredEnergyState,
   sourceRoom: string,
   localEnergyAudit: StorageTransferLocalEnergyAudit | undefined
-): boolean {
+): MultiRoomEnergyTransferAuditReason | null {
   if (!localEnergyAudit) {
-    return true;
+    return null;
   }
 
   if (!shouldApplyLocalFirstEnergyImportPolicy(importer.roomName, sourceRoom)) {
-    return true;
+    return null;
   }
 
-  return localEnergyAudit.audit.shouldImport;
+  if (localEnergyAudit.audit.shouldImport) {
+    return null;
+  }
+
+  return localEnergyAudit.audit.reason === 'local-harvest-sufficient'
+    ? 'local-first-sufficient'
+    : 'local-first-policy';
+}
+
+function sortExportersForImporter(
+  exporters: RoomStoredEnergyState[],
+  importer: RoomStoredEnergyState
+): RoomStoredEnergyState[] {
+  return [...exporters].sort((left, right) =>
+    compareExportRoomsForImporter(left, right, importer)
+  );
+}
+
+function compareExportRoomsForImporter(
+  left: RoomStoredEnergyState,
+  right: RoomStoredEnergyState,
+  importer: RoomStoredEnergyState
+): number {
+  return (
+    getCorridorExporterPriority(left.roomName, importer.roomName) -
+      getCorridorExporterPriority(right.roomName, importer.roomName) ||
+    compareExportRooms(left, right)
+  );
+}
+
+function getCorridorExporterPriority(sourceRoom: string, targetRoom: string): number {
+  if (sourceRoom === 'E26S49' && targetRoom === 'E26S50') {
+    return 0;
+  }
+
+  return 1;
 }
 
 function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {

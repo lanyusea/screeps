@@ -40,6 +40,7 @@ import {
   selectEnergyHaulerSpawnDemand
 } from '../economy/energyHauling';
 import { getEnergyReservationScore } from '../economy/energyReservation';
+import { getMultiRoomEnergyRoomState } from '../economy/multiRoomEnergy';
 import { getReservedSpawnEnergy } from '../economy/spawnEnergyReservation';
 import {
   buildRemoteHarvesterBody,
@@ -147,6 +148,11 @@ export interface SpawnEnergyForecast {
   outgoingEnergy: number;
   reservedEnergy: number;
   effectiveEnergyAvailable: number;
+  localProductionEnergyPerTick: number;
+  localConsumptionEnergyPerTick: number;
+  netLocalEnergyPerTick: number;
+  deficitEnergy: number;
+  surplusEnergy: number;
 }
 
 export type SpawnPlanningEnergyGate = 'critical' | 'recovery' | 'ready' | 'full';
@@ -166,6 +172,11 @@ export interface RoomCreepBudget {
   energyAvailable: number;
   energyCapacityAvailable: number;
   effectiveEnergyAvailable: number;
+  localProductionEnergyPerTick: number;
+  localConsumptionEnergyPerTick: number;
+  netLocalEnergyPerTick: number;
+  deficitEnergy: number;
+  surplusEnergy: number;
   energyGate: SpawnPlanningEnergyGate;
   ownedSpawnCount: number;
   idleSpawnCount: number;
@@ -272,25 +283,43 @@ export function sortSpawnQueueByRolePriority<T extends SpawnQueuePriorityCandida
 }
 
 export function getSpawnEnergyForecast(colony: ColonySnapshot): SpawnEnergyForecast {
-  const balance = getStorageBalanceMemory();
-  const transfers = Array.isArray(balance?.transfers) ? balance.transfers : [];
-  const incomingEnergy = transfers
-    .filter((transfer) => transfer.targetRoom === colony.room.name)
-    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
-  const outgoingEnergy = transfers
-    .filter((transfer) => transfer.sourceRoom === colony.room.name)
-    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
+  const transferForecast = getRoomPlannedTransferEnergy(colony.room.name);
+  const multiRoomEnergy = getMultiRoomEnergyRoomState(colony.room.name);
   const energyAvailable = normalizeNonNegativeInteger(colony.energyAvailable);
   const reservedEnergy = getReservedSpawnEnergy(colony.room.name);
 
   return {
     roomName: colony.room.name,
     energyAvailable,
-    incomingEnergy,
-    outgoingEnergy,
+    incomingEnergy: transferForecast.incomingEnergy,
+    outgoingEnergy: transferForecast.outgoingEnergy,
     reservedEnergy,
-    effectiveEnergyAvailable: Math.max(0, energyAvailable + incomingEnergy - outgoingEnergy - reservedEnergy)
+    effectiveEnergyAvailable: Math.max(
+      0,
+      energyAvailable + transferForecast.incomingEnergy - transferForecast.outgoingEnergy - reservedEnergy
+    ),
+    localProductionEnergyPerTick: multiRoomEnergy?.localProductionEnergyPerTick ?? 0,
+    localConsumptionEnergyPerTick: multiRoomEnergy?.localConsumptionEnergyPerTick ?? 0,
+    netLocalEnergyPerTick: multiRoomEnergy?.netLocalEnergyPerTick ?? 0,
+    deficitEnergy: multiRoomEnergy?.deficitEnergy ?? 0,
+    surplusEnergy: multiRoomEnergy?.surplusEnergy ?? 0
   };
+}
+
+export function getRoomPlannedTransferEnergy(roomName: string): Pick<
+  SpawnEnergyForecast,
+  'incomingEnergy' | 'outgoingEnergy'
+> {
+  const balance = getStorageBalanceMemory();
+  const transfers = Array.isArray(balance?.transfers) ? balance.transfers : [];
+  const incomingEnergy = transfers
+    .filter((transfer) => transfer.targetRoom === roomName)
+    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
+  const outgoingEnergy = transfers
+    .filter((transfer) => transfer.sourceRoom === roomName)
+    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
+
+  return { incomingEnergy, outgoingEnergy };
 }
 
 export function planSpawnEnergyReservationCandidate(
@@ -388,6 +417,11 @@ export function getRoomCreepBudget(
     energyAvailable: normalizeNonNegativeInteger(colony.energyAvailable),
     energyCapacityAvailable: normalizeNonNegativeInteger(colony.energyCapacityAvailable),
     effectiveEnergyAvailable: forecast.effectiveEnergyAvailable,
+    localProductionEnergyPerTick: forecast.localProductionEnergyPerTick,
+    localConsumptionEnergyPerTick: forecast.localConsumptionEnergyPerTick,
+    netLocalEnergyPerTick: forecast.netLocalEnergyPerTick,
+    deficitEnergy: forecast.deficitEnergy,
+    surplusEnergy: forecast.surplusEnergy,
     energyGate: getSpawnPlanningEnergyGate(forecast.effectiveEnergyAvailable, colony.energyCapacityAvailable),
     ownedSpawnCount: colony.spawns.length,
     idleSpawnCount: colony.spawns.filter((spawn) => !spawn.spawning).length,
@@ -2010,8 +2044,10 @@ function compareColoniesForSpawnPlanning(
     getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) ||
     getNoSpawnRoomOrdering(leftBudget, rightBudget) ||
     leftBudget.controllerLevel - rightBudget.controllerLevel ||
+    rightBudget.deficitEnergy - leftBudget.deficitEnergy ||
     getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) ||
     rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable ||
+    rightBudget.netLocalEnergyPerTick - leftBudget.netLocalEnergyPerTick ||
     right.energyAvailable - left.energyAvailable ||
     left.room.name.localeCompare(right.room.name)
   );
