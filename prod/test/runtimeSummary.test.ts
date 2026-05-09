@@ -503,6 +503,135 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports E26S50 post-claim construction, energy, and defense progress after worker readiness', () => {
+    const remoteHarvester = makeWorker({
+      role: 'remoteHarvester',
+      colony: 'E26S49',
+      remoteHarvester: {
+        homeRoom: 'E26S49',
+        targetRoom: 'E26S50',
+        sourceId: 'e26s50-source-a' as Id<Source>
+      }
+    });
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E26S50',
+      includeEventLog: false,
+      sources: [
+        {
+          id: 'e26s50-source-a',
+          pos: { x: 10, y: 10, roomName: 'E26S50' }
+        }
+      ],
+      structures: [
+        {
+          id: 'spawn-e26s50',
+          structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+          store: makeEnergyStore(50, 300)
+        },
+        {
+          id: 'container-e26s50-a',
+          structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+          pos: { x: 10, y: 11, roomName: 'E26S50' },
+          store: makeEnergyStore(400, 2000)
+        }
+      ],
+      constructionSites: [
+        {
+          id: 'tower-site-e26s50',
+          structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+          pos: { x: 24, y: 24, roomName: 'E26S50' }
+        },
+        {
+          id: 'rampart-site-e26s50',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          pos: { x: 25, y: 1, roomName: 'E26S50' }
+        }
+      ],
+      creeps: [remoteHarvester]
+    });
+    (colony.room.controller as StructureController).level = 3;
+    (colony.room.controller as StructureController).pos = { x: 25, y: 25, roomName: 'E26S50' } as RoomPosition;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S50: {
+            colony: 'E26S49',
+            roomName: 'E26S50',
+            status: 'ready',
+            claimedAt: 837,
+            updatedAt: 838,
+            workerTarget: 2,
+            controllerId: 'controller-e26s50' as Id<StructureController>
+          }
+        },
+        claimedRoomBootstrapper: {
+          rooms: {
+            E26S50: {
+              roomName: 'E26S50',
+              owned: true,
+              claimedAt: 837,
+              updatedAt: 838
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
+      describeExits: jest.fn(() => ({ '5': 'E26S49' }))
+    } as unknown as GameMap;
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+      RemoteHarvester: remoteHarvester
+    };
+
+    emitRuntimeSummary([colony], [remoteHarvester], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.postClaimBootstrap).toMatchObject({
+      colony: 'E26S49',
+      status: 'ready',
+      controllerId: 'controller-e26s50',
+      progress: {
+        construction: {
+          priorityOrder: ['spawn', 'extension', 'container', 'road', 'tower', 'rampart', 'storage'],
+          sourceContainers: {
+            existing: 1,
+            pending: 0,
+            coveredSources: 1,
+            complete: true
+          },
+          towers: {
+            existing: 0,
+            pending: 1,
+            target: 1,
+            complete: true
+          },
+          ramparts: {
+            existing: 0,
+            pending: 1
+          }
+        },
+        energy: {
+          sourceCount: 1,
+          coveredSourceCount: 1,
+          sourceContainerCount: 1,
+          pendingSourceContainerCount: 0,
+          assignedHarvesterCount: 1,
+          localStoredEnergy: 450
+        },
+        defense: {
+          towerCount: 0,
+          pendingTowerCount: 1,
+          towerTarget: 1,
+          rampartCount: 0,
+          pendingRampartCount: 1,
+          nextBarrierStage: 'entranceRampart'
+        }
+      }
+    });
+  });
+
   it('omits structure snapshots from event-only non-cadence summaries', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL + 1,

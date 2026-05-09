@@ -87,6 +87,60 @@ describe('post-claim defense construction refresh', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('queues a tower and an exit rampart for claimed E26S50 defense bootstrap', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S50: {
+            colony: 'E26S49',
+            roomName: 'E26S50',
+            status: 'ready',
+            claimedAt: 837,
+            updatedAt: 838,
+            workerTarget: 2,
+            controllerId: 'controller-e26s50' as Id<StructureController>
+          }
+        },
+        claimedRoomBootstrapper: {
+          rooms: {
+            E26S50: {
+              roomName: 'E26S50',
+              owned: true,
+              claimedAt: 837,
+              updatedAt: 838
+            }
+          }
+        }
+      }
+    };
+    const { colony, room } = makePostClaimDefenseColony('E26S50');
+    installGame(room);
+
+    const result = refreshPostClaimDefenseConstruction(colony);
+
+    expect(result.tower).toMatchObject({
+      roomName: 'E26S50',
+      status: 'created',
+      result: OK_CODE
+    });
+    expect(result.barrier).toEqual({
+      roomName: 'E26S50',
+      status: 'created',
+      result: OK_CODE,
+      stage: 'entranceRampart',
+      structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+      x: 25,
+      y: 1
+    });
+    expect(room.createConstructionSite).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.any(Number),
+      TEST_GLOBALS.STRUCTURE_TOWER
+    );
+    expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
+
   it('does not run defense planning when the post-claim bootstrap record is missing', () => {
     const territory = (globalThis as unknown as { Memory: Partial<Memory> }).Memory.territory;
     if (territory?.postClaimBootstraps) {
@@ -122,8 +176,7 @@ interface PostClaimDefenseRoom extends Room {
   find: jest.Mock;
 }
 
-function makePostClaimDefenseColony(): { colony: ColonySnapshot; room: PostClaimDefenseRoom } {
-  const roomName = 'E26S48';
+function makePostClaimDefenseColony(roomName = 'E26S48'): { colony: ColonySnapshot; room: PostClaimDefenseRoom } {
   const constructionSites: ConstructionSite[] = [];
   const sources = [
     makeSource('source-a', 10, 10, roomName),
