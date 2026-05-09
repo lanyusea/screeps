@@ -17360,6 +17360,21 @@ function getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy = getRoomEnerg
     unmetReservedEnergy: reservation.unmetReservedEnergy
   };
 }
+function getRoomSpawnEnergyBufferNeed(room, spawns = getRoomSpawns2(room), currentEnergy = getRoomEnergyAvailable8(room)) {
+  const snapshot = getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy);
+  const threshold = snapshot.threshold;
+  const criticalThreshold = getCriticalSpawnEnergyBufferThreshold(threshold, snapshot.spawnCount);
+  return {
+    criticalDeficit: Math.max(0, criticalThreshold - snapshot.currentEnergy),
+    criticalThreshold,
+    currentEnergy: snapshot.currentEnergy,
+    deficit: Math.max(0, threshold - snapshot.currentEnergy),
+    healthy: snapshot.currentEnergy >= threshold,
+    roomName: snapshot.roomName,
+    spawnCount: snapshot.spawnCount,
+    threshold
+  };
+}
 function getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount) {
   const configured = getConfiguredSpawnEnergyBufferThreshold(room);
   if (configured !== null) {
@@ -17438,6 +17453,12 @@ function getMinerOutputBufferCredit(minerOutputEnergyPerTick) {
 function getSpawnEnergyBufferRequirementForReservation(baseRequirement, reservedSpawnEnergy) {
   return Math.max(normalizeEnergyAmount2(baseRequirement), normalizeEnergyAmount2(reservedSpawnEnergy));
 }
+function getCriticalSpawnEnergyBufferThreshold(threshold, spawnCount) {
+  if (spawnCount <= 0 || threshold <= 0) {
+    return 0;
+  }
+  return Math.min(threshold, MINIMUM_SPAWN_ENERGY_BUFFER_PER_SPAWN * spawnCount);
+}
 function normalizeConfiguredThreshold(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return null;
@@ -17449,17 +17470,28 @@ function getSpawnBufferCount(spawns) {
 }
 function getRoomSpawns2(room) {
   var _a, _b;
-  const findMyStructures = globalThis.FIND_MY_STRUCTURES;
-  const find = room.find;
-  if (typeof findMyStructures === "number" && typeof find === "function") {
-    return find.call(room, findMyStructures, { filter: (structure) => isSpawnStructure2(structure) }).filter(isSpawnStructure2);
-  }
-  return Object.values((_b = (_a = globalThis.Game) == null ? void 0 : _a.spawns) != null ? _b : {}).filter(
+  const gameSpawns = Object.values((_b = (_a = globalThis.Game) == null ? void 0 : _a.spawns) != null ? _b : {}).filter(
     (spawn) => {
       var _a2;
       return ((_a2 = spawn.room) == null ? void 0 : _a2.name) === getRoomName5(room);
     }
   );
+  const findMyStructures = globalThis.FIND_MY_STRUCTURES;
+  const find = room.find;
+  if (typeof findMyStructures === "number" && typeof find === "function") {
+    const foundSpawns = find.call(room, findMyStructures, { filter: (structure) => isSpawnStructure2(structure) }).filter(isSpawnStructure2);
+    return mergeSpawnLists(foundSpawns, gameSpawns);
+  }
+  return gameSpawns;
+}
+function mergeSpawnLists(left, right) {
+  const merged = [];
+  for (const spawn of [...left, ...right]) {
+    if (!merged.some((existing) => isSameSpawn(existing, spawn))) {
+      merged.push(spawn);
+    }
+  }
+  return merged;
 }
 function ensureSpawnListIncludesTarget(spawns, target) {
   return spawns.some((spawn) => isSameSpawn(spawn, target)) ? spawns : [...spawns, target];
@@ -18447,8 +18479,11 @@ function buildMultiRoomEnergyRoom(input) {
     spawnEnergyAvailable: spawnEnergy.available,
     spawnEnergyCapacity: spawnEnergy.capacity,
     spawnEnergyDeficit: spawnEnergy.deficit,
+    spawnEnergyBufferThreshold: roomState.spawnEnergyBufferThreshold,
+    spawnEnergyBufferDeficit: roomState.spawnEnergyBufferDeficit,
+    criticalSpawnEnergyDeficit: roomState.criticalSpawnEnergyDeficit,
     storageDeficit,
-    deficitEnergy: storageDeficit + spawnEnergy.deficit,
+    deficitEnergy: storageDeficit,
     surplusEnergy,
     suppressedImportEnergy,
     blockedImportEnergy,
@@ -18710,9 +18745,14 @@ function getRoomStoredEnergyState(room) {
   const capacity = stores.reduce((total, structure) => total + getEnergyCapacity2(structure), 0);
   const ratio = capacity > 0 ? energy / capacity : 0;
   const spawnEnergyReservation = getRoomSpawnEnergyReservationState(room);
+  const spawnEnergyBufferNeed = getRoomSpawnEnergyBufferNeed(room);
   const rawExportableEnergy = capacity > 0 && ratio > STORAGE_BALANCE_EXPORT_RATIO ? Math.floor(energy - capacity * STORAGE_BALANCE_EXPORT_RATIO) : 0;
-  const exportableEnergy = Math.max(0, rawExportableEnergy - spawnEnergyReservation.unmetReservedEnergy);
-  const importDemand = capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy) : 0;
+  const exportableEnergy = Math.max(
+    0,
+    rawExportableEnergy - spawnEnergyBufferNeed.deficit
+  );
+  const storageImportDemand = capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy) : 0;
+  const importDemand = storageImportDemand + spawnEnergyBufferNeed.deficit;
   return {
     roomName: room.name,
     energy,
@@ -18729,13 +18769,18 @@ function getRoomStoredEnergyState(room) {
     terminalTargetEnergy,
     terminalEnergyDeficit,
     terminalEnergySurplus,
+    spawnEnergyAvailable: spawnEnergyBufferNeed.currentEnergy,
+    spawnEnergyCapacity: normalizeNonNegativeInteger9(room.energyCapacityAvailable),
+    spawnEnergyBufferThreshold: spawnEnergyBufferNeed.threshold,
+    spawnEnergyBufferDeficit: spawnEnergyBufferNeed.deficit,
+    criticalSpawnEnergyDeficit: spawnEnergyBufferNeed.criticalDeficit,
     reservedSpawnEnergy: spawnEnergyReservation.reservedEnergy,
     unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy,
-    mode: selectStorageBalanceMode(capacity, ratio)
+    mode: selectStorageBalanceMode(capacity, ratio, exportableEnergy, importDemand)
   };
 }
 function buildStorageBalanceState(gameTime) {
-  const roomStates = getOwnedRooms().map(getRoomStoredEnergyState).filter((state2) => state2.capacity > 0);
+  const roomStates = getOwnedRooms().map(getRoomStoredEnergyState).filter((state2) => state2.capacity > 0 || state2.spawnEnergyBufferThreshold > 0);
   const transferPlan = buildStorageTransfers(roomStates, gameTime);
   const state = {
     updatedAt: gameTime,
@@ -18759,6 +18804,11 @@ function buildStorageBalanceState(gameTime) {
           terminalTargetEnergy: state2.terminalTargetEnergy,
           terminalEnergyDeficit: state2.terminalEnergyDeficit,
           terminalEnergySurplus: state2.terminalEnergySurplus,
+          spawnEnergyAvailable: state2.spawnEnergyAvailable,
+          spawnEnergyCapacity: state2.spawnEnergyCapacity,
+          spawnEnergyBufferThreshold: state2.spawnEnergyBufferThreshold,
+          spawnEnergyBufferDeficit: state2.spawnEnergyBufferDeficit,
+          criticalSpawnEnergyDeficit: state2.criticalSpawnEnergyDeficit,
           reservedSpawnEnergy: state2.reservedSpawnEnergy,
           unmetSpawnEnergyReservation: state2.unmetSpawnEnergyReservation,
           updatedAt: gameTime
@@ -18835,7 +18885,7 @@ function buildStorageTransfers(roomStates, gameTime) {
         targetRoom: importer.roomName,
         amount,
         status: "planned",
-        reason: "storage-balance",
+        reason: selectPlannedTransferReason(importer),
         updatedAt: gameTime
       });
       remainingExport.set(exporter.roomName, exportableEnergy - amount);
@@ -18866,6 +18916,9 @@ function getStorageTransferLocalEnergyAudit(importer) {
   };
 }
 function getStorageTransferSuppressionReason(importer, sourceRoom, localEnergyAudit) {
+  if (importer.criticalSpawnEnergyDeficit > 0 || importer.unmetSpawnEnergyReservation > 0) {
+    return null;
+  }
   if (!localEnergyAudit) {
     return null;
   }
@@ -18913,7 +18966,7 @@ function getRoomStorageImportPriorityRank(roomName) {
   return 10;
 }
 function getImportRoomPriorityRank(state) {
-  return state.unmetSpawnEnergyReservation > 0 ? 0 : getRoomStorageImportPriorityRank(state.roomName);
+  return state.unmetSpawnEnergyReservation > 0 || state.criticalSpawnEnergyDeficit > 0 ? 0 : getRoomStorageImportPriorityRank(state.roomName);
 }
 function getControllerUpgradeImportPriorityRank(roomName) {
   var _a, _b, _c;
@@ -18944,11 +18997,10 @@ function hasCriticalSpawnEnergyPressure(roomName) {
   if (!room) {
     return false;
   }
-  const capacity = normalizeNonNegativeInteger9(room.energyCapacityAvailable);
-  if (capacity <= 0 || !hasOwnedSpawn2(room)) {
-    return false;
-  }
-  return normalizeNonNegativeInteger9(room.energyAvailable) < Math.min(200, capacity);
+  return hasOwnedSpawn2(room) && getRoomSpawnEnergyBufferNeed(room).criticalDeficit > 0;
+}
+function selectPlannedTransferReason(importer) {
+  return importer.spawnEnergyBufferDeficit > 0 ? "spawn-energy-buffer" : "storage-balance";
 }
 function hasOwnedSpawn2(room) {
   var _a, _b;
@@ -18994,12 +19046,15 @@ function getCachedOwnedLogisticsRoute(sourceRoom, targetRoom, routeContext) {
   }
   return (_a = routeContext.routesByRoomPair.get(key)) != null ? _a : null;
 }
-function selectStorageBalanceMode(capacity, ratio) {
+function selectStorageBalanceMode(capacity, ratio, exportableEnergy, importDemand) {
   if (capacity <= 0) {
-    return "balanced";
+    return importDemand > 0 ? "import" : "balanced";
   }
-  if (ratio > STORAGE_BALANCE_EXPORT_RATIO) {
+  if (ratio > STORAGE_BALANCE_EXPORT_RATIO && exportableEnergy > 0) {
     return "export";
+  }
+  if (importDemand > 0) {
+    return "import";
   }
   if (ratio < STORAGE_BALANCE_IMPORT_RATIO) {
     return "import";

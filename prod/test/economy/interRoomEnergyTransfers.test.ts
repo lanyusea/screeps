@@ -110,8 +110,7 @@ describe('economy inter-room energy transfers', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 200, updatedAt: 100 },
-      { sourceRoom: 'W1N1', targetRoom: 'W3N1', amount: 200, updatedAt: 100 }
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 400, updatedAt: 100 }
     ]);
     expect(selectCrossRoomEnergyTransfer()?.targetRoom).toBe('W2N1');
   });
