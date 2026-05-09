@@ -1,8 +1,9 @@
 import { getRangeBetweenPositions, getRoomObjectPosition } from './sourceContainers';
 import { classifyLinks, getSourceLinkWorkerEnergyAvailable, type LinkNetwork } from './linkManager';
+import { isControllerStagingContainer, isSpawnStagingContainer } from './stagingContainers';
 
 type EnergyHaulingSource = StructureContainer | StructureLink | StructureStorage | StructureTerminal;
-type EnergyHaulingDeliveryTarget = StructureSpawn | StructureExtension | StructureTower | StructureStorage;
+type EnergyHaulingDeliveryTarget = StructureSpawn | StructureExtension | StructureTower | StructureStorage | StructureContainer;
 type EnergyHaulingBacklogSource = StructureContainer | StructureLink;
 type EnergyHaulingStructureConstantGlobal =
   | 'STRUCTURE_CONTAINER'
@@ -13,7 +14,7 @@ type EnergyHaulingStructureConstantGlobal =
   | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_TOWER';
 type EnergyHaulingOrigin = RoomObject | RoomPosition | null | undefined;
-type EnergyHaulingDeliveryPriority = 'spawn' | 'extension' | 'tower' | 'storage';
+type EnergyHaulingDeliveryPriority = 'spawn' | 'extension' | 'tower' | 'controllerContainer' | 'storage';
 
 export interface EnergyHaulingOptions {
   sourceEnergyThreshold?: number;
@@ -34,6 +35,7 @@ interface EnergyHaulingCandidate<T extends RoomObject> {
   energy?: number;
   priority?: EnergyHaulingDeliveryPriority;
   range: number;
+  sourcePriority?: number;
   structure: T;
 }
 
@@ -56,11 +58,15 @@ export function selectEnergyHaulingSource(
     DEFAULT_ENERGY_HAULING_SOURCE_THRESHOLD
   );
   const network = getLinkNetwork(room);
+  const prioritizeSpawnStaging = hasSpawnExtensionEnergyHaulingDeliveryDemand(room);
   const sources = findEnergyHaulingSources(room, options)
     .map((structure): EnergyHaulingCandidate<EnergyHaulingSource> => ({
       structure,
       energy: getWithdrawableEnergy(room, structure, network),
-      range: getRangeToRoomObject(origin, structure)
+      range: getRangeToRoomObject(origin, structure),
+      sourcePriority: prioritizeSpawnStaging
+        ? getPriorityRefillEnergySourceRank(room, structure)
+        : undefined
     }))
     .filter((candidate) => (candidate.energy ?? 0) > sourceThreshold);
 
@@ -89,7 +95,7 @@ export function selectEnergyHaulingDeliveryTarget(
 
 export function hasPriorityEnergyHaulingDeliveryDemand(room: Room): boolean {
   return findEnergyHaulingDeliveryTargets(room).some(
-    (target) => !isStorageStructure(target) && getFreeEnergyCapacity(target) > 0
+    (target) => !isStorageStructure(target) && !isContainerStructure(target) && getFreeEnergyCapacity(target) > 0
   );
 }
 
@@ -191,12 +197,16 @@ function findEnergyHaulingBacklogSources(room: Room): EnergyHaulingBacklogSource
 }
 
 function findEnergyHaulingDeliveryTargets(room: Room): EnergyHaulingDeliveryTarget[] {
-  return includeRoomDurableStores(room, findOwnedStructures(room)).filter(
+  return [
+    ...includeRoomDurableStores(room, findOwnedStructures(room)),
+    ...findControllerStagingDeliveryContainers(room)
+  ].filter(
     (structure): structure is EnergyHaulingDeliveryTarget =>
       isSpawnStructure(structure) ||
       isExtensionStructure(structure) ||
       isTowerStructure(structure) ||
-      isStorageStructure(structure)
+      isStorageStructure(structure) ||
+      isControllerStagingContainer(room, structure)
   );
 }
 
@@ -222,6 +232,7 @@ function compareSourceCandidates(
   right: EnergyHaulingCandidate<EnergyHaulingSource>
 ): number {
   return (
+    compareOptionalSourcePriority(left.sourcePriority, right.sourcePriority) ||
     left.range - right.range ||
     getSourceTypeRank(left.structure) - getSourceTypeRank(right.structure) ||
     (right.energy ?? 0) - (left.energy ?? 0) ||
@@ -269,6 +280,10 @@ function getDeliveryPriority(structure: EnergyHaulingDeliveryTarget): EnergyHaul
     return 'tower';
   }
 
+  if (isContainerStructure(structure)) {
+    return 'controllerContainer';
+  }
+
   return 'storage';
 }
 
@@ -280,8 +295,10 @@ function getDeliveryPriorityRank(priority: EnergyHaulingDeliveryPriority | undef
       return 1;
     case 'tower':
       return 2;
-    case 'storage':
+    case 'controllerContainer':
       return 3;
+    case 'storage':
+      return 4;
     default:
       return Number.MAX_SAFE_INTEGER;
   }
@@ -297,6 +314,18 @@ function getWithdrawableEnergy(
   }
 
   return getStoredEnergy(source);
+}
+
+function getPriorityRefillEnergySourceRank(room: Room, source: EnergyHaulingSource): number {
+  if (isSpawnStagingContainer(room, source)) {
+    return 0;
+  }
+
+  if (isControllerStagingContainer(room, source)) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function getStoredEnergy(target: unknown): number {
@@ -390,6 +419,20 @@ function includeRoomDurableStores(room: Room, structures: AnyOwnedStructure[]): 
   return result;
 }
 
+function findControllerStagingDeliveryContainers(room: Room): StructureContainer[] {
+  return findRoomStructures(room).filter((structure): structure is StructureContainer =>
+    isControllerStagingContainer(room, structure as AnyStructure)
+  );
+}
+
+function hasSpawnExtensionEnergyHaulingDeliveryDemand(room: Room): boolean {
+  return findOwnedStructures(room).some(
+    (structure) =>
+      (isSpawnStructure(structure) || isExtensionStructure(structure)) &&
+      getFreeEnergyCapacity(structure) > 0
+  );
+}
+
 function findRoomStructures(room: Room): Structure[] {
   const findStructures = getGlobalNumber('FIND_STRUCTURES');
   if (findStructures === undefined || typeof room.find !== 'function') {
@@ -449,6 +492,22 @@ function matchesStructureType(
 ): boolean {
   const constants = globalThis as unknown as Partial<Record<EnergyHaulingStructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function compareOptionalSourcePriority(left: number | undefined, right: number | undefined): number {
+  if (left === undefined && right === undefined) {
+    return 0;
+  }
+
+  if (left === undefined) {
+    return 1;
+  }
+
+  if (right === undefined) {
+    return -1;
+  }
+
+  return left - right;
 }
 
 function getGlobalNumber(name: string): number | undefined {

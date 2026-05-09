@@ -64,6 +64,29 @@ describe('energy hauling priority system', () => {
     expect(selectEnergyHaulingDeliveryTarget(extensionRoom, makePosition(1, 1))?.id).toBe('extension-near');
   });
 
+  it('uses the spawn staging container as the local refill source while spawn extensions need energy', () => {
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200, 10, 10);
+    const spawnContainer = makeStoreStructure('spawn-stage', STRUCTURE_CONTAINER, 800, 1_200, 11, 10);
+    const nearStorage = makeStoreStructure('storage-near', STRUCTURE_STORAGE, 2_000, 8_000, 2, 2);
+    const room = makeRoom([spawnContainer, nearStorage], [spawn]);
+
+    const source = selectEnergyHaulingSource(room, makePosition(1, 1), { sourceEnergyThreshold: 100 });
+
+    expect(source?.id).toBe('spawn-stage');
+  });
+
+  it('delivers surplus hauled energy to a controller staging container before storage', () => {
+    const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 100, 1_900, 24, 25);
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 2_000, 8_000, 2, 2);
+    const room = makeRoom([controllerContainer], [storage], {
+      controller: { my: true, pos: makePosition(25, 25) } as StructureController
+    });
+
+    const target = selectEnergyHaulingDeliveryTarget(room, makePosition(1, 1));
+
+    expect(target?.id).toBe('controller-stage');
+  });
+
   it('reports spawn demand when container and link backlog exceeds the threshold below the hauler cap', () => {
     const container = makeStoreStructure('container1', STRUCTURE_CONTAINER, 350, 1_650, 5, 5);
     const link = makeStoreStructure('link1', STRUCTURE_LINK, 300, 500, 6, 6, 800);

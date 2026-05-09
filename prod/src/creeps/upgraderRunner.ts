@@ -1,5 +1,6 @@
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 import { getStorageEnergyAvailableForWithdrawal } from '../economy/energyBuffer';
+import { isControllerStagingContainer } from '../economy/stagingContainers';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from './roleCounts';
 
 export type ControllerUpgradePriority =
@@ -279,7 +280,7 @@ function selectStoredUpgraderEnergySources(creep: Creep): UpgraderEnergySource[]
       action: 'withdraw' as const,
       target: structure,
       energy: getUpgraderWithdrawableEnergy(creep.room, structure),
-      priority: getStoredUpgraderEnergySourcePriority(structure)
+      priority: getStoredUpgraderEnergySourcePriority(creep.room, structure)
     }))
     .filter((candidate) => candidate.energy > 0);
 }
@@ -352,7 +353,11 @@ function isUpgraderStoredEnergySource(structure: Structure): structure is AnySto
   );
 }
 
-function getStoredUpgraderEnergySourcePriority(structure: AnyStoreStructure): number {
+function getStoredUpgraderEnergySourcePriority(room: Room, structure: AnyStoreStructure): number {
+  if (isControllerStagingContainer(room, structure as AnyStructure)) {
+    return 0;
+  }
+
   return matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link')
