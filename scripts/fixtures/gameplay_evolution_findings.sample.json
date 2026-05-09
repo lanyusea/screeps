@@ -1,0 +1,22 @@
+{
+  "sourceReviewArtifact": "docs/process/2026-05-09-gameplay-evolution-review.md",
+  "findings": [
+    {
+      "title": "Reserve-road telemetry does not identify blocked remote expansion",
+      "evidenceWindow": "2026-05-09T00:00:00Z..2026-05-09T06:00:00Z",
+      "shardRoom": "shardX / E26S49",
+      "codeVersionDeployedCommit": "sample-review-commit",
+      "servedVisionLayer": "territory",
+      "kpiDeltaObserved": "Owned room count stayed flat and the selected reserve candidate had no fresh progress evidence.",
+      "reliabilityGuardrailsObserved": "Runtime summaries were present; no secret-bearing official API payloads were copied.",
+      "hypothesis": "A blocked reserve path is not surfaced as a first-class finding, so the scheduler cannot fan out a bounded code task.",
+      "targetArea": "scripts",
+      "expectedKpiMovement": "Accepted findings produce concrete P1 backlog items before the next Gameplay Evolution review cycle.",
+      "acceptanceEvidence": "Dry-run output shows the exact issue title, labels, milestone, parent link, source artifact link, and Project field updates.",
+      "rollbackStopCondition": "Stop using the generated issue if the source review artifact is corrected or the finding is rejected as duplicate.",
+      "noSecretConsiderations": "Only sanitized review metadata and repo-relative artifact paths are included.",
+      "scope": "Automate the GitHub issue creation handoff for accepted Gameplay Evolution review findings.",
+      "filesSubsystemsExpected": "scripts/gameplay_evolution_issue_creator.py"
+    }
+  ]
+}
