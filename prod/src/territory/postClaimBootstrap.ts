@@ -2,6 +2,15 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { planConstructionForColony } from '../construction/planner';
 import type { RoleCounts } from '../creeps/roleCounts';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import {
+  runRampartWallConstructionExecutorForColony,
+  type RampartWallConstructionExecutorResult
+} from './rampartWallConstructionExecutor';
+import {
+  runTowerConstructionExecutorForColony,
+  type TowerConstructionExecutorResult
+} from './towerConstructionExecutor';
+import type { ExpansionDefenseBarrierPlacementStage } from './expansionPlanner';
 
 export const POST_CLAIM_BOOTSTRAP_WORKER_TARGET = 2;
 
@@ -10,6 +19,12 @@ const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ROOM_EDGE_MIN = 2;
 const ROOM_EDGE_MAX = 47;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
+const POST_CLAIM_DEFENSE_BARRIER_STAGE_ORDER: readonly ExpansionDefenseBarrierPlacementStage[] = [
+  'entranceRampart',
+  'towerRampart',
+  'coreRampart',
+  'entranceWall'
+];
 
 type StructureConstantGlobal = 'STRUCTURE_SPAWN';
 type FindConstantGlobal = 'FIND_MY_CONSTRUCTION_SITES' | 'FIND_SOURCES';
@@ -51,6 +66,13 @@ export interface PostClaimBootstrapSummary {
   controllerId?: Id<StructureController>;
   spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
   lastResult?: ScreepsReturnCode;
+}
+
+export interface PostClaimDefenseConstructionRefreshResult {
+  active: boolean;
+  deferred?: boolean;
+  tower: TowerConstructionExecutorResult | null;
+  barrier: RampartWallConstructionExecutorResult | null;
 }
 
 export function recordPostClaimBootstrapClaimSuccess(
@@ -238,11 +260,53 @@ export function selectPostClaimBootstrapFocusRoomName(colonies: ColonySnapshot[]
   return getVisibleActivePostClaimBootstrapRecords(colonies)[0]?.roomName ?? null;
 }
 
+export function refreshPostClaimDefenseConstruction(
+  colony: ColonySnapshot,
+  options: PostClaimBootstrapRefreshOptions = {}
+): PostClaimDefenseConstructionRefreshResult {
+  const roomName = colony.room.name;
+  if (colony.room.controller?.my !== true || !isPostClaimDefenseConstructionRoom(roomName)) {
+    return { active: false, tower: null, barrier: null };
+  }
+
+  if (isPostClaimBootstrapDeferred(roomName, options.focusRoomName)) {
+    return { active: true, deferred: true, tower: null, barrier: null };
+  }
+
+  const tower = runTowerConstructionExecutorForColony(colony, {
+    requireExpansionMemory: true,
+    minEnergyAvailable: 0
+  });
+  const barrier = runRampartWallConstructionExecutorForColony(colony, {
+    requireExpansionMemory: true,
+    minEnergyAvailable: 0,
+    stageOrder: POST_CLAIM_DEFENSE_BARRIER_STAGE_ORDER
+  });
+
+  return { active: true, tower, barrier };
+}
+
 function isPostClaimBootstrapDeferred(
   roomName: string,
   focusRoomName: string | null | undefined
 ): boolean {
-  return isNonEmptyString(focusRoomName) && roomName !== focusRoomName && getPostClaimBootstrapRecord(roomName) !== null;
+  const record = getPostClaimBootstrapRecord(roomName);
+  return isNonEmptyString(focusRoomName) && roomName !== focusRoomName && record !== null && record.status !== 'ready';
+}
+
+function isPostClaimDefenseConstructionRoom(roomName: string): boolean {
+  const record = getPostClaimBootstrapRecord(roomName);
+  if (!record) {
+    return false;
+  }
+
+  return !isClaimedRoomEstablished(roomName, record.claimedAt);
+}
+
+function isClaimedRoomEstablished(roomName: string, claimedAt: number): boolean {
+  const claimedRoomRecord = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.claimedRoomBootstrapper
+    ?.rooms?.[roomName];
+  return claimedRoomRecord?.completedAt !== undefined && claimedRoomRecord.completedAt >= claimedAt;
 }
 
 export function recordPostClaimBootstrapWorkerSpawn(

@@ -57,6 +57,27 @@ describe('rampart and wall construction executor', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
+  it('can prioritize claimed-room exit ramparts for post-claim chokepoint defense', () => {
+    const { colony, room } = makeBarrierExecutorColony();
+    installGame(room);
+
+    const result = runRampartWallConstructionExecutorForColony(colony, {
+      requireExpansionMemory: true,
+      stageOrder: ['entranceRampart', 'towerRampart', 'coreRampart', 'entranceWall']
+    });
+
+    expect(result).toEqual({
+      roomName: 'W2N1',
+      status: 'created',
+      result: OK_CODE,
+      stage: 'entranceRampart',
+      structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+      x: 25,
+      y: 1
+    });
+    expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
   it('creates spawn/controller core ramparts after tower ramparts are covered', () => {
     const towerRampart = makeStructure('tower-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 24, 24);
     const { colony, room } = makeBarrierExecutorColony({ extraStructures: [towerRampart] });
