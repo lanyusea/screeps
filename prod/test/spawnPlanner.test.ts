@@ -345,12 +345,12 @@ describe('planSpawn', () => {
     };
   }
 
-  function makePostClaimSustainUpgrader(targetRoom = 'W2N1'): Creep {
+  function makePostClaimSustainUpgrader(targetRoom = 'W2N1', homeRoom = 'W1N1'): Creep {
     return {
       memory: {
         role: 'worker',
         colony: targetRoom,
-        controllerSustain: { homeRoom: 'W1N1', targetRoom, role: 'upgrader' }
+        controllerSustain: { homeRoom, targetRoom, role: 'upgrader' }
       }
     } as Creep;
   }
@@ -1963,7 +1963,7 @@ describe('planSpawn', () => {
       rooms: { E26S49: colony.room, E26S48: claimedRoom },
       spawns: { Spawn1: spawn },
       creeps: {
-        RemoteUpgrader: makePostClaimSustainUpgrader('E26S48')
+        RemoteUpgrader: makePostClaimSustainUpgrader('E26S48', 'E26S49')
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
