@@ -342,6 +342,10 @@ function toSpawnEnergyReservationRefillTarget(
   threshold: number,
   unmetReservedEnergy: number
 ): SpawnEnergyReservationRefillTarget | null {
+  if (spawn.spawning) {
+    return null;
+  }
+
   const spawnEnergy = getStoredEnergy(spawn);
   if (spawnEnergy >= threshold || getFreeEnergyCapacity(spawn) <= 0) {
     return null;

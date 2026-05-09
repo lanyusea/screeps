@@ -16701,6 +16701,9 @@ function findOwnedSpawns(room) {
   );
 }
 function toSpawnEnergyReservationRefillTarget(creep, spawn, threshold, unmetReservedEnergy) {
+  if (spawn.spawning) {
+    return null;
+  }
   const spawnEnergy = getStoredEnergy5(spawn);
   if (spawnEnergy >= threshold || getFreeEnergyCapacity2(spawn) <= 0) {
     return null;
@@ -25291,7 +25294,11 @@ function isSoftSpawnReservationPreemptibleTask(creep, task) {
     return !isDowngradeGuardUpgradeTask(creep, task);
   }
   if (task.type === "build") {
-    return !isCapacityEnablingConstructionSite(getTaskTarget(task));
+    const target = getTaskTarget(task);
+    if (!target) {
+      return false;
+    }
+    return !isCapacityEnablingConstructionSite(target);
   }
   if (task.type === "transfer") {
     return isStorageTransferTarget(getTaskTarget(task));

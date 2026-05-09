@@ -173,7 +173,12 @@ function isSoftSpawnReservationPreemptibleTask(
   }
 
   if (task.type === 'build') {
-    return !isCapacityEnablingConstructionSite(getTaskTarget(task));
+    const target = getTaskTarget(task);
+    if (!target) {
+      return false;
+    }
+
+    return !isCapacityEnablingConstructionSite(target);
   }
 
   if (task.type === 'transfer') {
