@@ -18,10 +18,17 @@ const CROSS_ROOM_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const DELIVERY_PRIORITY_SPAWN = 4;
+const DELIVERY_PRIORITY_EXTENSION = 3;
+const DELIVERY_PRIORITY_TOWER = 2;
+const DELIVERY_PRIORITY_CONTAINER = 1;
+const DELIVERY_PRIORITY_STORAGE = 0;
+const DELIVERY_PRIORITY_TERMINAL = -1;
 
 type DeliveryTarget =
   | StructureSpawn
   | StructureExtension
+  | StructureTower
   | StructureContainer
   | StructureStorage
   | StructureTerminal;
@@ -30,6 +37,7 @@ type LogisticsStructureGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_TOWER'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL';
 
@@ -318,6 +326,7 @@ function returnHome(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void 
 function selectDeliveryTarget(room: Room): DeliveryTarget | null {
   const targets = [
     ...findOwnedStructures(room).filter(isSpawnOrExtensionWithDemand),
+    ...findOwnedStructures(room).filter(isTowerWithDemand),
     ...findRoomStructures(room).filter(isContainerWithDemand),
     ...[room.storage, room.terminal].filter(isStorageOrTerminalWithDemand)
   ].sort(compareDeliveryTargets);
@@ -342,6 +351,10 @@ function isSpawnOrExtensionWithDemand(structure: AnyOwnedStructure): structure i
   );
 }
 
+function isTowerWithDemand(structure: AnyOwnedStructure): structure is StructureTower {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower') && getFreeEnergyCapacity(structure) > 0;
+}
+
 function isContainerWithDemand(structure: Structure): structure is StructureContainer {
   return (
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') &&
@@ -359,22 +372,26 @@ function compareDeliveryTargets(left: DeliveryTarget, right: DeliveryTarget): nu
 
 function getDeliveryPriority(target: DeliveryTarget): number {
   if (matchesStructureType(target.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
-    return 3;
+    return DELIVERY_PRIORITY_SPAWN;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
-    return 2;
+    return DELIVERY_PRIORITY_EXTENSION;
+  }
+
+  if (matchesStructureType(target.structureType, 'STRUCTURE_TOWER', 'tower')) {
+    return DELIVERY_PRIORITY_TOWER;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_STORAGE', 'storage')) {
-    return 0;
+    return DELIVERY_PRIORITY_STORAGE;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_TERMINAL', 'terminal')) {
-    return -1;
+    return DELIVERY_PRIORITY_TERMINAL;
   }
 
-  return 1;
+  return DELIVERY_PRIORITY_CONTAINER;
 }
 
 function selectSourceEnergyStructure(room: Room): EnergySourceStructure | null {

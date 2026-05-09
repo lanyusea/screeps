@@ -97,6 +97,7 @@ import {
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
+  refreshPostClaimDefenseConstruction,
   recordPostClaimBootstrapWorkerSpawn,
   refreshPostClaimBootstrap,
   selectPostClaimBootstrapFocusRoomName
@@ -184,6 +185,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
+    refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     if (postClaimBootstrapRefresh.deferred !== true) {
       planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
     }

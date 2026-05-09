@@ -6839,6 +6839,30 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
+  it('refills low towers in a claimed non-primary room', () => {
+    const lowTower = makeTowerEnergySink('e26s48-tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const site = { id: 'e26s48-road-site', structureType: 'road' } as ConstructionSite;
+    const room = makeWorkerTaskRoom({
+      name: 'E26S48',
+      constructionSites: [site],
+      controller: {
+        id: 'controller-e26s48',
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      myStructures: [lowTower as AnyOwnedStructure]
+    });
+    const creep = {
+      name: 'E26S48Worker',
+      memory: { role: 'worker', colony: 'E26S48' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'e26s48-tower-low' });
+  });
+
   it('spends carried energy productively when another worker covers the low tower refill', () => {
     const lowTower = makeTowerEnergySink('tower-covered', TOWER_REFILL_ENERGY_FLOOR - 1, 50);
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;

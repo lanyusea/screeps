@@ -26,6 +26,12 @@ const EXPANSION_TOWER_ROAD_WEIGHT = 1;
 const EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
 const EXPANSION_TOWER_MAX_ROAD_ANCHORS = 12;
 const EXPANSION_DEFENSE_BARRIER_MAX_CORE_RAMPARTS = 16;
+const EXPANSION_DEFENSE_BARRIER_STAGE_ORDER: readonly ExpansionDefenseBarrierPlacementStage[] = [
+  'towerRampart',
+  'coreRampart',
+  'entranceRampart',
+  'entranceWall'
+];
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const EXPANSION_PLANNER_THREAT_MEMORY_STALE_TICKS = 5;
 
@@ -152,6 +158,7 @@ export type ExpansionDefenseBarrierPlacementStage =
 
 export interface ExpansionDefenseBarrierPlacementOptions {
   maxPlacements?: number;
+  stageOrder?: readonly ExpansionDefenseBarrierPlacementStage[];
 }
 
 export interface ExpansionDefenseBarrierPlacement {
@@ -633,40 +640,63 @@ export function planExpansionDefenseBarrierPlacements(
   }
 
   const lookups = createExpansionDefenseBarrierPlacementLookups(room);
-  const towerRampartPlacements = getExpansionDefenseTowerRampartTargets(room, lookups)
-    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseTowerRampart(lookups, position))
-    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'towerRampart'));
-  if (towerRampartPlacements.length > 0) {
-    return towerRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
-  }
-
-  const coreRampartPlacements = getExpansionDefenseCoreRampartTargets(room, lookups)
-    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
-    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'coreRampart'));
-  if (coreRampartPlacements.length > 0) {
-    return coreRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
-  }
-
   const entranceRampartTargets = getExpansionDefenseEntranceRampartTargets(room, lookups);
-  const entranceRampartPlacements = entranceRampartTargets
-    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
-    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'entranceRampart'));
-  if (entranceRampartPlacements.length > 0) {
-    return entranceRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
-  }
-
-  const entranceWallPlacements = getExpansionDefenseEntranceWallTargets(entranceRampartTargets, lookups)
-    .filter((position) => !hasExpansionDefenseWallCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseWall(lookups, position))
-    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'entranceWall'));
-  if (entranceWallPlacements.length > 0) {
-    return entranceWallPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  const maxPlacements = getExpansionDefenseBarrierMaxPlacements(options.maxPlacements);
+  for (const stage of getExpansionDefenseBarrierStageOrder(options.stageOrder)) {
+    const placements = getExpansionDefenseBarrierStagePlacements(room, lookups, entranceRampartTargets, stage);
+    if (placements.length > 0) {
+      return placements.slice(0, maxPlacements);
+    }
   }
 
   return [];
+}
+
+function getExpansionDefenseBarrierStagePlacements(
+  room: Room,
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  entranceRampartTargets: RoomPositionLike[],
+  stage: ExpansionDefenseBarrierPlacementStage
+): ExpansionDefenseBarrierPlacement[] {
+  switch (stage) {
+    case 'towerRampart':
+      return getExpansionDefenseTowerRampartTargets(room, lookups)
+        .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+        .filter((position) => canPlaceExpansionDefenseTowerRampart(lookups, position))
+        .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, stage));
+    case 'coreRampart':
+      return getExpansionDefenseCoreRampartTargets(room, lookups)
+        .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+        .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+        .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, stage));
+    case 'entranceRampart':
+      return entranceRampartTargets
+        .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+        .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+        .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, stage));
+    case 'entranceWall':
+      return getExpansionDefenseEntranceWallTargets(entranceRampartTargets, lookups)
+        .filter((position) => !hasExpansionDefenseWallCoverage(lookups, position))
+        .filter((position) => canPlaceExpansionDefenseWall(lookups, position))
+        .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, stage));
+  }
+}
+
+function getExpansionDefenseBarrierStageOrder(
+  stageOrder: readonly ExpansionDefenseBarrierPlacementStage[] | undefined
+): ExpansionDefenseBarrierPlacementStage[] {
+  const normalizedOrder = (stageOrder ?? EXPANSION_DEFENSE_BARRIER_STAGE_ORDER).filter(isExpansionDefenseBarrierStage);
+  const orderedStages = normalizedOrder.length > 0 ? normalizedOrder : EXPANSION_DEFENSE_BARRIER_STAGE_ORDER;
+  return [...new Set(orderedStages)];
+}
+
+function isExpansionDefenseBarrierStage(value: unknown): value is ExpansionDefenseBarrierPlacementStage {
+  return (
+    value === 'towerRampart' ||
+    value === 'coreRampart' ||
+    value === 'entranceRampart' ||
+    value === 'entranceWall'
+  );
 }
 
 function createExpansionTowerPlacementLookups(room: Room): ExpansionTowerPlacementLookups {
