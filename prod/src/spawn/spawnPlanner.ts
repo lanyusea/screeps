@@ -1705,6 +1705,8 @@ function buildWorkerBodyForDemandBudget(
   energyBudget: number
 ): BodyPartConstant[] {
   return buildScaledWorkerBody(colony.energyCapacityAvailable, {
+    controllerLevel: colony.room.controller?.level,
+    currentWorkerCount: roleCounts.worker,
     energyAvailable: energyBudget,
     emergency: roleCounts.worker === 0
   });

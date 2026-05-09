@@ -112,6 +112,7 @@ const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
 const BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
+const LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 
 interface SpawnAttemptOutcome {
   spawn: StructureSpawn;
@@ -291,7 +292,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
-  for (const creep of creeps) {
+  for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
     if (shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
@@ -320,6 +321,114 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+export function orderCreepsForEconomyTaskPriority(creeps: Creep[]): Creep[] {
+  return creeps
+    .map((creep, index) => ({
+      creep,
+      index,
+      priority: getEconomyCreepTaskPriority(creep)
+    }))
+    .sort(
+      (left, right) =>
+        left.priority - right.priority ||
+        left.index - right.index
+    )
+    .map((entry) => entry.creep);
+}
+
+function getEconomyCreepTaskPriority(creep: Creep): number {
+  if (!isLowRoomEnergyForWorkerTaskPriority(creep.room)) {
+    return 100;
+  }
+
+  const role = creep.memory.role;
+  if (role === SOURCE_HARVESTER_ROLE) {
+    return 0;
+  }
+
+  if (role === HAULER_ROLE || role === CROSS_ROOM_HAULER_ROLE) {
+    return 1;
+  }
+
+  if (role !== 'worker') {
+    return 50;
+  }
+
+  return getLowEnergyWorkerTaskPriority(creep);
+}
+
+function getLowEnergyWorkerTaskPriority(creep: Creep): number {
+  const task = creep.memory.task;
+  const carriedEnergy = getCreepStoredEnergy(creep);
+  if (carriedEnergy > 0) {
+    return isTransferTask(task) ? 0 : 2;
+  }
+
+  if (isEnergyAcquisitionTask(task) || getCreepFreeEnergyCapacity(creep) > 0) {
+    return 3;
+  }
+
+  return isOptionalWorkerTask(task) ? 5 : 4;
+}
+
+function isLowRoomEnergyForWorkerTaskPriority(room: Room | undefined): boolean {
+  const energyAvailable = normalizeOptionalNonNegativeInteger(room?.energyAvailable);
+  const energyCapacityAvailable = normalizeOptionalNonNegativeInteger(room?.energyCapacityAvailable);
+  if (energyAvailable === undefined || energyCapacityAvailable === undefined || energyCapacityAvailable <= 0) {
+    return false;
+  }
+
+  const threshold = Math.min(
+    energyCapacityAvailable,
+    Math.max(
+      BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY,
+      Math.floor(energyCapacityAvailable * LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO)
+    )
+  );
+  return energyAvailable < threshold;
+}
+
+function isEnergyAcquisitionTask(
+  task: CreepTaskMemory | null | undefined
+): task is Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> {
+  return task?.type === 'harvest' || task?.type === 'pickup' || task?.type === 'withdraw';
+}
+
+function isTransferTask(
+  task: CreepTaskMemory | null | undefined
+): task is Extract<CreepTaskMemory, { type: 'transfer' }> {
+  return task?.type === 'transfer';
+}
+
+function isOptionalWorkerTask(task: CreepTaskMemory | null | undefined): boolean {
+  return task?.type === 'build' || task?.type === 'repair' || task?.type === 'upgrade';
+}
+
+function getCreepStoredEnergy(creep: Creep): number {
+  return getCreepStoreAmount(creep, 'getUsedCapacity');
+}
+
+function getCreepFreeEnergyCapacity(creep: Creep): number {
+  return getCreepStoreAmount(creep, 'getFreeCapacity');
+}
+
+function getCreepStoreAmount(
+  creep: Creep,
+  method: 'getUsedCapacity' | 'getFreeCapacity'
+): number {
+  const storeMethod = creep.store?.[method];
+  if (typeof storeMethod !== 'function') {
+    return 0;
+  }
+
+  const value = storeMethod.call(creep.store, getResourceEnergyConstant());
+  return normalizeNonNegativeInteger(value);
+}
+
+function getResourceEnergyConstant(): ResourceConstant {
+  return ((globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
 }
 
 function shouldRunLabManagement(room: Room): StructureLab[] {
@@ -525,6 +634,10 @@ function refreshExecutableTerritoryRecommendation(
 
 function normalizeNonNegativeInteger(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
 }
 
 function planCoordinatedSpawn(

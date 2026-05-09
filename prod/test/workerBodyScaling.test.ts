@@ -44,6 +44,59 @@ describe('buildScaledWorkerBody', () => {
     expect(buildScaledWorkerBody(800, { energyAvailable: 199, emergency: true })).toEqual([]);
   });
 
+  it('caps early worker recovery bodies so small colonies regain coverage before throughput', () => {
+    expect(buildScaledWorkerBody(800, { currentWorkerCount: 0, energyAvailable: 800 })).toEqual([
+      'work',
+      'carry',
+      'move'
+    ]);
+    expect(buildScaledWorkerBody(800, { currentWorkerCount: 1, energyAvailable: 800 })).toEqual([
+      'work',
+      'work',
+      'carry',
+      'move'
+    ]);
+    expect(buildScaledWorkerBody(800, { currentWorkerCount: 2, energyAvailable: 800 })).toEqual([
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move'
+    ]);
+    expect(buildScaledWorkerBody(800, { currentWorkerCount: 3, energyAvailable: 800 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
+  it('respects controller-level gates when controller state is available', () => {
+    expect(buildScaledWorkerBody(800, { controllerLevel: 2, currentWorkerCount: 3, energyAvailable: 800 })).toEqual([
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move'
+    ]);
+    expect(buildScaledWorkerBody(800, { controllerLevel: 3, currentWorkerCount: 3, energyAvailable: 800 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
   it('keeps profile bodies affordable and returns defensive copies', () => {
     const body = buildScaledWorkerBody(800);
     body.pop();
