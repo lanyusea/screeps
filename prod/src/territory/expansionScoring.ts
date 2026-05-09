@@ -52,7 +52,7 @@ const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
   2: 1,
-  3: 2,
+  3: 3,
   4: 3,
   5: 5,
   6: 8,

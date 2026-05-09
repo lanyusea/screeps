@@ -4321,7 +4321,7 @@ var GCL_LIMIT_PRECONDITION = "wait for GCL capacity to claim another room";
 var MAX_ROOM_COUNT_BY_RCL = {
   1: 1,
   2: 1,
-  3: 2,
+  3: 3,
   4: 3,
   5: 5,
   6: 8,
@@ -12509,13 +12509,18 @@ function refreshBootstrappingStage(pipeline, gameTime, telemetryEvents, territor
 }
 function selectExpansionTriggerCandidate(colony, report, territoryMemory, gameTime) {
   const config = getExpansionTriggerConfig();
-  if (!isExpansionHomeStable(colony, gameTime, config)) {
+  if (!isExpansionTriggerReady(colony, gameTime, config)) {
     return null;
   }
   if (hasBlockingExpansionInProgress(territoryMemory, colony.room.name)) {
     return null;
   }
-  const candidate = report.candidates.find(
+  const candidate = findExpansionTriggerCandidate(colony, report, territoryMemory, config);
+  return candidate ? { candidate, config } : null;
+}
+function findExpansionTriggerCandidate(colony, report, territoryMemory, config) {
+  var _a;
+  return (_a = report.candidates.find(
     (scoredCandidate) => scoredCandidate.evidenceStatus !== "unavailable" && scoredCandidate.score >= config.scoreThreshold && scoredCandidate.preconditions.length === 0 && !isClaimPlanBlockedByHigherPriorityColony({
       colony,
       targetRoom: scoredCandidate.roomName,
@@ -12524,8 +12529,7 @@ function selectExpansionTriggerCandidate(colony, report, territoryMemory, gameTi
       ...scoredCandidate.nearestOwnedRoomDistance !== void 0 ? { nearestOwnedRoomDistance: scoredCandidate.nearestOwnedRoomDistance } : {},
       territoryMemory
     })
-  );
-  return candidate ? { candidate, config } : null;
+  )) != null ? _a : null;
 }
 function getTriggerSkipReason(colony, report, territoryMemory, gameTime) {
   if (report.candidates.length === 0) {
@@ -12539,16 +12543,23 @@ function getTriggerSkipReason(colony, report, territoryMemory, gameTime) {
   )) {
     return "roomLimitReached";
   }
-  if (!isExpansionHomeStable(colony, gameTime, getExpansionTriggerConfig())) {
+  const config = getExpansionTriggerConfig();
+  if (!isExpansionHomeStable(colony, gameTime, config)) {
     return "unmetPreconditions";
   }
   if (hasBlockingExpansionInProgress(territoryMemory, colony.room.name)) {
+    return "unmetPreconditions";
+  }
+  if (!isExpansionTriggerReady(colony, gameTime, config) && findExpansionTriggerCandidate(colony, report, territoryMemory, config)) {
     return "unmetPreconditions";
   }
   if (report.candidates.some((candidate) => candidate.evidenceStatus === "insufficient-evidence")) {
     return "insufficientEvidence";
   }
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
+    return "unmetPreconditions";
+  }
+  if (!isExpansionTriggerReady(colony, gameTime, config)) {
     return "unmetPreconditions";
   }
   return "unavailable";
@@ -12804,6 +12815,9 @@ function getExpansionTriggerConfig() {
 function isExpansionHomeStable(colony, gameTime, config) {
   const controller = colony.room.controller;
   return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= config.minRcl && !isControllerDowngradeGuardBreached(controller) && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && getRoomStorageEnergy2(colony.room) >= config.minStorageEnergy && !hasVisibleHostiles(colony.room) && getHomeThreatLevel(colony.room.name, gameTime) === "none";
+}
+function isExpansionTriggerReady(colony, gameTime, config) {
+  return isExpansionHomeStable(colony, gameTime, config) && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
 }
 function hasBlockingExpansionInProgress(territoryMemory, colony) {
   var _a;

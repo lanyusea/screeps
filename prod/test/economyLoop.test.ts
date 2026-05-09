@@ -1789,13 +1789,14 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game.rooms = {
       W1N1: room,
       W2N1: targetRoom,
-      W3N1: makeOwnedEconomyRoom('W3N1')
+      W3N1: makeOwnedEconomyRoom('W3N1'),
+      W4N1: makeOwnedEconomyRoom('W4N1')
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(4);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(5);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',
@@ -1919,7 +1920,12 @@ describe('runEconomy', () => {
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 503,
-      rooms: { W1N1: room, W2N1: targetRoom, W3N1: makeOwnedEconomyRoom('W3N1') },
+      rooms: {
+        W1N1: room,
+        W2N1: targetRoom,
+        W3N1: makeOwnedEconomyRoom('W3N1'),
+        W4N1: makeOwnedEconomyRoom('W4N1')
+      },
       spawns: {},
       creeps: workers,
       getObjectById: jest.fn().mockReturnValue(null),
@@ -2010,7 +2016,12 @@ describe('runEconomy', () => {
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 504,
-      rooms: { W1N1: room, W2N1: targetRoom, W3N1: makeOwnedEconomyRoom('W3N1') },
+      rooms: {
+        W1N1: room,
+        W2N1: targetRoom,
+        W3N1: makeOwnedEconomyRoom('W3N1'),
+        W4N1: makeOwnedEconomyRoom('W4N1')
+      },
       spawns: {},
       creeps: workers,
       getObjectById: jest.fn().mockReturnValue(null),

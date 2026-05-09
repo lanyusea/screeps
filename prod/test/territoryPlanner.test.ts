@@ -1175,7 +1175,10 @@ describe('planTerritoryIntent', () => {
         rooms: {
           W1N1: scenario.colony.room,
           ...(scenario.ownedRoom
-            ? { W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room }
+            ? {
+                W8N8: { name: 'W8N8', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room
+              }
             : {}),
           W1N2: makeRecommendationRoom('W1N2', {
             sourceCount: 2,

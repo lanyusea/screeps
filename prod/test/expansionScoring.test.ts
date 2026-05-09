@@ -1267,7 +1267,7 @@ describe('next expansion scoring', () => {
   it.each([
     [1, 1],
     [2, 1],
-    [3, 2],
+    [3, 3],
     [4, 3],
     [5, 5],
     [6, 8],
@@ -1299,7 +1299,7 @@ describe('next expansion scoring', () => {
     const report = scoreExpansionCandidates(
       makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
         controllerLevel: 3,
-        ownedRoomCount: 2
+        ownedRoomCount: 3
       })
     );
 
@@ -1338,14 +1338,14 @@ describe('next expansion scoring', () => {
     const report = scoreExpansionCandidates(
       makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
         controllerLevel: 3,
-        ownedRoomCount: 2,
+        ownedRoomCount: 3,
         ticksToDowngrade: 100
       })
     );
 
     expect(report.next?.preconditions).toEqual(
       expect.arrayContaining([
-        'limit expansion to 2 owned rooms for current controller level',
+        'limit expansion to 3 owned rooms for current controller level',
         'stabilize home controller downgrade timer'
       ])
     );
@@ -1423,7 +1423,7 @@ describe('next expansion scoring', () => {
     const report = scoreExpansionCandidates(
       makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
         controllerLevel: 3,
-        ownedRoomCount: 2
+        ownedRoomCount: 3
       })
     );
 
