@@ -54,13 +54,18 @@ When a PR merges changes to any of these paths or modules, the deploy **must** p
 
 ### Detection
 
-The scheduler must check the diff of the merged PR against `origin/main` before triggering deploy. If any changed file matches `prod/src/economy/**` or `prod/src/spawn/**`, enforce the elevated gate. A simple detection command:
+The scheduler must check the diff of the merged PR before triggering deploy. Enforce the elevated gate when either:
+1. Any changed file matches `prod/src/economy/**` or `prod/src/spawn/**`, or
+2. The PR is labeled/declared as touching economy-throughput or spawn-lifecycle logic (energy distribution/storage/link/refill/worker scaling), even outside those paths.
+
+A baseline path detector using the merge commit's first parent (the pre-merge base tip, which avoids the empty-diff problem when the merge commit is already on the target branch):
 
 ```bash
-git diff --name-only origin/main...<merge-commit> | grep -E '^prod/src/(economy|spawn)/'
+# Use merge-commit^ (first parent) to diff what the PR actually changed
+git diff --name-only <merge-commit>^..<merge-commit> | grep -E '^prod/src/(economy|spawn)/'
 ```
 
-Non-zero output means the elevated gate applies.
+If the baseline detector is empty, require explicit reviewer confirmation that condition (2) is false before proceeding. Non-zero output from the baseline detector means the elevated gate applies automatically.
 
 ### Example classification
 
