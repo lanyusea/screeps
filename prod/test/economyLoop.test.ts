@@ -1,4 +1,4 @@
-import { runEconomy } from '../src/economy/economyLoop';
+import { compareSpawnSourceRouteDistances, runEconomy } from '../src/economy/economyLoop';
 import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
@@ -27,6 +27,26 @@ describe('runEconomy', () => {
 
   afterEach(() => {
     logSpy.mockRestore();
+  });
+
+  it('keeps spawn source route sorting numeric when unreachable routes compare', () => {
+    const comparisons: number[] = [];
+    const sortedSources = [
+      { roomName: 'W2N1', distance: Number.POSITIVE_INFINITY, availableEnergy: 650 },
+      { roomName: 'W3N1', distance: Number.POSITIVE_INFINITY, availableEnergy: 950 }
+    ].sort((left, right) => {
+      const routeComparison = compareSpawnSourceRouteDistances(left.distance, right.distance);
+      comparisons.push(routeComparison);
+      return (
+        routeComparison ||
+        right.availableEnergy - left.availableEnergy ||
+        left.roomName.localeCompare(right.roomName)
+      );
+    });
+
+    expect(comparisons).toContain(0);
+    expect(comparisons.every(Number.isFinite)).toBe(true);
+    expect(sortedSources.map((source) => source.roomName)).toEqual(['W3N1', 'W2N1']);
   });
 
   it('spawns a worker request for an owned colony below target workers', () => {
@@ -3026,6 +3046,156 @@ describe('runEconomy', () => {
     );
   });
 
+  it('spawns a cross-room worker for spawnless E26S48 when claimed sources and containers are visible', () => {
+    installMultiRoomSpawnQueueGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const homeRoom = makeSpawnCoordinationRoom({
+      roomName: 'E26S49',
+      energyAvailable: 950,
+      energyCapacityAvailable: 950
+    });
+    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 2 });
+    const spawn = {
+      name: 'Spawn1',
+      room: homeRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 818,
+      rooms: { E26S49: homeRoom, E26S48: claimedRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(homeRoom),
+        Worker2: makeEconomyWorker(homeRoom),
+        Worker3: makeEconomyWorker(homeRoom)
+      },
+      map: {
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E26S48-818', {
+      memory: {
+        role: 'worker',
+        colony: 'E26S48',
+        spawnSupport: { originRoom: 'E26S49', targetRoom: 'E26S48' }
+      }
+    });
+  });
+
+  it('keeps E26S49 defender spawning ahead of E26S48 economic recovery', () => {
+    installMultiRoomSpawnQueueGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const baseHomeRoom = makeSpawnCoordinationRoom({
+      roomName: 'E26S49',
+      energyAvailable: 950,
+      energyCapacityAvailable: 950
+    });
+    const homeFind = baseHomeRoom.find as (type: number) => unknown[];
+    const homeRoom = {
+      ...baseHomeRoom,
+      find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : homeFind(type)))
+    } as unknown as Room;
+    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 2 });
+    const spawn = {
+      name: 'Spawn1',
+      room: homeRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 819,
+      rooms: { E26S49: homeRoom, E26S48: claimedRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(homeRoom),
+        Worker2: makeEconomyWorker(homeRoom),
+        Worker3: makeEconomyWorker(homeRoom)
+      },
+      map: {
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['tough', 'attack', 'move'], 'defender-E26S49-819', {
+      memory: {
+        role: 'defender',
+        colony: 'E26S49',
+        defense: { homeRoom: 'E26S49' }
+      }
+    });
+  });
+
+  it('uses the nearest viable spawn room for a spawnless colony worker deficit', () => {
+    installMultiRoomSpawnQueueGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const targetRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 1 });
+    const nearRoom = makeSpawnCoordinationRoom({
+      roomName: 'E26S49',
+      energyAvailable: 950,
+      energyCapacityAvailable: 950
+    });
+    const farRoom = makeSpawnCoordinationRoom({
+      roomName: 'W9N9',
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300,
+      controllerLevel: 8
+    });
+    const nearSpawn = {
+      name: 'NearSpawn',
+      room: nearRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const farSpawn = {
+      name: 'FarSpawn',
+      room: farRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 820,
+      rooms: { E26S48: targetRoom, W9N9: farRoom, E26S49: nearRoom },
+      spawns: { FarSpawn: farSpawn, NearSpawn: nearSpawn },
+      creeps: {
+        TargetWorker1: makeEconomyWorker(targetRoom),
+        TargetWorker2: makeEconomyWorker(targetRoom),
+        NearWorker1: makeEconomyWorker(nearRoom),
+        NearWorker2: makeEconomyWorker(nearRoom),
+        NearWorker3: makeEconomyWorker(nearRoom),
+        FarWorker1: makeEconomyWorker(farRoom),
+        FarWorker2: makeEconomyWorker(farRoom),
+        FarWorker3: makeEconomyWorker(farRoom)
+      },
+      map: {
+        findRoute: jest.fn((fromRoom: string, toRoom: string) =>
+          Array.from(
+            { length: fromRoom === 'E26S49' ? 1 : 5 },
+            (_value, index) => ({ exit: 1, room: index === 0 ? toRoom : `transit${index}` })
+          )
+        )
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(nearSpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E26S48-820', {
+      memory: {
+        role: 'worker',
+        colony: 'E26S48',
+        spawnSupport: { originRoom: 'E26S49', targetRoom: 'E26S48' }
+      }
+    });
+    expect(farSpawn.spawnCreep).not.toHaveBeenCalled();
+  });
+
   it('refreshes remote mining setup for claimed expansion rooms during the economy tick', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;
@@ -3451,6 +3621,21 @@ function installSpawnCoordinationGlobals(): void {
   (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
 }
 
+function installMultiRoomSpawnQueueGlobals(): void {
+  installSpawnCoordinationGlobals();
+  (globalThis as unknown as {
+    FIND_STRUCTURES: number;
+    FIND_HOSTILE_CREEPS: number;
+    RESOURCE_ENERGY: ResourceConstant;
+    STRUCTURE_CONTAINER: StructureConstant;
+    STRUCTURE_SPAWN: StructureConstant;
+  }).FIND_STRUCTURES = 5;
+  (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+  (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+  (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+  (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+}
+
 function makeSpawnCoordinationRoom({
   roomName,
   energyAvailable,
@@ -3475,6 +3660,70 @@ function makeSpawnCoordinationRoom({
     } as StructureController,
     memory: {},
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeClaimedSpawnlessEconomyRoom({
+  roomName,
+  sourceCount,
+  energyAvailable = 0,
+  energyCapacityAvailable = 0
+}: {
+  roomName: string;
+  sourceCount: number;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
+}): Room {
+  const sources = Array.from(
+    { length: sourceCount },
+    (_value, index) =>
+      ({
+        id: `${roomName}-source-${index}`,
+        pos: { x: 10 + index * 5, y: 10 + index * 5, roomName } as RoomPosition
+      }) as Source
+  );
+  const containers = sources.map(
+    (source, index) =>
+      ({
+        id: `${roomName}-container-${index}`,
+        structureType: 'container',
+        pos: { x: source.pos.x, y: source.pos.y + 1, roomName } as RoomPosition,
+        store: makeEnergyStore(200, 2_000)
+      }) as StructureContainer
+  );
+  const constructionSites: ConstructionSite[] = [];
+
+  return {
+    name: roomName,
+    energyAvailable,
+    energyCapacityAvailable,
+    controller: {
+      id: `${roomName}-controller`,
+      my: true,
+      owner: { username: 'me' },
+      level: 2,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    memory: {},
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return sources;
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return containers;
+      }
+
+      if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      if (type === FIND_HOSTILE_CREEPS) {
+        return [];
+      }
+
+      return [];
+    })
   } as unknown as Room;
 }
 

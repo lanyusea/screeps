@@ -109,6 +109,7 @@ import {
 } from '../strategy/strategyRecommender';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
 const BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 
@@ -648,7 +649,7 @@ function getCoordinatedSpawnSourceColonies(
       )
     )
     .sort((left, right) =>
-      compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom)
+      compareCoordinatedSpawnSources(left, right, targetColony, reservedSpawnEnergyByRoom)
     );
 
   return localSource ? [localSource, ...remoteSources] : remoteSources;
@@ -701,15 +702,71 @@ function canUseCrossRoomSpawnSource(
 function compareCoordinatedSpawnSources(
   left: ColonySnapshot,
   right: ColonySnapshot,
+  targetColony: ColonySnapshot,
   reservedSpawnEnergyByRoom: Map<string, number>
 ): number {
   return (
+    compareSpawnSourceRouteDistances(
+      getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name),
+      getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name)
+    ) ||
     getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) -
       getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) ||
     normalizeNonNegativeInteger(right.energyCapacityAvailable) -
       normalizeNonNegativeInteger(left.energyCapacityAvailable) ||
     left.room.name.localeCompare(right.room.name)
   );
+}
+
+export function compareSpawnSourceRouteDistances(leftDistance: number, rightDistance: number): number {
+  if (leftDistance === rightDistance) {
+    return 0;
+  }
+
+  const leftFinite = Number.isFinite(leftDistance);
+  const rightFinite = Number.isFinite(rightDistance);
+  if (!leftFinite || !rightFinite) {
+    if (!leftFinite && !rightFinite) {
+      return 0;
+    }
+
+    return leftFinite ? -1 : 1;
+  }
+
+  return leftDistance < rightDistance ? -1 : 1;
+}
+
+function getCrossRoomSpawnRouteDistance(sourceRoomName: string, targetRoomName: string): number {
+  if (sourceRoomName === targetRoomName) {
+    return 0;
+  }
+
+  const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map as
+    | (Partial<GameMap> & {
+        findRoute?: (fromRoom: string, toRoom: string) => unknown;
+        getRoomLinearDistance?: (roomName1: string, roomName2: string) => number;
+      })
+    | undefined;
+
+  if (typeof gameMap?.findRoute === 'function') {
+    const route = gameMap.findRoute.call(gameMap, sourceRoomName, targetRoomName);
+    if (Array.isArray(route)) {
+      return route.length;
+    }
+
+    if (route === ERR_NO_PATH_CODE) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+
+  if (typeof gameMap?.getRoomLinearDistance === 'function') {
+    const distance = gameMap.getRoomLinearDistance.call(gameMap, sourceRoomName, targetRoomName);
+    if (typeof distance === 'number' && Number.isFinite(distance)) {
+      return Math.max(0, Math.floor(distance));
+    }
+  }
+
+  return Number.POSITIVE_INFINITY;
 }
 
 function getUnusedSpawnCount(

@@ -1125,6 +1125,63 @@ describe('planSpawn', () => {
     ).toEqual(['W1N17', 'W2N17']);
   });
 
+  it('orders threatened rooms ahead of spawnless economic recovery', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony: threatenedColony } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      hostileCreeps: [hostile],
+      controller: makeSafeOwnedController()
+    });
+    const { colony: spawnlessRecoveryColony } = makeColony({
+      roomName: 'E26S48',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
+    });
+    spawnlessRecoveryColony.spawns = [];
+
+    expect(
+      orderColoniesForSpawnPlanning(
+        [spawnlessRecoveryColony, threatenedColony],
+        new Map([
+          ['E26S49', { worker: 3 }],
+          ['E26S48', { worker: 0 }]
+        ])
+      ).map((colony) => colony.room.name)
+    ).toEqual(['E26S49', 'E26S48']);
+  });
+
+  it('uses construction and source pressure as multi-room ordering tie breakers', () => {
+    const { colony: constructionColony } = makeColony({
+      roomName: 'W1N18',
+      sourceCount: 2,
+      constructionSiteCount: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const { colony: idleColony } = makeColony({
+      roomName: 'W2N18',
+      sourceCount: 1,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(
+      orderColoniesForSpawnPlanning(
+        [idleColony, constructionColony],
+        new Map([
+          ['W1N18', { worker: 5 }],
+          ['W2N18', { worker: 5 }]
+        ])
+      ).map((colony) => colony.room.name)
+    ).toEqual(['W1N18', 'W2N18']);
+  });
+
   it('plans a steady dedicated upgrader when stable room buffers can fund it', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N17',
