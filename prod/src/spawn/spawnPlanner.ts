@@ -139,6 +139,8 @@ export interface SpawnPlanningOptions {
   workersOnly?: boolean;
   allowTerritoryControllerPressure?: boolean;
   allowTerritoryFollowUp?: boolean;
+  controllerUpgradeTargetRoom?: string | null;
+  controllerUpgradeTargetRooms?: readonly string[] | null;
 }
 
 export interface SpawnEnergyForecast {
@@ -1423,6 +1425,7 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
 function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.territoryIntentPending ||
+    !isSelectedControllerUpgradeTarget(context) ||
     context.survival.mode === 'BOOTSTRAP' ||
     context.survival.hostilePresence ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
@@ -1478,6 +1481,7 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
   if (
     context.options.workersOnly ||
     context.territoryIntentPending ||
+    hasNoControllerUpgradeTargets(context.options) ||
     context.survival.mode !== 'TERRITORY_READY' ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
     context.workerCapacity < context.workerTarget ||
@@ -1486,7 +1490,9 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
     return null;
   }
 
-  const upgradePlans = selectMultiRoomUpgradePlans(context.colony);
+  const upgradePlans = selectMultiRoomUpgradePlans(context.colony).filter((plan) =>
+    isAllowedControllerUpgradeTarget(context.options, plan.targetRoom)
+  );
   if (upgradePlans.length === 0) {
     return null;
   }
@@ -1534,6 +1540,44 @@ function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext
     context.workerTarget + CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS
   );
   return context.workerCapacity < surplusWorkerTarget;
+}
+
+function isSelectedControllerUpgradeTarget(context: SpawnPlanningContext): boolean {
+  return isAllowedControllerUpgradeTarget(context.options, context.colony.room.name);
+}
+
+function hasNoControllerUpgradeTargets(options: SpawnPlanningOptions): boolean {
+  const targetRooms = getControllerUpgradeTargetRooms(options);
+  return targetRooms === null || targetRooms?.length === 0;
+}
+
+function isAllowedControllerUpgradeTarget(options: SpawnPlanningOptions, roomName: string): boolean {
+  const targetRooms = getControllerUpgradeTargetRooms(options);
+  if (targetRooms === undefined) {
+    return true;
+  }
+
+  if (targetRooms === null) {
+    return false;
+  }
+
+  return targetRooms.includes(roomName);
+}
+
+function getControllerUpgradeTargetRooms(
+  options: SpawnPlanningOptions
+): readonly string[] | null | undefined {
+  if (options.controllerUpgradeTargetRooms !== undefined) {
+    return options.controllerUpgradeTargetRooms;
+  }
+
+  if (options.controllerUpgradeTargetRoom !== undefined) {
+    return options.controllerUpgradeTargetRoom === null
+      ? null
+      : [options.controllerUpgradeTargetRoom];
+  }
+
+  return undefined;
 }
 
 function hasControllerUpgradeSurplusEnergy(colony: ColonySnapshot): boolean {
