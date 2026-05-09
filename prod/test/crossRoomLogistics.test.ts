@@ -12,6 +12,7 @@ import {
   orderColoniesForSpawnPlanning,
   planSpawn
 } from '../src/spawn/spawnPlanner';
+import { findOwnedLogisticsRoute } from '../src/economy/roomLogistics';
 
 describe('cross-room energy logistics', () => {
   const OK_CODE = 0 as ScreepsReturnCode;
@@ -584,6 +585,28 @@ describe('cross-room energy logistics', () => {
     expect(plan?.memory.crossRoomHauler?.route).toEqual(['W2N1', 'W3N1']);
   });
 
+  it('plans cross-room hauling through unseen transit rooms', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, targetRoom], [sourceSpawn], {}, (fromRoom, toRoom, options) => {
+      const route = [
+        { exit: 1, room: 'W2N1' },
+        { exit: 1, room: toRoom }
+      ];
+      if (route.some((step) => options?.routeCallback?.(step.room, fromRoom) === Infinity)) {
+        return ERR_NO_PATH_CODE;
+      }
+
+      return route;
+    });
+    balanceStorage();
+
+    const plan = planCrossRoomHauler();
+
+    expect(plan?.memory.crossRoomHauler?.route).toEqual(['W2N1', 'W3N1']);
+  });
+
   it('prioritizes cross-room transfers by round-trip energy efficiency', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 1_600, energyAvailable: 800 });
     const nearTargetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 0, storageCapacity: 1_000 });
@@ -817,6 +840,72 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(planCrossRoomHauler()).toBeNull();
+  });
+
+  it('rejects logistics routes through unseen rooms marked unsafe in defense memory', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
+    const findRoute = jest.fn(
+      (
+        fromRoom: string,
+        toRoom: string,
+        options?: { routeCallback?: (roomName: string, fromRoomName: string) => number }
+      ) => {
+        const route = [
+          { exit: 1, room: 'W2N1' },
+          { exit: 1, room: toRoom }
+        ];
+        if (route.some((step) => options?.routeCallback?.(step.room, fromRoom) === Infinity)) {
+          return ERR_NO_PATH_CODE;
+        }
+
+        return route;
+      }
+    );
+    installGame([sourceRoom, targetRoom], [], {}, findRoute);
+    Memory.defense = {
+      unsafeRooms: {
+        W2N1: {
+          roomName: 'W2N1',
+          unsafe: true,
+          reason: 'hostilePresence',
+          updatedAt: 100,
+          hostileCreepCount: 1,
+          hostileStructureCount: 0,
+          hostileTowerCount: 0
+        }
+      }
+    };
+
+    expect(findOwnedLogisticsRoute('W1N1', 'W3N1')).toBeNull();
+  });
+
+  it('does not search logistics routes from unsafe source rooms', () => {
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 950,
+      hostileCreeps: [{} as Creep]
+    });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    const findRoute = jest.fn(() => [{ exit: 1, room: 'W2N1' }]);
+    installGame([sourceRoom, targetRoom], [], {}, findRoute);
+
+    expect(findOwnedLogisticsRoute('W1N1', 'W2N1')).toBeNull();
+    expect(findRoute).not.toHaveBeenCalled();
+  });
+
+  it('does not search logistics routes to unsafe target rooms', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'W2N1',
+      storageEnergy: 100,
+      hostileCreeps: [{} as Creep]
+    });
+    const findRoute = jest.fn(() => [{ exit: 1, room: 'W2N1' }]);
+    installGame([sourceRoom, targetRoom], [], {}, findRoute);
+
+    expect(findOwnedLogisticsRoute('W1N1', 'W2N1')).toBeNull();
+    expect(findRoute).not.toHaveBeenCalled();
   });
 
   it('suppresses routine worker spawning in an importing deficit room', () => {

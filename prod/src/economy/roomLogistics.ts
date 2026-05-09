@@ -1,3 +1,5 @@
+import { isKnownDeadZoneRoom } from '../defense/deadZone';
+
 export interface LogisticsRoute {
   distance: number;
   rooms: string[];
@@ -10,6 +12,10 @@ export function canFindOwnedLogisticsRoute(): boolean {
 }
 
 export function findOwnedLogisticsRoute(fromRoom: string, targetRoom: string): LogisticsRoute | null {
+  if (!isSafeOwnedRoom(fromRoom) || !isSafeOwnedRoom(targetRoom)) {
+    return null;
+  }
+
   if (fromRoom === targetRoom) {
     return { distance: 0, rooms: [] };
   }
@@ -44,14 +50,10 @@ export function isSafeOwnedRoom(roomName: string): boolean {
 export function isSafeLogisticsTransitRoom(roomName: string): boolean {
   const room = getVisibleRoom(roomName);
   if (!room) {
-    return safeTransitAllowlist.has(roomName);
+    return safeTransitAllowlist.has(roomName) || !isKnownDeadZoneRoom(roomName);
   }
 
-  if (hasHostilePresence(room)) {
-    return false;
-  }
-
-  return room.controller?.owner === undefined || room.controller.my === true;
+  return !hasHostilePresence(room);
 }
 
 function hasHostilePresence(room: Room): boolean {

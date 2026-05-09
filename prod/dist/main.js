@@ -18222,6 +18222,9 @@ function canFindOwnedLogisticsRoute() {
   return typeof ((_a = getGameMap()) == null ? void 0 : _a.findRoute) === "function";
 }
 function findOwnedLogisticsRoute(fromRoom, targetRoom) {
+  if (!isSafeOwnedRoom(fromRoom) || !isSafeOwnedRoom(targetRoom)) {
+    return null;
+  }
   if (fromRoom === targetRoom) {
     return { distance: 0, rooms: [] };
   }
@@ -18247,15 +18250,11 @@ function isSafeOwnedRoom(roomName) {
   return ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && !hasHostilePresence(room);
 }
 function isSafeLogisticsTransitRoom(roomName) {
-  var _a;
   const room = getVisibleRoom5(roomName);
   if (!room) {
-    return safeTransitAllowlist.has(roomName);
+    return safeTransitAllowlist.has(roomName) || !isKnownDeadZoneRoom(roomName);
   }
-  if (hasHostilePresence(room)) {
-    return false;
-  }
-  return ((_a = room.controller) == null ? void 0 : _a.owner) === void 0 || room.controller.my === true;
+  return !hasHostilePresence(room);
 }
 function hasHostilePresence(room) {
   const hostileCreepFind = getGlobalNumber13("FIND_HOSTILE_CREEPS");
