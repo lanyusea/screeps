@@ -215,7 +215,7 @@ const SPAWN_QUEUE: SpawnQueueDefinition[] = [
   { tier: 'localEnergyHauling', getPriority: getLocalEnergyHaulingSpawnQueuePriority },
   { tier: 'remoteEconomy', getPriority: () => 'high' },
   { tier: 'localRefillSurvival', getPriority: () => 'normal' },
-  { tier: 'postClaimControllerSustain', getPriority: () => 'normal' },
+  { tier: 'postClaimControllerSustain', getPriority: getPostClaimControllerSustainSpawnQueuePriority },
   { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
   { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' },
   { tier: 'territoryRemote', getPriority: () => 'low' }
@@ -444,6 +444,15 @@ function getLocalSourceMiningSpawnQueuePriority(context: SpawnPlanningContext): 
 function getLocalEnergyHaulingSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
   const demand = selectEnergyHaulerSpawnDemand(context.colony.room);
   return demand && demand.activeHaulers <= 0 ? 'high' : 'normal';
+}
+
+function getPostClaimControllerSustainSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return hasPostClaimSustainLocalWorkerFloor(context) &&
+    context.survival.hostilePresence !== true &&
+    context.survival.controllerDowngradeGuard !== true &&
+    selectPostClaimControllerSustainPlan(context.colony) !== null
+    ? 'critical'
+    : 'normal';
 }
 
 function shouldDeferSpawnQueueEntryForLowEnergy(
@@ -743,7 +752,12 @@ interface PostClaimControllerSustainCounts {
 }
 
 function planPostClaimControllerSustainSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (context.survival.mode !== 'TERRITORY_READY' || !hasPostClaimSustainSpawnEnergy(context.colony)) {
+  if (
+    !hasPostClaimSustainLocalWorkerFloor(context) ||
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    !hasPostClaimSustainSpawnEnergy(context.colony)
+  ) {
     return null;
   }
 
@@ -831,6 +845,10 @@ function isActiveRoomDefender(creep: Creep, roomName: string): boolean {
   );
 }
 
+function hasPostClaimSustainLocalWorkerFloor(context: SpawnPlanningContext): boolean {
+  return context.workerCapacity >= context.survival.survivalWorkerFloor;
+}
+
 function isAssignedRoomDefender(creep: Creep, roomName: string): boolean {
   const assignedRoom = creep.memory.defense?.homeRoom ?? creep.memory.colony;
 
@@ -868,10 +886,7 @@ function getBodyPartConstant(globalName: 'ATTACK', fallback: BodyPartConstant): 
 }
 
 function hasPostClaimSustainSpawnEnergy(colony: ColonySnapshot): boolean {
-  return (
-    colony.energyAvailable >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY &&
-    colony.energyAvailable >= colony.energyCapacityAvailable
-  );
+  return getSpawnEnergyBudget(colony) >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
 
 function selectPostClaimControllerSustainPlan(

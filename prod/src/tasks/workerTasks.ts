@@ -25,6 +25,7 @@ import {
   CONSTRUCTION_SITE_IMPACT_PRIORITY,
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   getConstructionSiteImpactPriority,
+  isPostClaimConstructionRoom,
   shouldPrioritizeSourceLogisticsConstruction,
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
@@ -2366,6 +2367,9 @@ function buildWorkerConstructionSiteImpactPriorityContext(
 ): ConstructionSiteImpactPriorityContext {
   const context: ConstructionSiteImpactPriorityContext =
     creep.room.controller?.my === true ? { claimedRoomName: creep.room.name } : {};
+  if (isPostClaimConstructionRoom(creep.room.name)) {
+    context.postClaimRoomName = creep.room.name;
+  }
   if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
     context.prioritizeSourceLogisticsForEnergyStarvation = true;
   }

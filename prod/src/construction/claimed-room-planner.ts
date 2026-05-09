@@ -5,6 +5,7 @@ import {
   type ConstructionPlannerResult,
   type RoomConstructionPlannerResult
 } from './planner';
+import { isPostClaimConstructionRoom } from './constructionPriority';
 
 type ClaimedRoomPlannerYieldReason = 'inactive' | 'noEnergyOrCreeps';
 
@@ -104,9 +105,12 @@ function buildClaimedRoomConstructionOptions(
   options: ClaimedRoomConstructionPlannerOptions
 ): ConstructionPlannerOptions {
   const sourceCount = getSourceCount(colony.room);
+  const postClaimRoom = isPostClaimConstructionRoom(colony.room.name);
 
   return {
     ...options,
+    includePostClaimRamparts: options.includePostClaimRamparts ?? postClaimRoom,
+    includeStorage: options.includeStorage ?? postClaimRoom,
     respectRoomEnergyBuffer: options.respectRoomEnergyBuffer ?? true,
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,

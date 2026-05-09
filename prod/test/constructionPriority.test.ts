@@ -312,6 +312,43 @@ describe('impact-weighted construction site selection', () => {
     ).toBe('spawn-site');
   });
 
+  it('uses post-claim room construction priority before distance tie-breaks', () => {
+    const sites = [
+      makeConstructionSite('storage-site', 'storage', 10, 10),
+      makeConstructionSite('tower-site', 'tower', 11, 10),
+      makeConstructionSite('rampart-site', 'rampart', 12, 10),
+      makeConstructionSite('container-site', 'container', 13, 10),
+      makeConstructionSite('road-site', 'road', 14, 10),
+      makeConstructionSite('extension-site', 'extension', 15, 10),
+      makeConstructionSite('spawn-site', 'spawn', 16, 10)
+    ];
+    const origin = makeSelectionOrigin(
+      Object.fromEntries(sites.map((site) => [String(site.id), 1]))
+    );
+    const context: ConstructionSiteImpactPriorityContext = {
+      postClaimRoomName: 'W1N1'
+    };
+
+    const selectedOrder: string[] = [];
+    const remainingSites = [...sites];
+    while (remainingSites.length > 0) {
+      const selected = selectImpactWeightedConstructionSite(origin, remainingSites, context);
+      expect(selected).not.toBeNull();
+      selectedOrder.push(String(selected?.id));
+      remainingSites.splice(remainingSites.findIndex((site) => site.id === selected?.id), 1);
+    }
+
+    expect(selectedOrder).toEqual([
+      'spawn-site',
+      'extension-site',
+      'road-site',
+      'container-site',
+      'rampart-site',
+      'tower-site',
+      'storage-site'
+    ]);
+  });
+
   it('prioritizes a source container over a generic road', () => {
     const source = { id: 'source1', pos: makeRoomPosition(10, 10) } as Source;
     const containerSite = makeConstructionSite('source-container-site', 'container', 11, 10);

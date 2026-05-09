@@ -94,8 +94,6 @@ import {
   refreshClaimedRoomBootstrapperOwnership,
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
-import { runTowerConstructionExecutorForColony } from '../territory/towerConstructionExecutor';
-import { runRampartWallConstructionExecutorForColony } from '../territory/rampartWallConstructionExecutor';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
@@ -185,8 +183,6 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
-    runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
-    runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     if (postClaimBootstrapRefresh.deferred !== true) {
       planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
     }

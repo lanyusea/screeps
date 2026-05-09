@@ -1467,6 +1467,92 @@ describe('planSpawn', () => {
     });
   });
 
+  it('spawns a post-claim controller upgrader as soon as the home room can afford the minimum body', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 200,
+      energyCapacityAvailable: 650,
+      spawnEnergyBudget: 200,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        E26S48: makeTerritoryRoom('E26S48', {
+          id: 'controller-E26S48',
+          my: true,
+          level: 1
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S48: {
+            colony: 'W1N1',
+            roomName: 'E26S48',
+            status: 'spawnSitePending',
+            claimedAt: 813,
+            updatedAt: 813,
+            workerTarget: 2,
+            controllerId: 'controller-E26S48' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 813)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-E26S48-upgrader-813',
+      memory: {
+        role: 'worker',
+        colony: 'E26S48',
+        territory: { targetRoom: 'E26S48', action: 'claim', controllerId: 'controller-E26S48' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E26S48', role: 'upgrader' }
+      }
+    });
+  });
+
+  it('waits on post-claim controller upgraders until the minimum worker body is affordable', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 199,
+      energyCapacityAvailable: 650,
+      spawnEnergyBudget: 199,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        E26S48: makeTerritoryRoom('E26S48', {
+          id: 'controller-E26S48',
+          my: true,
+          level: 1
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S48: {
+            colony: 'W1N1',
+            roomName: 'E26S48',
+            status: 'spawnSitePending',
+            claimedAt: 814,
+            updatedAt: 814,
+            workerTarget: 2,
+            controllerId: 'controller-E26S48' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 814)).toBeNull();
+  });
+
   it('does not sustain a stale post-claim record after target room vision is lost', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
