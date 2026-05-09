@@ -139,6 +139,7 @@ export interface SpawnPlanningOptions {
   workersOnly?: boolean;
   allowTerritoryControllerPressure?: boolean;
   allowTerritoryFollowUp?: boolean;
+  controllerUpgradeTargetRoom?: string | null;
 }
 
 export interface SpawnEnergyForecast {
@@ -1423,6 +1424,7 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
 function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.territoryIntentPending ||
+    !isSelectedControllerUpgradeTarget(context) ||
     context.survival.mode === 'BOOTSTRAP' ||
     context.survival.hostilePresence ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
@@ -1478,6 +1480,7 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
   if (
     context.options.workersOnly ||
     context.territoryIntentPending ||
+    context.options.controllerUpgradeTargetRoom === null ||
     context.survival.mode !== 'TERRITORY_READY' ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
     context.workerCapacity < context.workerTarget ||
@@ -1486,7 +1489,10 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
     return null;
   }
 
-  const upgradePlans = selectMultiRoomUpgradePlans(context.colony);
+  const upgradePlans = selectMultiRoomUpgradePlans(context.colony).filter((plan) =>
+    context.options.controllerUpgradeTargetRoom === undefined ||
+    plan.targetRoom === context.options.controllerUpgradeTargetRoom
+  );
   if (upgradePlans.length === 0) {
     return null;
   }
@@ -1534,6 +1540,11 @@ function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext
     context.workerTarget + CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS
   );
   return context.workerCapacity < surplusWorkerTarget;
+}
+
+function isSelectedControllerUpgradeTarget(context: SpawnPlanningContext): boolean {
+  const targetRoom = context.options.controllerUpgradeTargetRoom;
+  return targetRoom === undefined || targetRoom === context.colony.room.name;
 }
 
 function hasControllerUpgradeSurplusEnergy(colony: ColonySnapshot): boolean {

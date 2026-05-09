@@ -94,6 +94,7 @@ import {
   refreshClaimedRoomBootstrapperOwnership,
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
+import { selectColonyUpgradeTarget } from '../territory/colonyUpgradePriority';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
@@ -158,6 +159,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
   const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
+  const controllerUpgradeTargetRoom = selectColonyUpgradeTarget(colonies)?.room.name ?? null;
 
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
@@ -210,7 +212,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         colony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRoom),
         colonies,
         creeps,
         usedSpawnsByRoom,
@@ -262,7 +264,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         coordinatedPlan.sourceColony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp, controllerUpgradeTargetRoom),
         spawnRequest,
         reservedSpawnEnergyByRoom.get(spawnRoomName) ?? bodyCost
       );
@@ -993,6 +995,10 @@ function isAllowedCrossRoomSpawnRequest(
     return !spawnRequest.memory.controllerSustain;
   }
 
+  if (isControllerUpgradeSpawnRequest(spawnRequest)) {
+    return spawnRequest.memory.controllerUpgrade?.roomName === targetRoomName;
+  }
+
   return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE || spawnRequest.memory.role === TERRITORY_SCOUT_ROLE;
 }
 
@@ -1211,18 +1217,22 @@ function buildAffordableCrossRoomHaulerBody(
 
 function getSpawnPlanningOptions(
   successfulSpawnCount: number,
-  hasPendingTerritoryFollowUp: boolean
+  hasPendingTerritoryFollowUp: boolean,
+  controllerUpgradeTargetRoom: string | null
 ): SpawnPlanningOptions {
   const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
   if (successfulSpawnCount === 0) {
-    return allowTerritoryFollowUp ? { allowTerritoryFollowUp } : {};
+    return allowTerritoryFollowUp
+      ? { allowTerritoryFollowUp, controllerUpgradeTargetRoom }
+      : { controllerUpgradeTargetRoom };
   }
 
   return {
     nameSuffix: String(successfulSpawnCount + 1),
     workersOnly: true,
     allowTerritoryControllerPressure: true,
-    allowTerritoryFollowUp
+    allowTerritoryFollowUp,
+    controllerUpgradeTargetRoom
   };
 }
 
