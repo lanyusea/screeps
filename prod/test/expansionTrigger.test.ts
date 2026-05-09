@@ -1,5 +1,6 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
+  getExpansionTriggerRequiredEnergy,
   refreshAutonomousExpansionPipeline
 } from '../src/territory/expansionTrigger';
 import type {
@@ -34,6 +35,71 @@ describe('autonomous expansion trigger pipeline', () => {
       .TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY;
     delete (globalThis as { TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD?: number })
       .TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD;
+  });
+
+  it('keeps the RCL 3 expansion energy threshold within room capacity', () => {
+    expect(getExpansionTriggerRequiredEnergy(3)).toBeLessThanOrEqual(800);
+  });
+
+  it('starts an RCL 3 pipeline when room energy reaches the capped threshold', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(3);
+    const colony = makeColony({
+      storageEnergy: 2_000,
+      rcl: 3,
+      energyAvailable: threshold,
+      energyCapacityAvailable: 800
+    });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 9,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('W1N1', 9);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 9)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'active',
+      stage: 'reserving',
+      targetRoom: 'W2N1'
+    });
+  });
+
+  it('waits at RCL 3 when room energy is below the capped threshold', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(3);
+    const colony = makeColony({
+      storageEnergy: 2_000,
+      rcl: 3,
+      energyAvailable: threshold - 1,
+      energyCapacityAvailable: 800
+    });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 9,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('W1N1', 9);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 9)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines).toEqual({});
   });
 
   it('gates the trigger on configured storage energy before starting the reserve stage', () => {
@@ -498,16 +564,20 @@ function makeCandidate({
 function makeColony({
   storageEnergy = 0,
   rcl = 3,
-  ticksToDowngrade = 10_000
+  ticksToDowngrade = 10_000,
+  energyAvailable = 1_300,
+  energyCapacityAvailable = 1_300
 }: {
   storageEnergy?: number;
   rcl?: number;
   ticksToDowngrade?: number;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
 } = {}): ColonySnapshot {
   const room = {
     name: 'W1N1',
-    energyAvailable: 1_300,
-    energyCapacityAvailable: 1_300,
+    energyAvailable,
+    energyCapacityAvailable,
     storage: makeStorage(storageEnergy),
     controller: {
       id: 'controller1' as Id<StructureController>,
@@ -523,8 +593,8 @@ function makeColony({
   return {
     room,
     spawns: [],
-    energyAvailable: 1_300,
-    energyCapacityAvailable: 1_300,
+    energyAvailable,
+    energyCapacityAvailable,
     memory: room.memory
   };
 }

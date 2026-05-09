@@ -2,6 +2,7 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { runClaimer } from '../src/creeps/claimerRunner';
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { refreshExpansionExecutorIntent } from '../src/territory/expansionExecutor';
+import { getExpansionTriggerRequiredEnergy } from '../src/territory/expansionTrigger';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
 
 describe('E26S50 claim pipeline', () => {
@@ -126,8 +127,13 @@ describe('E26S50 claim pipeline', () => {
     ]);
   });
 
-  it('skips the E26S50 trigger when current energy is below claim readiness', () => {
-    const colony = makeColony({ controllerLevel: 3, energyAvailable: 999 });
+  it('skips the E26S50 trigger when current energy is below RCL 3 expansion readiness', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(3);
+    const colony = makeColony({
+      controllerLevel: 3,
+      energyAvailable: threshold - 1,
+      energyCapacityAvailable: 800
+    });
     setGame(colony, 828, { includeE26S48: true, gclLevel: 3 });
     setSafeHomeThreat('E26S49', 828);
     Memory.scout = {

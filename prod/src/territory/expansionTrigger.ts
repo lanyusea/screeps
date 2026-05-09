@@ -22,6 +22,7 @@ import {
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import { TERRITORY_EXPANSION_SCOUT_TARGETS } from './expansionConfig';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
@@ -31,6 +32,7 @@ const EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = '>';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
+const MAX_ROOM_ENERGY_CAPACITY_BY_RCL = [0, 300, 550, 800, 1_300, 1_800, 2_300, 5_600, 12_900];
 
 interface ExpansionTriggerConfig {
   scoreThreshold: number;
@@ -847,12 +849,13 @@ function isExpansionHomeStable(
   config: ExpansionTriggerConfig
 ): boolean {
   const controller = colony.room.controller;
+  const requiredEnergy = getExpansionTriggerRequiredEnergy(controller?.level);
   return (
     controller?.my === true &&
     typeof controller.level === 'number' &&
     controller.level >= config.minRcl &&
     !isControllerDowngradeGuardBreached(controller) &&
-    colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
+    colony.energyCapacityAvailable >= requiredEnergy &&
     getRoomStorageEnergy(colony.room) >= config.minStorageEnergy &&
     !hasVisibleHostiles(colony.room) &&
     getHomeThreatLevel(colony.room.name, gameTime) === 'none'
@@ -864,10 +867,32 @@ function isExpansionTriggerReady(
   gameTime: number,
   config: ExpansionTriggerConfig
 ): boolean {
+  const requiredEnergy = getExpansionTriggerRequiredEnergy(colony.room.controller?.level);
   return (
     isExpansionHomeStable(colony, gameTime, config) &&
-    colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    colony.energyAvailable >= requiredEnergy
   );
+}
+
+export function getExpansionTriggerRequiredEnergy(controllerLevel: number | undefined): number {
+  const rclCapacity = getMaxRoomEnergyCapacityForRcl(controllerLevel);
+  if (rclCapacity === null) {
+    return TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
+  }
+
+  return Math.max(
+    TERRITORY_CONTROLLER_BODY_COST,
+    Math.min(TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY, rclCapacity)
+  );
+}
+
+function getMaxRoomEnergyCapacityForRcl(controllerLevel: number | undefined): number | null {
+  if (typeof controllerLevel !== 'number' || !Number.isFinite(controllerLevel)) {
+    return null;
+  }
+
+  const rcl = Math.max(0, Math.min(8, Math.floor(controllerLevel)));
+  return MAX_ROOM_ENERGY_CAPACITY_BY_RCL[rcl] ?? null;
 }
 
 function hasBlockingExpansionInProgress(territoryMemory: TerritoryMemory, colony: string): boolean {
