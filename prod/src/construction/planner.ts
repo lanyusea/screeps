@@ -15,6 +15,16 @@ export type ConstructionPlannerPriority =
   | 'tower'
   | 'storage';
 
+export const POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER: readonly ConstructionPlannerPriority[] = [
+  'spawn',
+  'extension',
+  'container',
+  'road',
+  'tower',
+  'rampart',
+  'storage'
+];
+
 export interface ConstructionPlannerOptions {
   colonies?: ColonySnapshot[];
   energyBudgetRatio?: number;
@@ -25,6 +35,7 @@ export interface ConstructionPlannerOptions {
   maxPendingContainerSites?: number;
   includePostClaimRamparts?: boolean;
   includeStorage?: boolean;
+  postClaimPriorityOrder?: boolean;
 }
 
 export interface ConstructionPlannerPlacement {
@@ -192,6 +203,38 @@ export function planConstructionForColony(
     }
   }
 
+  if (options.postClaimPriorityOrder === true) {
+    planExtensions(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+
+    planContainers(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+
+    planRoads(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+
+    planTowers(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+
+    if (options.includePostClaimRamparts === true) {
+      planRamparts(colony, result, budgetState, options);
+      if (hasBlockingPlacementFailure(result)) {
+        return result;
+      }
+    }
+
+    planStorage(colony, result, budgetState, options);
+    return result;
+  }
+
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
@@ -204,14 +247,9 @@ export function planConstructionForColony(
     }
   }
 
-  if (hasRemainingStructureCapacity(room, 'extension') && canReserveConstructionEnergy(room, budgetState, 'extension', options)) {
-    const extensionResult = planExtensionConstruction(colony);
-    if (extensionResult !== null) {
-      recordPlacement(result, budgetState, 'extension', extensionResult, options);
-      if (extensionResult !== getOkCode()) {
-        return result;
-      }
-    }
+  planExtensions(colony, result, budgetState, options);
+  if (hasBlockingPlacementFailure(result)) {
+    return result;
   }
 
   if (!sourceLogisticsStarved) {
@@ -233,25 +271,68 @@ export function planConstructionForColony(
     }
   }
 
-  if (hasRemainingStructureCapacity(room, 'tower') && canReserveConstructionEnergy(room, budgetState, 'tower', options)) {
-    const towerResult = planTowerConstruction(colony);
-    if (towerResult !== null) {
-      recordPlacement(result, budgetState, 'tower', towerResult, options);
-    }
-  }
-
-  if (
-    options.includeStorage === true &&
-    hasRemainingStructureCapacity(room, 'storage') &&
-    canReserveConstructionEnergy(room, budgetState, 'storage', options)
-  ) {
-    const storageResult = planStorageConstruction(colony);
-    if (storageResult !== null) {
-      recordPlacement(result, budgetState, 'storage', storageResult, options);
-    }
-  }
+  planTowers(colony, result, budgetState, options);
+  planStorage(colony, result, budgetState, options);
 
   return result;
+}
+
+function planExtensions(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  if (
+    !hasRemainingStructureCapacity(colony.room, 'extension') ||
+    !canReserveConstructionEnergy(colony.room, budgetState, 'extension', options)
+  ) {
+    return;
+  }
+
+  const extensionResult = planExtensionConstruction(colony);
+  if (extensionResult !== null) {
+    recordPlacement(result, budgetState, 'extension', extensionResult, options);
+  }
+}
+
+function planTowers(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  if (
+    !hasRemainingStructureCapacity(colony.room, 'tower') ||
+    !canReserveConstructionEnergy(colony.room, budgetState, 'tower', options)
+  ) {
+    return;
+  }
+
+  const towerResult = planTowerConstruction(colony);
+  if (towerResult !== null) {
+    recordPlacement(result, budgetState, 'tower', towerResult, options);
+  }
+}
+
+function planStorage(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): void {
+  if (
+    options.includeStorage === false ||
+    !hasRemainingStructureCapacity(colony.room, 'storage') ||
+    !canReserveConstructionEnergy(colony.room, budgetState, 'storage', options)
+  ) {
+    return;
+  }
+
+  const storageResult = planStorageConstruction(colony);
+  if (storageResult !== null) {
+    recordPlacement(result, budgetState, 'storage', storageResult, options);
+  }
 }
 
 function buildSourceLogisticsStarvationRoadOptions(
