@@ -86,9 +86,12 @@ export function getSpawnEnergyBufferSnapshot(
   const minerOutputBufferCredit = getMinerOutputBufferCredit(minerOutputEnergyPerTick);
   const spawnCount = getSpawnBufferCount(spawns);
   const thresholdPerSpawn = getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount);
-  const threshold = thresholdPerSpawn * spawnCount;
   const normalizedEnergy = normalizeEnergyAmount(currentEnergy);
   const reservation = getRoomSpawnEnergyReservationState(room);
+  const threshold = getSpawnEnergyBufferRequirementForReservation(
+    thresholdPerSpawn * spawnCount,
+    reservation.reservedEnergy
+  );
 
   return {
     baseThresholdPerSpawn,
@@ -124,7 +127,10 @@ export function getBaseSpawnEnergyBufferThreshold(room: Room): number {
 
 export function getSpawnEnergyBufferRequirement(room: Room, spawns: StructureSpawn[]): number {
   const spawnCount = getSpawnBufferCount(spawns);
-  return getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount) * spawnCount;
+  return getSpawnEnergyBufferRequirementForReservation(
+    getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount) * spawnCount,
+    getRoomSpawnEnergyReservationState(room).reservedEnergy
+  );
 }
 
 export function getBufferedSpawnEnergyBudget(
@@ -162,7 +168,7 @@ export function getSpawnEnergyAvailableForWithdrawal(
     (total, spawn) => total + (isSameSpawn(spawn, target) ? targetSpawnEnergy : getStoredEnergy(spawn)),
     0
   );
-  const totalSpawnBuffer = getSpawnEnergyBufferThresholdForSpawnCount(room, spawns.length) * spawns.length;
+  const totalSpawnBuffer = getSpawnEnergyBufferRequirement(room, spawns);
   const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
   return Math.min(targetSpawnEnergy, roomSurplus);
 }
@@ -232,6 +238,13 @@ function getMinerAdjustedSpawnEnergyBufferThreshold(room: Room, baseThreshold: n
 
 function getMinerOutputBufferCredit(minerOutputEnergyPerTick: number): number {
   return normalizeEnergyAmount(minerOutputEnergyPerTick * MINER_OUTPUT_BUFFER_CREDIT_TICKS);
+}
+
+function getSpawnEnergyBufferRequirementForReservation(
+  baseRequirement: number,
+  reservedSpawnEnergy: number
+): number {
+  return Math.max(normalizeEnergyAmount(baseRequirement), normalizeEnergyAmount(reservedSpawnEnergy));
 }
 
 function normalizeConfiguredThreshold(value: unknown): number | null {
