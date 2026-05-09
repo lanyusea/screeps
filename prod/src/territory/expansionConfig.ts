@@ -15,5 +15,13 @@ export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScout
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true
+  },
+  {
+    colony: 'E26S49',
+    roomName: 'E26S47',
+    nearestOwnedRoom: 'E26S48',
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 2,
+    adjacentToOwnedRoom: true
   }
 ];
