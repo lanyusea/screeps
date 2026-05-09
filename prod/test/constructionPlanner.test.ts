@@ -100,6 +100,59 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
   });
 
+  it('places source containers before extensions during RCL4 energy starvation', () => {
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 120,
+      energyCapacityAvailable: 300,
+      structures: [
+        ...Array.from({ length: 10 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 30 + index, 30)
+        )
+      ],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['container']);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_CONTAINER);
+  });
+
+  it('creates harvest-to-spawn road sites before extensions when off-route road backlog exists during starvation', () => {
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 120,
+      energyCapacityAvailable: 300,
+      structures: [
+        ...Array.from({ length: 10 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 30 + index, 30)
+        )
+      ],
+      constructionSites: [
+        makeConstructionSite('source-container-pending', TEST_GLOBALS.STRUCTURE_CONTAINER, 19, 10, 'W1N1'),
+        makeConstructionSite('off-route-road-1', TEST_GLOBALS.STRUCTURE_ROAD, 40, 40, 'W1N1'),
+        makeConstructionSite('off-route-road-2', TEST_GLOBALS.STRUCTURE_ROAD, 41, 40, 'W1N1'),
+        makeConstructionSite('off-route-road-3', TEST_GLOBALS.STRUCTURE_ROAD, 42, 40, 'W1N1')
+      ],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['road']);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 10, STRUCTURE_ROAD);
+  });
+
   it('respects CONTROLLER_STRUCTURES counts before calling lower-level planners', () => {
     const controllerStructures = makeControllerStructures();
     controllerStructures.extension[2] = 1;
@@ -166,6 +219,7 @@ interface TestPosition {
 interface MakeColonyOptions {
   controllerLevel: number;
   energyAvailable: number;
+  energyCapacityAvailable?: number;
   includeSpawn?: boolean;
   structures?: Structure[];
   constructionSites?: ConstructionSite[];
@@ -198,7 +252,7 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
   const room = {
     name: roomName,
     energyAvailable: options.energyAvailable,
-    energyCapacityAvailable: options.energyAvailable,
+    energyCapacityAvailable: options.energyCapacityAvailable ?? options.energyAvailable,
     controller,
     find: jest.fn((findType: number, findOptions?: { filter?: (target: unknown) => boolean }) => {
       const targets =
@@ -262,7 +316,7 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
       room,
       spawns: options.includeSpawn === false ? [] : [spawn],
       energyAvailable: options.energyAvailable,
-      energyCapacityAvailable: options.energyAvailable
+      energyCapacityAvailable: options.energyCapacityAvailable ?? options.energyAvailable
     }
   };
 }
