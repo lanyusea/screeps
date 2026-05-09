@@ -273,6 +273,10 @@ function canSatisfyControllerUpgradeDemand(
     return true;
   }
 
+  if (hasMatchingControllerSustainAssignment(creep, roomName, controllerId)) {
+    return true;
+  }
+
   const task = creep.memory.task;
   return (
     creep.memory.role === 'worker' &&
@@ -280,6 +284,21 @@ function canSatisfyControllerUpgradeDemand(
     creep.room?.name === roomName &&
     task?.type === 'upgrade' &&
     task.targetId === controllerId
+  );
+}
+
+function hasMatchingControllerSustainAssignment(
+  creep: Creep,
+  roomName: string,
+  controllerId: Id<StructureController>
+): boolean {
+  const sustain = creep.memory.controllerSustain;
+  const territory = creep.memory.territory;
+  return (
+    sustain?.role === 'upgrader' &&
+    sustain.targetRoom === roomName &&
+    territory?.targetRoom === roomName &&
+    territory.controllerId === controllerId
   );
 }
 

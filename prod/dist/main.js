@@ -28856,8 +28856,16 @@ function canSatisfyControllerUpgradeDemand(creep, roomName, controllerId) {
   if ((creep.memory.role === UPGRADER_ROLE || creep.memory.role === "worker") && (upgradeMemory == null ? void 0 : upgradeMemory.roomName) === roomName && upgradeMemory.controllerId === controllerId) {
     return true;
   }
+  if (hasMatchingControllerSustainAssignment(creep, roomName, controllerId)) {
+    return true;
+  }
   const task = creep.memory.task;
   return creep.memory.role === "worker" && creep.memory.colony === roomName && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controllerId;
+}
+function hasMatchingControllerSustainAssignment(creep, roomName, controllerId) {
+  const sustain = creep.memory.controllerSustain;
+  const territory = creep.memory.territory;
+  return (sustain == null ? void 0 : sustain.role) === "upgrader" && sustain.targetRoom === roomName && (territory == null ? void 0 : territory.targetRoom) === roomName && territory.controllerId === controllerId;
 }
 function hasVisibleConstructionDemand(room) {
   return findRoomObjects20(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects20(room, "FIND_CONSTRUCTION_SITES").filter((site) => site.my !== false).length > 0;
