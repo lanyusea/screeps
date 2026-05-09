@@ -1,3 +1,5 @@
+import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+
 export const DEFAULT_LOCAL_FIRST_ENERGY_ROOM = 'E26S48';
 export const DEFAULT_E26S50_LOCAL_FIRST_ENERGY_ROOM = 'E26S50';
 export const DEFAULT_LOCAL_FIRST_SOURCE_ROOM = 'E26S49';
@@ -141,7 +143,9 @@ export function auditLocalEnergyImport(
       isSourceHarvestSufficient(source, config.harvestCoverageRatio)
     );
   const localEnergyDeficit = Math.max(0, config.importThreshold - localEnergy);
-  const spawnCollapseRisk = hasSpawnCollapseRisk(room, config.spawnCollapseEnergyThreshold);
+  const spawnCollapseRisk =
+    hasSpawnCollapseRisk(room, config.spawnCollapseEnergyThreshold) ||
+    hasUnmetSpawnEnergyReservation(room);
   const shouldImport =
     spawnCollapseRisk ||
     localEnergyDeficit > 0 ||
@@ -270,6 +274,10 @@ function hasSpawnCollapseRisk(room: Room, threshold: number): boolean {
   const energyCapacity = normalizeNonNegativeInteger(room.energyCapacityAvailable);
   const effectiveThreshold = energyCapacity > 0 ? Math.min(threshold, energyCapacity) : threshold;
   return normalizeNonNegativeInteger(room.energyAvailable) < effectiveThreshold;
+}
+
+function hasUnmetSpawnEnergyReservation(room: Room): boolean {
+  return getRoomSpawnEnergyReservationState(room).unmetReservedEnergy > 0;
 }
 
 function hasOwnedSpawn(room: Room): boolean {

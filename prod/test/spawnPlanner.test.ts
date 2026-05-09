@@ -3,6 +3,7 @@ import {
   getRoomCreepBudget,
   orderColoniesForSpawnPlanning,
   planSpawn,
+  planSpawnEnergyReservationCandidate,
   sortSpawnQueueByRolePriority
 } from '../src/spawn/spawnPlanner';
 import { getEnergyReservationScore } from '../src/economy/energyReservation';
@@ -598,6 +599,22 @@ describe('planSpawn', () => {
     });
   });
 
+  it('reserves the full next queued body cost even when current spawn energy is low', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N27',
+      energyAvailable: 200,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 200,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawnEnergyReservationCandidate(colony, { worker: 3, workerCapacity: 2 }, 159)).toEqual({
+      bodyCost: getBodyCost(SCALED_WORKER_800),
+      creepName: 'worker-W1N27-159',
+      role: 'worker'
+    });
+  });
+
   it('respects the spawn energy buffer by default when no spawn energy budget is provided', () => {
     const { colony } = makeColony({
       roomName: 'W1N26',
@@ -942,6 +959,47 @@ describe('planSpawn', () => {
     expect(getEnergyReservationScore(firstColony.room).pendingHaulerDeliveryEnergy).toBe(500);
     expect(getEnergyReservationScore(secondColony.room).pendingHaulerDeliveryEnergy).toBe(200);
     expect(ownKeys).toHaveBeenCalledTimes(1);
+  });
+
+  it('allocates reserve energy to an unmet spawn reservation before surplus body sizing', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N41',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      storageEnergy: 400,
+      storageCapacity: 1_000,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N41: colony.room },
+      time: 41
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 40,
+          rooms: {
+            W1N41: {
+              bodyCost: 650,
+              creepName: 'worker-W1N41-41',
+              reservedAt: 40,
+              reservedEnergy: 650,
+              role: 'worker',
+              roomName: 'W1N41',
+              updatedAt: 40
+            }
+          }
+        }
+      }
+    };
+
+    expect(getEnergyReservationScore(colony.room)).toMatchObject({
+      confirmedReserveEnergy: 350,
+      reservationScore: 650,
+      reservedSpawnEnergy: 650,
+      reservedSpawnRefillEnergy: 350,
+      unmetSpawnEnergyReservation: 350
+    });
   });
 
   it('keeps the current-energy fallback when no reservation evidence exists', () => {

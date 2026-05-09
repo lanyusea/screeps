@@ -2250,7 +2250,7 @@ describe('runEconomy', () => {
       }
     );
     expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1).toMatchObject({
-      reservedEnergy: 3_250,
+      reservedEnergy: 3_900,
       role: 'claimer',
       creepName: 'claimer-W1N1-W2N1-326-2',
       sourceCreepName: 'worker-W1N1-326',
@@ -2258,8 +2258,8 @@ describe('runEconomy', () => {
     });
     expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
       currentEnergy: 3_500,
-      reservedEnergy: 3_250,
-      unmetReservedEnergy: 250
+      reservedEnergy: 3_900,
+      unmetReservedEnergy: 900
     });
     expect(loadedWorker.memory.task).toBeUndefined();
   });
@@ -2539,7 +2539,8 @@ describe('runEconomy', () => {
       targetRoom: 'W2N1',
       action: 'reserve',
       status: 'planned',
-      updatedAt: 324,
+      updatedAt: 325,
+      controllerId: 'controller2',
       followUp
     });
     expect(Memory.territory?.intents).toContainEqual({
