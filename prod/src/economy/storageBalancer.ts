@@ -19,7 +19,6 @@ import {
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 export const STORAGE_BALANCE_REFRESH_INTERVAL = 25;
-export const STORAGE_BALANCE_HOME_ROOM = 'E26S49';
 
 export interface RoomStoredEnergyState {
   roomName: string;
@@ -376,7 +375,7 @@ export function getRoomStorageImportPriorityRank(roomName: string): number {
     return 0;
   }
 
-  if (roomName === STORAGE_BALANCE_HOME_ROOM) {
+  if (roomName === getHomeRoom()) {
     return 1;
   }
 
@@ -434,6 +433,22 @@ function hasOwnedSpawn(room: Room): boolean {
   return Object.values((globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns ?? {}).some(
     (spawn) => spawn.room?.name === room.name
   );
+}
+
+export function getHomeRoom(): string | null {
+  const spawns = (globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  if (!spawns) {
+    return null;
+  }
+
+  for (const spawn of Object.values(spawns)) {
+    const roomName = spawn.room?.name;
+    if (typeof roomName === 'string' && roomName.length > 0) {
+      return roomName;
+    }
+  }
+
+  return null;
 }
 
 function selectBlockedImportReason(

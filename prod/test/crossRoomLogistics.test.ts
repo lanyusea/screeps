@@ -611,7 +611,7 @@ describe('cross-room energy logistics', () => {
       storageEnergy: 0,
       storageCapacity: 2_000
     });
-    installGame([sourceRoom, homeRoom, distantRoom], []);
+    installGame([sourceRoom, homeRoom, distantRoom], [makeSpawn('HomeSpawn', homeRoom)]);
 
     balanceStorage();
 
@@ -735,12 +735,19 @@ describe('cross-room energy logistics', () => {
     });
     const nearSourceRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 950, energyAvailable: 800 });
     const targetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
-    installGame([distantSourceRoom, nearSourceRoom, targetRoom], [], {}, (fromRoom, toRoom) => {
-      const routeRooms = fromRoom === 'W1N1' && toRoom === 'W3N1'
-        ? ['W1N2', 'W1N3', 'W3N1']
-        : [toRoom];
-      return routeRooms.map((room) => ({ exit: 1, room }));
-    });
+    const transitRoomA = makeNeutralRoom('W1N2');
+    const transitRoomB = makeNeutralRoom('W1N3');
+    installGame(
+      [distantSourceRoom, nearSourceRoom, targetRoom, transitRoomA, transitRoomB],
+      [],
+      {},
+      (fromRoom, toRoom) => {
+        const routeRooms = fromRoom === 'W1N1' && toRoom === 'W3N1'
+          ? ['W1N2', 'W1N3', 'W3N1']
+          : [toRoom];
+        return routeRooms.map((room) => ({ exit: 1, room }));
+      }
+    );
 
     balanceStorage();
 

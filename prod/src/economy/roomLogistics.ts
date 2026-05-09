@@ -3,6 +3,8 @@ export interface LogisticsRoute {
   rooms: string[];
 }
 
+export const safeTransitAllowlist = new Set<string>(['E26S49']);
+
 export function canFindOwnedLogisticsRoute(): boolean {
   return typeof getGameMap()?.findRoute === 'function';
 }
@@ -42,7 +44,7 @@ export function isSafeOwnedRoom(roomName: string): boolean {
 export function isSafeLogisticsTransitRoom(roomName: string): boolean {
   const room = getVisibleRoom(roomName);
   if (!room) {
-    return true;
+    return safeTransitAllowlist.has(roomName);
   }
 
   if (hasHostilePresence(room)) {

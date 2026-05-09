@@ -18216,6 +18216,7 @@ function roundRatio4(numerator, denominator) {
 }
 
 // src/economy/roomLogistics.ts
+var safeTransitAllowlist = /* @__PURE__ */ new Set(["E26S49"]);
 function canFindOwnedLogisticsRoute() {
   var _a;
   return typeof ((_a = getGameMap()) == null ? void 0 : _a.findRoute) === "function";
@@ -18249,7 +18250,7 @@ function isSafeLogisticsTransitRoom(roomName) {
   var _a;
   const room = getVisibleRoom5(roomName);
   if (!room) {
-    return true;
+    return safeTransitAllowlist.has(roomName);
   }
   if (hasHostilePresence(room)) {
     return false;
@@ -18297,7 +18298,6 @@ function isRecord17(value) {
 var STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 var STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 var STORAGE_BALANCE_REFRESH_INTERVAL = 25;
-var STORAGE_BALANCE_HOME_ROOM = "E26S49";
 function balanceStorage() {
   const memory = getEconomyMemory2();
   const gameTime = getGameTime21();
@@ -18528,7 +18528,7 @@ function getRoomStorageImportPriorityRank(roomName) {
   if (hasRecordedSpawnEnergyPressure(roomName) || hasCriticalSpawnEnergyPressure(roomName)) {
     return 0;
   }
-  if (roomName === STORAGE_BALANCE_HOME_ROOM) {
+  if (roomName === getHomeRoom()) {
     return 1;
   }
   const controllerPriorityRank = getControllerUpgradeImportPriorityRank(roomName);
@@ -18583,6 +18583,20 @@ function hasOwnedSpawn2(room) {
       return ((_a2 = spawn.room) == null ? void 0 : _a2.name) === room.name;
     }
   );
+}
+function getHomeRoom() {
+  var _a, _b;
+  const spawns = (_a = globalThis.Game) == null ? void 0 : _a.spawns;
+  if (!spawns) {
+    return null;
+  }
+  for (const spawn of Object.values(spawns)) {
+    const roomName = (_b = spawn.room) == null ? void 0 : _b.name;
+    if (typeof roomName === "string" && roomName.length > 0) {
+      return roomName;
+    }
+  }
+  return null;
 }
 function selectBlockedImportReason(exporters, blockedByNoPath) {
   if (blockedByNoPath) {
