@@ -4,6 +4,7 @@ import { isKnownDeadZoneRoom } from '../defense/deadZone';
 
 export const MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 export const MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
+export const POST_CLAIM_CONTROLLER_UPGRADE_DESIRED_RCL = 3;
 
 const SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS = 1;
 const REMOTE_UPGRADER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
@@ -22,6 +23,7 @@ export type MultiRoomUpgradeControllerState = 'owned';
 export interface MultiRoomUpgraderOptions {
   storageEnergyThresholdRatio?: number;
   perRoomUpgraderCap?: number;
+  allowPostClaimRclProgression?: boolean;
 }
 
 export interface MultiRoomUpgradePlan {
@@ -29,6 +31,10 @@ export interface MultiRoomUpgradePlan {
   targetRoom: string;
   controllerId: Id<StructureController>;
   controllerLevel: number;
+  desiredControllerLevel?: number;
+  controllerProgress?: number;
+  controllerProgressTotal?: number;
+  controllerProgressRemaining?: number;
   controllerState: MultiRoomUpgradeControllerState;
   controllerTicksToDowngrade?: number;
   routeDistance?: number;
@@ -42,6 +48,11 @@ interface MultiRoomUpgradeCandidate extends MultiRoomUpgradePlan {
 interface MultiRoomUpgraderConfig {
   storageEnergyThresholdRatio: number;
   perRoomUpgraderCap: number;
+  allowPostClaimRclProgression: boolean;
+}
+
+interface PostClaimControllerUpgradeProgression {
+  desiredControllerLevel: number;
 }
 
 type FindConstantGlobal = 'FIND_MY_CONSTRUCTION_SITES';
@@ -76,11 +87,15 @@ export function selectMultiRoomUpgradePlans(
   options: MultiRoomUpgraderOptions = {}
 ): MultiRoomUpgradePlan[] {
   const config = normalizeMultiRoomUpgraderOptions(options);
-  if (config.perRoomUpgraderCap <= 0 || !hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)) {
+  if (config.perRoomUpgraderCap <= 0) {
     return [];
   }
 
-  const candidates = getVisibleMultiRoomUpgradeCandidates(colony, config);
+  const candidates = getVisibleMultiRoomUpgradeCandidates(
+    colony,
+    config,
+    hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)
+  );
   if (candidates.length === 0) {
     return [];
   }
@@ -139,7 +154,8 @@ export function buildMultiRoomUpgraderMemory(plan: MultiRoomUpgradePlan): CreepM
 
 function getVisibleMultiRoomUpgradeCandidates(
   colony: ColonySnapshot,
-  config: MultiRoomUpgraderConfig
+  config: MultiRoomUpgraderConfig,
+  hasStorageSurplus: boolean
 ): MultiRoomUpgradeCandidate[] {
   const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
   if (!rooms) {
@@ -157,7 +173,8 @@ function getVisibleMultiRoomUpgradeCandidates(
       room,
       config,
       activeUpgraderCounts,
-      order
+      order,
+      hasStorageSurplus
     );
     order += 1;
     if (candidate) {
@@ -173,7 +190,8 @@ function getVisibleMultiRoomUpgradeCandidate(
   room: Room,
   config: MultiRoomUpgraderConfig,
   activeUpgraderCounts: Record<string, number>,
-  order: number
+  order: number,
+  hasStorageSurplus: boolean
 ): MultiRoomUpgradeCandidate | null {
   if (!isNonEmptyString(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
     return null;
@@ -186,6 +204,19 @@ function getVisibleMultiRoomUpgradeCandidate(
 
   const controllerState = getEligibleControllerState(controller);
   if (!controllerState) {
+    return null;
+  }
+
+  const postClaimProgression = config.allowPostClaimRclProgression
+    ? getPostClaimControllerUpgradeProgression(homeRoom, room.name, controller)
+    : null;
+  if (!hasStorageSurplus && !postClaimProgression) {
+    return null;
+  }
+
+  const controllerLevel = getControllerLevel(controller);
+  const desiredControllerLevel = postClaimProgression?.desiredControllerLevel ?? MAX_CONTROLLER_LEVEL;
+  if (controllerLevel >= desiredControllerLevel) {
     return null;
   }
 
@@ -208,7 +239,13 @@ function getVisibleMultiRoomUpgradeCandidate(
     homeRoom,
     targetRoom: room.name,
     controllerId: controller.id,
-    controllerLevel: getControllerLevel(controller),
+    controllerLevel,
+    ...(postClaimProgression
+      ? {
+          desiredControllerLevel: postClaimProgression.desiredControllerLevel,
+          ...getControllerProgressPlanFields(controller)
+        }
+      : {}),
     controllerState,
     ...getControllerTicksToDowngradePlanField(controller),
     ...(typeof routeDistance === 'number' ? { routeDistance } : {}),
@@ -221,6 +258,43 @@ function getEligibleControllerState(
   controller: StructureController
 ): MultiRoomUpgradeControllerState | null {
   return controller.my === true && getControllerLevel(controller) < MAX_CONTROLLER_LEVEL ? 'owned' : null;
+}
+
+function getPostClaimControllerUpgradeProgression(
+  homeRoom: string,
+  targetRoom: string,
+  controller: StructureController
+): PostClaimControllerUpgradeProgression | null {
+  const record = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps?.[targetRoom];
+  if (!isPostClaimControllerUpgradeRecord(record, homeRoom, targetRoom)) {
+    return null;
+  }
+
+  const desiredControllerLevel = POST_CLAIM_CONTROLLER_UPGRADE_DESIRED_RCL;
+  return getControllerLevel(controller) < desiredControllerLevel ? { desiredControllerLevel } : null;
+}
+
+function isPostClaimControllerUpgradeRecord(
+  record: unknown,
+  homeRoom: string,
+  targetRoom: string
+): record is TerritoryPostClaimBootstrapMemory {
+  return (
+    isRecord(record) &&
+    record.colony === homeRoom &&
+    record.roomName === targetRoom &&
+    isPostClaimControllerUpgradeStatus(record.status)
+  );
+}
+
+function isPostClaimControllerUpgradeStatus(status: unknown): boolean {
+  return (
+    status === 'detected' ||
+    status === 'spawnSitePending' ||
+    status === 'spawnSiteBlocked' ||
+    status === 'spawningWorkers' ||
+    status === 'ready'
+  );
 }
 
 function hasPrimaryRoomStorageSurplus(colony: ColonySnapshot, storageEnergyThresholdRatio: number): boolean {
@@ -240,7 +314,8 @@ function normalizeMultiRoomUpgraderOptions(options: MultiRoomUpgraderOptions): M
       options.storageEnergyThresholdRatio,
       MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO
     ),
-    perRoomUpgraderCap: normalizePerRoomCap(options.perRoomUpgraderCap)
+    perRoomUpgraderCap: normalizePerRoomCap(options.perRoomUpgraderCap),
+    allowPostClaimRclProgression: options.allowPostClaimRclProgression !== false
   };
 }
 
@@ -462,6 +537,29 @@ function getControllerTicksToDowngradePlanField(
   return typeof controller.ticksToDowngrade === 'number' && Number.isFinite(controller.ticksToDowngrade)
     ? { controllerTicksToDowngrade: Math.max(0, Math.floor(controller.ticksToDowngrade)) }
     : {};
+}
+
+function getControllerProgressPlanFields(
+  controller: StructureController
+): Pick<MultiRoomUpgradePlan, 'controllerProgress' | 'controllerProgressTotal' | 'controllerProgressRemaining'> {
+  const progress = controller.progress;
+  const progressTotal = controller.progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal) ||
+    progressTotal <= 0
+  ) {
+    return {};
+  }
+
+  const normalizedProgress = Math.max(0, progress);
+  return {
+    controllerProgress: normalizedProgress,
+    controllerProgressTotal: progressTotal,
+    controllerProgressRemaining: Math.max(0, progressTotal - normalizedProgress)
+  };
 }
 
 function getStoredEnergy(storage: StructureStorage): number {

@@ -28304,6 +28304,7 @@ function normalizeEnergyAmount5(value) {
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
+var POST_CLAIM_CONTROLLER_UPGRADE_DESIRED_RCL = 3;
 var SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS = 1;
 var REMOTE_UPGRADER_PATTERN = ["work", "carry", "move"];
 var REMOTE_UPGRADER_TRAVEL_PATTERN = ["work", "carry", "move", "move"];
@@ -28328,10 +28329,14 @@ function recordPlannedMultiRoomUpgraderSpawn(memory) {
 }
 function selectMultiRoomUpgradePlans(colony, options = {}) {
   const config = normalizeMultiRoomUpgraderOptions(options);
-  if (config.perRoomUpgraderCap <= 0 || !hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)) {
+  if (config.perRoomUpgraderCap <= 0) {
     return [];
   }
-  const candidates = getVisibleMultiRoomUpgradeCandidates(colony, config);
+  const candidates = getVisibleMultiRoomUpgradeCandidates(
+    colony,
+    config,
+    hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)
+  );
   if (candidates.length === 0) {
     return [];
   }
@@ -28378,7 +28383,7 @@ function buildMultiRoomUpgraderMemory(plan) {
     }
   };
 }
-function getVisibleMultiRoomUpgradeCandidates(colony, config) {
+function getVisibleMultiRoomUpgradeCandidates(colony, config, hasStorageSurplus) {
   var _a;
   const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
   if (!rooms) {
@@ -28394,7 +28399,8 @@ function getVisibleMultiRoomUpgradeCandidates(colony, config) {
       room,
       config,
       activeUpgraderCounts,
-      order
+      order,
+      hasStorageSurplus
     );
     order += 1;
     if (candidate) {
@@ -28403,8 +28409,8 @@ function getVisibleMultiRoomUpgradeCandidates(colony, config) {
   }
   return candidates;
 }
-function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgraderCounts, order) {
-  var _a;
+function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgraderCounts, order, hasStorageSurplus) {
+  var _a, _b;
   if (!isNonEmptyString20(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
     return null;
   }
@@ -28416,6 +28422,15 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
   if (!controllerState) {
     return null;
   }
+  const postClaimProgression = config.allowPostClaimRclProgression ? getPostClaimControllerUpgradeProgression(homeRoom, room.name, controller) : null;
+  if (!hasStorageSurplus && !postClaimProgression) {
+    return null;
+  }
+  const controllerLevel = getControllerLevel(controller);
+  const desiredControllerLevel = (_a = postClaimProgression == null ? void 0 : postClaimProgression.desiredControllerLevel) != null ? _a : MAX_CONTROLLER_LEVEL4;
+  if (controllerLevel >= desiredControllerLevel) {
+    return null;
+  }
   if (hasVisibleHostiles2(room)) {
     return null;
   }
@@ -28423,7 +28438,7 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
   if (routeDistance === null) {
     return null;
   }
-  const activeUpgraderCount = (_a = activeUpgraderCounts[room.name]) != null ? _a : 0;
+  const activeUpgraderCount = (_b = activeUpgraderCounts[room.name]) != null ? _b : 0;
   const perRoomUpgraderCap = getEffectivePerRoomUpgraderCap(room, config);
   if (activeUpgraderCount >= perRoomUpgraderCap) {
     return null;
@@ -28432,7 +28447,11 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
     homeRoom,
     targetRoom: room.name,
     controllerId: controller.id,
-    controllerLevel: getControllerLevel(controller),
+    controllerLevel,
+    ...postClaimProgression ? {
+      desiredControllerLevel: postClaimProgression.desiredControllerLevel,
+      ...getControllerProgressPlanFields(controller)
+    } : {},
     controllerState,
     ...getControllerTicksToDowngradePlanField(controller),
     ...typeof routeDistance === "number" ? { routeDistance } : {},
@@ -28442,6 +28461,21 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
 }
 function getEligibleControllerState(controller) {
   return controller.my === true && getControllerLevel(controller) < MAX_CONTROLLER_LEVEL4 ? "owned" : null;
+}
+function getPostClaimControllerUpgradeProgression(homeRoom, targetRoom, controller) {
+  var _a, _b, _c;
+  const record = (_c = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps) == null ? void 0 : _c[targetRoom];
+  if (!isPostClaimControllerUpgradeRecord(record, homeRoom, targetRoom)) {
+    return null;
+  }
+  const desiredControllerLevel = POST_CLAIM_CONTROLLER_UPGRADE_DESIRED_RCL;
+  return getControllerLevel(controller) < desiredControllerLevel ? { desiredControllerLevel } : null;
+}
+function isPostClaimControllerUpgradeRecord(record, homeRoom, targetRoom) {
+  return isRecord23(record) && record.colony === homeRoom && record.roomName === targetRoom && isPostClaimControllerUpgradeStatus(record.status);
+}
+function isPostClaimControllerUpgradeStatus(status) {
+  return status === "detected" || status === "spawnSitePending" || status === "spawnSiteBlocked" || status === "spawningWorkers" || status === "ready";
 }
 function hasPrimaryRoomStorageSurplus(colony, storageEnergyThresholdRatio) {
   const storage = colony.room.storage;
@@ -28458,7 +28492,8 @@ function normalizeMultiRoomUpgraderOptions(options) {
       options.storageEnergyThresholdRatio,
       MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO
     ),
-    perRoomUpgraderCap: normalizePerRoomCap(options.perRoomUpgraderCap)
+    perRoomUpgraderCap: normalizePerRoomCap(options.perRoomUpgraderCap),
+    allowPostClaimRclProgression: options.allowPostClaimRclProgression !== false
   };
 }
 function normalizeRatio2(value, fallback) {
@@ -28599,6 +28634,19 @@ function getControllerLevel(controller) {
 function getControllerTicksToDowngradePlanField(controller) {
   return typeof controller.ticksToDowngrade === "number" && Number.isFinite(controller.ticksToDowngrade) ? { controllerTicksToDowngrade: Math.max(0, Math.floor(controller.ticksToDowngrade)) } : {};
 }
+function getControllerProgressPlanFields(controller) {
+  const progress = controller.progress;
+  const progressTotal = controller.progressTotal;
+  if (typeof progress !== "number" || typeof progressTotal !== "number" || !Number.isFinite(progress) || !Number.isFinite(progressTotal) || progressTotal <= 0) {
+    return {};
+  }
+  const normalizedProgress = Math.max(0, progress);
+  return {
+    controllerProgress: normalizedProgress,
+    controllerProgressTotal: progressTotal,
+    controllerProgressRemaining: Math.max(0, progressTotal - normalizedProgress)
+  };
+}
 function getStoredEnergy21(storage) {
   const storedEnergy = storage.store.getUsedCapacity(RESOURCE_ENERGY);
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
@@ -28725,6 +28773,7 @@ function isNonEmptyString20(value) {
 
 // src/territory/controllerManager.ts
 var CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = MIN_UPGRADER_BODY_COST;
+var MAX_CONTROLLER_LEVEL5 = 8;
 function refreshControllerManagement(colony, roleCounts, workerTarget, gameTime, options = {}) {
   const plan = buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTime, options);
   persistControllerManagementPlan(plan);
@@ -28761,6 +28810,8 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
     };
   }
   const controllerId = controller.id;
+  const controllerLevel = getControllerLevel2(controller);
+  const desiredControllerLevel = normalizeDesiredControllerLevel(options.desiredControllerLevel);
   const activeUpgraderCount = (_a = options.activeUpgraderCount) != null ? _a : Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
   const competingSpawnDemand = (_b = options.competingSpawnDemand) != null ? _b : getWorkerCapacity(roleCounts) < workerTarget;
   const constructionDemand = (_c = options.constructionDemand) != null ? _c : hasVisibleConstructionDemand(colony.room);
@@ -28774,16 +28825,22 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
     energyBufferHealthy,
     hasEnergySurplus: (_e = options.hasEnergySurplus) != null ? _e : hasRecordedEnergySurplus(roomName)
   });
-  const desiredUpgraderCount = getDesiredControllerUpgraderCount(upgradePriority, colony);
+  const desiredUpgraderCount = getDesiredControllerUpgraderCount(
+    upgradePriority,
+    colony,
+    desiredControllerLevel
+  );
   const plan = {
     roomName,
     updatedAt: gameTime,
     controllerId,
+    controllerLevel,
+    desiredControllerLevel,
     signNeeded: shouldSignOccupiedController(controller),
     upgradePriority,
     desiredUpgraderCount,
     activeUpgraderCount,
-    ...getControllerProgressRatioField(controller),
+    ...getControllerProgressFields(controller),
     ...getControllerTicksToDowngradeField(controller)
   };
   if (shouldCreateControllerUpgradeSpawnDemand(
@@ -28817,8 +28874,8 @@ function hasControllerUpgradeSpawnEnergy(colony) {
 function isControllerUpgradeSpawnPriority(priority) {
   return priority === "rcl1Rush" || priority === "rclProgress" || priority === "energySurplus" || priority === "steady";
 }
-function getDesiredControllerUpgraderCount(priority, colony) {
-  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller)) {
+function getDesiredControllerUpgraderCount(priority, colony, desiredControllerLevel) {
+  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller, desiredControllerLevel)) {
     return 0;
   }
   switch (priority) {
@@ -28833,8 +28890,8 @@ function getDesiredControllerUpgraderCount(priority, colony) {
       return 0;
   }
 }
-function canMaintainDedicatedControllerUpgrader(controller) {
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < 8;
+function canMaintainDedicatedControllerUpgrader(controller, desiredControllerLevel) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < Math.min(MAX_CONTROLLER_LEVEL5, desiredControllerLevel);
 }
 function countActiveControllerUpgraders(roomName, controllerId) {
   const game = globalThis.Game;
@@ -28854,8 +28911,16 @@ function canSatisfyControllerUpgradeDemand(creep, roomName, controllerId) {
   if ((creep.memory.role === UPGRADER_ROLE || creep.memory.role === "worker") && (upgradeMemory == null ? void 0 : upgradeMemory.roomName) === roomName && upgradeMemory.controllerId === controllerId) {
     return true;
   }
+  if (hasMatchingControllerSustainAssignment(creep, roomName, controllerId)) {
+    return true;
+  }
   const task = creep.memory.task;
   return creep.memory.role === "worker" && creep.memory.colony === roomName && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controllerId;
+}
+function hasMatchingControllerSustainAssignment(creep, roomName, controllerId) {
+  const sustain = creep.memory.controllerSustain;
+  const territory = creep.memory.territory;
+  return (sustain == null ? void 0 : sustain.role) === "upgrader" && sustain.targetRoom === roomName && (territory == null ? void 0 : territory.targetRoom) === roomName && territory.controllerId === controllerId;
 }
 function hasVisibleConstructionDemand(room) {
   return findRoomObjects20(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects20(room, "FIND_CONSTRUCTION_SITES").filter((site) => site.my !== false).length > 0;
@@ -28893,11 +28958,16 @@ function persistControllerManagementPlan(plan) {
   controllers[plan.roomName] = {
     roomName: plan.roomName,
     controllerId: plan.controllerId,
+    ...typeof plan.controllerLevel === "number" ? { controllerLevel: plan.controllerLevel } : {},
+    ...typeof plan.desiredControllerLevel === "number" ? { desiredControllerLevel: plan.desiredControllerLevel } : {},
     signNeeded: plan.signNeeded,
     upgradePriority: plan.upgradePriority,
     desiredUpgraderCount: plan.desiredUpgraderCount,
     activeUpgraderCount: plan.activeUpgraderCount,
     updatedAt: plan.updatedAt,
+    ...typeof plan.progress === "number" ? { progress: plan.progress } : {},
+    ...typeof plan.progressTotal === "number" ? { progressTotal: plan.progressTotal } : {},
+    ...typeof plan.progressRemaining === "number" ? { progressRemaining: plan.progressRemaining } : {},
     ...typeof plan.progressRatio === "number" ? { progressRatio: plan.progressRatio } : {},
     ...typeof plan.ticksToDowngrade === "number" ? { ticksToDowngrade: plan.ticksToDowngrade } : {},
     ...plan.spawnDemand ? {
@@ -28910,13 +28980,25 @@ function persistControllerManagementPlan(plan) {
     } : {}
   };
 }
-function getControllerProgressRatioField(controller) {
-  if (!isControllerProgressPressure(controller)) {
-    return {};
-  }
+function getControllerProgressFields(controller) {
   const progress = controller.progress;
   const progressTotal = controller.progressTotal;
-  return typeof progress === "number" && typeof progressTotal === "number" && Number.isFinite(progress) && Number.isFinite(progressTotal) && progressTotal > 0 ? { progressRatio: Math.max(0, progress) / progressTotal } : {};
+  if (typeof progress !== "number" || typeof progressTotal !== "number" || !Number.isFinite(progress) || !Number.isFinite(progressTotal) || progressTotal <= 0) {
+    return {};
+  }
+  const normalizedProgress = Math.max(0, progress);
+  return {
+    progress: normalizedProgress,
+    progressTotal,
+    progressRemaining: Math.max(0, progressTotal - normalizedProgress),
+    progressRatio: normalizedProgress / progressTotal
+  };
+}
+function getControllerLevel2(controller) {
+  return typeof controller.level === "number" && Number.isFinite(controller.level) ? Math.max(0, Math.min(MAX_CONTROLLER_LEVEL5, Math.floor(controller.level))) : 0;
+}
+function normalizeDesiredControllerLevel(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.max(1, Math.min(MAX_CONTROLLER_LEVEL5, Math.floor(value))) : MAX_CONTROLLER_LEVEL5;
 }
 function getControllerTicksToDowngradeField(controller) {
   return typeof controller.ticksToDowngrade === "number" && Number.isFinite(controller.ticksToDowngrade) ? { ticksToDowngrade: controller.ticksToDowngrade } : {};
@@ -28932,7 +29014,7 @@ function normalizeNonNegativeInteger12(value) {
 var CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 var CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 var CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
-var MAX_CONTROLLER_LEVEL5 = 8;
+var MAX_CONTROLLER_LEVEL6 = 8;
 var SOURCE_ENERGY_CAPACITY = 3e3;
 var SOURCE_REGEN_TICKS = 300;
 var SOURCE_ENERGY_PER_TICK = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TICKS;
@@ -29086,7 +29168,7 @@ function getRoomCreepBudget(colony, roleCounts) {
   return {
     roomName: colony.room.name,
     constructionSiteCount: getVisibleConstructionSiteCount(colony.room),
-    controllerLevel: getControllerLevel2(colony.room.controller),
+    controllerLevel: getControllerLevel3(colony.room.controller),
     energyAvailable: normalizeNonNegativeInteger13(colony.energyAvailable),
     energyCapacityAvailable: normalizeNonNegativeInteger13(colony.energyCapacityAvailable),
     effectiveEnergyAvailable: forecast.effectiveEnergyAvailable,
@@ -29490,7 +29572,7 @@ function comparePostClaimControllerSustainRecords(left, right) {
 function getVisibleControllerLevel(roomName) {
   var _a, _b;
   const level = (_b = (_a = getVisibleRoom11(roomName)) == null ? void 0 : _a.controller) == null ? void 0 : _b.level;
-  return typeof level === "number" ? level : MAX_CONTROLLER_LEVEL5 + 1;
+  return typeof level === "number" ? level : MAX_CONTROLLER_LEVEL6 + 1;
 }
 function hasOperationalSpawnInRoom(roomName) {
   var _a;
@@ -29893,7 +29975,7 @@ function hasControllerUpgradeSurplusEnergy(colony) {
   return colony.energyCapacityAvailable >= CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY && colony.energyAvailable >= colony.energyCapacityAvailable;
 }
 function isControllerUpgradeableForSurplus(controller) {
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && controller.level < MAX_CONTROLLER_LEVEL5;
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && controller.level < MAX_CONTROLLER_LEVEL6;
 }
 function hasControllerUpgradeBlockingTerritoryWork(colony) {
   return hasActiveTerritoryIntentBacklog(colony.room.name) || hasVisibleForeignReservedTerritoryTarget(colony);
@@ -30258,8 +30340,8 @@ function getEnergyGateRank(gate) {
       return 3;
   }
 }
-function getControllerLevel2(controller) {
-  return typeof (controller == null ? void 0 : controller.level) === "number" ? controller.level : MAX_CONTROLLER_LEVEL5;
+function getControllerLevel3(controller) {
+  return typeof (controller == null ? void 0 : controller.level) === "number" ? controller.level : MAX_CONTROLLER_LEVEL6;
 }
 function getStorageBalanceMemory() {
   var _a, _b;
@@ -38751,7 +38833,7 @@ function refreshReserveExecutionTargets(options = {}) {
 }
 
 // src/territory/colonyUpgradePriority.ts
-var MAX_CONTROLLER_LEVEL6 = 8;
+var MAX_CONTROLLER_LEVEL7 = 8;
 var COLONY_UPGRADE_DOWNGRADE_RISK_TICKS = 5e3;
 function selectColonyUpgradeTargets(colonies) {
   const candidates = colonies.flatMap((colony) => {
@@ -38805,7 +38887,7 @@ function isControllerDowngradeRiskCandidate(candidate) {
   return typeof candidate.controllerTicksToDowngrade === "number" && candidate.controllerTicksToDowngrade <= COLONY_UPGRADE_DOWNGRADE_RISK_TICKS;
 }
 function canUpgradeOwnedController(controller) {
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < MAX_CONTROLLER_LEVEL6;
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < MAX_CONTROLLER_LEVEL7;
 }
 function getControllerRemainingProgress(controller) {
   const progressTotal = getControllerProgressTotal(controller);

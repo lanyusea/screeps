@@ -25,11 +25,16 @@ describe('controller manager', () => {
     expect(plan).toMatchObject({
       roomName: 'W1N1',
       controllerId: 'controller1',
+      controllerLevel: 3,
+      desiredControllerLevel: 8,
       signNeeded: true,
       upgradePriority: 'rclProgress',
       desiredUpgraderCount: 1,
       activeUpgraderCount: 0,
+      progress: 900,
       progressRatio: 0.9,
+      progressRemaining: 100,
+      progressTotal: 1000,
       spawnDemand: {
         roomName: 'W1N1',
         controllerId: 'controller1',
@@ -41,12 +46,17 @@ describe('controller manager', () => {
     expect(Memory.territory?.controllers?.W1N1).toEqual({
       roomName: 'W1N1',
       controllerId: 'controller1',
+      controllerLevel: 3,
+      desiredControllerLevel: 8,
       signNeeded: true,
       upgradePriority: 'rclProgress',
       desiredUpgraderCount: 1,
       activeUpgraderCount: 0,
       updatedAt: 200,
+      progress: 900,
       progressRatio: 0.9,
+      progressRemaining: 100,
+      progressTotal: 1000,
       ticksToDowngrade: 10_000,
       spawnDemand: {
         controllerId: 'controller1',
@@ -159,6 +169,68 @@ describe('controller manager', () => {
 
     expect(plan.activeUpgraderCount).toBe(1);
     expect(plan.spawnDemand).toBeUndefined();
+  });
+
+  it('counts controller sustain upgraders assigned to the same controller before requesting local coverage', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        RemoteUpgrader1: {
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'W2N1',
+            territory: {
+              targetRoom: 'W1N1',
+              action: 'claim',
+              controllerId: 'controller1' as Id<StructureController>
+            },
+            controllerSustain: {
+              homeRoom: 'W2N1',
+              targetRoom: 'W1N1',
+              role: 'upgrader'
+            }
+          }
+        } as Creep
+      }
+    };
+
+    const plan = buildControllerManagementPlan(makeColony(), { worker: 3 }, 3, 208);
+
+    expect(plan.activeUpgraderCount).toBe(1);
+    expect(plan.spawnDemand).toBeUndefined();
+  });
+
+  it('ignores controller sustain creeps assigned to a different controller', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        RemoteUpgrader1: {
+          ticksToLive: 1_000,
+          memory: {
+            role: 'worker',
+            colony: 'W2N1',
+            territory: {
+              targetRoom: 'W1N1',
+              action: 'claim',
+              controllerId: 'controller2' as Id<StructureController>
+            },
+            controllerSustain: {
+              homeRoom: 'W2N1',
+              targetRoom: 'W1N1',
+              role: 'upgrader'
+            }
+          }
+        } as Creep
+      }
+    };
+
+    const plan = buildControllerManagementPlan(makeColony(), { worker: 3 }, 3, 209);
+
+    expect(plan.activeUpgraderCount).toBe(0);
+    expect(plan.spawnDemand).toMatchObject({
+      roomName: 'W1N1',
+      controllerId: 'controller1',
+      priority: 'rclProgress'
+    });
   });
 
   it('builds dedicated controller-upgrade worker memory', () => {
