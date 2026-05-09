@@ -2,9 +2,11 @@ import type { SpawnRequest } from '../spawn/spawnPlanner';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRoomStoredEnergyState,
+  getRoomStorageImportPriorityRank,
   getStorageBalanceState
 } from './storageBalancer';
 import { shouldAllowLocalFirstEnergyImport } from './localEnergyStrategy';
+import { findOwnedLogisticsRoute, isSafeOwnedRoom } from './roomLogistics';
 
 export const CROSS_ROOM_HAULER_ROLE = 'crossRoomHauler';
 export type SpawnPlan = SpawnRequest;
@@ -17,7 +19,6 @@ const MIN_CARRY_MOVE_PAIRS = 1;
 const CROSS_ROOM_HAULER_REPLACEMENT_TICKS = 100;
 const CROSS_ROOM_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const OK_CODE = 0 as ScreepsReturnCode;
-const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const DELIVERY_PRIORITY_SPAWN = 4;
 const DELIVERY_PRIORITY_EXTENSION = 3;
@@ -41,11 +42,6 @@ type LogisticsStructureGlobal =
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL';
-
-interface LogisticsRoute {
-  distance: number;
-  rooms: string[];
-}
 
 export function planCrossRoomHauler(
   getEnergyBudget: CrossRoomHaulerEnergyBudgetProvider = getDefaultCrossRoomHaulerEnergyBudget
@@ -207,6 +203,8 @@ function compareTransfers(
   const leftRouteDistance = findOwnedLogisticsRoute(left.sourceRoom, left.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
   const rightRouteDistance = findOwnedLogisticsRoute(right.sourceRoom, right.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
   return (
+    getRoomStorageImportPriorityRank(left.targetRoom) -
+      getRoomStorageImportPriorityRank(right.targetRoom) ||
     getTransferRoundTripEfficiency(right, rightRouteDistance) -
       getTransferRoundTripEfficiency(left, leftRouteDistance) ||
     right.amount - left.amount ||
@@ -498,42 +496,6 @@ function getSpawnEnergyScore(spawn: StructureSpawn): number {
     : 0;
 }
 
-function findOwnedLogisticsRoute(fromRoom: string, targetRoom: string): LogisticsRoute | null {
-  if (fromRoom === targetRoom) {
-    return { distance: 0, rooms: [] };
-  }
-
-  const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map as
-    | (Partial<GameMap> & {
-        findRoute?: (
-          fromRoom: string,
-          toRoom: string,
-          opts?: { routeCallback?: (roomName: string, fromRoomName: string) => number }
-        ) => unknown;
-      })
-    | undefined;
-
-  if (typeof gameMap?.findRoute !== 'function') {
-    return null;
-  }
-
-  const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom, {
-    routeCallback: (roomName: string) => (isSafeLogisticsTransitRoom(roomName) ? 1 : Infinity)
-  });
-  if (route === getNoPathResultCode() || !Array.isArray(route)) {
-    return null;
-  }
-
-  const rooms = route
-    .map((step) => (isRecord(step) && typeof step.room === 'string' ? step.room : null))
-    .filter((roomName): roomName is string => typeof roomName === 'string');
-  if (rooms.length !== route.length || !rooms.every(isSafeLogisticsTransitRoom)) {
-    return null;
-  }
-
-  return { distance: rooms.length, rooms };
-}
-
 function moveTowardRoom(
   creep: Creep,
   assignment: CreepCrossRoomHaulerMemory,
@@ -589,44 +551,6 @@ function selectNextRouteRoom(
   }
 
   return assignment.homeRoom;
-}
-
-function isSafeOwnedRoom(roomName: string): boolean {
-  const room = getVisibleRoom(roomName);
-  return room?.controller?.my === true && !hasHostilePresence(room);
-}
-
-function isSafeLogisticsTransitRoom(roomName: string): boolean {
-  const room = getVisibleRoom(roomName);
-  if (!room) {
-    return true;
-  }
-
-  if (hasHostilePresence(room)) {
-    return false;
-  }
-
-  return room.controller?.owner === undefined || room.controller.my === true;
-}
-
-function hasHostilePresence(room: Room): boolean {
-  const hostileCreepFind = getGlobalNumber('FIND_HOSTILE_CREEPS');
-  if (typeof hostileCreepFind === 'number' && typeof room.find === 'function') {
-    const hostiles = room.find(hostileCreepFind as FindConstant);
-    if (Array.isArray(hostiles) && hostiles.length > 0) {
-      return true;
-    }
-  }
-
-  const hostileStructureFind = getGlobalNumber('FIND_HOSTILE_STRUCTURES');
-  if (typeof hostileStructureFind === 'number' && typeof room.find === 'function') {
-    const hostiles = room.find(hostileStructureFind as FindConstant);
-    if (Array.isArray(hostiles) && hostiles.length > 0) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function findOwnedStructures(room: Room): AnyOwnedStructure[] {
@@ -765,10 +689,6 @@ function getEnergyResource(): ResourceConstant {
 
 function getErrNotInRangeCode(): ScreepsReturnCode {
   return (globalThis as { ERR_NOT_IN_RANGE?: ScreepsReturnCode }).ERR_NOT_IN_RANGE ?? ERR_NOT_IN_RANGE_CODE;
-}
-
-function getNoPathResultCode(): ScreepsReturnCode {
-  return (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH ?? ERR_NO_PATH_CODE;
 }
 
 function getObjectId(object: unknown): string {

@@ -603,6 +603,168 @@ describe('cross-room energy logistics', () => {
     });
   });
 
+  it('keeps home-room imports ahead of a larger distant-room deficit', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S50', storageEnergy: 950, energyAvailable: 800 });
+    const homeRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 100 });
+    const distantRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 0,
+      storageCapacity: 2_000
+    });
+    installGame([sourceRoom, homeRoom, distantRoom], []);
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S50', targetRoom: 'E26S49', amount: 150, updatedAt: 100 }
+    ]);
+  });
+
+  it('prioritizes controller-progress import rooms before larger routine deficits', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const upgradeRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    const routineRoom = makeOwnedRoom({
+      roomName: 'W3N1',
+      storageEnergy: 0,
+      storageCapacity: 2_000
+    });
+    installGame([sourceRoom, upgradeRoom, routineRoom], []);
+    Memory.territory = {
+      controllers: {
+        W2N1: {
+          roomName: 'W2N1',
+          controllerId: 'W2N1-controller' as Id<StructureController>,
+          signNeeded: false,
+          upgradePriority: 'rclProgress',
+          desiredUpgraderCount: 1,
+          activeUpgraderCount: 0,
+          updatedAt: 100
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 150, updatedAt: 100 }
+    ]);
+  });
+
+  it('imports for a local-first room when its visible source workload is depleted', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([sourceRoom, targetRoom], []);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 0, 0)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+      localEnergy: 700,
+      localHarvestSufficient: false,
+      shouldImport: true,
+      reason: 'local-harvest-insufficient'
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+    ]);
+  });
+
+  it('skips unreachable import rooms without consuming exporter budget', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const unreachableRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    const reachableRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
+    installGame([sourceRoom, unreachableRoom, reachableRoom], [], {}, (_fromRoom, toRoom) => {
+      if (toRoom === 'W2N1') {
+        return ERR_NO_PATH_CODE;
+      }
+
+      return [{ exit: 1, room: toRoom }];
+    });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W3N1', amount: 150, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.transfers).toEqual([
+      {
+        targetRoom: 'W2N1',
+        amount: 200,
+        status: 'blocked',
+        reason: 'no-path',
+        updatedAt: 100
+      },
+      {
+        sourceRoom: 'W1N1',
+        targetRoom: 'W3N1',
+        amount: 150,
+        status: 'planned',
+        reason: 'storage-balance',
+        updatedAt: 100
+      },
+      {
+        targetRoom: 'W3N1',
+        amount: 50,
+        status: 'blocked',
+        reason: 'insufficient-exportable-energy',
+        updatedAt: 100
+      }
+    ]);
+  });
+
+  it('selects nearer exporter rooms before larger distant exporter stores', () => {
+    const distantSourceRoom = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 1_900,
+      storageCapacity: 2_000,
+      energyAvailable: 800
+    });
+    const nearSourceRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 950, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
+    installGame([distantSourceRoom, nearSourceRoom, targetRoom], [], {}, (fromRoom, toRoom) => {
+      const routeRooms = fromRoom === 'W1N1' && toRoom === 'W3N1'
+        ? ['W1N2', 'W1N3', 'W3N1']
+        : [toRoom];
+      return routeRooms.map((room) => ({ exit: 1, room }));
+    });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W2N1', targetRoom: 'W3N1', amount: 150, updatedAt: 100 },
+      { sourceRoom: 'W1N1', targetRoom: 'W3N1', amount: 50, updatedAt: 100 }
+    ]);
+  });
+
+  it('does not spawn a hauler for a stale transfer whose source storage is empty', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 0, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
+    Memory.economy = {
+      storageBalance: {
+        updatedAt: 100,
+        rooms: {},
+        transfers: [{ sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 100, updatedAt: 100 }]
+      }
+    };
+
+    expect(planCrossRoomHauler()).toBeNull();
+  });
+
   it('does nothing when all owned rooms are balanced', () => {
     const roomA = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 500 });
     const roomB = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 400 });
