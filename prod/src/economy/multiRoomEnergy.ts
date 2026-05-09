@@ -9,6 +9,7 @@ export type MultiRoomEnergyTransferAuditReason =
   | 'local-first-sufficient'
   | 'local-first-policy'
   | 'insufficient-exportable-energy'
+  | 'no-path'
   | 'no-exporter';
 
 export interface MultiRoomEnergyTransferAudit {
@@ -139,6 +140,10 @@ function selectRoomEnergyBottleneck(
 ): EconomyMultiRoomEnergyBottleneck | undefined {
   if (auditEntries.some((entry) => entry.reason === 'no-exporter')) {
     return 'no-exporter';
+  }
+
+  if (auditEntries.some((entry) => entry.reason === 'no-path')) {
+    return 'no-path';
   }
 
   if (

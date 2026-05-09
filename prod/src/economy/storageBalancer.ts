@@ -10,6 +10,11 @@ import {
   type MultiRoomEnergyTransferAuditReason
 } from './multiRoomEnergy';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+import {
+  canFindOwnedLogisticsRoute,
+  findOwnedLogisticsRoute,
+  type LogisticsRoute
+} from './roomLogistics';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
@@ -52,6 +57,11 @@ interface StorageTransferLocalEnergyAudit {
 interface StorageTransferPlan {
   transfers: EconomyStorageTransferMemory[];
   audits: MultiRoomEnergyTransferAudit[];
+}
+
+interface StorageTransferRouteContext {
+  routeFinderAvailable: boolean;
+  routesByRoomPair: Map<string, LogisticsRoute | null>;
 }
 
 export function balanceStorage(): void {
@@ -187,18 +197,31 @@ function buildStorageTransfers(
   const remainingExport = new Map(exporters.map((state) => [state.roomName, state.exportableEnergy]));
   const transfers: EconomyStorageTransferMemory[] = [];
   const audits: MultiRoomEnergyTransferAudit[] = [];
+  const routeContext: StorageTransferRouteContext = {
+    routeFinderAvailable: canFindOwnedLogisticsRoute(),
+    routesByRoomPair: new Map()
+  };
 
   for (const importer of importers) {
     const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
     let remainingDemand = importer.importDemand;
     let suppressedByLocalFirstPolicy = false;
-    for (const exporter of sortExportersForImporter(exporters, importer)) {
+    let blockedByNoPath = false;
+    for (const exporter of sortExportersForImporter(exporters, importer, routeContext)) {
       if (remainingDemand <= 0) {
         break;
       }
 
       const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
       if (exportableEnergy <= 0) {
+        continue;
+      }
+
+      if (
+        routeContext.routeFinderAvailable &&
+        !getCachedOwnedLogisticsRoute(exporter.roomName, importer.roomName, routeContext)
+      ) {
+        blockedByNoPath = true;
         continue;
       }
 
@@ -248,7 +271,7 @@ function buildStorageTransfers(
         targetRoom: importer.roomName,
         amount: remainingDemand,
         status: 'blocked',
-        reason: exporters.length > 0 ? 'insufficient-exportable-energy' : 'no-exporter',
+        reason: selectBlockedImportReason(exporters, blockedByNoPath),
         updatedAt: gameTime
       });
     }
@@ -298,21 +321,26 @@ function getStorageTransferSuppressionReason(
 
 function sortExportersForImporter(
   exporters: RoomStoredEnergyState[],
-  importer: RoomStoredEnergyState
+  importer: RoomStoredEnergyState,
+  routeContext: StorageTransferRouteContext
 ): RoomStoredEnergyState[] {
   return [...exporters].sort((left, right) =>
-    compareExportRoomsForImporter(left, right, importer)
+    compareExportRoomsForImporter(left, right, importer, routeContext)
   );
 }
 
 function compareExportRoomsForImporter(
   left: RoomStoredEnergyState,
   right: RoomStoredEnergyState,
-  importer: RoomStoredEnergyState
+  importer: RoomStoredEnergyState,
+  routeContext: StorageTransferRouteContext
 ): number {
+  const leftRouteDistance = getStorageTransferRouteDistance(left.roomName, importer.roomName, routeContext);
+  const rightRouteDistance = getStorageTransferRouteDistance(right.roomName, importer.roomName, routeContext);
   return (
     getCorridorExporterPriority(left.roomName, importer.roomName) -
       getCorridorExporterPriority(right.roomName, importer.roomName) ||
+    leftRouteDistance - rightRouteDistance ||
     compareExportRooms(left, right)
   );
 }
@@ -335,10 +363,128 @@ function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergy
 
 function compareImportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {
   return (
+    getImportRoomPriorityRank(left) - getImportRoomPriorityRank(right) ||
     right.importDemand - left.importDemand ||
     left.ratio - right.ratio ||
     left.roomName.localeCompare(right.roomName)
   );
+}
+
+export function getRoomStorageImportPriorityRank(roomName: string): number {
+  if (hasRecordedSpawnEnergyPressure(roomName) || hasCriticalSpawnEnergyPressure(roomName)) {
+    return 0;
+  }
+
+  if (roomName === getHomeRoom()) {
+    return 1;
+  }
+
+  const controllerPriorityRank = getControllerUpgradeImportPriorityRank(roomName);
+  if (controllerPriorityRank !== null) {
+    return 2 + controllerPriorityRank;
+  }
+
+  return 10;
+}
+
+function getImportRoomPriorityRank(state: RoomStoredEnergyState): number {
+  return state.unmetSpawnEnergyReservation > 0 ? 0 : getRoomStorageImportPriorityRank(state.roomName);
+}
+
+function getControllerUpgradeImportPriorityRank(roomName: string): number | null {
+  const controller = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.controllers?.[roomName];
+  switch (controller?.upgradePriority) {
+    case 'downgradeGuard':
+    case 'rcl1Rush':
+      return 0;
+    case 'rclProgress':
+      return 1;
+    case 'steady':
+      return 2;
+    case 'energySurplus':
+      return 3;
+    case 'fallback':
+    case 'none':
+    default:
+      return null;
+  }
+}
+
+function hasRecordedSpawnEnergyPressure(roomName: string): boolean {
+  const reservation = (globalThis as { Memory?: Partial<Memory> }).Memory?.economy?.spawnEnergyReservation?.rooms?.[roomName];
+  return normalizeNonNegativeInteger(reservation?.reservedEnergy) > normalizeNonNegativeInteger(getVisibleRoom(roomName)?.energyAvailable);
+}
+
+function hasCriticalSpawnEnergyPressure(roomName: string): boolean {
+  const room = getVisibleRoom(roomName);
+  if (!room) {
+    return false;
+  }
+
+  const capacity = normalizeNonNegativeInteger(room.energyCapacityAvailable);
+  if (capacity <= 0 || !hasOwnedSpawn(room)) {
+    return false;
+  }
+
+  return normalizeNonNegativeInteger(room.energyAvailable) < Math.min(200, capacity);
+}
+
+function hasOwnedSpawn(room: Room): boolean {
+  return Object.values((globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns ?? {}).some(
+    (spawn) => spawn.room?.name === room.name
+  );
+}
+
+export function getHomeRoom(): string | null {
+  const spawns = (globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  if (!spawns) {
+    return null;
+  }
+
+  for (const spawn of Object.values(spawns)) {
+    const roomName = spawn.room?.name;
+    if (typeof roomName === 'string' && roomName.length > 0) {
+      return roomName;
+    }
+  }
+
+  return null;
+}
+
+function selectBlockedImportReason(
+  exporters: RoomStoredEnergyState[],
+  blockedByNoPath: boolean
+): MultiRoomEnergyTransferAuditReason {
+  if (blockedByNoPath) {
+    return 'no-path';
+  }
+
+  return exporters.length > 0 ? 'insufficient-exportable-energy' : 'no-exporter';
+}
+
+function getStorageTransferRouteDistance(
+  sourceRoom: string,
+  targetRoom: string,
+  routeContext: StorageTransferRouteContext
+): number {
+  if (!routeContext.routeFinderAvailable) {
+    return 0;
+  }
+
+  return getCachedOwnedLogisticsRoute(sourceRoom, targetRoom, routeContext)?.distance ?? Number.POSITIVE_INFINITY;
+}
+
+function getCachedOwnedLogisticsRoute(
+  sourceRoom: string,
+  targetRoom: string,
+  routeContext: StorageTransferRouteContext
+): LogisticsRoute | null {
+  const key = `${sourceRoom}\0${targetRoom}`;
+  if (!routeContext.routesByRoomPair.has(key)) {
+    routeContext.routesByRoomPair.set(key, findOwnedLogisticsRoute(sourceRoom, targetRoom));
+  }
+
+  return routeContext.routesByRoomPair.get(key) ?? null;
 }
 
 function selectStorageBalanceMode(
@@ -461,6 +607,10 @@ function getMemory(): Partial<Memory> {
 function getGameTime(): number {
   const gameTime = (globalThis as { Game?: Partial<Pick<Game, 'time'>> }).Game?.time;
   return typeof gameTime === 'number' && Number.isFinite(gameTime) ? gameTime : 0;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
 function getEnergyResource(): ResourceConstant {

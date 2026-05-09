@@ -386,6 +386,7 @@ declare global {
   type EconomyMultiRoomEnergyBottleneck =
     | 'local-first-sufficient'
     | 'insufficient-exportable-energy'
+    | 'no-path'
     | 'no-exporter';
 
   type EconomyMultiRoomEnergyTransferStatus = 'planned' | 'suppressed' | 'blocked';
@@ -395,6 +396,7 @@ declare global {
     | 'local-first-sufficient'
     | 'local-first-policy'
     | 'insufficient-exportable-energy'
+    | 'no-path'
     | 'no-exporter';
 
   interface EconomyMultiRoomEnergyMemory {
