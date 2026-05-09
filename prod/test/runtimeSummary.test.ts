@@ -594,7 +594,7 @@ describe('runtime telemetry summaries', () => {
       controllerId: 'controller-e26s50',
       progress: {
         construction: {
-          priorityOrder: ['spawn', 'extension', 'road', 'container', 'tower', 'rampart', 'storage'],
+          priorityOrder: ['spawn', 'extension', 'container', 'road', 'tower', 'rampart', 'storage'],
           sourceContainers: {
             existing: 1,
             pending: 0,

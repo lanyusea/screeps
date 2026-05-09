@@ -15,6 +15,9 @@ export type EnergyStagingContainerRole = 'spawn' | 'controller';
 export const SPAWN_STAGING_CONTAINER_RANGE = 1;
 export const CONTROLLER_STAGING_CONTAINER_RANGE = 1;
 
+let cachedStructureTick: number | null = null;
+const uniqueRoomStructuresCache = new Map<string, AnyStructure[]>();
+
 export function getEnergyStagingContainerRole(
   room: Room,
   structure: AnyStructure
@@ -68,6 +71,28 @@ function hasNearbySpawnOrExtension(room: Room, position: RoomPosition): boolean 
 }
 
 function getUniqueRoomStructures(room: Room): AnyStructure[] {
+  const gameTime = getGameTime();
+  if (gameTime !== null) {
+    if (cachedStructureTick !== gameTime) {
+      cachedStructureTick = gameTime;
+      uniqueRoomStructuresCache.clear();
+    }
+
+    const cacheKey = `${room.name}:${gameTime}`;
+    const cachedStructures = uniqueRoomStructuresCache.get(cacheKey);
+    if (cachedStructures) {
+      return cachedStructures;
+    }
+
+    const uniqueStructures = buildUniqueRoomStructures(room);
+    uniqueRoomStructuresCache.set(cacheKey, uniqueStructures);
+    return uniqueStructures;
+  }
+
+  return buildUniqueRoomStructures(room);
+}
+
+function buildUniqueRoomStructures(room: Room): AnyStructure[] {
   const structures = [
     ...findRoomStructures(room, 'FIND_MY_STRUCTURES'),
     ...findRoomStructures(room, 'FIND_STRUCTURES')
@@ -86,6 +111,11 @@ function getUniqueRoomStructures(room: Room): AnyStructure[] {
   }
 
   return uniqueStructures;
+}
+
+function getGameTime(): number | null {
+  const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' && Number.isFinite(gameTime) ? gameTime : null;
 }
 
 function findRoomStructures(room: Room, globalName: string): AnyStructure[] {

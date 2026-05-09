@@ -19,8 +19,8 @@ export type ConstructionPlannerPriority =
 export const POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER: readonly ConstructionPlannerPriority[] = [
   'spawn',
   'extension',
-  'road',
   'container',
+  'road',
   'tower',
   'rampart',
   'storage'
@@ -210,12 +210,12 @@ export function planConstructionForColony(
       return result;
     }
 
-    planRoads(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
 
-    planContainers(colony, result, budgetState, options);
+    planRoads(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -416,7 +416,27 @@ function planContainers(
     return;
   }
 
-  if (containerOptions.includeStagingContainers !== false && !hasRemainingStructureCapacity(colony.room, 'extension')) {
+  const containerResults = planSourceContainerConstruction(colony, {
+    maxContainerSitesPerTick: remainingContainerSitesThisTick,
+    maxPendingContainerSites: options.maxPendingContainerSites
+  });
+  for (const containerResult of containerResults) {
+    recordPlacement(result, budgetState, 'container', containerResult, options);
+    if (containerResult !== getOkCode()) {
+      return;
+    }
+
+    remainingContainerSitesThisTick -= 1;
+    if (remainingContainerSitesThisTick <= 0) {
+      return;
+    }
+  }
+
+  if (
+    containerOptions.includeStagingContainers !== false &&
+    !hasRemainingStructureCapacity(colony.room, 'extension') &&
+    (remainingContainerSitesThisTick > 1 || hasCompleteSourceContainerCoverage(colony.room))
+  ) {
     const stagingContainerResults = planStagingContainerConstruction(colony, {
       maxContainerSitesPerTick: remainingContainerSitesThisTick,
       maxPendingContainerSites: options.maxPendingContainerSites
@@ -431,17 +451,6 @@ function planContainers(
       if (remainingContainerSitesThisTick <= 0) {
         return;
       }
-    }
-  }
-
-  const containerResults = planSourceContainerConstruction(colony, {
-    maxContainerSitesPerTick: remainingContainerSitesThisTick,
-    maxPendingContainerSites: options.maxPendingContainerSites
-  });
-  for (const containerResult of containerResults) {
-    recordPlacement(result, budgetState, 'container', containerResult, options);
-    if (containerResult !== getOkCode()) {
-      return;
     }
   }
 }
@@ -561,6 +570,30 @@ function hasSpawnCoverage(colony: ColonySnapshot): boolean {
     countExistingStructures(colony.room, 'spawn') > 0 ||
     countPendingConstructionSites(colony.room, 'spawn') > 0
   );
+}
+
+function hasCompleteSourceContainerCoverage(room: Room): boolean {
+  const sources = getSortedSources(room);
+  if (sources.length === 0) {
+    return true;
+  }
+
+  const containerPositions = [
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES')
+  ]
+    .filter((object) => object.structureType === getStructureConstant('STRUCTURE_CONTAINER'))
+    .map((object) => getAnyObjectPosition(object))
+    .filter((position): position is CandidatePosition => isSameRoomPosition(position, room.name));
+
+  return sources.every((source) => {
+    const sourcePosition = getAnyObjectPosition(source);
+    if (sourcePosition === null || !isSameRoomPosition(sourcePosition, room.name)) {
+      return false;
+    }
+
+    return containerPositions.some((position) => getRangeBetweenPositions(sourcePosition, position) <= 1);
+  });
 }
 
 function hasRemainingStructureCapacity(room: Room, priority: ConstructionPlannerPriority): boolean {

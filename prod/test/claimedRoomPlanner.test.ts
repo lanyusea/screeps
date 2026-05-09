@@ -189,16 +189,16 @@ describe('claimed room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
       'extension',
-      'road',
       'container',
+      'road',
       'tower',
       'rampart',
       'storage'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
       STRUCTURE_EXTENSION,
-      STRUCTURE_ROAD,
       STRUCTURE_CONTAINER,
+      STRUCTURE_ROAD,
       STRUCTURE_TOWER,
       STRUCTURE_RAMPART,
       STRUCTURE_STORAGE
