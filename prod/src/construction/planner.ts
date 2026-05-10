@@ -1,5 +1,8 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
-import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
+import {
+  checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForSpending
+} from '../economy/energyBuffer';
 import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
 import { planSourceContainerConstruction, planStorageConstruction, planTowerConstruction } from './constructionPriority';
 import { planExtensionConstruction } from './extensionPlanner';
@@ -695,7 +698,11 @@ function getRemainingEnergySlots(
   let energyBufferSlots = 0;
   while (
     energyBufferSlots < budgetSlots &&
-    checkEnergyBufferForSpending(room, budgetState.energyReserved + reservation * (energyBufferSlots + 1))
+    checkEnergyBufferForConstructionPriority(
+      room,
+      priority,
+      budgetState.energyReserved + reservation * (energyBufferSlots + 1)
+    )
   ) {
     energyBufferSlots += 1;
   }
@@ -726,6 +733,18 @@ function shouldBypassEnergyBufferForSourceLogisticsConstruction(
       getRoomEnergyCapacityAvailableFromRoom(room)
     )
   );
+}
+
+function checkEnergyBufferForConstructionPriority(
+  room: Room,
+  priority: ConstructionPlannerPriority,
+  amount: number
+): boolean {
+  if (priority === 'extension' && hasRemainingStructureCapacity(room, 'extension')) {
+    return checkEnergyBufferForCapacityEnablingConstruction(room, amount);
+  }
+
+  return checkEnergyBufferForSpending(room, amount);
 }
 
 function resolveEnergyBudgetRatio(value: number | undefined): number {
