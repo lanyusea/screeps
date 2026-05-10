@@ -84,6 +84,14 @@ RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 JsonObject = dict[str, Any]
 _smoke_module = None
 
+
+def resolve_bot_commit(bot_commit: str | None = None, repo_root: Path | None = None) -> str:
+    if bot_commit:
+        return bot_commit
+    repo = repo_root or REPO_ROOT
+    return dataset_export.git_commit(repo) or DEFAULT_BOT_COMMIT
+
+
 DEFAULT_STRATEGY_VARIANT_CONFIGS: tuple[JsonObject, ...] = (
     {
         "id": "construction-priority.incumbent.v1",
@@ -519,10 +527,11 @@ def build_run_artifact(
     workers: int,
     variant_results: Sequence[JsonObject],
     branch: str,
-    bot_commit: str = DEFAULT_BOT_COMMIT,
+    bot_commit: str | None = None,
     wall_clock_seconds: float | None = None,
 ) -> JsonObject:
     """Build the public run-mode artifact payload."""
+    resolved_bot_commit = resolve_bot_commit(bot_commit)
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     wall_clock = [item.get("wall_clock_seconds", 0.0) for item in variant_results]
     elapsed_wall_clock = wall_clock_seconds if wall_clock_seconds is not None else max(wall_clock, default=0.0)
@@ -542,7 +551,7 @@ def build_run_artifact(
         "harness_version": HARNESS_VERSION,
         "runId": run_id,
         "timestamp": timestamp,
-        "botCommit": bot_commit,
+        "botCommit": resolved_bot_commit,
         "live_effect": False,
         "official_mmo_writes": False,
         "official_mmo_writes_allowed": False,
@@ -1236,7 +1245,7 @@ def run_variants(
     map_source_file: Path,
     out_dir: Path,
     run_id: str,
-    bot_commit: str = DEFAULT_BOT_COMMIT,
+    bot_commit: str | None = None,
 ) -> tuple[JsonObject, list[JsonObject]]:
     if ticks <= 0:
         raise ValueError("ticks must be a positive integer")
@@ -1246,6 +1255,7 @@ def run_variants(
         raise ValueError("at least one strategy variant is required")
 
     start = time.monotonic()
+    resolved_bot_commit = resolve_bot_commit(bot_commit)
     normalized_workers = max(1, min(workers, len(variants)))
     buckets = _run_worker_assignments(variants, normalized_workers)
     worker_variants: list[list[str]] = [[variants[index] for index in bucket] for bucket in buckets]
@@ -1288,7 +1298,7 @@ def run_variants(
         workers=normalized_workers,
         variant_results=ordered,
         branch=branch,
-        bot_commit=bot_commit,
+        bot_commit=resolved_bot_commit,
         wall_clock_seconds=time.monotonic() - start,
     )
     return artifact, ordered
@@ -1379,7 +1389,7 @@ def build_harness_manifest(
     repo_root: Path | None = None,
 ) -> JsonObject:
     repo = repo_root or REPO_ROOT
-    resolved_bot_commit = bot_commit or DEFAULT_BOT_COMMIT or dataset_export.git_commit(repo)
+    resolved_bot_commit = resolve_bot_commit(bot_commit, repo)
     resolved_out_dir = out_dir.expanduser()
     scan = dataset_export.collect_artifact_records(
         paths,
@@ -2150,7 +2160,7 @@ def run_simulator(
     branch: str = DEFAULT_ACTIVE_WORLD_BRANCH,
     code_path: Path = DEFAULT_CODE_PATH,
     map_source_file: Path = DEFAULT_MAP_SOURCE_FILE,
-    bot_commit: str = DEFAULT_BOT_COMMIT,
+    bot_commit: str | None = None,
 ) -> JsonObject:
     if not code_path.is_file():
         raise RuntimeError(f"code path is not a file: {code_path}")
@@ -2163,6 +2173,7 @@ def run_simulator(
     resolved_code_path = code_path.expanduser()
     resolved_map_source = map_source_file.expanduser()
     api_branch = normalize_private_server_code_branch(branch)
+    resolved_bot_commit = resolve_bot_commit(bot_commit)
     try:
         resolved_run_id = validate_run_id_token(run_id or f"{RUN_ID_PREFIX}-{int(time.time())}")
     except ValueError as error:
@@ -2178,7 +2189,7 @@ def run_simulator(
         map_source_file=resolved_map_source,
         out_dir=resolved_out_dir,
         run_id=resolved_run_id,
-        bot_commit=bot_commit,
+        bot_commit=resolved_bot_commit,
     )
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"
     validate_run_artifact(artifact)
@@ -2216,8 +2227,8 @@ def build_parser() -> argparse.ArgumentParser:
     dry.add_argument("--manifest-id", help="Optional manifest directory name. Defaults to a content hash.")
     dry.add_argument(
         "--bot-commit",
-        default=DEFAULT_BOT_COMMIT,
-        help=f"Bot commit to record. Default: {DEFAULT_BOT_COMMIT}.",
+        default=None,
+        help=f"Bot commit to record. Default: auto-detect git HEAD, then {DEFAULT_BOT_COMMIT}.",
     )
     dry.add_argument("--seed", default=DEFAULT_SEED, help=f"Base deterministic seed. Default: {DEFAULT_SEED}.")
     dry.add_argument(
@@ -2293,8 +2304,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--bot-commit",
-        default=DEFAULT_BOT_COMMIT,
-        help=f"Bot bundle commit recorded in run artifacts. Default: {DEFAULT_BOT_COMMIT}.",
+        default=None,
+        help=f"Bot bundle commit recorded in run artifacts. Default: auto-detect git HEAD, then {DEFAULT_BOT_COMMIT}.",
     )
     run.add_argument(
         "--ticks",
