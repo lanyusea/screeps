@@ -184,6 +184,43 @@ describe('runEconomy', () => {
     });
   });
 
+  it('bootstraps a fresh simulator room from an owned placed spawn', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const room = {
+      name: 'E1S1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: { my: false } as StructureController,
+      memory: {},
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      my: true,
+      room,
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getCapacity: jest.fn().mockReturnValue(300)
+      },
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      rooms: { E1S1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      map: {} as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E1S1-10', {
+      memory: { role: 'worker', colony: 'E1S1' }
+    });
+  });
+
   it('uses multiple idle spawns in one tick when worker recovery has enough room energy', () => {
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
