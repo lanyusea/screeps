@@ -13,6 +13,8 @@ export const ENERGY_BUFFER_THRESHOLDS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 |
 
 export const SURVIVAL_ENERGY_BUFFER_MULTIPLIER = 1.5;
 export const STORAGE_EMERGENCY_RESERVE = 1_000;
+export const CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
+export const CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
 
 const MINIMUM_WORKER_SPAWN_ENERGY = 200;
 
@@ -51,6 +53,28 @@ export function checkEnergyBufferForSpending(room: Room, amount: number): boolea
   }
 
   return observation.currentEnergy - normalizeEnergyAmount(amount) >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+
+export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amount: number): boolean {
+  if (checkEnergyBufferForSpending(room, amount)) {
+    return true;
+  }
+
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyCapacityAvailable === null) {
+    return false;
+  }
+
+  return (
+    hasMinimumWorkerSpawnEnergyForConstruction(room) &&
+    energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY &&
+    getEffectiveRoomEnergyBufferThreshold(room) >= energyCapacityAvailable
+  );
+}
+
+export function hasMinimumWorkerSpawnEnergyForConstruction(room: Room): boolean {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  return !observation.known || observation.currentEnergy >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
 }
 
 export function withdrawFromStorage(
@@ -141,6 +165,13 @@ function getRoomSpawnExtensionEnergyObservation(room: Room): EnergyObservation {
   }
 
   return { currentEnergy: 0, known: false };
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number | null {
+  const energyCapacityAvailable = (room as Partial<Room>).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? Math.max(0, energyCapacityAvailable)
+    : null;
 }
 
 function getRoomStorage(room: Room): StructureStorage | null {
