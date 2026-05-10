@@ -80,6 +80,61 @@ RUN_TICK_POLL_SECONDS = 0.20
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
+HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
+HARNESS_BINARY_FILE_EXTENSIONS = (
+    ".bmp",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".sqlite",
+    ".sqlite3",
+    ".zip",
+)
+SIMULATOR_REPAIR_MOD_SOURCE = """\
+const bodyParser = require('body-parser');
+const zlib = require('zlib');
+
+const plainTerrain = '0'.repeat(2500);
+
+function buildFallbackTerrainData(accessibleRoomsJson) {
+  let rooms = [];
+  try {
+    const parsed = JSON.parse(accessibleRoomsJson || '[]');
+    if (Array.isArray(parsed)) {
+      rooms = parsed.filter(room => typeof room === 'string');
+    }
+  } catch (err) {
+    rooms = [];
+  }
+  const payload = rooms.map(room => ({ room, terrain: plainTerrain }));
+  return zlib.deflateSync(Buffer.from(JSON.stringify(payload))).toString('base64');
+}
+
+module.exports = config => {
+  const env = config.common && config.common.storage && config.common.storage.env;
+  if (env && env.keys && typeof env.get === 'function') {
+    const originalGet = env.get.bind(env);
+    env.get = key => Promise.resolve(originalGet(key)).then(value => {
+      if ((value === null || value === undefined) && key === env.keys.TERRAIN_DATA) {
+        return Promise.resolve(originalGet(env.keys.ACCESSIBLE_ROOMS))
+          .then(buildFallbackTerrainData)
+          .catch(() => buildFallbackTerrainData('[]'));
+      }
+      return value;
+    });
+  }
+
+  if (config.backend) {
+    config.backend.on('expressPreConfig', app => {
+      app.use('/api/user/code', bodyParser.json({ limit: '8mb' }));
+    });
+  }
+};
+"""
 
 JsonObject = dict[str, Any]
 _smoke_module = None
@@ -652,6 +707,13 @@ def _require_launcher_cli_success(smoke: Any, compose: list[str], cfg: Any, expr
     raise RuntimeError(f"{phase} failed: launcher CLI result did not include success status")
 
 
+def _install_simulator_repair_mod(smoke: Any, cfg: Any) -> Path:
+    """Install local launcher compatibility fixes into this worker's generated mod dir."""
+    mod_path = cfg.work_dir / "mods" / SIMULATOR_REPAIR_MOD_FILENAME
+    smoke.write_generated_text(cfg.work_dir, mod_path, SIMULATOR_REPAIR_MOD_SOURCE)
+    return mod_path
+
+
 def _terrain_payload_has_data(payload: Any) -> bool:
     summary = _terrain_summary(payload)
     return bool(summary.get("bytes"))
@@ -1069,6 +1131,7 @@ def _run_variant(
     token: str | None = None
     variant_ticks: list[JsonObject] = []
     terrain_ready: JsonObject | None = None
+    repair_mod_path: Path | None = None
     compose = None
     try:
         for error in smoke.required_env_errors(cfg):
@@ -1083,6 +1146,7 @@ def _run_variant(
             raise RuntimeError("port preflight returned empty checks")
         compose = smoke.find_compose_command()
         smoke.prepare_work_dir(cfg)
+        repair_mod_path = _install_simulator_repair_mod(smoke, cfg)
         smoke.prepare_map(cfg)
 
         # Reset server-owned state by removing any leftover stack and volumes first.
@@ -1138,7 +1202,10 @@ def _run_variant(
         )
         token = smoke.update_token_from_headers(token, upload.headers)
         if not smoke.upload_code_succeeded(upload):
-            raise RuntimeError("code upload failed")
+            raise RuntimeError(
+                "code upload failed: "
+                f"{_safe_redact_smoke_payload({'status': upload.status, 'payload': upload.payload})}"
+            )
 
         place = smoke.http_json(
             "POST",
@@ -1218,6 +1285,7 @@ def _run_variant(
         "branch": api_branch,
         "requestedBranch": branch,
         "terrainReady": terrain_ready,
+        "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,
     }
 
 
@@ -1395,6 +1463,8 @@ def build_harness_manifest(
         paths,
         max_file_bytes=max_file_bytes,
         excluded_roots=[resolved_out_dir],
+        excluded_directory_names=HARNESS_EXCLUDED_DIRECTORY_NAMES,
+        binary_file_extensions=HARNESS_BINARY_FILE_EXTENSIONS,
     )
     metadata = collect_local_metadata(scan)
     throughput = build_throughput_evidence(
