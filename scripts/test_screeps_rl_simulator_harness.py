@@ -249,6 +249,28 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertTrue(manifest["throughput"]["aggregate"]["targetMet"])
         self.assertEqual(manifest["workers"]["plannedParallelRoomCount"], 10)
 
+    def test_harness_manifest_scan_excludes_generated_dependency_trees(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "out"
+            empty_scan = harness.dataset_export.ScanResult(input_paths=[])
+
+            with mock.patch(
+                "screeps_rl_simulator_harness.dataset_export.collect_artifact_records",
+                return_value=empty_scan,
+            ) as collect:
+                harness.build_harness_manifest(
+                    [],
+                    out_dir,
+                    manifest_id="scan-excludes-test",
+                    bot_commit="a" * 40,
+                )
+
+        kwargs = collect.call_args.kwargs
+        self.assertIn("node_modules", kwargs["excluded_directory_names"])
+        self.assertIn(".git", kwargs["excluded_directory_names"])
+        self.assertIn(".png", kwargs["binary_file_extensions"])
+
     def test_cli_dry_run_and_self_test_are_offline_and_secret_free(self) -> None:
         secret = "dryrunsecret123456"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -502,6 +524,22 @@ class RlSimulatorHarnessTest(unittest.TestCase):
                 "resume simulator",
             )
 
+    def test_install_simulator_repair_mod_writes_launcher_compatibility_mod(self) -> None:
+        writes: list[tuple[Path, str]] = []
+
+        class FakeSmoke:
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                writes.append((path.relative_to(work_dir), text))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = argparse.Namespace(work_dir=Path(temp_dir))
+            mod_path = harness._install_simulator_repair_mod(FakeSmoke(), cfg)
+
+        self.assertEqual(mod_path.name, harness.SIMULATOR_REPAIR_MOD_FILENAME)
+        self.assertEqual(writes[0][0], Path("mods") / harness.SIMULATOR_REPAIR_MOD_FILENAME)
+        self.assertIn("env.keys.TERRAIN_DATA", writes[0][1])
+        self.assertIn("bodyParser.json({ limit: '8mb' })", writes[0][1])
+
     def test_run_id_rejects_dots_even_without_path_separators(self) -> None:
         with self.assertRaisesRegex(argparse.ArgumentTypeError, "letters, numbers"):
             harness.parse_run_id_token("run.1")
@@ -634,6 +672,82 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(captured_branches, ["$activeWorld"])
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "stop before side effects")
+        self.assertIsNone(result["launcherRepairMod"])
+
+    def test_run_variant_installs_repair_mod_before_compose_start(self) -> None:
+        events: list[str] = []
+        run_command_calls = 0
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                events.append("prepare_work_dir")
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                events.append(f"write_mod:{path.name}")
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                events.append("prepare_map")
+
+            def run_command(self, command: list[str], cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                nonlocal run_command_calls
+                run_command_calls += 1
+                events.append(f"run_command:{command[-2:]}")
+                if run_command_calls == 1:
+                    raise RuntimeError("stop after mod install")
+                return {"returncode": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="mod-install",
+                    ticks=1,
+                    room="E26S49",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "stop after mod install")
+        self.assertEqual(
+            events[:4],
+            [
+                "prepare_work_dir",
+                f"write_mod:{harness.SIMULATOR_REPAIR_MOD_FILENAME}",
+                "prepare_map",
+                "run_command:['down', '-v']",
+            ],
+        )
+        self.assertTrue(str(result["launcherRepairMod"]).endswith(harness.SIMULATOR_REPAIR_MOD_FILENAME))
 
     def test_run_variants_passes_worker_index_and_records_elapsed_wall_clock(self) -> None:
         calls: list[tuple[int, str]] = []
