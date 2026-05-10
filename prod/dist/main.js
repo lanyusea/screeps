@@ -2718,7 +2718,7 @@ function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (energyCapacityAvailable === null) {
     return false;
   }
-  return hasMinimumWorkerSpawnEnergyForConstruction(room) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
+  return hasMinimumWorkerSpawnEnergyForConstruction(room) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveRoomEnergyBufferThreshold(room) > energyCapacityAvailable;
 }
 function hasMinimumWorkerSpawnEnergyForConstruction(room) {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
@@ -23144,7 +23144,7 @@ function isCapacityEnablingConstructionSite(site, priorityContext) {
   if (isContainerConstructionSite3(site)) {
     return priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer;
   }
-  return false;
+  return isRoadConstructionSite2(site) && (priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad);
 }
 function isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext) {
   if (priorityContext.prioritizeSourceLogisticsForEnergyStarvation !== true) {

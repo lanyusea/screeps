@@ -2760,7 +2760,11 @@ function isCapacityEnablingConstructionSite(
     );
   }
 
-  return false;
+  return (
+    isRoadConstructionSite(site) &&
+    (priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad ||
+      priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad)
+  );
 }
 
 function isEnergyStarvationSourceLogisticsConstructionSite(
