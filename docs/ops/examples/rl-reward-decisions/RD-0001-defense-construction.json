@@ -1,0 +1,75 @@
+{
+  "rewardDecisionId": "RD-0001-defense-construction",
+  "title": "Proposal: defense construction readiness reward",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/907",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906",
+    "needs metric evidence: hostile or damage context, defense construction backlog, build progress, and worker availability"
+  ],
+  "linkedDashboardPanels": [
+    "planned: runtime monitor defense construction backlog",
+    "planned: runtime KPI defense readiness panel"
+  ],
+  "problemStatement": "Owner-observed behavior suggests defense-critical construction can be missing or late when the room needs protective structures or defensive readiness.",
+  "hypothesis": "Rewarding timely defense construction readiness after safety floors pass should reduce delayed tower, rampart, road, or repair posture work that can threaten room survival.",
+  "currentRewardCoverage": "baseline undefined until implemented; no accepted reward registry change exists for defense construction readiness",
+  "proposedChangeType": "add_or_adjust_component",
+  "component": "defense_construction_readiness",
+  "direction": "higher_is_better after reliability safety gates; missing critical defense after threat evidence is lower",
+  "expectedBehaviorChange": "In shadow validation, priority defense construction or repair work should begin earlier when threat, damage, or downgrade evidence exists, without starving spawn recovery or core energy throughput.",
+  "riskAndRegressions": [
+    "Over-prioritizing defense sites can starve controller, spawn, or economy progression.",
+    "False-positive threat evidence can waste energy on low-value construction.",
+    "Construction churn can increase CPU or path congestion."
+  ],
+  "validationWindows": [
+    {
+      "name": "offline_replay",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "defense backlog by site type",
+        "build work ticks",
+        "hostile or damage context",
+        "resource and territory non-regression"
+      ]
+    },
+    {
+      "name": "shadow_runtime",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "liveEffect:false",
+        "officialMmoWrites:false",
+        "no reliability regression"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "Owner approves at least shadow exploration.",
+    "Metric taxonomy #906 defines the defense readiness evidence fields.",
+    "Shadow candidate improves timely defense construction without territory, resource, or reliability regression."
+  ],
+  "rollbackCriteria": [
+    "Reliability or telemetry floor fails.",
+    "Territory or resource metrics regress outside the approved window.",
+    "Defense prioritization blocks spawn recovery or essential worker economy.",
+    "Owner rejects or suspends the decision."
+  ],
+  "stewardDecision": {
+    "state": "needs_evidence",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Seed proposal only. Needs metric evidence before owner review."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [],
+  "createdAt": "2026-05-11T00:00:00Z",
+  "updatedAt": "2026-05-11T00:00:00Z"
+}
