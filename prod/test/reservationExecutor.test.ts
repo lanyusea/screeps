@@ -3,6 +3,7 @@ import {
   type ExpansionPlannerCandidate
 } from '../src/territory/expansionPlanner';
 import { runReservationExecutor } from '../src/territory/reservationExecutor';
+import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
 describe('reservation executor', () => {
@@ -95,7 +96,8 @@ describe('reservation executor', () => {
     const colonyRoom = makeOwnedRoom('W1N1');
     const controller = makeController('controller-renew' as Id<StructureController>, {
       reservationUsername: 'me',
-      reservationTicksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 100
+      reservationTicksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 100,
+      signText: OCCUPIED_CONTROLLER_SIGN_TEXT
     });
     const targetRoom = makeTargetRoom('W2N1', controller);
     (Game.rooms as Record<string, Room>) = {
@@ -138,6 +140,38 @@ describe('reservation executor', () => {
     });
   });
 
+  it('assigns a healthy own reservation when the visible controller needs signing', () => {
+    const colonyRoom = makeOwnedRoom('W1N1');
+    const controller = makeController('controller-sign' as Id<StructureController>, {
+      reservationUsername: 'me',
+      reservationTicksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 100,
+      signText: 'not ours'
+    });
+    const targetRoom = makeTargetRoom('W2N1', controller);
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: colonyRoom,
+      W2N1: targetRoom
+    };
+    (Game.getObjectById as jest.Mock).mockReturnValue(controller);
+    createExpansionIntent(makeExpansionCandidate('W2N1', controller.id), 'reserve', 390);
+    const creep = makeClaimer(targetRoom);
+
+    expect(runReservationExecutor(creep)).toBe(true);
+
+    expect(creep.memory.territory).toBeUndefined();
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(Memory.territory?.intents).toContainEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 300,
+      createdBy: 'expansionPlanner',
+      controllerId: controller.id
+    });
+  });
+
   it('does not assign reservation execution when the colony cannot afford a claimer body', () => {
     const colonyRoom = makeOwnedRoom('W1N1', { energyAvailable: 300, energyCapacityAvailable: 650 });
     const controller = makeController('controller-low-energy' as Id<StructureController>);
@@ -174,6 +208,7 @@ type RoomPositionConstructor = new (x: number, y: number, roomName: string) => R
 type MockReservationCreep = Creep & {
   moveTo: jest.Mock;
   reserveController: jest.Mock<ScreepsReturnCode, [StructureController]>;
+  signController: jest.Mock<ScreepsReturnCode, [StructureController, string]>;
 };
 
 function makeOwnedRoom(
@@ -210,14 +245,18 @@ function makeController(
   id: Id<StructureController>,
   {
     reservationUsername,
-    reservationTicksToEnd
-  }: { reservationUsername?: string; reservationTicksToEnd?: number } = {}
+    reservationTicksToEnd,
+    signText
+  }: { reservationUsername?: string; reservationTicksToEnd?: number; signText?: string } = {}
 ): StructureController {
   return {
     id,
     my: false,
     ...(reservationUsername
       ? { reservation: { username: reservationUsername, ticksToEnd: reservationTicksToEnd ?? 0 } }
+      : {}),
+    ...(signText
+      ? { sign: { username: 'other', text: signText, time: 299, datetime: '2026-05-08T00:00:00.000Z' } }
       : {})
   } as StructureController;
 }
@@ -234,7 +273,8 @@ function makeClaimer(room: Room): MockReservationCreep {
     body: [{ type: 'claim', hits: 100 }],
     getActiveBodyparts: jest.fn().mockReturnValue(1),
     moveTo: jest.fn(),
-    reserveController: jest.fn().mockReturnValue(0 as ScreepsReturnCode)
+    reserveController: jest.fn().mockReturnValue(0 as ScreepsReturnCode),
+    signController: jest.fn().mockReturnValue(0 as ScreepsReturnCode)
   } as unknown as MockReservationCreep;
 }
 

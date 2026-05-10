@@ -20,7 +20,7 @@ import {
   type OccupationRecommendationEvidenceStatus,
   type OccupationRecommendationScore
 } from './occupationRecommendation';
-import { shouldSignOccupiedController } from './controllerSigning';
+import { shouldSignOccupiedController, shouldSignReservedController } from './controllerSigning';
 import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 import {
   getKnownDeadZoneRoom,
@@ -587,6 +587,13 @@ export function selectVisibleTerritoryControllerTask(creep: Creep): CreepTaskMem
   }
 
   if (intent.action === 'reserve') {
+    if (
+      typeof creep.signController === 'function' &&
+      shouldSignReservedController(controller, getTerritoryActorUsername(creep, intent.colony) ?? undefined)
+    ) {
+      return { type: 'signController', targetId: controller.id };
+    }
+
     return canCreepActOnVisibleReserveController(creep, controller, intent.colony)
       ? { type: 'reserve', targetId: controller.id }
       : null;
@@ -5177,7 +5184,9 @@ function canCreepActOnVisibleReserveController(
 ): boolean {
   return (
     canCreepReserveTerritoryController(creep, controller, colony) ||
-    canCreepPressureTerritoryController(creep, controller, colony)
+    canCreepPressureTerritoryController(creep, controller, colony) ||
+    (typeof creep.signController === 'function' &&
+      shouldSignReservedController(controller, getTerritoryActorUsername(creep, colony) ?? undefined))
   );
 }
 

@@ -1,7 +1,10 @@
 import {
+  getControllerSigningActorUsername,
   OCCUPIED_CONTROLLER_SIGN_TEXT,
   shouldSignOccupiedController,
-  signOccupiedControllerIfNeeded
+  shouldSignReservedController,
+  signOccupiedControllerIfNeeded,
+  signReservedControllerIfNeeded
 } from '../src/territory/controllerSigning';
 
 describe('controller signing', () => {
@@ -78,6 +81,38 @@ describe('controller signing', () => {
 
     expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('signs a controller reserved by the colony actor', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: 4_000 },
+      sign: { username: 'other', text: 'not ours', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { colony: 'W1N1' },
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    expect(getControllerSigningActorUsername(creep)).toBe('me');
+    expect(shouldSignReservedController(controller, 'me')).toBe(true);
+    expect(signOccupiedControllerIfNeeded(creep, controller)).toBe('skipped');
+    expect(signReservedControllerIfNeeded(creep, controller, 'me')).toBe('signed');
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+  });
+
+  it('does not sign controllers reserved by another player', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 4_000 },
+      sign: { username: 'other', text: 'not ours', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+
+    expect(shouldSignReservedController(controller, 'me')).toBe(false);
   });
 
   it('skips missing controllers and controllers without own ownership safely', () => {
