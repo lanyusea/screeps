@@ -1,0 +1,38 @@
+{
+  "rewardDecisionId": "RD-0000-short-name",
+  "title": "Proposal: short reward decision title",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/907",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906"
+  ],
+  "linkedDashboardPanels": [],
+  "problemStatement": "Describe the observed behavior and why it matters.",
+  "hypothesis": "Describe why this reward change should improve the prioritized metric.",
+  "currentRewardCoverage": "baseline undefined until implemented",
+  "proposedChangeType": "proposal",
+  "component": "baseline undefined until implemented",
+  "direction": "higher_is_better | lower_is_better | hard_gate | tie_breaker",
+  "expectedBehaviorChange": "Describe the concrete behavior change expected in shadow validation.",
+  "riskAndRegressions": [],
+  "validationWindows": [],
+  "acceptanceCriteria": [],
+  "rollbackCriteria": [],
+  "stewardDecision": {
+    "state": "needs_evidence",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Proposal only."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No owner approval yet."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [],
+  "createdAt": "2026-05-11T00:00:00Z",
+  "updatedAt": "2026-05-11T00:00:00Z"
+}
