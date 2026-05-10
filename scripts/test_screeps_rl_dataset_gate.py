@@ -41,6 +41,7 @@ def runtime_payload(tick: int, stored_energy: int = 1000) -> JsonObject:
                 "roomName": "E26S49",
                 "workerCount": 4,
                 "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "upgrade": 0, "transfer": 2, "none": 1},
                 "controller": {"level": 3, "progress": 1000 + tick, "ticksToDowngrade": 10000},
                 "resources": {
                     "storedEnergy": stored_energy,
@@ -191,12 +192,55 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertTrue(saved_report["ok"])
         self.assertEqual(summary["datasetRunId"], report["dataset"]["runId"])
         self.assertEqual(report["datasetGate"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+        self.assertEqual(summary["qualityChecksStatus"], "pass")
         self.assertEqual(report["shadowEvaluation"]["status"], "pass")
         self.assertEqual(report["historicalValidation"]["status"], "pass")
         self.assertEqual(report["predefinedMetricGate"]["status"], "pass")
         self.assertEqual(report["rolloutGate"]["status"], "pass")
         self.assertTrue(rollout_decision["passed"])
         self.assertEqual(run_manifest["source"]["strategyShadowReportCount"], 1)
+
+    def test_run_rejects_dead_room_dataset_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            dead_room = runtime_payload(100, stored_energy=0)
+            room = dead_room["rooms"][0]
+            room["workerCount"] = 0
+            room["spawnStatus"] = []
+            room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
+            room["energyAvailable"] = 0
+            room["resources"]["workerCarriedEnergy"] = 0
+            artifact.write_text(runtime_line(dead_room), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-dead-room",
+                created_at="2026-05-04T08:00:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="c" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+
+            gate_dir = root / "gates" / "gate-dead-room"
+            saved_report = read_json(gate_dir / "gate_report.json")
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(saved_report["ok"])
+        self.assertEqual(report["datasetGate"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["status"], "fail")
+        self.assertEqual(report["quality_checks"]["samples_accepted"], 0)
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
+        self.assertIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
+        self.assertIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
+        self.assertIn("no_owned_creeps", report["quality_checks"]["rejection_reasons"])
+        self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
+        self.assertTrue(any(reason["gate"] == "quality_checks" for reason in report["blockingReasons"]))
 
     def test_cli_returns_nonzero_when_predefined_metric_floor_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

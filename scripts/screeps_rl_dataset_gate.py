@@ -28,6 +28,7 @@ SUMMARY_TYPE = "screeps-rl-dataset-evaluation-gate-summary"
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-dataset-gates")
 DEFAULT_MIN_SAMPLES = 1
 DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
+QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 JsonObject = dict[str, Any]
@@ -183,6 +184,7 @@ def build_contract() -> JsonObject:
         },
         "gateChecks": {
             "dataset": "dataset run exists, has at least the configured sample count, has manifest/source/tick/KPI files, and preserves offline safety flags",
+            "qualityChecks": "dataset samples must show active harvest/upgrade work, room energy, owned creeps, and owned spawns",
             "shadowEvaluation": "strategy-shadow report generation succeeds unless explicitly skipped",
             "historicalValidation": "candidate report must pass when --candidate-config is supplied",
             "predefinedMetrics": "current KPI window must satisfy configured metric floors",
@@ -252,6 +254,200 @@ def count_ndjson_rows(path: Path) -> int:
             return sum(1 for line in handle if line.strip())
     except OSError:
         return 0
+
+
+def finite_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return float(value)
+    return None
+
+
+def number_at_path(value: JsonObject, path: Sequence[str]) -> float | None:
+    current: Any = value
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return finite_number(current)
+
+
+def first_number(value: JsonObject, paths: Sequence[Sequence[str]]) -> float | None:
+    for path in paths:
+        value_at_path = number_at_path(value, path)
+        if value_at_path is not None:
+            return value_at_path
+    return None
+
+
+def positive_value(value: float | None) -> bool:
+    return value is not None and value > 0
+
+
+def at_least_one(value: float | None) -> bool:
+    return value is not None and value >= 1
+
+
+def quality_evidence(sample: JsonObject) -> JsonObject:
+    observation = sample.get("observation") if isinstance(sample.get("observation"), dict) else {}
+    harvest_tasks = number_at_path(observation, ("workers", "taskCounts", "harvest"))
+    upgrade_tasks = number_at_path(observation, ("workers", "taskCounts", "upgrade"))
+    return {
+        "harvestTasks": harvest_tasks,
+        "upgradeTasks": upgrade_tasks,
+        "workerCarriedEnergy": first_number(
+            observation,
+            (
+                ("resources", "workerCarriedEnergy"),
+                ("workerCarriedEnergy",),
+            ),
+        ),
+        "energyAvailable": first_number(
+            observation,
+            (
+                ("energy", "available"),
+                ("energyAvailable",),
+            ),
+        ),
+        "storedEnergy": first_number(
+            observation,
+            (
+                ("resources", "storedEnergy"),
+                ("storedEnergy",),
+            ),
+        ),
+        "ownedCreeps": first_number(
+            observation,
+            (
+                ("workers", "count"),
+                ("ownedCreeps",),
+                ("ownedCreepCount",),
+                ("workerCount",),
+            ),
+        ),
+        "ownedSpawns": first_number(
+            observation,
+            (
+                ("spawn", "total"),
+                ("monitor", "ownedSpawnCount"),
+                ("ownedSpawns",),
+                ("ownedSpawnCount",),
+                ("spawnCount",),
+            ),
+        ),
+    }
+
+
+def quality_rejection_reasons(sample: JsonObject) -> list[str]:
+    evidence = quality_evidence(sample)
+    reasons: list[str] = []
+    if not (at_least_one(evidence["harvestTasks"]) or at_least_one(evidence["upgradeTasks"])):
+        reasons.append("no_harvest_or_upgrade_task")
+    if not (
+        positive_value(evidence["workerCarriedEnergy"])
+        or positive_value(evidence["energyAvailable"])
+        or positive_value(evidence["storedEnergy"])
+    ):
+        reasons.append("no_room_energy")
+    if not positive_value(evidence["ownedCreeps"]):
+        reasons.append("no_owned_creeps")
+    if not positive_value(evidence["ownedSpawns"]):
+        reasons.append("no_owned_spawns")
+    return reasons
+
+
+def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
+    samples_accepted = 0
+    samples_rejected = 0
+    rejection_reasons: dict[str, int] = {}
+    rejected_samples: list[JsonObject] = []
+
+    try:
+        handle = ticks_path.open("r", encoding="utf-8")
+    except OSError as error:
+        return {
+            "status": "fail",
+            "samples_total": 0,
+            "samples_accepted": 0,
+            "samples_rejected": 0,
+            "rejection_reasons": {"ticks_read_error": 1},
+            "rejected_samples": [],
+            "error": dataset_export.redact_text(str(error)),
+        }
+
+    with handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                sample = json.loads(line)
+            except json.JSONDecodeError:
+                sample = {}
+                reasons = ["invalid_sample_json"]
+            else:
+                reasons = quality_rejection_reasons(sample) if isinstance(sample, dict) else ["invalid_sample_json"]
+
+            if not reasons:
+                samples_accepted += 1
+                continue
+
+            samples_rejected += 1
+            for reason in reasons:
+                rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+            if len(rejected_samples) < QUALITY_REJECTED_SAMPLE_LOG_LIMIT:
+                observation = sample.get("observation") if isinstance(sample, dict) else {}
+                source = sample.get("source") if isinstance(sample, dict) else {}
+                rejected_samples.append(
+                    {
+                        "line": line_number,
+                        "sampleId": sample.get("sampleId") if isinstance(sample, dict) else None,
+                        "tick": observation.get("tick") if isinstance(observation, dict) else None,
+                        "roomName": observation.get("roomName") if isinstance(observation, dict) else None,
+                        "sourcePath": source.get("path") if isinstance(source, dict) else None,
+                        "reasons": reasons,
+                        "evidence": quality_evidence(sample) if isinstance(sample, dict) else {},
+                    }
+                )
+
+    checks = [
+        pass_fail_check(
+            "productive_task_present",
+            rejection_reasons.get("no_harvest_or_upgrade_task", 0) == 0,
+            rejectedSamples=rejection_reasons.get("no_harvest_or_upgrade_task", 0),
+            requirement="taskCounts.harvest >= 1 OR taskCounts.upgrade >= 1",
+        ),
+        pass_fail_check(
+            "room_energy_present",
+            rejection_reasons.get("no_room_energy", 0) == 0,
+            rejectedSamples=rejection_reasons.get("no_room_energy", 0),
+            requirement="workerCarriedEnergy > 0 OR energyAvailable > 0 OR storedEnergy > 0",
+        ),
+        pass_fail_check(
+            "owned_creeps_present",
+            rejection_reasons.get("no_owned_creeps", 0) == 0,
+            rejectedSamples=rejection_reasons.get("no_owned_creeps", 0),
+            requirement="ownedCreeps > 0",
+        ),
+        pass_fail_check(
+            "owned_spawns_present",
+            rejection_reasons.get("no_owned_spawns", 0) == 0,
+            rejectedSamples=rejection_reasons.get("no_owned_spawns", 0),
+            requirement="ownedSpawns > 0",
+        ),
+    ]
+    samples_total = samples_accepted + samples_rejected
+    return {
+        "status": "pass" if samples_rejected == 0 else "fail",
+        "samples_total": samples_total,
+        "samples_accepted": samples_accepted,
+        "samples_rejected": samples_rejected,
+        "rejection_reasons": dict(sorted(rejection_reasons.items())),
+        "rejected_samples": rejected_samples,
+        "rejected_sample_log_limit": QUALITY_REJECTED_SAMPLE_LOG_LIMIT,
+        "rejected_samples_truncated": max(0, samples_rejected - len(rejected_samples)),
+        "checks": checks,
+    }
 
 
 def dataset_file_paths(dataset_out_dir: Path, run_id: str, files: JsonObject) -> dict[str, Path]:
@@ -514,6 +710,19 @@ def collect_blocking_reasons(report: JsonObject) -> list[JsonObject]:
             if isinstance(check, dict) and check.get("status") != "pass":
                 reasons.append({"gate": "dataset", **check})
 
+    quality_checks = report.get("quality_checks")
+    if isinstance(quality_checks, dict) and quality_checks.get("status") != "pass":
+        reasons.append(
+            {
+                "gate": "quality_checks",
+                "name": "sample_quality",
+                "status": quality_checks.get("status"),
+                "samplesAccepted": quality_checks.get("samples_accepted"),
+                "samplesRejected": quality_checks.get("samples_rejected"),
+                "rejectionReasons": quality_checks.get("rejection_reasons"),
+            }
+        )
+
     for key in ("shadowEvaluation", "historicalValidation", "predefinedMetricGate", "rolloutGate"):
         gate = report.get(key)
         if not isinstance(gate, dict):
@@ -536,6 +745,7 @@ def collect_blocking_reasons(report: JsonObject) -> list[JsonObject]:
 def build_summary(report: JsonObject) -> JsonObject:
     dataset_gate = report.get("datasetGate") if isinstance(report.get("datasetGate"), dict) else {}
     dataset = report.get("dataset") if isinstance(report.get("dataset"), dict) else {}
+    quality = report.get("quality_checks") if isinstance(report.get("quality_checks"), dict) else {}
     shadow = report.get("shadowEvaluation") if isinstance(report.get("shadowEvaluation"), dict) else {}
     historical = report.get("historicalValidation") if isinstance(report.get("historicalValidation"), dict) else {}
     predefined = report.get("predefinedMetricGate") if isinstance(report.get("predefinedMetricGate"), dict) else {}
@@ -549,6 +759,9 @@ def build_summary(report: JsonObject) -> JsonObject:
         "datasetRunId": dataset.get("runId"),
         "datasetPath": dataset.get("outDir"),
         "sampleCount": dataset_gate.get("sampleCount"),
+        "qualityChecksStatus": quality.get("status"),
+        "samplesAccepted": quality.get("samples_accepted"),
+        "samplesRejected": quality.get("samples_rejected"),
         "shadowStatus": shadow.get("status"),
         "shadowReportPath": shadow.get("reportPath"),
         "historicalValidationStatus": historical.get("status"),
@@ -657,6 +870,7 @@ def run_gate(
         ticks_count,
         min_samples=min_samples,
     )
+    quality_checks = evaluate_quality_checks(file_paths["ticks"])
     floors = metric_floors(
         min_reliability=min_reliability,
         min_owned_rooms=min_owned_rooms,
@@ -705,6 +919,7 @@ def run_gate(
         },
         "dataset": dataset_summary,
         "datasetGate": dataset_gate,
+        "quality_checks": quality_checks,
         "shadowEvaluation": build_shadow_evaluation(
             skipped=skip_shadow_report,
             summary=shadow_summary,
