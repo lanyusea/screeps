@@ -37054,19 +37054,19 @@ function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
     const previous = memory.rooms[room.name];
     const activePostClaimRecord = getActivePostClaimBootstrapRecord(room.name);
     const claimOriginColony = owned ? resolveClaimOriginColony(room, previous, activePostClaimRecord) : null;
-    const newlyClaimed = owned && !activePostClaimRecord && ((previous == null ? void 0 : previous.owned) === false || (previous == null ? void 0 : previous.owned) !== true && claimOriginColony !== null);
-    if (newlyClaimed) {
+    const detectedOwnedRoom = owned && !activePostClaimRecord && ((previous == null ? void 0 : previous.owned) === false || (previous == null ? void 0 : previous.owned) !== true && claimOriginColony !== null || (previous == null ? void 0 : previous.owned) === true && claimOriginColony !== null && isOwnedRoomMissingSpawn(room));
+    if (detectedOwnedRoom) {
       detectedRoomNames.push(room.name);
     }
-    const claimedAt = newlyClaimed ? getGameTime33() : (_a = previous == null ? void 0 : previous.claimedAt) != null ? _a : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
+    const claimedAt = detectedOwnedRoom ? getGameTime33() : (_a = previous == null ? void 0 : previous.claimedAt) != null ? _a : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
     memory.rooms[room.name] = {
       roomName: room.name,
       owned,
       updatedAt: getGameTime33(),
       ...claimedAt !== void 0 ? { claimedAt } : {},
-      ...newlyClaimed ? {} : (previous == null ? void 0 : previous.completedAt) !== void 0 ? { completedAt: previous.completedAt } : {}
+      ...detectedOwnedRoom ? {} : (previous == null ? void 0 : previous.completedAt) !== void 0 ? { completedAt: previous.completedAt } : {}
     };
-    if (newlyClaimed && claimOriginColony !== null) {
+    if (detectedOwnedRoom && claimOriginColony !== null) {
       recordPostClaimBootstrapClaimSuccess(
         {
           colony: claimOriginColony,
@@ -37078,6 +37078,23 @@ function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
     }
   }
   return { detectedRoomNames };
+}
+function countExistingStructures2(room, globalName, fallback) {
+  return findRoomObjects28(room, "FIND_MY_STRUCTURES").filter(
+    (object) => matchesStructureType29(object.structureType, globalName, fallback)
+  ).length;
+}
+function findRoomObjects28(room, globalName) {
+  const findConstant = getGlobalNumber20(globalName);
+  if (findConstant === null || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const result = room.find(findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
 }
 function getWritableBootstrapperMemory() {
   const memory = globalThis.Memory;
@@ -37098,9 +37115,6 @@ function getActivePostClaimBootstrapRecord(roomName) {
   return isRecord31(record) && record.roomName === roomName && record.status !== "ready" ? record : null;
 }
 function resolveClaimOriginColony(room, previous, activePostClaimRecord) {
-  if ((previous == null ? void 0 : previous.owned) === true) {
-    return null;
-  }
   if (isNonEmptyString27(activePostClaimRecord == null ? void 0 : activePostClaimRecord.colony)) {
     return activePostClaimRecord.colony;
   }
@@ -37108,7 +37122,28 @@ function resolveClaimOriginColony(room, previous, activePostClaimRecord) {
   if (plannedClaimOrigin) {
     return plannedClaimOrigin;
   }
+  if ((previous == null ? void 0 : previous.owned) === true && !isOwnedRoomMissingSpawn(room)) {
+    return null;
+  }
   return selectNearestOwnedSpawnRoom(room.name);
+}
+function isOwnedRoomMissingSpawn(room) {
+  var _a, _b;
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true || ((_b = room.controller.level) != null ? _b : 0) < 1) {
+    return false;
+  }
+  return !hasOwnedSpawnInRoom2(room);
+}
+function hasOwnedSpawnInRoom2(room) {
+  var _a;
+  const spawns = (_a = globalThis.Game) == null ? void 0 : _a.spawns;
+  if (spawns && Object.values(spawns).some((spawn) => {
+    var _a2;
+    return ((_a2 = spawn == null ? void 0 : spawn.room) == null ? void 0 : _a2.name) === room.name;
+  })) {
+    return true;
+  }
+  return countExistingStructures2(room, "STRUCTURE_SPAWN", "spawn") > 0;
 }
 function getPlannedClaimOriginColony(roomName) {
   var _a, _b, _c, _d, _e;
@@ -37210,6 +37245,18 @@ function getRoomRouteDistance(fromRoom, toRoom) {
     }
   }
   return Number.POSITIVE_INFINITY;
+}
+function matchesStructureType29(actual, globalName, fallback) {
+  return actual === getStructureConstant5(globalName, fallback);
+}
+function getStructureConstant5(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
+}
+function getGlobalNumber20(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : null;
 }
 function getGameTime33() {
   var _a;
@@ -37821,7 +37868,7 @@ function isActiveExpansionExecutorSpawn(spawn) {
   }
 }
 function hasExpansionExecutorActiveHostiles(room) {
-  return findRoomObjects28(room, getFindConstant10("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects28(room, getFindConstant10("FIND_HOSTILE_STRUCTURES")).length > 0;
+  return findRoomObjects29(room, getFindConstant10("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects29(room, getFindConstant10("FIND_HOSTILE_STRUCTURES")).length > 0;
 }
 function getExpansionExecutorThreatState(roomName, gameTime) {
   var _a, _b, _c, _d;
@@ -37907,7 +37954,7 @@ function getGameTime35() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function findRoomObjects28(room, findConstant) {
+function findRoomObjects29(room, findConstant) {
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -39987,11 +40034,11 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
       return creep.memory.colony === room.name || ((_a2 = creep.room) == null ? void 0 : _a2.name) === room.name;
     }
   );
-  const hostileCreeps = findRoomObjects29(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects29(room, "FIND_HOSTILE_STRUCTURES");
-  const ownedStructures = findRoomObjects29(room, "FIND_MY_STRUCTURES");
-  const constructionSites = findRoomObjects29(room, "FIND_MY_CONSTRUCTION_SITES");
-  const sources = findRoomObjects29(room, "FIND_SOURCES");
+  const hostileCreeps = findRoomObjects30(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects30(room, "FIND_HOSTILE_STRUCTURES");
+  const ownedStructures = findRoomObjects30(room, "FIND_MY_STRUCTURES");
+  const constructionSites = findRoomObjects30(room, "FIND_MY_CONSTRUCTION_SITES");
+  const sources = findRoomObjects30(room, "FIND_SOURCES");
   return {
     roomName: room.name,
     controllerLevel: (_a = room.controller) == null ? void 0 : _a.level,
@@ -40144,7 +40191,7 @@ function countVisibleOwnedRooms7() {
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(
-    (structure) => isRecord37(structure) && matchesStructureType29(structure.structureType, globalName, fallback)
+    (structure) => isRecord37(structure) && matchesStructureType30(structure.structureType, globalName, fallback)
   ).length;
 }
 function estimateRepairBacklogHits(structures) {
@@ -40176,8 +40223,8 @@ function getEnergyInStore2(object) {
   }
   return finiteNumberOrZero(object.store[resourceEnergy]);
 }
-function findRoomObjects29(room, constantName) {
-  const findConstant = getGlobalNumber20(constantName);
+function findRoomObjects30(room, constantName) {
+  const findConstant = getGlobalNumber21(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return [];
@@ -40189,7 +40236,7 @@ function findRoomObjects29(room, constantName) {
     return [];
   }
 }
-function matchesStructureType29(value, globalName, fallback) {
+function matchesStructureType30(value, globalName, fallback) {
   const globalValue = globalThis[globalName];
   return value === globalValue || value === fallback;
 }
@@ -40197,7 +40244,7 @@ function getResourceEnergy() {
   const value = globalThis.RESOURCE_ENERGY;
   return value != null ? value : "energy";
 }
-function getGlobalNumber20(name) {
+function getGlobalNumber21(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
