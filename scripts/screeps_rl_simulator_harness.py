@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import copy
 import hashlib
 import importlib.util
 import json
@@ -64,7 +65,8 @@ DEFAULT_SIM_ROOM = "E26S49"
 DEFAULT_SIM_SHARD = "shardX"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
-DEFAULT_ACTIVE_WORLD_BRANCH = "activeWorld"
+DEFAULT_ACTIVE_WORLD_BRANCH = "$activeWorld"
+DEFAULT_BOT_COMMIT = "a9c12ed60e2c32370977fc1b10ea8e7e5265cd8c"
 HARNESS_VERSION = "1.0.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
@@ -82,6 +84,71 @@ RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 JsonObject = dict[str, Any]
 _smoke_module = None
 
+DEFAULT_STRATEGY_VARIANT_CONFIGS: tuple[JsonObject, ...] = (
+    {
+        "id": "construction-priority.incumbent.v1",
+        "label": "Construction-priority incumbent",
+        "family": "construction-priority",
+        "rolloutStatus": "incumbent",
+        "source": "prod/src/strategy/strategyRegistry.ts",
+        "mechanism": "construction-priority shadow weight-vector",
+        "defaultValues": {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 6,
+            "resourceSignalWeight": 4,
+            "killSignalWeight": 6,
+            "riskPenalty": 4,
+        },
+        "shadowConfig": {
+            "enabled": True,
+            "incumbentStrategyIds": {"construction-priority": "construction-priority.incumbent.v1"},
+            "candidateStrategyIds": ["construction-priority.incumbent.v1"],
+        },
+        "rollback": {
+            "disabledByDefault": False,
+            "rollbackToStrategyId": "construction-priority.incumbent.v1",
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    },
+    {
+        "id": "construction-priority.container-prioritized-shadow.v1",
+        "label": "Container-prioritized construction shadow",
+        "family": "construction-priority",
+        "rolloutStatus": "shadow",
+        "source": "scripts/screeps_rl_simulator_harness.py",
+        "mechanism": "construction-priority shadow weight-vector",
+        "defaultValues": {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 5,
+            "resourceSignalWeight": 18,
+            "killSignalWeight": 3,
+            "riskPenalty": 3,
+        },
+        "shadowConfig": {
+            "enabled": True,
+            "incumbentStrategyIds": {"construction-priority": "construction-priority.incumbent.v1"},
+            "candidateStrategyIds": ["construction-priority.container-prioritized-shadow.v1"],
+        },
+        "focus": {
+            "constructionPriority": ["container", "source container", "controller container"],
+            "reason": "High resource weight favors container-oriented candidates while preserving territory-first scoring.",
+        },
+        "rollback": {
+            "disabledByDefault": True,
+            "rollbackToStrategyId": "construction-priority.incumbent.v1",
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    },
+)
+
 
 def parse_variants_csv(raw: str) -> list[str]:
     """Parse a comma-separated variant list from CLI input."""
@@ -93,6 +160,50 @@ def parse_variants_csv(raw: str) -> list[str]:
         if trimmed not in variants:
             variants.append(trimmed)
     return variants
+
+
+def default_strategy_variant_configs() -> list[JsonObject]:
+    """Return the simulator's default construction-priority variant configs."""
+    return copy.deepcopy(list(DEFAULT_STRATEGY_VARIANT_CONFIGS))
+
+
+def default_strategy_variant_ids() -> list[str]:
+    """Return the default variant ids used when `run --variants` is omitted."""
+    return [str(config["id"]) for config in DEFAULT_STRATEGY_VARIANT_CONFIGS]
+
+
+def available_strategy_variants(discovered: Sequence[str]) -> list[str]:
+    """Merge built-in simulator variants with registry-discovered strategy ids."""
+    variants = default_strategy_variant_ids()
+    for variant_id in discovered:
+        if variant_id not in variants:
+            variants.append(variant_id)
+    return variants
+
+
+def strategy_variant_config_by_id(variant_id: str) -> JsonObject:
+    """Return bounded public config for a strategy variant id."""
+    for config in DEFAULT_STRATEGY_VARIANT_CONFIGS:
+        if config.get("id") == variant_id:
+            return copy.deepcopy(config)
+    return {
+        "id": variant_id,
+        "label": variant_id,
+        "family": None,
+        "rolloutStatus": "registry",
+        "source": "prod/src/strategy/strategyRegistry.ts",
+        "mechanism": "strategy registry id",
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    }
+
+
+def resolve_strategy_variant_configs(variant_ids: Sequence[str]) -> list[JsonObject]:
+    """Return variant config objects in the same order as the selected ids."""
+    return [strategy_variant_config_by_id(variant_id) for variant_id in variant_ids]
 
 
 def discover_strategy_variants(path: Path = DEFAULT_STRATEGY_REGISTRY_PATH) -> list[str]:
@@ -115,14 +226,16 @@ def normalize_variants(
     requested: Sequence[str] | None,
     available: Sequence[str],
 ) -> list[str]:
-    """Combine `--variants` inputs with a default of all available registry entries."""
+    """Combine `--variants` inputs with the two default construction-priority variants."""
     if not requested:
-        return list(available)
+        return default_strategy_variant_ids()
     selected: list[str] = []
     for raw in requested:
         for variant in parse_variants_csv(raw):
             if variant and variant not in selected:
                 selected.append(variant)
+    if not selected:
+        return default_strategy_variant_ids()
     missing = sorted(set(selected) - set(available))
     if missing:
         raise RuntimeError(f"unknown strategy variants: {', '.join(missing)}")
@@ -158,6 +271,15 @@ def parse_run_id_token(value: str) -> str:
         return validate_run_id_token(value)
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def normalize_private_server_code_branch(branch: str) -> str:
+    """Normalize user-facing active branch names for private-server /api/user/code."""
+    aliases = {
+        "activeWorld": "$activeWorld",
+        "activeSim": "$activeSim",
+    }
+    return aliases.get(branch, branch)
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -213,15 +335,20 @@ def _extract_room_payload(data: Any, room: str) -> dict[str, Any]:
     return direct if isinstance(direct, dict) else data
 
 
+def _payload_objects(payload: dict[str, Any] | list[Any]) -> list[JsonObject]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    objects = payload.get("objects")
+    if isinstance(objects, list):
+        return [item for item in objects if isinstance(item, dict)]
+    return []
+
+
 def _collect_structure_counts(payload: dict[str, Any] | list[Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
-    objects: list[Any] = []
-    if isinstance(payload, list):
-        objects = payload
-    elif isinstance(payload, dict):
-        raw_objects = payload.get("objects")
-        if isinstance(raw_objects, list):
-            objects = raw_objects
+    if isinstance(payload, dict):
         for key in ("structures", "structuresByType", "objectsByType"):
             section = payload.get(key)
             if isinstance(section, dict):
@@ -233,12 +360,52 @@ def _collect_structure_counts(payload: dict[str, Any] | list[Any]) -> dict[str, 
             if isinstance(sites, list):
                 counts["constructionSite"] = len(sites)
 
-    for item in objects:
-        if not isinstance(item, dict):
-            continue
+    for item in _payload_objects(payload):
         object_type = item.get("type")
         if isinstance(object_type, str):
             counts[object_type] = counts.get(object_type, 0) + 1
+    return counts
+
+
+def _object_is_hostile(item: JsonObject) -> bool:
+    return item.get("my") is False or item.get("hostile") is True or item.get("enemy") is True
+
+
+def _collect_combat_counts(payload: dict[str, Any]) -> JsonObject:
+    counts: JsonObject = {
+        "hostileCreeps": 0,
+        "hostileStructures": 0,
+        "ownCreeps": 0,
+        "ownStructures": 0,
+    }
+    for key in ("hostiles", "hostileCreeps"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            counts["hostileCreeps"] = max(counts["hostileCreeps"], len(value))
+        elif isinstance(value, int):
+            counts["hostileCreeps"] = max(counts["hostileCreeps"], value)
+
+    for item in _payload_objects(payload):
+        object_type = item.get("type")
+        if not isinstance(object_type, str):
+            continue
+        if object_type == "creep":
+            if _object_is_hostile(item):
+                counts["hostileCreeps"] += 1
+            elif item.get("my") is True:
+                counts["ownCreeps"] += 1
+        elif object_type != "controller":
+            if _object_is_hostile(item):
+                counts["hostileStructures"] += 1
+            elif item.get("my") is True:
+                counts["ownStructures"] += 1
+
+    explicit = payload.get("combat")
+    if isinstance(explicit, dict):
+        for key in ("hostileCreeps", "hostileStructures", "ownCreeps", "ownStructures", "hostileKills", "ownLosses"):
+            value = _extract_int(explicit.get(key))
+            if value is not None:
+                counts[key] = value
     return counts
 
 
@@ -254,6 +421,8 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
             "level": level,
             "progress": progress,
             "progressTotal": progress_total,
+            "my": controller.get("my") if isinstance(controller.get("my"), bool) else None,
+            "owner": text_or_none(controller.get("owner")),
         }
     energy = _extract_int(normalized.get("energy"))
     if energy is None:
@@ -276,6 +445,7 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
         "energy": energy,
         "creeps": creeps,
         "structures": dict(sorted(structures.items())) if structures else {},
+        "combat": _collect_combat_counts(normalized),
     }
 
 
@@ -349,6 +519,7 @@ def build_run_artifact(
     workers: int,
     variant_results: Sequence[JsonObject],
     branch: str,
+    bot_commit: str = DEFAULT_BOT_COMMIT,
     wall_clock_seconds: float | None = None,
 ) -> JsonObject:
     """Build the public run-mode artifact payload."""
@@ -358,12 +529,20 @@ def build_run_artifact(
     if elapsed_wall_clock < 0:
         elapsed_wall_clock = 0.0
     ticks_total = sum(item.get("ticks_run", 0) for item in variant_results)
+    strategy_variant_configs = []
+    for item in variant_results:
+        config = item.get("strategyVariant") if isinstance(item.get("strategyVariant"), dict) else None
+        if config is None and isinstance(item.get("variant_id"), str):
+            config = strategy_variant_config_by_id(item["variant_id"])
+        if config is not None:
+            strategy_variant_configs.append(config)
     return {
         "type": RUN_SUMMARY_TYPE,
         "harnessVersion": HARNESS_VERSION,
         "harness_version": HARNESS_VERSION,
         "runId": run_id,
         "timestamp": timestamp,
+        "botCommit": bot_commit,
         "live_effect": False,
         "official_mmo_writes": False,
         "official_mmo_writes_allowed": False,
@@ -378,6 +557,10 @@ def build_run_artifact(
             "minSeconds": round(min(wall_clock), 3) if wall_clock else 0.0,
             "maxSeconds": round(max(wall_clock), 3) if wall_clock else 0.0,
             "totalTickRuns": ticks_total,
+        },
+        "strategyVariants": {
+            "configuredVariantCount": len(variant_results),
+            "variants": strategy_variant_configs,
         },
         "safety": safety_metadata(),
         "variants": variant_results,
@@ -445,7 +628,63 @@ def _require_launcher_cli_success(smoke: Any, compose: list[str], cfg: Any, expr
     result = smoke.run_launcher_cli(compose, cfg, expression)
     if not isinstance(result, dict):
         raise RuntimeError(f"{phase} failed: launcher CLI returned non-object result")
-    return result
+    if result.get("ok") is False:
+        raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
+    status = _extract_int(result.get("status"))
+    if status is not None:
+        if status < 200 or status >= 300:
+            raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
+        response_excerpt = result.get("response_excerpt")
+        if isinstance(response_excerpt, str) and response_excerpt.startswith("Error:"):
+            raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
+        return result
+    if result.get("ok") is True:
+        return result
+    raise RuntimeError(f"{phase} failed: launcher CLI result did not include success status")
+
+
+def _terrain_payload_has_data(payload: Any) -> bool:
+    summary = _terrain_summary(payload)
+    return bool(summary.get("bytes"))
+
+
+def _wait_for_terrain_ready(
+    cfg: Any,
+    smoke: Any,
+    *,
+    room: str,
+    shard: str,
+    token: str | None = None,
+    timeout_seconds: int = RUN_PHASE_TIMEOUT_SECONDS,
+) -> JsonObject:
+    deadline = time.time() + timeout_seconds
+    headers = smoke.token_headers(token) if token else None
+    last_summary: JsonObject = {"ok": False, "reason": "not checked"}
+    while time.time() < deadline:
+        try:
+            terrain = smoke.http_json(
+                "GET",
+                cfg.server_url,
+                "/api/game/room-terrain",
+                params={"room": room, "shard": shard, "encoded": "1"},
+                headers=headers,
+                timeout=RUN_API_TIMEOUT_SECONDS,
+            )
+            last_summary = {
+                "ok": False,
+                "status": terrain.status,
+                "payload": _safe_redact_smoke_payload(terrain.payload),
+            }
+            if terrain.status == 200 and _terrain_payload_has_data(terrain.payload):
+                return {
+                    "ok": True,
+                    "status": terrain.status,
+                    "terrain": _terrain_summary(terrain.payload),
+                }
+        except Exception as exc:  # noqa: BLE001 - keep polling with a sanitized reason
+            last_summary = {"ok": False, "error": _safe_text(exc, 240)}
+        time.sleep(RUN_TICK_POLL_SECONDS)
+    raise RuntimeError(f"terrain data did not become readable after map import: {last_summary}")
 
 
 def _worker_output_dir(out_root: Path, run_id: str, worker_index: int) -> Path:
@@ -491,6 +730,160 @@ def _build_tick_entry(
         "rooms": room_summaries,
         "overview": overview_payload,
         "terrain": _terrain_summary(terrain),
+    }
+
+
+def _room_metric_snapshot(tick_entry: JsonObject) -> JsonObject:
+    rooms = tick_entry.get("rooms")
+    if not isinstance(rooms, dict):
+        rooms = {}
+    room_names = sorted(room_name for room_name in rooms if isinstance(room_name, str))
+    energy_total = 0
+    controller_level_total = 0
+    owned_rooms: list[str] = []
+    hostile_creeps = 0
+    hostile_structures = 0
+    own_creeps = 0
+    own_structures = 0
+    controller_levels: JsonObject = {}
+    structure_counts: dict[str, int] = {}
+
+    for room_name in room_names:
+        summary = rooms.get(room_name)
+        if not isinstance(summary, dict):
+            continue
+        energy = _extract_int(summary.get("energy"))
+        if energy is not None:
+            energy_total += energy
+        controller = summary.get("controller")
+        level = None
+        if isinstance(controller, dict):
+            level = _extract_int(controller.get("level"))
+        if level is not None:
+            controller_levels[room_name] = level
+            controller_level_total += level
+            if level > 0:
+                owned_rooms.append(room_name)
+        structures = summary.get("structures")
+        if isinstance(structures, dict):
+            for structure_type, count in structures.items():
+                parsed_count = _extract_int(count)
+                if parsed_count is not None:
+                    structure_counts[str(structure_type)] = structure_counts.get(str(structure_type), 0) + parsed_count
+        combat = summary.get("combat")
+        if isinstance(combat, dict):
+            hostile_creeps += _extract_int(combat.get("hostileCreeps")) or 0
+            hostile_structures += _extract_int(combat.get("hostileStructures")) or 0
+            own_creeps += _extract_int(combat.get("ownCreeps")) or 0
+            own_structures += _extract_int(combat.get("ownStructures")) or 0
+
+    return {
+        "roomCount": len(room_names),
+        "rooms": room_names,
+        "ownedRooms": owned_rooms,
+        "ownedRoomCount": len(owned_rooms),
+        "controllerLevels": controller_levels,
+        "controllerLevelTotal": controller_level_total,
+        "energy": energy_total,
+        "structures": dict(sorted(structure_counts.items())),
+        "hostileCreeps": hostile_creeps,
+        "hostileStructures": hostile_structures,
+        "ownCreeps": own_creeps,
+        "ownStructures": own_structures,
+    }
+
+
+def build_variant_metrics(tick_log: Sequence[JsonObject]) -> JsonObject:
+    """Reduce one variant's tick log into territory/resources/combat metrics."""
+    valid_ticks = [tick for tick in tick_log if isinstance(tick, dict)]
+    if not valid_ticks:
+        empty = _room_metric_snapshot({})
+        return {
+            "tickCount": 0,
+            "initialRooms": empty,
+            "finalRooms": empty,
+            "territory": {
+                "initialOwnedRoomCount": 0,
+                "finalOwnedRoomCount": 0,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "resources": {
+                "initialEnergy": 0,
+                "finalEnergy": 0,
+                "energyDelta": 0,
+                "peakEnergy": 0,
+                "collectedEnergy": 0,
+            },
+            "combat": {
+                "hostileKills": 0,
+                "ownLosses": 0,
+                "combatDelta": 0,
+                "peakHostileCreeps": 0,
+                "finalHostileCreeps": 0,
+            },
+            "territoryDelta": 0,
+            "resourcesDelta": 0,
+            "combatDelta": 0,
+            "hostileKills": 0,
+            "ownLosses": 0,
+        }
+
+    snapshots = [_room_metric_snapshot(tick) for tick in valid_ticks]
+    initial = snapshots[0]
+    final = snapshots[-1]
+    initial_energy = int(initial["energy"])
+    final_energy = int(final["energy"])
+    initial_owned = int(initial["ownedRoomCount"])
+    final_owned = int(final["ownedRoomCount"])
+    initial_controller_total = int(initial["controllerLevelTotal"])
+    final_controller_total = int(final["controllerLevelTotal"])
+    initial_hostiles = int(initial["hostileCreeps"]) + int(initial["hostileStructures"])
+    final_hostiles = int(final["hostileCreeps"]) + int(final["hostileStructures"])
+    initial_own_creeps = int(initial["ownCreeps"])
+    final_own_creeps = int(final["ownCreeps"])
+    hostile_kills = max(0, initial_hostiles - final_hostiles)
+    own_losses = max(0, initial_own_creeps - final_own_creeps)
+    energy_delta = final_energy - initial_energy
+    territory_delta = (final_owned - initial_owned) + (final_controller_total - initial_controller_total)
+    combat_delta = hostile_kills - own_losses
+
+    return {
+        "tickCount": len(valid_ticks),
+        "firstTick": valid_ticks[0].get("tick"),
+        "lastTick": valid_ticks[-1].get("tick"),
+        "initialRooms": initial,
+        "finalRooms": final,
+        "territory": {
+            "initialOwnedRoomCount": initial_owned,
+            "finalOwnedRoomCount": final_owned,
+            "ownedRoomDelta": final_owned - initial_owned,
+            "initialControllerLevelTotal": initial_controller_total,
+            "finalControllerLevelTotal": final_controller_total,
+            "controllerLevelDelta": final_controller_total - initial_controller_total,
+        },
+        "resources": {
+            "initialEnergy": initial_energy,
+            "finalEnergy": final_energy,
+            "energyDelta": energy_delta,
+            "peakEnergy": max(int(snapshot["energy"]) for snapshot in snapshots),
+            "collectedEnergy": max(0, energy_delta),
+        },
+        "combat": {
+            "initialHostileCreeps": int(initial["hostileCreeps"]),
+            "finalHostileCreeps": int(final["hostileCreeps"]),
+            "peakHostileCreeps": max(int(snapshot["hostileCreeps"]) for snapshot in snapshots),
+            "initialHostileStructures": int(initial["hostileStructures"]),
+            "finalHostileStructures": int(final["hostileStructures"]),
+            "hostileKills": hostile_kills,
+            "ownLosses": own_losses,
+            "combatDelta": combat_delta,
+        },
+        "territoryDelta": territory_delta,
+        "resourcesDelta": energy_delta,
+        "combatDelta": combat_delta,
+        "hostileKills": hostile_kills,
+        "ownLosses": own_losses,
     }
 
 
@@ -627,6 +1020,8 @@ def _run_variant(
     out_dir: Path,
 ) -> JsonObject:
     smoke = _load_private_smoke_module()
+    api_branch = normalize_private_server_code_branch(branch)
+    strategy_variant = strategy_variant_config_by_id(variant_id)
     variant_slug = _safe_filename(variant_id)
     worker_run_id = f"{run_id}-{variant_slug}"
     safe_run_root = _worker_output_dir(out_dir, run_id, worker_index)
@@ -648,7 +1043,7 @@ def _run_variant(
         spawn_name="Spawn1",
         spawn_x=DEFAULT_SPAWN_X,
         spawn_y=DEFAULT_SPAWN_Y,
-        branch=branch,
+        branch=api_branch,
         code_path=code_path,
         map_url="",
         map_source_file=map_source_file,
@@ -664,6 +1059,7 @@ def _run_variant(
     start = time.time()
     token: str | None = None
     variant_ticks: list[JsonObject] = []
+    terrain_ready: JsonObject | None = None
     compose = None
     try:
         for error in smoke.required_env_errors(cfg):
@@ -694,7 +1090,7 @@ def _run_variant(
         )
         smoke.run_command([*compose, "restart", "screeps"], cfg, timeout=RUN_CONTAINER_RESTART_TIMEOUT_SECONDS)
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
-        _require_launcher_cli_success(smoke, compose, cfg, "system.resumeSimulation()", "resume simulator")
+        terrain_ready = _wait_for_terrain_ready(cfg, smoke, room=room, shard=shard)
 
         register = smoke.http_json(
             "POST",
@@ -722,7 +1118,7 @@ def _run_variant(
 
         code_text = code_path.read_text(encoding="utf-8")
         upload_payload = smoke.build_code_payload(cfg, code_text)
-        upload_payload["branch"] = branch
+        upload_payload["branch"] = api_branch
         upload = smoke.http_json(
             "POST",
             cfg.server_url,
@@ -757,6 +1153,7 @@ def _run_variant(
         )
         token = smoke.update_token_from_headers(token, initial_state.headers)
         previous_tick = _read_gametime_from_overview(initial_state.payload, shard)
+        _require_launcher_cli_success(smoke, compose, cfg, "system.resumeSimulation()", "resume simulator")
 
         for _ in range(ticks):
             token, observed_tick, tick_entry = _run_one_tick(
@@ -785,12 +1182,14 @@ def _run_variant(
         "variant_id": variant_id,
         "variant_run_id": worker_run_id,
         "worker_id": worker_index,
+        "strategyVariant": strategy_variant,
+        "strategy_variant": strategy_variant,
         "scenario": build_scenario_config(
             worker_run_id,
             variant_id,
             room=room,
             shard=shard,
-            branch=branch,
+            branch=api_branch,
             ticks=ticks,
             code_path=code_path,
             map_source_file=map_source_file,
@@ -800,13 +1199,16 @@ def _run_variant(
         "wall_clock_seconds": wall_seconds,
         "ticks_per_second": ticks_per_second,
         "tick_log": variant_ticks,
+        "metrics": build_variant_metrics(variant_ticks),
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": len(errors) == 0,
         "error": errors[0] if errors else None,
         "serverHost": cfg.server_host,
         "serverPorts": {"http": http_port, "cli": cli_port},
-        "branch": branch,
+        "branch": api_branch,
+        "requestedBranch": branch,
+        "terrainReady": terrain_ready,
     }
 
 
@@ -834,11 +1236,14 @@ def run_variants(
     map_source_file: Path,
     out_dir: Path,
     run_id: str,
+    bot_commit: str = DEFAULT_BOT_COMMIT,
 ) -> tuple[JsonObject, list[JsonObject]]:
     if ticks <= 0:
         raise ValueError("ticks must be a positive integer")
     if workers <= 0:
         raise ValueError("workers must be a positive integer")
+    if not variants:
+        raise ValueError("at least one strategy variant is required")
 
     start = time.monotonic()
     normalized_workers = max(1, min(workers, len(variants)))
@@ -883,6 +1288,7 @@ def run_variants(
         workers=normalized_workers,
         variant_results=ordered,
         branch=branch,
+        bot_commit=bot_commit,
         wall_clock_seconds=time.monotonic() - start,
     )
     return artifact, ordered
@@ -972,8 +1378,8 @@ def build_harness_manifest(
     max_file_bytes: int = dataset_export.DEFAULT_MAX_FILE_BYTES,
     repo_root: Path | None = None,
 ) -> JsonObject:
-    repo = repo_root or Path.cwd()
-    resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
+    repo = repo_root or REPO_ROOT
+    resolved_bot_commit = bot_commit or DEFAULT_BOT_COMMIT or dataset_export.git_commit(repo)
     resolved_out_dir = out_dir.expanduser()
     scan = dataset_export.collect_artifact_records(
         paths,
@@ -1007,7 +1413,7 @@ def build_harness_manifest(
         "type": MANIFEST_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "manifestId": resolved_manifest_id,
-        "owningIssue": "#414",
+        "owningIssue": "#879",
         "milestone": "P1: RL strategy flywheel gate",
         "roadmap": {
             "path": "docs/ops/rl-domain-roadmap.md",
@@ -1017,6 +1423,11 @@ def build_harness_manifest(
         "sourceMode": "local-artifact-metadata-only",
         "botCommit": resolved_bot_commit,
         "scenario": build_scenario_metadata(resolved_manifest_id, seed_material, scan, metadata),
+        "strategyVariants": {
+            "configuredVariantCount": len(DEFAULT_STRATEGY_VARIANT_CONFIGS),
+            "defaultVariantIds": default_strategy_variant_ids(),
+            "variants": default_strategy_variant_configs(),
+        },
         "adapterContract": adapter_contract(),
         "seed": build_seed_contract(seed, seed_material),
         "reset": build_reset_contract(seed_material),
@@ -1024,6 +1435,7 @@ def build_harness_manifest(
         "throughput": throughput,
         "sources": build_source_metadata(scan, metadata),
         "datasets": metadata["datasets"],
+        "simulatorRuns": metadata["simulatorRuns"],
         "strategyShadow": {
             "indexedReportCount": len(scan.strategy_shadow_reports),
             "reports": scan.strategy_shadow_reports,
@@ -1075,6 +1487,7 @@ def build_seed_material(
             for record in sorted(scan.records, key=dataset_export.record_sort_key)
         ],
         "strategyShadowReports": scan.strategy_shadow_reports,
+        "strategyVariants": default_strategy_variant_configs(),
         "metadata": metadata,
         "workers": workers,
         "roomsPerWorker": rooms_per_worker,
@@ -1105,6 +1518,8 @@ def build_scenario_metadata(
         "datasetScenarioCount": len(metadata["datasets"]["scenarioManifests"]),
         "strategyShadowReportCount": len(scan.strategy_shadow_reports),
         "generatedStrategyShadowReportCount": len(metadata["strategyShadowReports"]),
+        "strategyVariantCount": len(DEFAULT_STRATEGY_VARIANT_CONFIGS),
+        "completedSimulatorRunCount": metadata["simulatorRuns"]["completedRunCount"],
         "privateSmokeReportCount": len(metadata["privateSmokeReports"]),
         "notes": [
             "This slice does not start Docker, contact the official MMO, or execute learned policies.",
@@ -1248,6 +1663,11 @@ def collect_local_metadata(scan: dataset_export.ScanResult) -> JsonObject:
         },
         "strategyShadowReports": [],
         "privateSmokeReports": [],
+        "simulatorRuns": {
+            "indexedRunCount": 0,
+            "completedRunCount": 0,
+            "runs": [],
+        },
     }
     for source in sorted(scan.source_files.values(), key=lambda item: item.source_id):
         try:
@@ -1265,11 +1685,19 @@ def collect_local_metadata(scan: dataset_export.ScanResult) -> JsonObject:
                 smoke = private_smoke_report_metadata(item, source, line_number)
                 if smoke is not None:
                     metadata["privateSmokeReports"].append(smoke)
+                simulator_run = simulator_run_metadata(item, source, line_number)
+                if simulator_run is not None:
+                    metadata["simulatorRuns"]["runs"].append(simulator_run)
 
     for key in metadata["datasets"]:
         metadata["datasets"][key].sort(key=lambda item: metadata_sort_key(item, "runId"))
     metadata["strategyShadowReports"].sort(key=lambda item: metadata_sort_key(item, "reportId"))
     metadata["privateSmokeReports"].sort(key=lambda item: metadata_sort_key(item, "workDir"))
+    metadata["simulatorRuns"]["runs"].sort(key=lambda item: metadata_sort_key(item, "runId"))
+    metadata["simulatorRuns"]["indexedRunCount"] = len(metadata["simulatorRuns"]["runs"])
+    metadata["simulatorRuns"]["completedRunCount"] = sum(
+        1 for item in metadata["simulatorRuns"]["runs"] if number_or_none(item.get("completedVariantCount"))
+    )
     return metadata
 
 
@@ -1399,6 +1827,36 @@ def private_smoke_report_metadata(
     }
 
 
+def simulator_run_metadata(
+    raw: JsonObject,
+    source: dataset_export.SourceFile,
+    line_number: int | None,
+) -> JsonObject | None:
+    if raw.get("type") != RUN_SUMMARY_TYPE:
+        return None
+    variants = raw.get("variants") if isinstance(raw.get("variants"), list) else []
+    variant_rows = [variant for variant in variants if isinstance(variant, dict)]
+    completed_variant_count = sum(
+        1
+        for variant in variant_rows
+        if variant.get("ok") is True and (_extract_int(variant.get("ticks_run")) or 0) > 0
+    )
+    failed_variant_count = sum(1 for variant in variant_rows if variant.get("ok") is False)
+    return {
+        **source_common(source, line_number),
+        "runId": text_or_none(raw.get("runId")),
+        "botCommit": text_or_none(raw.get("botCommit")),
+        "branch": text_or_none(raw.get("branch")),
+        "variantCount": len(variant_rows),
+        "completedVariantCount": completed_variant_count,
+        "failedVariantCount": failed_variant_count,
+        "variantIds": string_list([variant.get("variant_id") for variant in variant_rows]),
+        "ticksRequested": number_or_none(raw.get("ticksRequested")),
+        "workerCount": number_or_none(raw.get("workerCount")),
+        "wallClockSeconds": number_or_none(raw.get("wallClockSeconds")),
+    }
+
+
 def build_source_metadata(scan: dataset_export.ScanResult, metadata: JsonObject) -> JsonObject:
     runtime_counts: dict[str, int] = {}
     artifact_kinds: dict[str, set[str]] = {}
@@ -1446,6 +1904,10 @@ def metadata_sources(metadata: JsonObject) -> dict[str, set[str]]:
             source_id = item.get("sourceId")
             if isinstance(source_id, str):
                 result.setdefault(source_id, set()).add(kind)
+    for item in metadata["simulatorRuns"]["runs"]:
+        source_id = item.get("sourceId")
+        if isinstance(source_id, str):
+            result.setdefault(source_id, set()).add("simulatorRuns")
     return result
 
 
@@ -1538,6 +2000,8 @@ def build_summary(manifest: JsonObject, manifest_path: Path) -> JsonObject:
         "runtimeArtifactCount": source["runtimeArtifactCount"],
         "datasetRunCount": manifest["scenario"]["datasetRunCount"],
         "strategyShadowReportCount": manifest["scenario"]["strategyShadowReportCount"],
+        "strategyVariantCount": manifest["scenario"]["strategyVariantCount"],
+        "completedSimulatorRunCount": manifest["scenario"]["completedSimulatorRunCount"],
         "throughput": {
             "evidenceMode": throughput["evidenceMode"],
             "aggregateRoomTicksPerSecond": throughput["aggregate"]["aggregateRoomTicksPerSecond"],
@@ -1686,6 +2150,7 @@ def run_simulator(
     branch: str = DEFAULT_ACTIVE_WORLD_BRANCH,
     code_path: Path = DEFAULT_CODE_PATH,
     map_source_file: Path = DEFAULT_MAP_SOURCE_FILE,
+    bot_commit: str = DEFAULT_BOT_COMMIT,
 ) -> JsonObject:
     if not code_path.is_file():
         raise RuntimeError(f"code path is not a file: {code_path}")
@@ -1697,6 +2162,7 @@ def run_simulator(
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
     resolved_map_source = map_source_file.expanduser()
+    api_branch = normalize_private_server_code_branch(branch)
     try:
         resolved_run_id = validate_run_id_token(run_id or f"{RUN_ID_PREFIX}-{int(time.time())}")
     except ValueError as error:
@@ -1707,11 +2173,12 @@ def run_simulator(
         workers=workers,
         room=room,
         shard=shard,
-        branch=branch,
+        branch=api_branch,
         code_path=resolved_code_path,
         map_source_file=resolved_map_source,
         out_dir=resolved_out_dir,
         run_id=resolved_run_id,
+        bot_commit=bot_commit,
     )
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"
     validate_run_artifact(artifact)
@@ -1747,7 +2214,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Manifest output root. Default: {DEFAULT_OUT_DIR}.",
     )
     dry.add_argument("--manifest-id", help="Optional manifest directory name. Defaults to a content hash.")
-    dry.add_argument("--bot-commit", help="Bot commit to record. Defaults to git rev-parse HEAD.")
+    dry.add_argument(
+        "--bot-commit",
+        default=DEFAULT_BOT_COMMIT,
+        help=f"Bot commit to record. Default: {DEFAULT_BOT_COMMIT}.",
+    )
     dry.add_argument("--seed", default=DEFAULT_SEED, help=f"Base deterministic seed. Default: {DEFAULT_SEED}.")
     dry.add_argument(
         "--workers",
@@ -1815,7 +2286,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--variants",
         action="append",
         default=[],
-        help="Comma-separated strategy variants from registry. Repeatable.",
+        help=(
+            "Comma-separated strategy variants. Defaults to construction-priority incumbent and "
+            "container-prioritized shadow. Repeatable."
+        ),
+    )
+    run.add_argument(
+        "--bot-commit",
+        default=DEFAULT_BOT_COMMIT,
+        help=f"Bot bundle commit recorded in run artifacts. Default: {DEFAULT_BOT_COMMIT}.",
     )
     run.add_argument(
         "--ticks",
@@ -1842,7 +2321,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--branch",
         default=DEFAULT_ACTIVE_WORLD_BRANCH,
-        help=f"Code branch for /api/user/code. Default: {DEFAULT_ACTIVE_WORLD_BRANCH}.",
+        help=(
+            "Code branch for /api/user/code. Private-server active aliases activeWorld/activeSim are "
+            f"normalized to $activeWorld/$activeSim. Default: {DEFAULT_ACTIVE_WORLD_BRANCH}."
+        ),
     )
     run.add_argument(
         "--code-path",
@@ -1884,7 +2366,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
     if args.command == "run":
         if not hasattr(args, "variants"):
             raise RuntimeError("run command requires --variants or no-argument default to registry")
-        variants = normalize_variants(args.variants, discover_strategy_variants())
+        variants = normalize_variants(args.variants, available_strategy_variants(discover_strategy_variants()))
         summary = run_simulator(
             ticks=args.ticks,
             workers=args.workers,
@@ -1896,6 +2378,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             branch=args.branch,
             code_path=args.code_path,
             map_source_file=args.map_source_file,
+            bot_commit=args.bot_commit,
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")
