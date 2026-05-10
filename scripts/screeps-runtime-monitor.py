@@ -39,6 +39,10 @@ DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "E26S49"
+RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
+WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
+WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
+WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
 
 ROOM_SIZE = 50
 TERRAIN_CELLS = ROOM_SIZE * ROOM_SIZE
@@ -179,6 +183,11 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "decision": "owner_action_or_codex_hotfix",
         "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
     },
+    "worker_idle_collapse": {
+        "severity": "high",
+        "decision": "codex_hotfix_or_owner_action",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "inspect_spawn_recovery", "start_hotfix_gate"],
+    },
     "private_smoke_failure": {
         "severity": "high",
         "decision": "main_agent_triage",
@@ -217,6 +226,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "runtime_exception": ["runtime_exception"],
     "runtime_deadlock": ["runtime_deadlock"],
     "resource_crisis": ["resource_crisis"],
+    "worker_idle_collapse": ["worker_idle_collapse"],
     "private_smoke_failed_phase": ["private_smoke_failure"],
     "private_smoke_runtime_failure": ["private_smoke_failure"],
     "private_smoke_telemetry_silence": ["telemetry_silence", "private_smoke_failure"],
@@ -926,6 +936,191 @@ def build_survival_reason(ref: RoomRef, kind: str, message: str, **details: Any)
     }
 
 
+def runtime_task_count(room: dict[str, Any], task_name: str) -> int | float | None:
+    return number_value(as_dict(room.get("taskCounts")).get(task_name))
+
+
+def runtime_worker_count(room: dict[str, Any], behavior_entries: list[dict[str, Any]]) -> int:
+    worker_count = number_value(room.get("workerCount"))
+    if worker_count is not None:
+        return max(0, int(worker_count))
+
+    task_counts = as_dict(room.get("taskCounts"))
+    counted_workers = sum(value for value in (number_value(item) for item in task_counts.values()) if value is not None)
+    if counted_workers > 0:
+        return int(counted_workers)
+    return len(behavior_entries)
+
+
+def runtime_spawn_idle(room: dict[str, Any], owned_spawns: int) -> bool:
+    if owned_spawns <= 0:
+        return False
+    raw_statuses = room.get("spawnStatus")
+    if raw_statuses is None:
+        return False
+    if not isinstance(raw_statuses, list) or not raw_statuses:
+        return False
+
+    statuses: list[Any] = []
+    for raw_status in raw_statuses:
+        if isinstance(raw_status, dict):
+            statuses.append(raw_status.get("status"))
+        else:
+            statuses.append(raw_status)
+    return all(status == "idle" for status in statuses)
+
+
+def runtime_worker_behavior_entries(room: dict[str, Any]) -> list[dict[str, Any]]:
+    behavior = as_dict(room.get("behavior"))
+    candidates = (
+        behavior.get("creeps"),
+        behavior.get("topIdleWorkers"),
+        room.get("workerBehavior"),
+        room.get("workers"),
+        room.get("creeps"),
+    )
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        entries = [entry for entry in candidate if isinstance(entry, dict)]
+        if entries:
+            return entries
+    return []
+
+
+def worker_behavior_entries_for_workers(entries: list[dict[str, Any]], worker_count: int) -> list[dict[str, Any]]:
+    tagged_workers = [
+        entry
+        for entry in entries
+        if entry.get("role") == "worker"
+        or (isinstance(entry.get("creepName"), str) and str(entry.get("creepName")).startswith("worker"))
+        or (isinstance(entry.get("name"), str) and str(entry.get("name")).startswith("worker"))
+    ]
+    return tagged_workers if len(tagged_workers) >= worker_count else entries
+
+
+def all_workers_idle_or_stuck(room: dict[str, Any]) -> tuple[bool, int, int, int]:
+    entries = runtime_worker_behavior_entries(room)
+    worker_count = runtime_worker_count(room, entries)
+    if worker_count <= 0 or len(entries) < worker_count:
+        return False, worker_count, 0, 0
+
+    worker_entries = worker_behavior_entries_for_workers(entries, worker_count)
+    if len(worker_entries) < worker_count:
+        return False, worker_count, 0, 0
+
+    idle_count = sum(
+        1
+        for entry in worker_entries
+        if (number_value(entry.get("idleTicks")) or 0) > WORKER_IDLE_COLLAPSE_TICK_THRESHOLD
+    )
+    stuck_count = sum(
+        1
+        for entry in worker_entries
+        if (number_value(entry.get("stuckTicks")) or 0) > WORKER_IDLE_COLLAPSE_TICK_THRESHOLD
+    )
+    return idle_count >= worker_count or stuck_count >= worker_count, worker_count, idle_count, stuck_count
+
+
+def runtime_energy_at_risk(room: dict[str, Any]) -> tuple[bool, int | float | None, int | float | None, dict[str, Any]]:
+    available = number_value(room.get("energyAvailable"))
+    capacity = number_value(room.get("energyCapacity"))
+    buffer_health = as_dict(room.get("energyBufferHealth"))
+    buffer_current = number_value(buffer_health.get("currentEnergy"))
+    buffer_threshold = number_value(buffer_health.get("threshold"))
+
+    current_energy = available if available is not None else buffer_current
+    capacity_energy = capacity if capacity is not None else number_value(room.get("energyCapacityAvailable"))
+    below_capacity = available is not None and capacity is not None and available < capacity
+    unhealthy_buffer = (
+        buffer_health.get("healthy") is False
+        and buffer_current is not None
+        and buffer_threshold is not None
+        and buffer_current < buffer_threshold
+    )
+    return below_capacity or unhealthy_buffer, current_energy, capacity_energy, buffer_health
+
+
+def format_energy_value(value: int | float | None) -> str:
+    if value is None:
+        return "unknown"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def build_worker_idle_collapse_reason(
+    ref: RoomRef,
+    room: dict[str, Any],
+    consecutive: int,
+    worker_count: int,
+    idle_count: int,
+    stuck_count: int,
+    current_energy: int | float | None,
+    capacity_energy: int | float | None,
+    buffer_health: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "kind": WORKER_IDLE_COLLAPSE_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        "harvest": runtime_task_count(room, "harvest"),
+        "upgrade": runtime_task_count(room, "upgrade"),
+        "worker_count": worker_count,
+        "idle_worker_count": idle_count,
+        "stuck_worker_count": stuck_count,
+        "current_energy": current_energy,
+        "energy_capacity": capacity_energy,
+        "energy_buffer_health": buffer_health,
+        "consecutive": consecutive,
+        "message": (
+            f"worker_idle_collapse in {ref.key}: harvest=0 upgrade=0, all workers idle/stuck, spawn idle, "
+            f"energy {format_energy_value(current_energy)}/{format_energy_value(capacity_energy)}. "
+            "Room may die within ~1500 ticks without intervention."
+        ),
+        "signature": f"{WORKER_IDLE_COLLAPSE_KIND}:{ref.key}",
+    }
+
+
+def detect_worker_idle_collapse_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    owned_spawns: int,
+    consecutive: int,
+) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict):
+        return None
+
+    harvest_count = runtime_task_count(runtime_room, "harvest")
+    upgrade_count = runtime_task_count(runtime_room, "upgrade")
+    if harvest_count != 0 or upgrade_count != 0:
+        return None
+    if not runtime_spawn_idle(runtime_room, owned_spawns):
+        return None
+
+    all_idle_or_stuck, worker_count, idle_count, stuck_count = all_workers_idle_or_stuck(runtime_room)
+    if not all_idle_or_stuck:
+        return None
+
+    energy_at_risk, current_energy, capacity_energy, buffer_health = runtime_energy_at_risk(runtime_room)
+    if not energy_at_risk:
+        return None
+
+    return build_worker_idle_collapse_reason(
+        ref,
+        runtime_room,
+        consecutive,
+        worker_count,
+        idle_count,
+        stuck_count,
+        current_energy,
+        capacity_energy,
+        buffer_health,
+    )
+
+
 def alert_reason_kind(reason: dict[str, Any]) -> str:
     value = reason.get("kind")
     return value.lower() if isinstance(value, str) else ""
@@ -950,6 +1145,7 @@ def build_next_room_state(
     previous_structures: dict[str, Any],
     current_structures: dict[str, dict[str, Any]],
     alerts: dict[str, Any],
+    rule_counts: dict[str, Any],
     detected: list[dict[str, Any]],
     now: int,
     owned_creeps: int,
@@ -970,6 +1166,7 @@ def build_next_room_state(
         "owned_spawns": owned_spawns,
         "structures": structures,
         "alerts": alerts,
+        "rule_counts": rule_counts,
     }
 
 
@@ -978,6 +1175,7 @@ def evaluate_room_alert(
     previous_room_state: dict[str, Any] | None,
     now: int,
     debounce_seconds: int,
+    runtime_room_summary: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     previous_room_state = previous_room_state or {}
     previous_structures = previous_room_state.get("structures")
@@ -986,6 +1184,9 @@ def evaluate_room_alert(
     previous_alerts = previous_room_state.get("alerts")
     if not isinstance(previous_alerts, dict):
         previous_alerts = {}
+    previous_rule_counts = previous_room_state.get("rule_counts")
+    if not isinstance(previous_rule_counts, dict):
+        previous_rule_counts = {}
 
     current_structures = structure_snapshot(snapshot.objects, snapshot.owner, snapshot.expected_owner_id)
     current_owned_spawns = count_owned_spawns(current_structures)
@@ -1056,6 +1257,21 @@ def evaluate_room_alert(
             )
         )
 
+    rule_counts = dict(previous_rule_counts)
+    previous_worker_idle_count = number_value(rule_counts.get(WORKER_IDLE_COLLAPSE_KIND)) or 0
+    worker_idle_candidate = detect_worker_idle_collapse_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        current_owned_spawns,
+        int(previous_worker_idle_count) + 1,
+    )
+    if worker_idle_candidate is None:
+        rule_counts[WORKER_IDLE_COLLAPSE_KIND] = 0
+    else:
+        rule_counts[WORKER_IDLE_COLLAPSE_KIND] = worker_idle_candidate["consecutive"]
+        if worker_idle_candidate["consecutive"] >= WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE:
+            detected.append(worker_idle_candidate)
+
     emitted: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
     alerts = dict(previous_alerts)
@@ -1078,6 +1294,7 @@ def evaluate_room_alert(
         previous_structures,
         current_structures,
         alerts,
+        rule_counts,
         detected,
         now,
         current_owned_creeps,
@@ -2224,6 +2441,123 @@ def number_value(value: Any) -> int | float | None:
     return None
 
 
+def as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def runtime_summary_room_name(room: dict[str, Any]) -> str | None:
+    for key in ("roomName", "name"):
+        value = room.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and room_ref:
+        return room_ref.rsplit("/", 1)[-1]
+    return None
+
+
+def runtime_summary_room_shard(room: dict[str, Any]) -> str | None:
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and "/" in room_ref:
+        shard = room_ref.split("/", 1)[0]
+        if shard:
+            return shard
+
+    shard = room.get("shard")
+    if isinstance(shard, str) and shard:
+        return shard
+    return None
+
+
+def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and room_ref == ref.key:
+        return True
+    return runtime_summary_room_name(room) == ref.room and runtime_summary_room_shard(room) == ref.shard
+
+
+def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
+    return any(
+        key in room
+        for key in (
+            "taskCounts",
+            "spawnStatus",
+            "energyAvailable",
+            "energyCapacity",
+            "energyBufferHealth",
+            "workerCount",
+            "behavior",
+        )
+    )
+
+
+def parse_runtime_summary_line(line: str) -> dict[str, Any] | None:
+    stripped = line.strip()
+    if not stripped.startswith(RUNTIME_SUMMARY_PREFIX):
+        return None
+    try:
+        payload = json.loads(html.unescape(stripped[len(RUNTIME_SUMMARY_PREFIX) :]))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict) and payload.get("type") == "runtime-summary":
+        return payload
+    return None
+
+
+def payload_runtime_rooms(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rooms = payload.get("rooms")
+    if not isinstance(rooms, list):
+        return []
+    return [room for room in rooms if isinstance(room, dict)]
+
+
+def runtime_summary_log_paths(runtime_summary_dir: Path) -> list[Path]:
+    all_paths = list(runtime_summary_dir.glob("*.log"))
+    console_paths = [path for path in all_paths if path.name.startswith("runtime-summary-console-")]
+    paths = console_paths if console_paths else all_paths
+    return sorted(paths, key=lambda path: (path.stat().st_mtime, str(path)), reverse=True)
+
+
+def load_latest_runtime_room_summaries(
+    runtime_summary_dir: Path,
+    refs: list[RoomRef],
+    warnings: list[str],
+) -> dict[str, dict[str, Any]]:
+    if not refs or not runtime_summary_dir.exists():
+        return {}
+
+    try:
+        paths = runtime_summary_log_paths(runtime_summary_dir)
+    except OSError as exc:
+        warnings.append(f"runtime-summary scan unavailable: {short_text(exc, 140)}")
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            warnings.append(f"runtime-summary artifact unreadable {path.name}: {short_text(exc, 140)}")
+            continue
+
+        for line in reversed(lines):
+            payload = parse_runtime_summary_line(line)
+            if payload is None:
+                continue
+            for room in payload_runtime_rooms(payload):
+                if not runtime_summary_room_has_worker_idle_fields(room):
+                    continue
+                for ref in refs:
+                    if ref.key in result or not runtime_summary_room_matches(room, ref):
+                        continue
+                    result[ref.key] = room
+                    break
+            return result
+
+    return result
+
+
 def store_energy(obj: dict[str, Any]) -> int | float:
     store = obj.get("store")
     if isinstance(store, dict):
@@ -2504,6 +2838,11 @@ def command_summary(args: argparse.Namespace) -> int:
 def command_alert(args: argparse.Namespace) -> int:
     ctx = context_from_env()
     snapshots, warnings = collect_snapshots(ctx, args.room)
+    runtime_room_summaries = load_latest_runtime_room_summaries(
+        Path(args.runtime_summary_dir).expanduser(),
+        [snapshot.ref for snapshot in snapshots],
+        warnings,
+    )
     state = load_state(ctx.state_file)
     rooms_state = state.get("rooms")
     if not isinstance(rooms_state, dict):
@@ -2522,6 +2861,7 @@ def command_alert(args: argparse.Namespace) -> int:
             previous,
             now=now,
             debounce_seconds=ctx.debounce_seconds,
+            runtime_room_summary=runtime_room_summaries.get(snapshot.ref.key),
         )
         rooms_state[snapshot.ref.key] = next_room_state
         if emitted:
@@ -2608,6 +2948,11 @@ def build_parser() -> argparse.ArgumentParser:
     alert = subcommands.add_parser("alert", help="evaluate alert rules and render alert PNGs when needed")
     add_live_options(alert)
     alert.add_argument("--force-alert-image", action="store_true", help="render alert-style image even when no alert is emitted")
+    alert.add_argument(
+        "--runtime-summary-dir",
+        default=os.environ.get("SCREEPS_RUNTIME_SUMMARY_DIR", str(DEFAULT_RUNTIME_SUMMARY_OUT_DIR)),
+        help="Directory containing persisted #runtime-summary console .log artifacts for semantic alert rules.",
+    )
     alert.set_defaults(func=command_alert)
 
     health_gate = subcommands.add_parser("health-gate", help="fail when post-deploy summary/alert evidence violates survival invariants")
@@ -2886,6 +3231,106 @@ def command_self_test(_args: argparse.Namespace) -> int:
             emitted, suppressed, _next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
             self.assertEqual(emitted, [])
             self.assertEqual(len(suppressed), 1)
+
+        def test_worker_idle_collapse_alerts_on_second_consecutive_detection(self) -> None:
+            snapshot = self.make_snapshot(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "worker-1": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "name": "worker-1",
+                        "x": 23,
+                        "y": 25,
+                    },
+                    "worker-2": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "name": "worker-2",
+                        "x": 24,
+                        "y": 25,
+                    },
+                }
+            )
+            runtime_room = {
+                "roomName": "E1N1",
+                "energyAvailable": 250,
+                "energyCapacity": 300,
+                "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                "workerCount": 2,
+                "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                "taskCounts": {"harvest": 0, "upgrade": 0, "transfer": 0, "build": 0, "repair": 0, "none": 2},
+                "behavior": {
+                    "creeps": [
+                        {"creepName": "worker-1", "idleTicks": 25, "stuckTicks": 0},
+                        {"creepName": "worker-2", "idleTicks": 25, "stuckTicks": 0},
+                    ]
+                },
+            }
+            previous = {
+                "baseline_established": True,
+                "owner": "owner",
+                "owned_creeps": 2,
+                "owned_spawns": 1,
+                "structures": {
+                    "spawn1": {
+                        "type": "spawn",
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                        "owned": True,
+                        "damageable": True,
+                        "critical": True,
+                    }
+                },
+            }
+
+            first_emitted, first_suppressed, first_state = evaluate_room_alert(
+                snapshot,
+                previous,
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+            self.assertEqual(first_emitted, [])
+            self.assertEqual(first_suppressed, [])
+            self.assertEqual(first_state["rule_counts"][WORKER_IDLE_COLLAPSE_KIND], 1)
+
+            second_emitted, second_suppressed, second_state = evaluate_room_alert(
+                snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+            self.assertEqual([reason["kind"] for reason in second_emitted], [WORKER_IDLE_COLLAPSE_KIND])
+            self.assertEqual(second_suppressed, [])
+            self.assertEqual(second_state["rule_counts"][WORKER_IDLE_COLLAPSE_KIND], 2)
+            self.assertEqual(second_emitted[0]["severity"], "high")
+            self.assertIn("worker_idle_collapse in shardTest/E1N1", second_emitted[0]["message"])
+
+            cleared_room = dict(runtime_room)
+            cleared_room["taskCounts"] = dict(runtime_room["taskCounts"], harvest=1)
+            cleared_emitted, _cleared_suppressed, cleared_state = evaluate_room_alert(
+                snapshot,
+                second_state,
+                now=300,
+                debounce_seconds=300,
+                runtime_room_summary=cleared_room,
+            )
+            self.assertEqual(cleared_emitted, [])
+            self.assertEqual(cleared_state["rule_counts"][WORKER_IDLE_COLLAPSE_KIND], 0)
 
     class RenderTests(unittest.TestCase):
         def test_room_svg_legend_covers_rendered_marker_families(self) -> None:
