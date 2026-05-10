@@ -6,6 +6,7 @@ import {
   getRoomEnergyBufferHealth,
   getRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
+  getStorageEnergyReserveThreshold,
   STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../src/economy/energyBuffer';
@@ -42,8 +43,72 @@ describe('energyBuffer', () => {
     [6, 800],
     [7, 1_000],
     [8, 1_000]
-  ])('returns the configured RCL %i buffer threshold', (level, threshold) => {
+  ])('returns the configured RCL %i buffer threshold when room capacity is unknown', (level, threshold) => {
     expect(getRoomEnergyBufferThreshold(makeRoom({ level }))).toBe(threshold);
+  });
+
+  it.each([
+    [1, 300],
+    [2, 300],
+    [3, 500],
+    [4, 500],
+    [5, 800],
+    [6, 800],
+    [7, 1_000],
+    [8, 1_000]
+  ])('keeps the configured RCL %i threshold when room capacity is sufficient', (level, threshold) => {
+    expect(getRoomEnergyBufferThreshold(makeRoom({ level, energyCapacityAvailable: threshold }))).toBe(threshold);
+    expect(getRoomEnergyBufferThreshold(makeRoom({ level, energyCapacityAvailable: threshold + 50 }))).toBe(
+      threshold
+    );
+  });
+
+  it('caps the RCL 4 buffer threshold at spawn-only room capacity', () => {
+    const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getRoomEnergyBufferHealth(room)).toEqual({
+      currentEnergy: 300,
+      threshold: 300,
+      room: 'W1N1',
+      healthy: true
+    });
+  });
+
+  it('caps the RCL 5 buffer threshold at limited extension capacity', () => {
+    const room = makeRoom({ level: 5, energyAvailable: 650, energyCapacityAvailable: 650 });
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(650);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(650);
+    expect(getRoomEnergyBufferHealth(room).healthy).toBe(true);
+  });
+
+  it('applies the survival multiplier after capping the threshold to room capacity', () => {
+    const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
+    recordSurvivalMode('DEFENSE');
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(450);
+  });
+
+  it('normalizes edge-case room capacity values before capping thresholds', () => {
+    expect(getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: 0 }))).toBe(0);
+    expect(getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: -1 }))).toBe(0);
+    expect(
+      getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: Number.POSITIVE_INFINITY }))
+    ).toBe(500);
+  });
+
+  it('keeps storage reserves based on the configured threshold when room capacity is capped', () => {
+    const storage = makeStorage(520);
+    const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300, storage });
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getStorageEnergyReserveThreshold(room)).toBe(500);
+    expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(20);
+    expect(withdrawFromStorage(room, 20)).toBe(true);
+    expect(withdrawFromStorage(room, 21)).toBe(false);
   });
 
   it('gates construction spending against spawn and extension energy', () => {
@@ -53,7 +118,7 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForSpending(room, 61)).toBe(false);
   });
 
-  it('allows capacity-enabling construction when the buffer threshold exceeds room capacity', () => {
+  it('allows capacity-enabling construction when spending would consume a full-capacity buffer', () => {
     const room = makeRoom({
       level: 3,
       energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
