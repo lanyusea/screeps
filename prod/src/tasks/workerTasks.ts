@@ -30,11 +30,9 @@ import {
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
 import {
-  checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
-  hasMinimumWorkerSpawnEnergyForConstruction,
   STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../economy/energyBuffer';
@@ -2732,35 +2730,10 @@ function canSpendCreepEnergyOnConstructionSite(
   site: ConstructionSite,
   priorityContext: ConstructionSiteImpactPriorityContext
 ): boolean {
-  const carriedEnergy = getUsedEnergy(creep);
   return (
-    checkEnergyBufferForSpending(creep.room, carriedEnergy) ||
-    (carriedEnergy > 0 &&
-      isCapacityEnablingConstructionSite(site, priorityContext) &&
-      checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
-    (carriedEnergy > 0 &&
-      hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
-      isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
+    canSpendCreepEnergyOnConstruction(creep) ||
+    (getUsedEnergy(creep) > 0 && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
   );
-}
-
-function isCapacityEnablingConstructionSite(
-  site: ConstructionSite,
-  priorityContext: ConstructionSiteImpactPriorityContext
-): boolean {
-  if (isExtensionConstructionSite(site)) {
-    return true;
-  }
-
-  const priority = getConstructionSiteImpactPriority(site, priorityContext);
-  if (isContainerConstructionSite(site)) {
-    return (
-      priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer ||
-      priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer
-    );
-  }
-
-  return false;
 }
 
 function isEnergyStarvationSourceLogisticsConstructionSite(
