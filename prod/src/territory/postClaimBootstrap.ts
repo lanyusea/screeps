@@ -168,6 +168,7 @@ export function recordPostClaimBootstrapClaimSuccess(
   input: {
     colony: string;
     roomName: string;
+    claimedAt?: number;
     controllerId?: Id<StructureController>;
   },
   telemetryEvents: RuntimeTelemetryEvent[] = []
@@ -183,7 +184,7 @@ export function recordPostClaimBootstrapClaimSuccess(
 
   const gameTime = getGameTime();
   const existing = getPostClaimBootstrapRecord(input.roomName);
-  const claimedAt = existing?.status === 'ready' ? gameTime : existing?.claimedAt ?? gameTime;
+  const claimedAt = existing?.status === 'ready' ? gameTime : existing?.claimedAt ?? input.claimedAt ?? gameTime;
   const status = getRefreshedPostClaimBootstrapStatus(existing);
   const workerTarget = existing
     ? getPostClaimBootstrapWorkerTarget(existing)

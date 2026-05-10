@@ -113,30 +113,33 @@ export function refreshClaimedRoomBootstrapperOwnership(
     const previous = memory.rooms[room.name];
     const activePostClaimRecord = getActivePostClaimBootstrapRecord(room.name);
     const claimOriginColony = owned ? resolveClaimOriginColony(room, previous, activePostClaimRecord) : null;
-    const newlyClaimed =
+    const detectedOwnedRoom =
       owned &&
       !activePostClaimRecord &&
-      (previous?.owned === false || (previous?.owned !== true && claimOriginColony !== null));
-    if (newlyClaimed) {
+      (previous?.owned === false ||
+        (previous?.owned !== true && claimOriginColony !== null) ||
+        (previous?.owned === true && claimOriginColony !== null && isOwnedRoomMissingSpawn(room)));
+    if (detectedOwnedRoom) {
       detectedRoomNames.push(room.name);
     }
 
-    const claimedAt = newlyClaimed
-      ? getGameTime()
+    const claimedAt = detectedOwnedRoom
+      ? previous?.claimedAt ?? getGameTime()
       : previous?.claimedAt ?? activePostClaimRecord?.claimedAt;
     memory.rooms[room.name] = {
       roomName: room.name,
       owned,
       updatedAt: getGameTime(),
       ...(claimedAt !== undefined ? { claimedAt } : {}),
-      ...(newlyClaimed ? {} : previous?.completedAt !== undefined ? { completedAt: previous.completedAt } : {})
+      ...(detectedOwnedRoom ? {} : previous?.completedAt !== undefined ? { completedAt: previous.completedAt } : {})
     };
 
-    if (newlyClaimed && claimOriginColony !== null) {
+    if (detectedOwnedRoom && claimOriginColony !== null) {
       recordPostClaimBootstrapClaimSuccess(
         {
           colony: claimOriginColony,
           roomName: room.name,
+          ...(claimedAt !== undefined ? { claimedAt } : {}),
           ...(room.controller.id ? { controllerId: room.controller.id } : {})
         },
         telemetryEvents
@@ -939,10 +942,6 @@ function resolveClaimOriginColony(
   previous: TerritoryClaimedRoomBootstrapMemory | undefined,
   activePostClaimRecord: TerritoryPostClaimBootstrapMemory | null
 ): string | null {
-  if (previous?.owned === true) {
-    return null;
-  }
-
   if (isNonEmptyString(activePostClaimRecord?.colony)) {
     return activePostClaimRecord.colony;
   }
@@ -952,7 +951,28 @@ function resolveClaimOriginColony(
     return plannedClaimOrigin;
   }
 
+  if (previous?.owned === true && !isOwnedRoomMissingSpawn(room)) {
+    return null;
+  }
+
   return selectNearestOwnedSpawnRoom(room.name);
+}
+
+function isOwnedRoomMissingSpawn(room: Room): boolean {
+  if (room.controller?.my !== true || (room.controller.level ?? 0) < 1) {
+    return false;
+  }
+
+  return !hasOwnedSpawnInRoom(room);
+}
+
+function hasOwnedSpawnInRoom(room: Room): boolean {
+  const spawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
+  if (spawns && Object.values(spawns).some((spawn) => spawn?.room?.name === room.name)) {
+    return true;
+  }
+
+  return countExistingStructures(room, 'STRUCTURE_SPAWN', 'spawn') > 0;
 }
 
 function getPlannedClaimOriginColony(roomName: string): string | null {

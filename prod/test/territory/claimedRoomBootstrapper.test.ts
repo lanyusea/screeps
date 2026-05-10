@@ -137,6 +137,72 @@ describe('claimed room bootstrapper', () => {
     );
   });
 
+  it('recovers already-owned spawnless secondary rooms that missed post-claim bootstrap records', () => {
+    const secondaryRooms = ['E26S48', 'E27S48', 'E27S49'].map((roomName) =>
+      makeBootstrapRoom({
+        roomName,
+        controllerLevel: 1,
+        sources: [makeSource(`${roomName}-source-a`, 21, 21, roomName)]
+      })
+    );
+    const homeRoom = {
+      name: 'E26S49',
+      controller: { my: true, level: 4 },
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    } as Room;
+    const homeSpawn = { name: 'Spawn1', room: homeRoom, spawning: null } as StructureSpawn;
+    const previousRooms = {
+      E26S48: { roomName: 'E26S48', owned: true, claimedAt: 786700, updatedAt: 786700 },
+      E27S48: { roomName: 'E27S48', owned: true, claimedAt: 786701, updatedAt: 786701 },
+      E27S49: { roomName: 'E27S49', owned: true, claimedAt: 786702, updatedAt: 786702 }
+    } as const;
+    Memory.territory = {
+      claimedRoomBootstrapper: {
+        rooms: { ...previousRooms }
+      }
+    };
+    installGameRooms([homeRoom, ...secondaryRooms.map(({ room }) => room)], 786805);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.spawns = { Spawn1: homeSpawn };
+
+    const events: RuntimeTelemetryEvent[] = [];
+    const result = refreshClaimedRoomBootstrapperOwnership(events);
+
+    expect(result.detectedRoomNames).toEqual(['E26S48', 'E27S48', 'E27S49']);
+    for (const { room } of secondaryRooms) {
+      const previousRoom = previousRooms[room.name as keyof typeof previousRooms];
+      expect(Memory.territory?.postClaimBootstraps?.[room.name]).toMatchObject({
+        colony: 'E26S49',
+        roomName: room.name,
+        status: 'spawnSitePending',
+        claimedAt: previousRoom.claimedAt,
+        updatedAt: 786805,
+        controllerId: 'controller1',
+        spawnSite: { roomName: room.name, x: 23, y: 23 },
+        lastResult: OK_CODE
+      });
+      expect(Memory.territory?.claimedRoomBootstrapper?.rooms[room.name]).toEqual({
+        roomName: room.name,
+        owned: true,
+        claimedAt: previousRoom.claimedAt,
+        updatedAt: 786805
+      });
+      expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);
+    }
+    expect(events).toEqual(
+      expect.arrayContaining(
+        secondaryRooms.map(({ room }) =>
+          expect.objectContaining({
+            type: 'spawnSitePlaced',
+            roomName: room.name,
+            colony: 'E26S49',
+            spawnSite: { roomName: room.name, x: 23, y: 23 }
+          })
+        )
+      )
+    );
+  });
+
   it('places the initial spawn site before other infrastructure', () => {
     const { room, colony } = makeBootstrapRoom({
       controllerLevel: 1,
