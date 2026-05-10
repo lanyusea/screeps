@@ -75,6 +75,7 @@ DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "stra
 RUN_HTTP_START = 21125
 RUN_CLI_START = 21126
 RUN_HTTP_PORT_STEP = 2
+RUN_PORT_SCAN_ATTEMPTS = 2048
 RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
 RUN_WORKER_PREFIX = "rl-sim-worker"
@@ -372,6 +373,49 @@ def _build_run_ports(worker_index: int) -> tuple[int, int]:
     if http_port == cli_port:
         raise RuntimeError(f"worker HTTP and CLI ports must differ: {http_port}")
     return http_port, cli_port
+
+
+def _host_port_unavailable_reason(smoke: Any, host: str, port: int) -> str | None:
+    probe = getattr(smoke, "host_port_unavailable_reason", None)
+    if not callable(probe):
+        return None
+    reason = probe(host, port)
+    return _safe_text(reason, 200) if reason else None
+
+
+def _select_run_ports(
+    smoke: Any,
+    server_host: str,
+    *,
+    worker_index: int,
+    worker_count: int,
+) -> tuple[int, int]:
+    if worker_count <= 0:
+        raise RuntimeError("worker count must be a positive integer")
+
+    last_failure = ""
+    for attempt in range(RUN_PORT_SCAN_ATTEMPTS):
+        candidate_worker_index = worker_index + (attempt * worker_count)
+        try:
+            http_port, cli_port = _build_run_ports(candidate_worker_index)
+        except RuntimeError as exc:
+            last_failure = _safe_text(exc, 200)
+            break
+
+        unavailable = []
+        for service, port in (("http", http_port), ("cli", cli_port)):
+            reason = _host_port_unavailable_reason(smoke, server_host, port)
+            if reason:
+                unavailable.append(f"{service} {server_host}:{port} ({reason})")
+        if not unavailable:
+            return http_port, cli_port
+        last_failure = "; ".join(unavailable)
+
+    suffix = f": {last_failure}" if last_failure else ""
+    raise RuntimeError(
+        f"no available simulator host port pair for worker {worker_index} "
+        f"after scanning {RUN_PORT_SCAN_ATTEMPTS} candidates{suffix}"
+    )
 
 
 def _extract_int(value: Any) -> int | None:
@@ -1086,6 +1130,7 @@ def _run_variant(
     variant_id: str,
     *,
     run_id: str,
+    worker_count: int = 1,
     ticks: int,
     room: str,
     shard: str,
@@ -1101,7 +1146,12 @@ def _run_variant(
     worker_run_id = f"{run_id}-{variant_slug}"
     safe_run_root = _worker_output_dir(out_dir, run_id, worker_index)
     server_host = "127.0.0.1"
-    http_port, cli_port = _build_run_ports(worker_index)
+    http_port, cli_port = _select_run_ports(
+        smoke,
+        server_host,
+        worker_index=worker_index,
+        worker_count=worker_count,
+    )
     compose_project = f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}"
     password = secrets.token_urlsafe(20)
     cfg = smoke.SmokeConfig(
@@ -1340,6 +1390,7 @@ def run_variants(
                     worker_index=worker_id,
                     variant_id=variant_id,
                     run_id=run_id,
+                    worker_count=normalized_workers,
                     ticks=ticks,
                     room=room,
                     shard=shard,
