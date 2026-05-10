@@ -200,6 +200,10 @@ function shouldReassignWorkerTaskForEnergyCriticalState(
     return false;
   }
 
+  if (task.type === 'signController') {
+    return true;
+  }
+
   if (task.type === 'upgrade') {
     return !isControllerDowngradeGuardTask(creep, task);
   }

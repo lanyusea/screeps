@@ -7,7 +7,12 @@ import {
   recordTerritoryReserveFallbackIntent,
   suppressTerritoryIntent
 } from './territoryPlanner';
-import { signOccupiedControllerIfNeeded } from './controllerSigning';
+import {
+  getControllerSigningActorUsername,
+  shouldSignReservedController,
+  signOccupiedControllerIfNeeded,
+  signReservedControllerIfNeeded
+} from './controllerSigning';
 import {
   executeExpansionClaim,
   isExpansionClaimControllerOnCooldown,
@@ -149,6 +154,15 @@ export function runTerritoryControllerCreep(
     assignment.action === 'reserve' &&
     !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)
   ) {
+    const actorUsername = getControllerSigningActorUsername(creep);
+    if (typeof creep.signController === 'function' && shouldSignReservedController(controller, actorUsername)) {
+      const signingResult = signReservedControllerIfNeeded(creep, controller, actorUsername);
+      if (signingResult === 'moving' || signingResult === 'blocked') {
+        return;
+      }
+
+      completeTerritoryAssignment(creep);
+    }
     return;
   }
 

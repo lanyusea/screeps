@@ -3,6 +3,7 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
+import { shouldSignOccupiedController } from '../territory/controllerSigning';
 import {
   getControllerUpgradePriority
 } from '../creeps/upgraderRunner';
@@ -289,6 +290,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     ? null
     : selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = territoryWorkSuppressed ? null : selectVisibleTerritoryControllerTask(creep);
+  const controllerSigningTask = territoryWorkSuppressed ? null : selectOwnedRoomControllerSigningTask(creep);
 
   if (carriedEnergy === 0) {
     if (urgentReservationRenewalTask) {
@@ -297,6 +299,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
     if (isTerritoryControlTask(territoryControllerTask)) {
       return territoryControllerTask;
+    }
+
+    if (controllerSigningTask) {
+      return controllerSigningTask;
     }
 
     const interRoomRecallTask = selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
@@ -468,6 +474,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       type: 'transfer',
       targetId: spawnStagingContainerSink.id as Id<AnyStoreStructure>
     };
+  }
+
+  if (controllerSigningTask) {
+    return controllerSigningTask;
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -701,6 +711,61 @@ function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessme
 function isWorkerInColonyRoom(creep: Creep): boolean {
   const colonyName = getCreepColonyName(creep);
   return colonyName !== null && getRoomName(creep.room) === colonyName;
+}
+
+function selectOwnedRoomControllerSigningTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'signController' }> | null {
+  const controller = creep.room?.controller;
+  if (
+    creep.memory?.role !== 'worker' ||
+    controller?.my !== true ||
+    typeof controller.id !== 'string' ||
+    typeof creep.signController !== 'function' ||
+    !shouldSignOccupiedController(controller) ||
+    !hasManagedControllerSigningDemand(creep.room?.name, controller.id)
+  ) {
+    return null;
+  }
+
+  if (hasAssignedControllerSigningTask(controller.id, creep.name)) {
+    return null;
+  }
+
+  return { type: 'signController', targetId: controller.id };
+}
+
+function hasManagedControllerSigningDemand(
+  roomName: string | undefined,
+  controllerId: Id<StructureController>
+): boolean {
+  if (!isNonEmptyString(roomName)) {
+    return false;
+  }
+
+  const controllerMemory = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.controllers?.[
+    roomName
+  ];
+  return controllerMemory?.signNeeded === true && controllerMemory.controllerId === controllerId;
+}
+
+function hasAssignedControllerSigningTask(
+  controllerId: Id<StructureController>,
+  currentCreepName: string | undefined
+): boolean {
+  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  if (!creeps) {
+    return false;
+  }
+
+  return Object.values(creeps).some((creep) => {
+    if (isNonEmptyString(currentCreepName) && creep.name === currentCreepName) {
+      return false;
+    }
+
+    const task = creep.memory?.task;
+    return task?.type === 'signController' && task.targetId === controllerId;
+  });
 }
 
 function selectMinimumHarvesterAllocationTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {

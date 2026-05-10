@@ -12,6 +12,10 @@ import {
   getExpansionPlannerReservationRecommendations,
   type ExpansionPlannerReservationRecommendation
 } from './expansionPlanner';
+import {
+  shouldSignReservedController,
+  signReservedControllerIfNeeded
+} from './controllerSigning';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -102,7 +106,8 @@ function runAssignedReservation(
     const reservationTicksToEnd = getOwnReservationTicksToEnd(visibleController, actorUsername);
     if (
       reservationTicksToEnd !== null &&
-      reservationTicksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS
+      reservationTicksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS &&
+      !shouldSignReservedController(visibleController, actorUsername)
     ) {
       recordReservationIntentStatus(colony, assignment, 'planned', gameTime, visibleController.id);
       completeReservationAssignment(creep);
@@ -125,6 +130,23 @@ function runAssignedReservation(
   const controller = selectReservationController(creep, assignment);
   if (!controller) {
     suppressTerritoryIntent(colony, assignment, gameTime);
+    completeReservationAssignment(creep);
+    return true;
+  }
+
+  const reservationTicksToEnd = getOwnReservationTicksToEnd(controller, actorUsername);
+  if (
+    reservationTicksToEnd !== null &&
+    reservationTicksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS &&
+    shouldSignReservedController(controller, actorUsername)
+  ) {
+    const signingResult = signReservedControllerIfNeeded(creep, controller, actorUsername);
+    if (signingResult === 'moving') {
+      recordReservationIntentStatus(colony, assignment, 'active', gameTime, controller.id);
+      return true;
+    }
+
+    recordReservationIntentStatus(colony, assignment, 'planned', gameTime, controller.id);
     completeReservationAssignment(creep);
     return true;
   }
@@ -293,7 +315,9 @@ function getReservationTargetState(
     const reservationTicksToEnd = getOwnReservationTicksToEnd(controller, actorUsername);
     if (reservationTicksToEnd !== null) {
       return {
-        actionable: reservationTicksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS,
+        actionable:
+          reservationTicksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ||
+          shouldSignReservedController(controller, actorUsername),
         controllerId: controller.id,
         renewalTicksToEnd: reservationTicksToEnd
       };

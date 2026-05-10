@@ -24,6 +24,10 @@ import {
   selectEnergyDropoffOptimizationTask
 } from './energyDropoffOptimizer';
 import {
+  OCCUPIED_CONTROLLER_SIGN_TEXT,
+  shouldSignControllerForCreep
+} from '../territory/controllerSigning';
+import {
   observeCreepBehaviorTick,
   recordCreepBehaviorContainerTransfer,
   recordCreepBehaviorEnergyAcquisition,
@@ -97,6 +101,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptForControllerSigning(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -672,6 +678,8 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
       return typeof creep.claimController === 'function';
     case 'reserve':
       return typeof creep.reserveController === 'function';
+    case 'signController':
+      return typeof creep.signController === 'function';
     case 'upgrade':
       return typeof creep.upgradeController === 'function';
   }
@@ -685,6 +693,10 @@ function assignNextTask(creep: Creep): CreepTaskMemory | null {
 
 function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   if (isTerritoryControlTask(task)) {
+    return false;
+  }
+
+  if (task.type === 'signController') {
     return false;
   }
 
@@ -718,6 +730,19 @@ function shouldPreemptForVisibleTerritoryControllerTask(
   }
 
   return isTerritoryControlTask(selectedTask);
+}
+
+function shouldPreemptForControllerSigning(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    selectedTask?.type === 'signController' &&
+    !isSameTask(task, selectedTask) &&
+    !isTerritoryControlTask(task) &&
+    !isDedicatedSourceContainerHarvestTask(creep, task)
+  );
 }
 
 function shouldPreemptSpendingTaskForEnergySink(
@@ -1289,6 +1314,10 @@ function shouldReplaceTarget(
     return true;
   }
 
+  if (task.type === 'signController') {
+    return !shouldSignControllerForCreep(creep, target as StructureController);
+  }
+
   return task.type === 'repair' && 'hits' in target && isWorkerRepairTargetComplete(target);
 }
 
@@ -1353,6 +1382,11 @@ function executeTask(
       }
 
       return toTaskExecutionResult(creep.reserveController(target as StructureController), 'work');
+    case 'signController':
+      return toTaskExecutionResult(
+        creep.signController(target as StructureController, OCCUPIED_CONTROLLER_SIGN_TEXT),
+        'work'
+      );
     case 'upgrade':
       return toTaskExecutionResult(runUpgrader(creep, target as StructureController), 'work');
   }
