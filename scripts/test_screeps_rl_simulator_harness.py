@@ -680,6 +680,54 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(result["error"], "stop before side effects")
         self.assertIsNone(result["launcherRepairMod"])
 
+    def test_select_run_ports_skips_occupied_default_pair(self) -> None:
+        class FakeSmoke:
+            def host_port_unavailable_reason(self, host: str, port: int) -> str | None:
+                if port in {harness.RUN_HTTP_START, harness.RUN_CLI_START}:
+                    return "address already in use"
+                return None
+
+        self.assertEqual(
+            harness._select_run_ports(
+                FakeSmoke(),
+                "127.0.0.1",
+                worker_index=0,
+                worker_count=1,
+            ),
+            (
+                harness.RUN_HTTP_START + harness.RUN_HTTP_PORT_STEP,
+                harness.RUN_CLI_START + harness.RUN_HTTP_PORT_STEP,
+            ),
+        )
+
+    def test_select_run_ports_keeps_parallel_worker_fallbacks_disjoint(self) -> None:
+        class FakeSmoke:
+            def host_port_unavailable_reason(self, host: str, port: int) -> str | None:
+                if port == harness.RUN_HTTP_START:
+                    return "address already in use"
+                return None
+
+        smoke = FakeSmoke()
+
+        self.assertEqual(
+            harness._select_run_ports(
+                smoke,
+                "127.0.0.1",
+                worker_index=0,
+                worker_count=2,
+            ),
+            harness._build_run_ports(2),
+        )
+        self.assertEqual(
+            harness._select_run_ports(
+                smoke,
+                "127.0.0.1",
+                worker_index=1,
+                worker_count=2,
+            ),
+            harness._build_run_ports(1),
+        )
+
     def test_run_variant_installs_repair_mod_before_compose_start(self) -> None:
         events: list[str] = []
         run_command_calls = 0
