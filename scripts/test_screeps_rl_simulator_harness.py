@@ -135,6 +135,16 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertTrue(first_summary["ok"])
         self.assertFalse(first_summary["liveEffect"])
         self.assertFalse(first_summary["officialMmoWrites"])
+        self.assertEqual(manifest["botCommit"], "b" * 40)
+        self.assertEqual(manifest["owningIssue"], "#879")
+        self.assertEqual(manifest["strategyVariants"]["configuredVariantCount"], 2)
+        self.assertEqual(
+            manifest["strategyVariants"]["defaultVariantIds"],
+            [
+                "construction-priority.incumbent.v1",
+                "construction-priority.container-prioritized-shadow.v1",
+            ],
+        )
         self.assertFalse(manifest["safety"]["liveEffect"])
         self.assertFalse(manifest["safety"]["officialMmoWrites"])
         self.assertFalse(manifest["safety"]["networkRequired"])
@@ -144,6 +154,7 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertGreaterEqual(manifest["scenario"]["strategyShadowReportCount"], 1)
         self.assertEqual(manifest["strategyShadow"]["generatedReports"][0]["reportId"], "shadow-local")
         self.assertEqual(manifest["datasets"]["runManifests"][0]["runId"], "dataset-run")
+        self.assertEqual(manifest["simulatorRuns"]["completedRunCount"], 0)
         self.assertEqual(manifest["throughput"]["evidenceMode"], "sampled-dry-run-input")
         self.assertEqual(manifest["throughput"]["aggregate"]["aggregateRoomTicksPerSecond"], 40.0)
         self.assertEqual(manifest["throughput"]["aggregate"]["speedupVsOfficial"], 120.0)
@@ -329,6 +340,26 @@ class RlSimulatorHarnessTest(unittest.TestCase):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     harness.parse_throughput_sample(sample)
 
+    def test_default_strategy_variants_are_configured_for_construction_priority(self) -> None:
+        variants = harness.normalize_variants([], harness.available_strategy_variants(["construction-priority.incumbent.v1"]))
+        configs = harness.resolve_strategy_variant_configs(variants)
+
+        self.assertEqual(
+            variants,
+            [
+                "construction-priority.incumbent.v1",
+                "construction-priority.container-prioritized-shadow.v1",
+            ],
+        )
+        self.assertEqual([config["family"] for config in configs], ["construction-priority", "construction-priority"])
+        self.assertEqual(configs[1]["rolloutStatus"], "shadow")
+        self.assertGreater(configs[1]["defaultValues"]["resourceSignalWeight"], configs[0]["defaultValues"]["resourceSignalWeight"])
+
+    def test_private_server_active_branch_aliases_are_normalized(self) -> None:
+        self.assertEqual(harness.normalize_private_server_code_branch("activeWorld"), "$activeWorld")
+        self.assertEqual(harness.normalize_private_server_code_branch("activeSim"), "$activeSim")
+        self.assertEqual(harness.normalize_private_server_code_branch("default"), "default")
+
     def test_build_scenario_config_is_stable_and_records_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -428,6 +459,21 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(fallback["wallClockSeconds"], 12.0)
         self.assertEqual(artifact["wallClockSummary"]["maxSeconds"], 12.0)
 
+    def test_require_launcher_cli_success_accepts_successful_http_status_result(self) -> None:
+        class FakeSmoke:
+            def run_launcher_cli(self, compose: list[str], cfg: object, expression: str) -> dict[str, object]:
+                return {"status": 200, "response_excerpt": "undefined\n"}
+
+        result = harness._require_launcher_cli_success(
+            FakeSmoke(),
+            ["docker", "compose"],
+            object(),
+            "system.resetAllData()",
+            "reset simulator data",
+        )
+
+        self.assertEqual(result["status"], 200)
+
     def test_require_launcher_cli_success_fails_on_false_ok_result(self) -> None:
         class FakeSmoke:
             def run_launcher_cli(self, compose: list[str], cfg: object, expression: str) -> dict[str, object]:
@@ -504,8 +550,44 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(tick_entry["rooms"]["E26S49"]["structures"]["spawn"], 1)
         self.assertEqual(tick_entry["rooms"]["E26S50"]["controller"]["level"], 2)
 
+    def test_build_variant_metrics_reduces_territory_resources_and_combat(self) -> None:
+        tick_log = [
+            {
+                "tick": 1,
+                "rooms": {
+                    "E26S49": {
+                        "controller": {"level": 1},
+                        "energy": 300,
+                        "structures": {"spawn": 1},
+                        "combat": {"hostileCreeps": 2, "ownCreeps": 3},
+                    }
+                },
+            },
+            {
+                "tick": 5,
+                "rooms": {
+                    "E26S49": {
+                        "controller": {"level": 2},
+                        "energy": 550,
+                        "structures": {"spawn": 1, "container": 1},
+                        "combat": {"hostileCreeps": 0, "ownCreeps": 2},
+                    }
+                },
+            },
+        ]
+
+        metrics = harness.build_variant_metrics(tick_log)
+
+        self.assertEqual(metrics["territory"]["controllerLevelDelta"], 1)
+        self.assertEqual(metrics["resources"]["energyDelta"], 250)
+        self.assertEqual(metrics["combat"]["hostileKills"], 2)
+        self.assertEqual(metrics["combat"]["ownLosses"], 1)
+        self.assertEqual(metrics["combatDelta"], 1)
+        self.assertEqual(metrics["finalRooms"]["structures"]["container"], 1)
+
     def test_run_variant_initializes_frozen_smoke_config_with_http_server_url(self) -> None:
         captured_server_urls: list[str] = []
+        captured_branches: list[str] = []
 
         class FrozenSmokeConfig:
             def __init__(self, **kwargs: object) -> None:
@@ -524,6 +606,7 @@ class RlSimulatorHarnessTest(unittest.TestCase):
 
             def required_env_errors(self, cfg: FrozenSmokeConfig) -> list[str]:
                 captured_server_urls.append(str(cfg.server_url))
+                captured_branches.append(str(cfg.branch))
                 return ["stop before side effects"]
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -547,7 +630,8 @@ class RlSimulatorHarnessTest(unittest.TestCase):
                     out_dir=root / "out",
                 )
 
-        self.assertEqual(captured_server_urls, ["http://127.0.0.1:21025"])
+        self.assertEqual(captured_server_urls, ["http://127.0.0.1:21125"])
+        self.assertEqual(captured_branches, ["$activeWorld"])
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "stop before side effects")
 
@@ -599,6 +683,7 @@ class RlSimulatorHarnessTest(unittest.TestCase):
             "type": harness.RUN_SUMMARY_TYPE,
             "runId": "run-validate",
             "harness_version": harness.HARNESS_VERSION,
+            "botCommit": harness.DEFAULT_BOT_COMMIT,
             "safety": {"liveEffect": False},
             "live_effect": False,
             "official_mmo_writes": False,
@@ -631,6 +716,7 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(summary["runId"], "run-validate")
         self.assertIsNotNone(output_data)
         self.assertEqual(output_data["runId"], "run-validate")
+        self.assertEqual(output_data["botCommit"], harness.DEFAULT_BOT_COMMIT)
         self.assertEqual(output_data["variants"][0]["variant_id"], "baseline")
         self.assertFalse(output_data["official_mmo_writes"])
         self.assertFalse(output_data["live_effect"])
