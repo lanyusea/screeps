@@ -1,0 +1,332 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "targetBlank": true,
+      "title": "Metric taxonomy",
+      "type": "link",
+      "url": "docs/ops/rl-gameplay-metrics-taxonomy.md"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('survival.owned_rooms','survival.owned_spawns','survival.claimed_room_without_spawn_age_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Survival And Ownership",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "queryText": "SELECT observed_at AS time, room_name || ':' || metric_name AS metric, value FROM metric_observations WHERE metric_name IN ('economy.energy_available','economy.stored_energy','economy.worker_carried_energy') ORDER BY observed_at;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Resource Economy",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('construction.backlog_progress','construction.build_task_count','construction.built_progress','construction.build_carried_energy') ORDER BY observed_at DESC LIMIT 200;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT first_seen_at, severity, room_name, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'stalled-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Construction And Infrastructure",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, evidence_json FROM metric_observations WHERE metric_name IN ('creep.worker_count','creep.low_load_return_count','creep.return_load_factor','creep.idle_count','creep.stuck_ticks','behavior.upgrade_dominance_ratio') ORDER BY observed_at DESC LIMIT 250;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT first_seen_at, severity, category, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category IN ('low-load-return','stuck-actionless','upgrade-dominant-backlog') ORDER BY first_seen_at DESC LIMIT 100;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Creep Efficiency, Stuck, And Load Factor",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('defense.hostile_creep_count','defense.tower_count','defense.rampart_count','construction.defense_backlog') ORDER BY observed_at DESC LIMIT 200;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT first_seen_at, severity, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'missing-late-defense-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Defense Readiness",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('cpu.bucket','cpu.used','reliability.loop_exception_count','reliability.telemetry_silence_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT first_seen_at, severity, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'runtime-reliability' ORDER BY first_seen_at DESC LIMIT 50;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "CPU And Reliability",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, gate_id, status, metric_name, value, source_artifact FROM rl_dataset_gate_metrics ORDER BY observed_at DESC LIMIT 100;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, report_id, variant_id, metric_name, value, source_artifact FROM rl_training_execution_metrics ORDER BY observed_at DESC LIMIT 150;",
+          "rawQuery": true,
+          "refId": "B"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, report_id, candidate_id, incumbent_id, metric_name, value, directionality FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 150;",
+          "rawQuery": true,
+          "refId": "C"
+        }
+      ],
+      "title": "RL Dataset, Training, And Policy Metrics",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, severity, metric_name, category, room_name, tick, gap_type, message, source_artifact FROM metric_coverage_gaps ORDER BY observed_at DESC LIMIT 250;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT metric_name, severity, COUNT(*) AS gap_count FROM metric_coverage_gaps GROUP BY metric_name, severity ORDER BY gap_count DESC, metric_name LIMIT 100;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Metric Coverage Gaps",
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": [
+    "screeps",
+    "rl",
+    "gameplay-metrics",
+    "pdca-check"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Screeps RL Gameplay Metrics",
+  "uid": "screeps-rl-gameplay-metrics",
+  "version": 1,
+  "weekStart": ""
+}
