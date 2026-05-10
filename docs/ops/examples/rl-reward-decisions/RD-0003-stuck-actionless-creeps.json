@@ -1,0 +1,75 @@
+{
+  "rewardDecisionId": "RD-0003-stuck-actionless-creeps",
+  "title": "Proposal: stuck and actionless creep liveness reward",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/907",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906",
+    "needs metric evidence: idle/actionless ticks, repeated positions, action result codes, task memory, and target validity"
+  ],
+  "linkedDashboardPanels": [
+    "planned: creep action liveness panel",
+    "planned: repeated stuck position panel"
+  ],
+  "problemStatement": "Owner-observed stuck or actionless creeps may burn ticks and CPU while failing to advance territory, resources, construction, or defense.",
+  "hypothesis": "Adding a creep action liveness reward or hard gate for repeated actionlessness should favor policies that keep creeps assigned to valid, productive actions without causing unsafe movement loops.",
+  "currentRewardCoverage": "baseline undefined until implemented; no accepted reward registry change exists for creep action liveness",
+  "proposedChangeType": "add_or_adjust_component",
+  "component": "creep_action_liveness",
+  "direction": "higher_is_better for productive action ratio; repeated stuck or actionless cycles are lower and may become a hard gate when reliability is threatened",
+  "expectedBehaviorChange": "In shadow validation, creeps should spend fewer repeated ticks with no useful action, invalid target, or unchanged stuck position while preserving safe fallback behavior.",
+  "riskAndRegressions": [
+    "Over-penalizing idle ticks can force wasteful actions when waiting is correct.",
+    "A movement-heavy fix can increase CPU or road fatigue.",
+    "The policy can hide task assignment bugs if metric evidence is too coarse."
+  ],
+  "validationWindows": [
+    {
+      "name": "offline_replay",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "productive action ratio",
+        "idle/actionless tick count",
+        "action result code distribution",
+        "target validity and task state"
+      ]
+    },
+    {
+      "name": "shadow_runtime",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "liveEffect:false",
+        "officialMmoWrites:false",
+        "no CPU or reliability regression"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "Owner approves at least shadow exploration.",
+    "Metric taxonomy #906 defines stuck/actionless evidence fields.",
+    "Shadow candidate reduces repeated actionless ticks without increasing unsafe movement, CPU pressure, or task churn."
+  ],
+  "rollbackCriteria": [
+    "CPU bucket or reliability regresses.",
+    "Movement loops, invalid intents, or task churn increase.",
+    "Resources, construction, or territory regress after higher-priority ties.",
+    "Owner rejects or suspends the decision."
+  ],
+  "stewardDecision": {
+    "state": "needs_evidence",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Seed proposal only. Needs metric evidence before owner review."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [],
+  "createdAt": "2026-05-11T00:00:00Z",
+  "updatedAt": "2026-05-11T00:00:00Z"
+}

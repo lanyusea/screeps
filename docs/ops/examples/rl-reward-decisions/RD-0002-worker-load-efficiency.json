@@ -1,0 +1,75 @@
+{
+  "rewardDecisionId": "RD-0002-worker-load-efficiency",
+  "title": "Proposal: worker load efficiency reward",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/907",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906",
+    "needs metric evidence: carry utilization, delivered energy per trip, transfer target state, and CPU impact"
+  ],
+  "linkedDashboardPanels": [
+    "planned: worker carry utilization histogram",
+    "planned: delivered energy per trip panel"
+  ],
+  "problemStatement": "Owner-observed tiny-load returns, for example a worker returning 2/50 energy, may waste trips and slow resource throughput.",
+  "hypothesis": "Adding a worker load efficiency reward or penalty should reduce low-value return trips when enough energy can be gathered safely and when higher-priority survival tasks are not blocked.",
+  "currentRewardCoverage": "baseline undefined until implemented; no accepted reward registry change exists for worker load efficiency",
+  "proposedChangeType": "add_or_adjust_component",
+  "component": "worker_load_efficiency",
+  "direction": "higher_is_better for useful delivered energy per trip; tiny carried-load returns are lower unless a safety or starvation exception applies",
+  "expectedBehaviorChange": "In shadow validation, workers should deliver fuller loads on normal logistics trips while preserving emergency refill, spawn recovery, and short-haul exceptions.",
+  "riskAndRegressions": [
+    "Waiting for fuller loads can delay urgent spawn or extension refills.",
+    "A naive penalty can harm bootstrap rooms with sparse energy.",
+    "Longer trips can increase path CPU or expose creeps to hostiles."
+  ],
+  "validationWindows": [
+    {
+      "name": "offline_replay",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "carry utilization distribution",
+        "delivered energy per trip",
+        "spawn/extension starvation checks",
+        "resource non-regression"
+      ]
+    },
+    {
+      "name": "shadow_runtime",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "liveEffect:false",
+        "officialMmoWrites:false",
+        "CPU bucket non-regression"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "Owner approves at least shadow exploration.",
+    "Metric taxonomy #906 defines carry utilization and tiny-load evidence fields.",
+    "Shadow candidate improves delivered energy per trip without spawn starvation, territory loss, or reliability regression."
+  ],
+  "rollbackCriteria": [
+    "Spawn or extension refill latency regresses.",
+    "Resource score regresses after territory ties.",
+    "CPU or stuck/actionless metrics regress.",
+    "Owner rejects or suspends the decision."
+  ],
+  "stewardDecision": {
+    "state": "needs_evidence",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Seed proposal only. Needs metric evidence before owner review."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [],
+  "createdAt": "2026-05-11T00:00:00Z",
+  "updatedAt": "2026-05-11T00:00:00Z"
+}
