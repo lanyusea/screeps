@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS metric_observations (
   unit TEXT,
   source_artifact TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
-  UNIQUE(metric_name, tick, room_name, source_artifact, evidence_json)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS gameplay_behavior_findings (
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS gameplay_behavior_findings (
   evidence_json TEXT NOT NULL DEFAULT '{}',
   recommendation TEXT NOT NULL,
   promotion_state TEXT NOT NULL DEFAULT 'candidate',
-  UNIQUE(finding_key, source_artifact, tick, room_name)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS metric_coverage_gaps (
@@ -79,7 +80,7 @@ CREATE TABLE IF NOT EXISTS metric_coverage_gaps (
   message TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
   observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(metric_name, source_artifact, room_name, tick, gap_type)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rl_dataset_gate_metrics (
@@ -91,7 +92,7 @@ CREATE TABLE IF NOT EXISTS rl_dataset_gate_metrics (
   source_artifact TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
   observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(gate_id, status, metric_name, source_artifact, evidence_json)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rl_training_execution_metrics (
@@ -103,7 +104,7 @@ CREATE TABLE IF NOT EXISTS rl_training_execution_metrics (
   source_artifact TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
   observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(report_id, variant_id, metric_name, source_artifact, evidence_json)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rl_policy_advantage_metrics (
@@ -117,7 +118,7 @@ CREATE TABLE IF NOT EXISTS rl_policy_advantage_metrics (
   source_artifact TEXT NOT NULL,
   evidence_json TEXT NOT NULL DEFAULT '{}',
   observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(report_id, candidate_id, incumbent_id, metric_name, source_artifact, evidence_json)
+  dedupe_key TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS metric_iteration_decisions (
@@ -492,8 +493,47 @@ SOURCE_ROOT_METRICS = {
 }
 
 
+DEDUPE_TABLE_KEYS = {
+    "metric_observations": ("metric_name", "tick", "room_name", "source_artifact", "evidence_json"),
+    "gameplay_behavior_findings": ("finding_key", "source_artifact", "tick", "room_name"),
+    "metric_coverage_gaps": ("metric_name", "source_artifact", "room_name", "tick", "gap_type"),
+    "rl_dataset_gate_metrics": ("gate_id", "status", "metric_name", "source_artifact", "evidence_json"),
+    "rl_training_execution_metrics": ("report_id", "variant_id", "metric_name", "source_artifact", "evidence_json"),
+    "rl_policy_advantage_metrics": (
+        "report_id",
+        "candidate_id",
+        "incumbent_id",
+        "metric_name",
+        "source_artifact",
+        "evidence_json",
+    ),
+}
+
+
 def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def canonical_json_field(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def dedupe_key_for_fields(table_name: str, fields: dict[str, object]) -> str:
+    normalized_fields = {
+        key: canonical_json_field(value) if key == "evidence_json" else value for key, value in fields.items()
+    }
+    payload = {"table": table_name, "fields": normalized_fields}
+    digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def dedupe_key_for_values(table_name: str, **fields: object) -> str:
+    return dedupe_key_for_fields(table_name, fields)
 
 
 def display_path(path: Path | str) -> str:
@@ -626,9 +666,60 @@ def connect_database(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
+
+
+def ensure_dedupe_schema(conn: sqlite3.Connection) -> None:
+    for table_name, key_columns in DEDUPE_TABLE_KEYS.items():
+        columns = table_columns(conn, table_name)
+        if not columns:
+            continue
+        if "dedupe_key" not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN dedupe_key TEXT")
+        backfill_dedupe_keys(conn, table_name, key_columns)
+        remove_duplicate_dedupe_rows(conn, table_name)
+        conn.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table_name}_dedupe_key "
+            f"ON {table_name}(dedupe_key)"
+        )
+
+
+def backfill_dedupe_keys(conn: sqlite3.Connection, table_name: str, key_columns: tuple[str, ...]) -> None:
+    selected_columns = ", ".join(("id", *key_columns))
+    rows = conn.execute(
+        f"""
+        SELECT {selected_columns}
+        FROM {table_name}
+        WHERE dedupe_key IS NULL OR dedupe_key = ''
+        """
+    ).fetchall()
+    for row in rows:
+        fields = {column: row[column] for column in key_columns}
+        conn.execute(
+            f"UPDATE {table_name} SET dedupe_key = ? WHERE id = ?",
+            (dedupe_key_for_fields(table_name, fields), row["id"]),
+        )
+
+
+def remove_duplicate_dedupe_rows(conn: sqlite3.Connection, table_name: str) -> None:
+    conn.execute(
+        f"""
+        DELETE FROM {table_name}
+        WHERE dedupe_key IS NOT NULL
+          AND id NOT IN (
+            SELECT MIN(id)
+            FROM {table_name}
+            GROUP BY dedupe_key
+          )
+        """
+    )
+
+
 def initialize_database(db_path: Path) -> dict[str, int]:
     with connect_database(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        ensure_dedupe_schema(conn)
         upsert_metric_definitions(conn)
         conn.commit()
         definition_count = conn.execute("SELECT COUNT(*) FROM metric_definitions").fetchone()[0]
@@ -680,12 +771,22 @@ def record_observation(
     evidence: object | None = None,
     value_text: str | None = None,
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "metric_observations",
+        metric_name=metric_name,
+        tick=tick,
+        room_name=room_name,
+        source_artifact=source_artifact,
+        evidence_json=evidence_json,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO metric_observations (
-          metric_name, tick, shard, room_name, value, value_text, unit, source_artifact, evidence_json
+          metric_name, tick, shard, room_name, value, value_text, unit, source_artifact,
+          evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             metric_name,
@@ -696,7 +797,8 @@ def record_observation(
             value_text,
             unit,
             source_artifact,
-            canonical_json(evidence or {}),
+            evidence_json,
+            dedupe_key,
         ),
     )
 
@@ -715,13 +817,21 @@ def record_finding(
     evidence: object | None = None,
     promotion_state: str = "candidate",
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "gameplay_behavior_findings",
+        finding_key=finding_key,
+        source_artifact=source_artifact,
+        tick=tick,
+        room_name=room_name,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO gameplay_behavior_findings (
           finding_key, category, severity, room_name, tick, source_artifact,
-          metric_name, evidence_json, recommendation, promotion_state
+          metric_name, evidence_json, recommendation, promotion_state, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             finding_key,
@@ -731,9 +841,10 @@ def record_finding(
             tick,
             source_artifact,
             metric_name,
-            canonical_json(evidence or {}),
+            evidence_json,
             recommendation,
             promotion_state,
+            dedupe_key,
         ),
     )
 
@@ -751,13 +862,22 @@ def record_coverage_gap(
     room_name: str | None = None,
     evidence: object | None = None,
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "metric_coverage_gaps",
+        metric_name=metric_name,
+        source_artifact=source_artifact,
+        room_name=room_name,
+        tick=tick,
+        gap_type=gap_type,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO metric_coverage_gaps (
           metric_name, category, severity, source_artifact, room_name, tick,
-          gap_type, message, evidence_json
+          gap_type, message, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             metric_name,
@@ -768,7 +888,8 @@ def record_coverage_gap(
             tick,
             gap_type,
             message,
-            canonical_json(evidence or {}),
+            evidence_json,
+            dedupe_key,
         ),
     )
 
@@ -783,14 +904,23 @@ def record_dataset_gate_metric(
     source_artifact: str,
     evidence: object | None = None,
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "rl_dataset_gate_metrics",
+        gate_id=gate_id,
+        status=status,
+        metric_name=metric_name,
+        source_artifact=source_artifact,
+        evidence_json=evidence_json,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO rl_dataset_gate_metrics (
-          gate_id, status, metric_name, value, source_artifact, evidence_json
+          gate_id, status, metric_name, value, source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (gate_id, status, metric_name, value, source_artifact, canonical_json(evidence or {})),
+        (gate_id, status, metric_name, value, source_artifact, evidence_json, dedupe_key),
     )
 
 
@@ -804,14 +934,23 @@ def record_training_metric(
     source_artifact: str,
     evidence: object | None = None,
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "rl_training_execution_metrics",
+        report_id=report_id,
+        variant_id=variant_id,
+        metric_name=metric_name,
+        source_artifact=source_artifact,
+        evidence_json=evidence_json,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO rl_training_execution_metrics (
-          report_id, variant_id, metric_name, value, source_artifact, evidence_json
+          report_id, variant_id, metric_name, value, source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (report_id, variant_id, metric_name, value, source_artifact, canonical_json(evidence or {})),
+        (report_id, variant_id, metric_name, value, source_artifact, evidence_json, dedupe_key),
     )
 
 
@@ -827,13 +966,23 @@ def record_policy_advantage(
     source_artifact: str,
     evidence: object | None = None,
 ) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "rl_policy_advantage_metrics",
+        report_id=report_id,
+        candidate_id=candidate_id,
+        incumbent_id=incumbent_id,
+        metric_name=metric_name,
+        source_artifact=source_artifact,
+        evidence_json=evidence_json,
+    )
     conn.execute(
         """
         INSERT OR IGNORE INTO rl_policy_advantage_metrics (
           report_id, candidate_id, incumbent_id, metric_name, value,
-          directionality, source_artifact, evidence_json
+          directionality, source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             report_id,
@@ -843,7 +992,8 @@ def record_policy_advantage(
             value,
             directionality,
             source_artifact,
-            canonical_json(evidence or {}),
+            evidence_json,
+            dedupe_key,
         ),
     )
 

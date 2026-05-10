@@ -35,6 +35,10 @@ def fetch_count(db_path: Path, table: str, where: str = "", params: tuple[object
         return int(conn.execute(query, params).fetchone()[0])
 
 
+def table_counts(db_path: Path, tables: tuple[str, ...]) -> dict[str, int]:
+    return {table: fetch_count(db_path, table) for table in tables}
+
+
 def runtime_payload(room: JsonObject) -> JsonObject:
     return {
         "type": "runtime-summary",
@@ -61,6 +65,17 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type='table'"
                     ).fetchall()
                 }
+                metric_observation_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(metric_observations)").fetchall()
+                }
+                dedupe_indexes = {
+                    table: {
+                        row[1]
+                        for row in conn.execute(f"PRAGMA index_list({table})").fetchall()
+                        if row[2]
+                    }
+                    for table in ingestor.DEDUPE_TABLE_KEYS
+                }
 
         self.assertIn("metric_definitions", tables)
         self.assertIn("metric_observations", tables)
@@ -70,6 +85,75 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
         self.assertIn("rl_training_execution_metrics", tables)
         self.assertIn("rl_policy_advantage_metrics", tables)
         self.assertIn("metric_iteration_decisions", tables)
+
+        self.assertIn("dedupe_key", metric_observation_columns)
+        for table in ingestor.DEDUPE_TABLE_KEYS:
+            self.assertIn(f"idx_{table}_dedupe_key", dedupe_indexes[table])
+
+    def test_reingesting_nullable_key_runtime_artifact_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            artifact_root = write_runtime_artifact(
+                root,
+                {
+                    "type": "runtime-summary",
+                    "shard": "shardX",
+                    "cpu": {"bucket": 9000, "used": 7.5},
+                    "rooms": [
+                        {
+                            "roomName": "E26S49",
+                            "controller": {"my": True, "level": 2},
+                            "workerCount": 2,
+                            "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                            "taskCounts": {"harvest": 1},
+                            "behavior": {
+                                "lowLoadReturnCount": 1,
+                                "lastReturnEnergy": 2,
+                                "returnCapacity": 50,
+                            },
+                        }
+                    ],
+                },
+            )
+            tables = (
+                "metric_observations",
+                "gameplay_behavior_findings",
+                "metric_coverage_gaps",
+            )
+
+            ingestor.ingest_artifacts(db_path, [artifact_root])
+            first_counts = table_counts(db_path, tables)
+            ingestor.ingest_artifacts(db_path, [artifact_root])
+
+            self.assertEqual(table_counts(db_path, tables), first_counts)
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ? AND tick IS NULL AND room_name IS NULL",
+                    ("survival.owned_rooms",),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "gameplay_behavior_findings",
+                    "WHERE category = ? AND tick IS NULL",
+                    ("low-load-return",),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_coverage_gaps",
+                    "WHERE metric_name = ? AND gap_type = ? AND tick IS NULL",
+                    ("economy.energy_telemetry", "missing_energy_fields"),
+                ),
+                1,
+            )
 
     def test_ingests_runtime_summary_and_finds_build_zero_with_backlog(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
