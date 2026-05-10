@@ -957,7 +957,7 @@ def runtime_spawn_idle(room: dict[str, Any], owned_spawns: int) -> bool:
         return False
     raw_statuses = room.get("spawnStatus")
     if raw_statuses is None:
-        return True
+        return False
     if not isinstance(raw_statuses, list) or not raw_statuses:
         return False
 
@@ -967,7 +967,7 @@ def runtime_spawn_idle(room: dict[str, Any], owned_spawns: int) -> bool:
             statuses.append(raw_status.get("status"))
         else:
             statuses.append(raw_status)
-    return all(status is None or status == "idle" for status in statuses)
+    return all(status == "idle" for status in statuses)
 
 
 def runtime_worker_behavior_entries(room: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2457,11 +2457,24 @@ def runtime_summary_room_name(room: dict[str, Any]) -> str | None:
     return None
 
 
+def runtime_summary_room_shard(room: dict[str, Any]) -> str | None:
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and "/" in room_ref:
+        shard = room_ref.split("/", 1)[0]
+        if shard:
+            return shard
+
+    shard = room.get("shard")
+    if isinstance(shard, str) and shard:
+        return shard
+    return None
+
+
 def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
     room_ref = room.get("room")
-    if isinstance(room_ref, str) and room_ref in {ref.key, ref.room}:
+    if isinstance(room_ref, str) and room_ref == ref.key:
         return True
-    return runtime_summary_room_name(room) == ref.room
+    return runtime_summary_room_name(room) == ref.room and runtime_summary_room_shard(room) == ref.shard
 
 
 def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
@@ -2520,6 +2533,7 @@ def load_latest_runtime_room_summaries(
         warnings.append(f"runtime-summary scan unavailable: {short_text(exc, 140)}")
         return {}
 
+    result: dict[str, dict[str, Any]] = {}
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -2531,7 +2545,6 @@ def load_latest_runtime_room_summaries(
             payload = parse_runtime_summary_line(line)
             if payload is None:
                 continue
-            result: dict[str, dict[str, Any]] = {}
             for room in payload_runtime_rooms(payload):
                 if not runtime_summary_room_has_worker_idle_fields(room):
                     continue
