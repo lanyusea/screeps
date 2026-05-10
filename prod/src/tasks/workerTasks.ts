@@ -34,8 +34,8 @@ import {
   checkEnergyBufferForSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
+  getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
-  STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import {
@@ -7260,7 +7260,7 @@ function isRoomStorageEnergyCriticalNow(room: Room): boolean {
     return false;
   }
 
-  const enterThreshold = Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  const enterThreshold = getStorageEnergyReserveThreshold(room);
   return enterThreshold > 0 && getStoredEnergy(storage) < enterThreshold;
 }
 

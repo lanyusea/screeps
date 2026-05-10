@@ -38,12 +38,22 @@ interface EnergyObservation {
 }
 
 export function getRoomEnergyBufferThreshold(room: Room): number {
-  return ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
+  const desiredThreshold = getConfiguredRoomEnergyBufferThreshold(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyCapacityAvailable === null) {
+    return desiredThreshold;
+  }
+
+  return Math.min(desiredThreshold, energyCapacityAvailable);
 }
 
 export function getEffectiveRoomEnergyBufferThreshold(room: Room): number {
   const threshold = getRoomEnergyBufferThreshold(room);
   return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+}
+
+export function getStorageEnergyReserveThreshold(room: Room): number {
+  return Math.min(getEffectiveConfiguredRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
 }
 
 export function checkEnergyBufferForSpending(room: Room, amount: number): boolean {
@@ -140,13 +150,22 @@ function getRoomRcl(room: Room): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
   return Math.min(8, Math.max(1, Math.floor(level))) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 }
 
+function getConfiguredRoomEnergyBufferThreshold(room: Room): number {
+  return ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
+}
+
+function getEffectiveConfiguredRoomEnergyBufferThreshold(room: Room): number {
+  const threshold = getConfiguredRoomEnergyBufferThreshold(room);
+  return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+}
+
 function isSurvivalBufferMode(room: Room): boolean {
   const mode = getRecordedColonySurvivalAssessment(getRoomName(room))?.mode;
   return mode === 'BOOTSTRAP' || mode === 'DEFENSE';
 }
 
 function getStorageEnergyReserve(room: Room): number {
-  return Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  return getStorageEnergyReserveThreshold(room);
 }
 
 function canWithdrawBelowStorageReserve(room: Room, options: StorageWithdrawalOptions): boolean {

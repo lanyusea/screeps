@@ -1,7 +1,4 @@
-import {
-  getEffectiveRoomEnergyBufferThreshold,
-  STORAGE_EMERGENCY_RESERVE
-} from '../economy/energyBuffer';
+import { getStorageEnergyReserveThreshold } from '../economy/energyBuffer';
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
@@ -292,7 +289,7 @@ function getStorageEnterThreshold(room: Room, storage: StructureStorage | null):
     return 0;
   }
 
-  return Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  return getStorageEnergyReserveThreshold(room);
 }
 
 function getRoomStorage(room: Room): StructureStorage | null {

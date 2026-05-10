@@ -2697,11 +2697,19 @@ var CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
 var CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
 var MINIMUM_WORKER_SPAWN_ENERGY = 200;
 function getRoomEnergyBufferThreshold(room) {
-  return ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
+  const desiredThreshold = getConfiguredRoomEnergyBufferThreshold(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
+  if (energyCapacityAvailable === null) {
+    return desiredThreshold;
+  }
+  return Math.min(desiredThreshold, energyCapacityAvailable);
 }
 function getEffectiveRoomEnergyBufferThreshold(room) {
   const threshold = getRoomEnergyBufferThreshold(room);
   return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+}
+function getStorageEnergyReserveThreshold(room) {
+  return Math.min(getEffectiveConfiguredRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
 }
 function checkEnergyBufferForSpending(room, amount) {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
@@ -2767,13 +2775,20 @@ function getRoomRcl(room) {
   }
   return Math.min(8, Math.max(1, Math.floor(level)));
 }
+function getConfiguredRoomEnergyBufferThreshold(room) {
+  return ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
+}
+function getEffectiveConfiguredRoomEnergyBufferThreshold(room) {
+  const threshold = getConfiguredRoomEnergyBufferThreshold(room);
+  return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+}
 function isSurvivalBufferMode(room) {
   var _a;
   const mode = (_a = getRecordedColonySurvivalAssessment(getRoomName3(room))) == null ? void 0 : _a.mode;
   return mode === "BOOTSTRAP" || mode === "DEFENSE";
 }
 function getStorageEnergyReserve(room) {
-  return Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  return getStorageEnergyReserveThreshold(room);
 }
 function canWithdrawBelowStorageReserve(room, options) {
   return options.allowBelowReserve === true || isRoomEnergyCriticalForStorageWithdrawal(room);
@@ -26044,7 +26059,7 @@ function isRoomStorageEnergyCriticalNow(room) {
   if (!storage || !matchesStructureType18(storage.structureType, "STRUCTURE_STORAGE", "storage")) {
     return false;
   }
-  const enterThreshold = Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  const enterThreshold = getStorageEnergyReserveThreshold(room);
   return enterThreshold > 0 && getStoredEnergy14(storage) < enterThreshold;
 }
 function getHarvestSourceAvailableEnergy(source) {
@@ -26286,7 +26301,7 @@ function getStorageEnterThreshold(room, storage) {
   if (!storage) {
     return 0;
   }
-  return Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  return getStorageEnergyReserveThreshold(room);
 }
 function getRoomStorage3(room) {
   const storage = room.storage;
