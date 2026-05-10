@@ -594,6 +594,84 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(tick_entry["rooms"]["E26S49"]["structures"]["spawn"], 1)
         self.assertEqual(tick_entry["rooms"]["E26S50"]["controller"]["level"], 2)
 
+    def test_build_tick_entry_accepts_private_server_flat_overview(self) -> None:
+        overview = {"ok": 1, "rooms": ["E1S1"], "gametimes": [], "stats": {}, "totals": {}}
+
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            42,
+            overview,
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "controller": {"level": 1},
+                        "objects": [{"type": "spawn"}],
+                        "creeps": 1,
+                        "energy": 300,
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(tick_entry["overview"]["rooms"], ["E1S1"])
+        self.assertEqual(tick_entry["overview"]["roomCount"], 1)
+        self.assertEqual(tick_entry["rooms"]["E1S1"]["structures"]["spawn"], 1)
+
+    def test_run_one_tick_uses_stats_gametime_when_private_overview_has_no_shard_clock(self) -> None:
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.payload = payload
+                self.headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return token
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok", 1) == 1
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, kwargs
+                if path == "/api/user/overview":
+                    return Result({"ok": 1, "rooms": ["E1S1"], "gametimes": []})
+                if path == "/stats":
+                    return Result({"gametime": 42})
+                if path == "/api/game/room-terrain":
+                    return Result({"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]})
+                if path == "/api/game/room-overview":
+                    return Result({
+                        "ok": 1,
+                        "room": "E1S1",
+                        "roomData": {
+                            "controller": {"level": 1},
+                            "objects": [{"type": "spawn"}],
+                            "creeps": 1,
+                            "energy": 300,
+                        },
+                    })
+                raise AssertionError(path)
+
+        token, observed_tick, tick_entry = harness._run_one_tick(
+            argparse.Namespace(server_url="http://127.0.0.1"),
+            FakeSmoke(),
+            "token",
+            "E1S1",
+            "shardX",
+            previous_tick=41,
+            timeout_seconds=0.1,
+        )
+
+        self.assertEqual(token, "token")
+        self.assertEqual(observed_tick, 42)
+        self.assertEqual(tick_entry["tick"], 42)
+        self.assertEqual(tick_entry["rooms"]["E1S1"]["creeps"], 1)
+
     def test_build_variant_metrics_reduces_territory_resources_and_combat(self) -> None:
         tick_log = [
             {

@@ -832,6 +832,13 @@ def _build_tick_entry(
                     "gametime": selected.get("gametime"),
                     "gametimes": selected.get("gametimes"),
                 }
+        elif isinstance(overview.get("rooms"), list):
+            overview_payload = {
+                "rooms": overview.get("rooms") or [],
+                "roomCount": len(overview.get("rooms") or []),
+                "gametime": overview.get("gametime"),
+                "gametimes": overview.get("gametimes"),
+            }
     room_names = (
         _dedupe_room_names(visible_rooms)
         if visible_rooms is not None
@@ -1019,6 +1026,10 @@ def _visible_room_names(overview: Any, shard: str, anchor_room: str) -> list[str
     for room_name in runtime_monitor.overview_rooms(overview, shard):
         if room_name not in ordered:
             ordered.append(room_name)
+    if isinstance(overview, dict):
+        for room_name in overview.get("rooms") or []:
+            if isinstance(room_name, str) and room_name not in ordered:
+                ordered.append(room_name)
     if anchor_room not in ordered:
         ordered.insert(0, anchor_room)
     return ordered
@@ -1042,6 +1053,30 @@ def _wait_for_http_with_smoke(cfg: Any, smoke: Any, timeout_seconds: int = RUN_P
 
 def _read_gametime_from_overview(payload: Any, shard: str) -> int | None:
     gametime = runtime_monitor.gametime_from_overview(payload, shard)
+    if isinstance(gametime, str):
+        return _coerce_int(gametime)
+    if isinstance(gametime, int):
+        return gametime
+    if isinstance(payload, dict):
+        flat_gametime = payload.get("gametime")
+        if isinstance(flat_gametime, str):
+            return _coerce_int(flat_gametime)
+        if isinstance(flat_gametime, int):
+            return flat_gametime
+        flat_gametimes = payload.get("gametimes")
+        if isinstance(flat_gametimes, list) and flat_gametimes:
+            first_gametime = flat_gametimes[0]
+            if isinstance(first_gametime, str):
+                return _coerce_int(first_gametime)
+            if isinstance(first_gametime, int):
+                return first_gametime
+    return None
+
+
+def _read_gametime_from_stats(payload: Any) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    gametime = payload.get("gametime")
     if isinstance(gametime, str):
         return _coerce_int(gametime)
     if isinstance(gametime, int):
@@ -1103,6 +1138,16 @@ def _run_one_tick(
         )
         token = smoke.update_token_from_headers(token, terrain_result.headers)
         current_tick = _read_gametime_from_overview(overview_result.payload, shard)
+        if current_tick is None:
+            stats_result = smoke.http_json(
+                "GET",
+                cfg.server_url,
+                "/stats",
+                headers=smoke.token_headers(token),
+                timeout=RUN_API_TIMEOUT_SECONDS,
+            )
+            token = smoke.update_token_from_headers(token, stats_result.headers)
+            current_tick = _read_gametime_from_stats(stats_result.payload)
         if isinstance(overview_result.payload, dict) and not smoke.api_dict_succeeded(overview_result):
             raise RuntimeError(f"/api/user/overview returned unusable payload: {_safe_redact_smoke_payload(overview_result.payload)}")
         if current_tick is None:

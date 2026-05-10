@@ -115,4 +115,42 @@ describe('getOwnedColonies', () => {
       }
     ]);
   });
+
+  it('discovers a fresh simulator room from an owned spawn before controller ownership is visible', () => {
+    const simulatorRoom = {
+      name: 'E1S1',
+      controller: { my: false },
+      energyAvailable: 0,
+      energyCapacityAvailable: 0
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      my: true,
+      room: simulatorRoom,
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getCapacity: jest.fn().mockReturnValue(300)
+      }
+    } as unknown as StructureSpawn;
+
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        E1S1: simulatorRoom
+      },
+      spawns: {
+        Spawn1: spawn
+      }
+    };
+
+    expect(getOwnedColonies()).toEqual([
+      {
+        room: simulatorRoom,
+        spawns: [spawn],
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+      }
+    ]);
+  });
 });
