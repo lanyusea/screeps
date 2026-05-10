@@ -124,7 +124,7 @@ export function refreshClaimedRoomBootstrapperOwnership(
     }
 
     const claimedAt = detectedOwnedRoom
-      ? getGameTime()
+      ? previous?.claimedAt ?? getGameTime()
       : previous?.claimedAt ?? activePostClaimRecord?.claimedAt;
     memory.rooms[room.name] = {
       roomName: room.name,
@@ -139,6 +139,7 @@ export function refreshClaimedRoomBootstrapperOwnership(
         {
           colony: claimOriginColony,
           roomName: room.name,
+          ...(claimedAt !== undefined ? { claimedAt } : {}),
           ...(room.controller.id ? { controllerId: room.controller.id } : {})
         },
         telemetryEvents

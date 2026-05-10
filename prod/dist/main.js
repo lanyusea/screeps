@@ -11786,7 +11786,7 @@ var POST_CLAIM_DEFENSE_BARRIER_STAGE_ORDER = [
   "entranceWall"
 ];
 function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
-  var _a, _b;
+  var _a, _b, _c;
   if (!isNonEmptyString11(input.colony) || !isNonEmptyString11(input.roomName)) {
     return;
   }
@@ -11796,10 +11796,10 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   }
   const gameTime = getGameTime15();
   const existing = getPostClaimBootstrapRecord(input.roomName);
-  const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : gameTime;
+  const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_b = (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : input.claimedAt) != null ? _b : gameTime;
   const status = getRefreshedPostClaimBootstrapStatus(existing);
   const workerTarget = existing ? getPostClaimBootstrapWorkerTarget(existing) : POST_CLAIM_BOOTSTRAP_WORKER_TARGET;
-  const controllerId = (_b = input.controllerId) != null ? _b : existing == null ? void 0 : existing.controllerId;
+  const controllerId = (_c = input.controllerId) != null ? _c : existing == null ? void 0 : existing.controllerId;
   const record = {
     colony: input.colony,
     roomName: input.roomName,
@@ -37038,7 +37038,7 @@ function isNonEmptyString26(value) {
 // src/territory/claimedRoomBootstrapper.ts
 var ERR_NO_PATH_CODE7 = -2;
 function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
-  var _a;
+  var _a, _b;
   const game = globalThis.Game;
   const rooms = game == null ? void 0 : game.rooms;
   const memory = getWritableBootstrapperMemory();
@@ -37058,7 +37058,7 @@ function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
     if (detectedOwnedRoom) {
       detectedRoomNames.push(room.name);
     }
-    const claimedAt = detectedOwnedRoom ? getGameTime33() : (_a = previous == null ? void 0 : previous.claimedAt) != null ? _a : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
+    const claimedAt = detectedOwnedRoom ? (_a = previous == null ? void 0 : previous.claimedAt) != null ? _a : getGameTime33() : (_b = previous == null ? void 0 : previous.claimedAt) != null ? _b : activePostClaimRecord == null ? void 0 : activePostClaimRecord.claimedAt;
     memory.rooms[room.name] = {
       roomName: room.name,
       owned,
@@ -37071,6 +37071,7 @@ function refreshClaimedRoomBootstrapperOwnership(telemetryEvents = []) {
         {
           colony: claimOriginColony,
           roomName: room.name,
+          ...claimedAt !== void 0 ? { claimedAt } : {},
           ...room.controller.id ? { controllerId: room.controller.id } : {}
         },
         telemetryEvents
