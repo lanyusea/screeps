@@ -1,4 +1,9 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import {
+  assessColonySurvival,
+  clearColonySurvivalAssessmentCache,
+  recordColonySurvivalAssessment
+} from '../src/colony/survivalMode';
 import { planConstructionForColony } from '../src/construction/planner';
 import { planExpansionDefenseBarrierPlacements } from '../src/territory/expansionPlanner';
 
@@ -38,10 +43,12 @@ describe('owned room construction planner', () => {
       globals[key] = value;
     }
     mockPlanExpansionDefenseBarrierPlacements.mockReset();
+    clearColonySurvivalAssessmentCache();
     globals.CONTROLLER_STRUCTURES = makeControllerStructures();
   });
 
   afterEach(() => {
+    clearColonySurvivalAssessmentCache();
     const globals = globalThis as Record<string, unknown>;
     for (const key of Object.keys(TEST_GLOBALS)) {
       delete globals[key];
@@ -193,6 +200,47 @@ describe('owned room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual(['road']);
     expect(room.createConstructionSite).toHaveBeenCalledWith(11, 10, STRUCTURE_ROAD);
+  });
+
+  it('places capacity-enabling extensions while room capacity is below the survival buffer threshold', () => {
+    installOpenTerrain();
+    recordBootstrapSurvivalMode();
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 300,
+      energyCapacityAvailable: 350,
+      structures: [makeStructure('extension-existing', TEST_GLOBALS.STRUCTURE_EXTENSION, 30, 30)],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_EXTENSION);
+  });
+
+  it('keeps non-capacity construction gated while room capacity is below the survival buffer threshold', () => {
+    installOpenTerrain();
+    recordBootstrapSurvivalMode();
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 300,
+      energyCapacityAvailable: 350,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        )
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
   it('respects CONTROLLER_STRUCTURES counts before calling lower-level planners', () => {
@@ -434,12 +482,26 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
 
 function installOpenTerrain(): void {
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    time: 100,
     map: {
       getRoomTerrain: jest.fn().mockReturnValue({
         get: jest.fn().mockReturnValue(0)
       })
     } as unknown as GameMap
   };
+}
+
+function recordBootstrapSurvivalMode(): void {
+  const assessment = assessColonySurvival({
+    roomName: 'W1N1',
+    workerCapacity: 2,
+    workerTarget: 4,
+    energyAvailable: 300,
+    energyCapacityAvailable: 350,
+    controller: { my: true, level: 4, ticksToDowngrade: 10_000 }
+  });
+  expect(assessment.mode).toBe('BOOTSTRAP');
+  recordColonySurvivalAssessment('W1N1', assessment, 100);
 }
 
 function makeControllerStructures(): Record<string, number[]> {

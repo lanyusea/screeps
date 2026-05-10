@@ -10022,7 +10022,11 @@ function getRemainingEnergySlots(room, budgetState, priority, options) {
     return budgetSlots;
   }
   let energyBufferSlots = 0;
-  while (energyBufferSlots < budgetSlots && checkEnergyBufferForSpending(room, budgetState.energyReserved + reservation * (energyBufferSlots + 1))) {
+  while (energyBufferSlots < budgetSlots && checkEnergyBufferForConstructionPriority(
+    room,
+    priority,
+    budgetState.energyReserved + reservation * (energyBufferSlots + 1)
+  )) {
     energyBufferSlots += 1;
   }
   return energyBufferSlots;
@@ -10039,6 +10043,12 @@ function shouldBypassEnergyBufferForSourceLogisticsConstruction(room, priority) 
     getRoomEnergyAvailableFromRoom(room),
     getRoomEnergyCapacityAvailableFromRoom(room)
   );
+}
+function checkEnergyBufferForConstructionPriority(room, priority, amount) {
+  if (priority === "extension" && hasRemainingStructureCapacity(room, "extension")) {
+    return checkEnergyBufferForCapacityEnablingConstruction(room, amount);
+  }
+  return checkEnergyBufferForSpending(room, amount);
 }
 function resolveEnergyBudgetRatio(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
