@@ -9908,7 +9908,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
-  it('builds source container construction before extensions during RCL4 energy starvation', () => {
+  it('builds capacity extension construction once source logistics starvation has cleared', () => {
     const source = makeSource('source1', 20, 10);
     const sourceContainerSite = {
       id: 'source-container-site1',
@@ -9932,13 +9932,251 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({
         constructionSites: [extensionSite, sourceContainerSite],
         controller,
-        energyAvailable: 120,
+        energyAvailable: 350,
+        energyCapacityAvailable: 300,
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('assigns a minimum harvester before capacity construction when spawn energy is below capacity', () => {
+    const source = makeSource('source1', 20, 10);
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 500,
+      sources: [source]
+    });
+    const otherBuilder = {
+      name: 'OtherBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'RecoveryHarvester',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ OtherBuilder: otherBuilder, RecoveryHarvester: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('keeps capacity construction available once another worker is harvesting', () => {
+    const source = makeSource('source1', 20, 10);
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 500,
+      sources: [source]
+    });
+    const assignedHarvester = {
+      name: 'AssignedHarvester',
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedHarvester: assignedHarvester, Builder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('assigns a minimum harvester when build-assigned workers have no carried energy', () => {
+    const source = makeSource('source1', 20, 10);
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 500,
+      energyCapacityAvailable: 500,
+      sources: [source]
+    });
+    const emptyBuilder = {
+      name: 'EmptyBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'RecoveryHarvester',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ EmptyBuilder: emptyBuilder, RecoveryHarvester: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('builds RCL4 spawn-only extension construction when capacity is below the energy buffer threshold', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('builds RCL4 extension construction when capacity equals the energy buffer threshold', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 500,
+        energyCapacityAvailable: 500
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('keeps critical road construction behind the buffer during capacity recovery', () => {
+    const roadSite = {
+      id: 'road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10)
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite],
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('builds RCL3 spawn-only source container construction when capacity is below the energy buffer threshold', () => {
+    const source = makeSource('source1', 20, 10);
+    const site = {
+      id: 'source-container-site1',
+      structureType: 'container',
+      pos: makeRoomPosition(19, 10)
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 300,
         energyCapacityAvailable: 300,
         sources: [source]
       })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'source-container-site1' });
+  });
+
+  it('blocks capacity-enabling construction below worker spawn energy', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 299,
+        energyCapacityAvailable: 300
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('gates construction spending when the room energy buffer would be breached', () => {

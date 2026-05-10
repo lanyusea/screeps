@@ -1,5 +1,7 @@
 import {
+  checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForSpending,
+  CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
   getEffectiveRoomEnergyBufferThreshold,
   getRoomEnergyBufferHealth,
   getRoomEnergyBufferThreshold,
@@ -49,6 +51,27 @@ describe('energyBuffer', () => {
 
     expect(checkEnergyBufferForSpending(room, 60)).toBe(true);
     expect(checkEnergyBufferForSpending(room, 61)).toBe(false);
+  });
+
+  it('allows capacity-enabling construction when the buffer threshold exceeds room capacity', () => {
+    const room = makeRoom({
+      level: 3,
+      energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
+      energyCapacityAvailable: 300
+    });
+
+    expect(checkEnergyBufferForSpending(room, 50)).toBe(false);
+    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
+  });
+
+  it('blocks capacity-enabling construction below worker spawn energy', () => {
+    const room = makeRoom({
+      level: 3,
+      energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY - 1,
+      energyCapacityAvailable: 300
+    });
+
+    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
   });
 
   it('gates routine storage withdrawals against the storage reserve', () => {
@@ -122,16 +145,19 @@ function recordSurvivalMode(mode: 'LOCAL_STABLE' | 'DEFENSE'): void {
 
 function makeRoom({
   energyAvailable = 0,
+  energyCapacityAvailable,
   level,
   storage
 }: {
   energyAvailable?: number;
+  energyCapacityAvailable?: number;
   level?: number;
   storage?: StructureStorage;
 }): Room {
   return {
     name: 'W1N1',
     energyAvailable,
+    ...(energyCapacityAvailable === undefined ? {} : { energyCapacityAvailable }),
     controller: { level, my: true } as StructureController,
     ...(storage ? { storage } : {}),
     find: jest.fn((type: number) => {

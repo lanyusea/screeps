@@ -1509,6 +1509,41 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('executes capacity-enabling construction when the room buffer threshold exceeds capacity', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'extension-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        find: jest.fn((type: number) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
+      },
+      build,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(site)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(build).toHaveBeenCalledWith(site);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('pauses active construction when this worker must reserve energy for near-term spawn refill', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',

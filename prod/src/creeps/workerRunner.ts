@@ -6,6 +6,7 @@ import {
   isUpgraderBoostActive,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
+  canSpendWorkerEnergyOnConstructionSite,
   shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
@@ -15,7 +16,6 @@ import {
 } from './workerTaskPolicy';
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
-import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
 import { getSpawnEnergyWithdrawalAmount } from '../economy/spawnEnergyBuffer';
 import { selectSpawnEnergyReservationRefillTarget } from '../economy/spawnEnergyReservation';
 import { findSourceContainer } from '../economy/sourceContainers';
@@ -1328,7 +1328,7 @@ function executeTask(
         containerTransfer: isContainerStructure(target)
       });
     case 'build':
-      if (!checkEnergyBufferForSpending(creep.room, getCarriedEnergy(creep))) {
+      if (!canSpendWorkerEnergyOnConstructionSite(creep, target as ConstructionSite)) {
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
 

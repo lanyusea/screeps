@@ -30,9 +30,11 @@ import {
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
 import {
+  checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
+  hasMinimumWorkerSpawnEnergyForConstruction,
   STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../economy/energyBuffer';
@@ -394,6 +396,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       }
     }
 
+    const minimumHarvesterTask = selectMinimumHarvesterAllocationTask(creep);
+    if (minimumHarvesterTask) {
+      return minimumHarvesterTask;
+    }
+
     const source = selectHarvestSource(creep);
     if (source) {
       return { type: 'harvest', targetId: source.id };
@@ -470,6 +477,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     return null;
+  }
+
+  const minimumHarvesterTask = selectMinimumHarvesterAllocationTask(creep);
+  if (minimumHarvesterTask) {
+    return minimumHarvesterTask;
   }
 
   const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
@@ -689,6 +701,69 @@ function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessme
 function isWorkerInColonyRoom(creep: Creep): boolean {
   const colonyName = getCreepColonyName(creep);
   return colonyName !== null && getRoomName(creep.room) === colonyName;
+}
+
+function selectMinimumHarvesterAllocationTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  if (!shouldGuaranteeMinimumHarvesterAllocation(creep)) {
+    return null;
+  }
+
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false });
+}
+
+function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
+  if (creep.memory?.role !== 'worker' || getFreeEnergyCapacity(creep) <= 0) {
+    return false;
+  }
+
+  const roomCreeps = getSameRoomCreepsIncludingCurrent(creep);
+  if (roomCreeps.some(isAssignedHarvestCreep)) {
+    return false;
+  }
+
+  const hasBuildDeadlockSignal =
+    roomCreeps.some(isZeroEnergyBuildWorker) ||
+    (roomCreeps.length > 0 && roomCreeps.every(isBuildAssignedWorker));
+
+  return (
+    hasBuildDeadlockSignal ||
+    (isBuildAssignedWorker(creep) && hasRoomSpawnExtensionEnergyDeficit(creep.room))
+  );
+}
+
+function getSameRoomCreepsIncludingCurrent(creep: Creep): Creep[] {
+  const roomCreeps = getGameCreeps().filter((candidate) => isInRoom(candidate, creep.room));
+  if (!roomCreeps.some((candidate) => isSameCreep(candidate, creep))) {
+    roomCreeps.push(creep);
+  }
+
+  return roomCreeps;
+}
+
+function hasRoomSpawnExtensionEnergyDeficit(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return (
+    energyAvailable !== null &&
+    energyCapacityAvailable !== null &&
+    Math.max(0, energyAvailable) < Math.max(0, energyCapacityAvailable)
+  );
+}
+
+function isAssignedHarvestCreep(creep: Creep): boolean {
+  const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return (
+    task?.type === 'harvest' ||
+    (creep.memory?.role === SOURCE_HARVESTER_ROLE && typeof creep.memory.sourceHarvester?.sourceId === 'string')
+  );
+}
+
+function isZeroEnergyBuildWorker(creep: Creep): boolean {
+  return isBuildAssignedWorker(creep) && getUsedEnergy(creep) <= 0;
+}
+
+function isBuildAssignedWorker(creep: Creep): boolean {
+  return creep.memory?.role === 'worker' && creep.memory.task?.type === 'build';
 }
 
 function selectSuppressedRemoteEnergyHandlingTask(creep: Creep): CreepTaskMemory | null {
@@ -2721,8 +2796,12 @@ function canCompleteConstructionSiteWithCarriedEnergy(
   return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
 }
 
-function canSpendCreepEnergyOnConstruction(creep: Creep): boolean {
-  return checkEnergyBufferForSpending(creep.room, getUsedEnergy(creep));
+export function canSpendWorkerEnergyOnConstructionSite(creep: Creep, site: ConstructionSite): boolean {
+  return canSpendCreepEnergyOnConstructionSite(
+    creep,
+    site,
+    buildWorkerConstructionSiteImpactPriorityContext(creep, [site])
+  );
 }
 
 function canSpendCreepEnergyOnConstructionSite(
@@ -2730,10 +2809,35 @@ function canSpendCreepEnergyOnConstructionSite(
   site: ConstructionSite,
   priorityContext: ConstructionSiteImpactPriorityContext
 ): boolean {
+  const carriedEnergy = getUsedEnergy(creep);
   return (
-    canSpendCreepEnergyOnConstruction(creep) ||
-    (getUsedEnergy(creep) > 0 && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
+    checkEnergyBufferForSpending(creep.room, carriedEnergy) ||
+    (carriedEnergy > 0 &&
+      isCapacityEnablingConstructionSite(site, priorityContext) &&
+      checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
+    (carriedEnergy > 0 &&
+      hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
+      isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
   );
+}
+
+function isCapacityEnablingConstructionSite(
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  if (isExtensionConstructionSite(site)) {
+    return true;
+  }
+
+  const priority = getConstructionSiteImpactPriority(site, priorityContext);
+  if (isContainerConstructionSite(site)) {
+    return (
+      priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer ||
+      priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer
+    );
+  }
+
+  return false;
 }
 
 function isEnergyStarvationSourceLogisticsConstructionSite(
@@ -2838,11 +2942,12 @@ function selectNearbyProductiveEnergySinkTask(
     return null;
   }
 
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const candidates = [
     ...constructionSites
       .filter(
         (site) =>
-          canSpendCreepEnergyOnConstruction(creep) &&
+          canSpendCreepEnergyOnConstructionSite(creep, site, constructionPriorityContext) &&
           hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
       )
       .map((site) =>
@@ -3060,7 +3165,7 @@ function selectConstructionPreBufferBuildTask(
   }
 
   const site = getGameObjectById<ConstructionSite>(memory.siteId);
-  if (!site || !canSpendCreepEnergyOnConstruction(creep)) {
+  if (!site || !canSpendWorkerEnergyOnConstructionSite(creep, site)) {
     delete creep.memory.constructionPreBuffer;
     return null;
   }
@@ -3070,7 +3175,7 @@ function selectConstructionPreBufferBuildTask(
 }
 
 function shouldPreBufferEnergyForConstructionSite(creep: Creep, site: ConstructionSite): boolean {
-  if (!canSpendCreepEnergyOnConstruction(creep)) {
+  if (!canSpendWorkerEnergyOnConstructionSite(creep, site)) {
     return false;
   }
 
