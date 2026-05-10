@@ -382,6 +382,10 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(harness.normalize_private_server_code_branch("activeSim"), "$activeSim")
         self.assertEqual(harness.normalize_private_server_code_branch("default"), "default")
 
+    def test_resolve_bot_commit_falls_back_when_git_detection_is_unknown(self) -> None:
+        with mock.patch("screeps_rl_simulator_harness.dataset_export.git_commit", return_value="unknown"):
+            self.assertEqual(harness.resolve_bot_commit(), harness.DEFAULT_BOT_COMMIT)
+
     def test_build_scenario_config_is_stable_and_records_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -538,6 +542,8 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(mod_path.name, harness.SIMULATOR_REPAIR_MOD_FILENAME)
         self.assertEqual(writes[0][0], Path("mods") / harness.SIMULATOR_REPAIR_MOD_FILENAME)
         self.assertIn("env.keys.TERRAIN_DATA", writes[0][1])
+        self.assertIn("env.keys.ACCESSIBLE_ROOMS", writes[0][1])
+        self.assertIn("return '[]';", writes[0][1])
         self.assertIn("bodyParser.json({ limit: '8mb' })", writes[0][1])
 
     def test_run_id_rejects_dots_even_without_path_separators(self) -> None:

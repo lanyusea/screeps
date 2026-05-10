@@ -66,7 +66,7 @@ DEFAULT_SIM_SHARD = "shardX"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
 DEFAULT_ACTIVE_WORLD_BRANCH = "$activeWorld"
-DEFAULT_BOT_COMMIT = "a9c12ed60e2c32370977fc1b10ea8e7e5265cd8c"
+DEFAULT_BOT_COMMIT = "de2bdfa31cabb2996e73ffe30051a3b375bf5b94"
 HARNESS_VERSION = "1.0.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
@@ -119,6 +119,9 @@ module.exports = config => {
   if (env && env.keys && typeof env.get === 'function') {
     const originalGet = env.get.bind(env);
     env.get = key => Promise.resolve(originalGet(key)).then(value => {
+      if ((value === null || value === undefined) && key === env.keys.ACCESSIBLE_ROOMS) {
+        return '[]';
+      }
       if ((value === null || value === undefined) && key === env.keys.TERRAIN_DATA) {
         return Promise.resolve(originalGet(env.keys.ACCESSIBLE_ROOMS))
           .then(buildFallbackTerrainData)
@@ -144,7 +147,8 @@ def resolve_bot_commit(bot_commit: str | None = None, repo_root: Path | None = N
     if bot_commit:
         return bot_commit
     repo = repo_root or REPO_ROOT
-    return dataset_export.git_commit(repo) or DEFAULT_BOT_COMMIT
+    detected = dataset_export.git_commit(repo)
+    return detected if detected and detected != "unknown" else DEFAULT_BOT_COMMIT
 
 
 DEFAULT_STRATEGY_VARIANT_CONFIGS: tuple[JsonObject, ...] = (
