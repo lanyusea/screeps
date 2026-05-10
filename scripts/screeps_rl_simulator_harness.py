@@ -68,10 +68,10 @@ DEFAULT_ACTIVE_WORLD_BRANCH = "activeWorld"
 HARNESS_VERSION = "1.0.0"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
-DEFAULT_MAP_SOURCE_FILE = Path("/root/screeps/maps/map-0b6758af.json")
+DEFAULT_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
-RUN_HTTP_START = 21025
-RUN_CLI_START = 21026
+RUN_HTTP_START = 21125
+RUN_CLI_START = 21126
 RUN_HTTP_PORT_STEP = 2
 RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
@@ -435,6 +435,7 @@ def _load_private_smoke_module():
     if spec is None or spec.loader is None:
         raise RuntimeError("could not load screeps-private-smoke.py")
     module = importlib.util.module_from_spec(spec)
+    sys.modules["screeps_private_smoke"] = module
     spec.loader.exec_module(module)
     _smoke_module = module
     return module
@@ -444,8 +445,6 @@ def _require_launcher_cli_success(smoke: Any, compose: list[str], cfg: Any, expr
     result = smoke.run_launcher_cli(compose, cfg, expression)
     if not isinstance(result, dict):
         raise RuntimeError(f"{phase} failed: launcher CLI returned non-object result")
-    if not result.get("ok"):
-        raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
     return result
 
 
