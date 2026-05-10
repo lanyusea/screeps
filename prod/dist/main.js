@@ -37470,7 +37470,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     const actorUsername = getControllerSigningActorUsername(creep);
     if (typeof creep.signController === "function" && shouldSignReservedController(controller, actorUsername)) {
       const signingResult = signReservedControllerIfNeeded(creep, controller, actorUsername);
-      if (signingResult === "moving") {
+      if (signingResult === "moving" || signingResult === "blocked") {
         return;
       }
       completeTerritoryAssignment(creep);
