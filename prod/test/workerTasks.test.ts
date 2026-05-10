@@ -9932,13 +9932,57 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({
         constructionSites: [extensionSite, sourceContainerSite],
         controller,
-        energyAvailable: 350,
-        energyCapacityAvailable: 300,
+        energyAvailable: 300,
+        energyCapacityAvailable: 350,
         sources: [source]
       })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('assigns a minimum harvester before nearby stored energy when all workers are non-harvest', () => {
+    const source = makeSource('source1', 20, 10);
+    const container = makeStoredEnergyStructure('container-cache', 'container' as StructureConstant, 500, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 350,
+      sources: [source],
+      structures: [container as AnyStructure]
+    });
+    const repairer = {
+      name: 'Repairer',
+      memory: { role: 'worker', task: { type: 'repair', targetId: 'road1' as Id<Structure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container-cache' ? 1 : 10))
+      },
+      room
+    } as unknown as Creep;
+    const upgrader = {
+      name: 'Upgrader',
+      memory: { role: 'worker', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, Upgrader: upgrader });
+
+    expect(selectWorkerTask(repairer)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('assigns a minimum harvester before capacity construction when spawn energy is below capacity', () => {

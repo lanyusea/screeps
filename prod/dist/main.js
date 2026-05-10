@@ -21527,6 +21527,10 @@ function selectHeuristicWorkerTask(creep) {
       if (constructionPreBufferRecoveryTask) {
         return constructionPreBufferRecoveryTask;
       }
+      const minimumHarvesterTask2 = selectMinimumHarvesterAllocationTask(creep);
+      if (minimumHarvesterTask2) {
+        return minimumHarvesterTask2;
+      }
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -21573,10 +21577,6 @@ function selectHeuristicWorkerTask(creep) {
       if (linkEnergyAcquisitionTask) {
         return linkEnergyAcquisitionTask;
       }
-    }
-    const minimumHarvesterTask2 = selectMinimumHarvesterAllocationTask(creep);
-    if (minimumHarvesterTask2) {
-      return minimumHarvesterTask2;
     }
     const source = selectHarvestSource(creep);
     if (source) {
@@ -21836,8 +21836,11 @@ function shouldGuaranteeMinimumHarvesterAllocation(creep) {
   if (roomCreeps.some(isAssignedHarvestCreep)) {
     return false;
   }
-  const hasBuildDeadlockSignal = roomCreeps.some(isZeroEnergyBuildWorker) || roomCreeps.length > 0 && roomCreeps.every(isBuildAssignedWorker);
-  return hasBuildDeadlockSignal || isBuildAssignedWorker(creep) && hasRoomSpawnExtensionEnergyDeficit(creep.room);
+  const workerCreeps = roomCreeps.filter(isWorkerCreep);
+  const hasSpawnExtensionEnergyDeficit = hasRoomSpawnExtensionEnergyDeficit(creep.room);
+  const hasBuildDeadlockSignal = workerCreeps.length > 1 && roomCreeps.some(isZeroEnergyBuildWorker) || workerCreeps.length > 1 && workerCreeps.every(isBuildAssignedWorker);
+  const hasGenericDeadlockSignal = workerCreeps.length > 1 && workerCreeps.every(isAssignedNonHarvestWorker) || hasSpawnExtensionEnergyDeficit && workerCreeps.some(isAssignedNonHarvestWorker);
+  return hasBuildDeadlockSignal || hasGenericDeadlockSignal || isBuildAssignedWorker(creep) && hasSpawnExtensionEnergyDeficit;
 }
 function getSameRoomCreepsIncludingCurrent(creep) {
   const roomCreeps = getGameCreeps().filter((candidate) => isInRoom(candidate, creep.room));
@@ -21855,6 +21858,13 @@ function isAssignedHarvestCreep(creep) {
   var _a, _b, _c;
   const task = (_a = creep.memory) == null ? void 0 : _a.task;
   return (task == null ? void 0 : task.type) === "harvest" || ((_b = creep.memory) == null ? void 0 : _b.role) === SOURCE_HARVESTER_ROLE && typeof ((_c = creep.memory.sourceHarvester) == null ? void 0 : _c.sourceId) === "string";
+}
+function isWorkerCreep(creep) {
+  var _a;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker";
+}
+function isAssignedNonHarvestWorker(creep) {
+  return isWorkerCreep(creep) && creep.memory.task !== void 0 && creep.memory.task.type !== "harvest";
 }
 function isZeroEnergyBuildWorker(creep) {
   return isBuildAssignedWorker(creep) && getUsedEnergy2(creep) <= 0;

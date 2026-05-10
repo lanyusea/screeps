@@ -338,6 +338,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return constructionPreBufferRecoveryTask;
       }
 
+      const minimumHarvesterTask = selectMinimumHarvesterAllocationTask(creep);
+      if (minimumHarvesterTask) {
+        return minimumHarvesterTask;
+      }
+
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -394,11 +399,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       if (linkEnergyAcquisitionTask) {
         return linkEnergyAcquisitionTask;
       }
-    }
-
-    const minimumHarvesterTask = selectMinimumHarvesterAllocationTask(creep);
-    if (minimumHarvesterTask) {
-      return minimumHarvesterTask;
     }
 
     const source = selectHarvestSource(creep);
@@ -721,13 +721,19 @@ function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
     return false;
   }
 
+  const workerCreeps = roomCreeps.filter(isWorkerCreep);
+  const hasSpawnExtensionEnergyDeficit = hasRoomSpawnExtensionEnergyDeficit(creep.room);
   const hasBuildDeadlockSignal =
-    roomCreeps.some(isZeroEnergyBuildWorker) ||
-    (roomCreeps.length > 0 && roomCreeps.every(isBuildAssignedWorker));
+    (workerCreeps.length > 1 && roomCreeps.some(isZeroEnergyBuildWorker)) ||
+    (workerCreeps.length > 1 && workerCreeps.every(isBuildAssignedWorker));
+  const hasGenericDeadlockSignal =
+    (workerCreeps.length > 1 && workerCreeps.every(isAssignedNonHarvestWorker)) ||
+    (hasSpawnExtensionEnergyDeficit && workerCreeps.some(isAssignedNonHarvestWorker));
 
   return (
     hasBuildDeadlockSignal ||
-    (isBuildAssignedWorker(creep) && hasRoomSpawnExtensionEnergyDeficit(creep.room))
+    hasGenericDeadlockSignal ||
+    (isBuildAssignedWorker(creep) && hasSpawnExtensionEnergyDeficit)
   );
 }
 
@@ -756,6 +762,14 @@ function isAssignedHarvestCreep(creep: Creep): boolean {
     task?.type === 'harvest' ||
     (creep.memory?.role === SOURCE_HARVESTER_ROLE && typeof creep.memory.sourceHarvester?.sourceId === 'string')
   );
+}
+
+function isWorkerCreep(creep: Creep): boolean {
+  return creep.memory?.role === 'worker';
+}
+
+function isAssignedNonHarvestWorker(creep: Creep): boolean {
+  return isWorkerCreep(creep) && creep.memory.task !== undefined && creep.memory.task.type !== 'harvest';
 }
 
 function isZeroEnergyBuildWorker(creep: Creep): boolean {
