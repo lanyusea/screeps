@@ -2399,6 +2399,7 @@ def render_room_snapshot(
 
 
 def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, Any]:
+    info = snapshot.info if isinstance(snapshot.info, dict) else {}
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
     structures = structure_objects(snapshot.objects)
     owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
@@ -2418,6 +2419,9 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "owner": snapshot.owner,
         "expected_owner": snapshot.expected_owner,
         "expected_owner_id": snapshot.expected_owner_id,
+        "energyCapacity": number_value(info.get("energyCapacity") or info.get("energyCapacityAvailable")),
+        "energyCapacityAvailable": number_value(info.get("energyCapacityAvailable")),
+        "energyBufferHealth": as_dict(info.get("energyBufferHealth")),
     }
     if image:
         summary["image"] = image
@@ -2748,6 +2752,70 @@ def threshold_exceeds_capacity_reason(room: dict[str, Any]) -> dict[str, Any] | 
     }
 
 
+def runtime_summary_lookup_keys(room: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and room_ref:
+        keys.append(room_ref)
+
+    room_name = runtime_summary_room_name(room)
+    shard = runtime_summary_room_shard(room)
+    if shard and room_name:
+        keys.append(f"{shard}/{room_name}")
+    if room_name:
+        keys.append(room_name)
+
+    return list(dict.fromkeys(keys))
+
+
+def load_runtime_summary_artifact_rooms(artifact_path: str) -> dict[str, dict[str, Any]]:
+    try:
+        lines = Path(artifact_path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for line in reversed(lines):
+        payload = parse_runtime_summary_line(line)
+        if payload is None:
+            continue
+        for room in payload_runtime_rooms(payload):
+            if not runtime_summary_room_has_worker_idle_fields(room):
+                continue
+            for key in runtime_summary_lookup_keys(room):
+                result.setdefault(key, room)
+        if result:
+            return result
+
+    return result
+
+
+def enrich_room_summaries_from_runtime_artifact(room_summaries: list[Any], artifact_path: str) -> None:
+    runtime_rooms = load_runtime_summary_artifact_rooms(artifact_path)
+    if not runtime_rooms:
+        return
+
+    for room in room_summaries:
+        if not isinstance(room, dict):
+            continue
+        runtime_room = next((runtime_rooms[key] for key in runtime_summary_lookup_keys(room) if key in runtime_rooms), None)
+        if runtime_room is None:
+            continue
+
+        if number_value(room.get("energyCapacity")) is None:
+            capacity = number_value(runtime_room.get("energyCapacity"))
+            if capacity is not None:
+                room["energyCapacity"] = capacity
+        if number_value(room.get("energyCapacityAvailable")) is None:
+            capacity_available = number_value(runtime_room.get("energyCapacityAvailable"))
+            if capacity_available is not None:
+                room["energyCapacityAvailable"] = capacity_available
+        if not as_dict(room.get("energyBufferHealth")):
+            buffer_health = as_dict(runtime_room.get("energyBufferHealth"))
+            if buffer_health:
+                room["energyBufferHealth"] = buffer_health
+
+
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     if summary_payload.get("ok") is not True:
@@ -2760,6 +2828,9 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                 reasons.append({"kind": "postdeploy_active_alert", "message": reason.get("message", "runtime alert active"), "source": reason})
 
     room_summaries = summary_payload.get("room_summaries")
+    artifact_path = summary_payload.get("runtime_summary_artifact")
+    if isinstance(room_summaries, list) and isinstance(artifact_path, str):
+        enrich_room_summaries_from_runtime_artifact(room_summaries, artifact_path)
     if not isinstance(room_summaries, list) or not room_summaries:
         reasons.append({"kind": "postdeploy_no_room_summary", "message": "post-deploy summary has no room_summaries"})
     else:
@@ -3395,6 +3466,27 @@ def command_self_test(_args: argparse.Namespace) -> int:
                 self.assertIn(label, svg)
             self.assertIn('stroke-dasharray="2 2"', svg)
 
+    class SummaryTests(unittest.TestCase):
+        def test_room_summary_includes_energy_fields_from_snapshot_info(self) -> None:
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects({}),
+                tick=1,
+                owner="owner",
+                info={
+                    "energyCapacity": 300,
+                    "energyCapacityAvailable": 250,
+                    "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                },
+            )
+
+            summary = room_summary(snapshot)
+
+            self.assertEqual(summary["energyCapacity"], 300)
+            self.assertEqual(summary["energyCapacityAvailable"], 250)
+            self.assertEqual(summary["energyBufferHealth"], {"currentEnergy": 250, "threshold": 300, "healthy": False})
+
     class TacticalResponseTests(unittest.TestCase):
         def test_tactical_response_keeps_no_alert_silent(self) -> None:
             report = build_tactical_response_report(
@@ -3448,6 +3540,64 @@ def command_self_test(_args: argparse.Namespace) -> int:
             )
 
             self.assertTrue(result["ok"])
+
+        def test_postdeploy_health_gate_enriches_energy_fields_from_runtime_summary_artifact(self) -> None:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                artifact = Path(temp_dir) / "runtime-summary.log"
+                old_payload = {
+                    "type": "runtime-summary",
+                    "rooms": [
+                        {
+                            "roomName": "E1N1",
+                            "shard": "shardTest",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 250},
+                        }
+                    ],
+                }
+                latest_payload = {
+                    "type": "runtime-summary",
+                    "rooms": [
+                        {
+                            "roomName": "E1N1",
+                            "shard": "shardTest",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 350},
+                        }
+                    ],
+                }
+                artifact.write_text(
+                    "ignored\n"
+                    + RUNTIME_SUMMARY_PREFIX
+                    + json.dumps(old_payload)
+                    + "\n"
+                    + RUNTIME_SUMMARY_PREFIX
+                    + json.dumps(latest_payload)
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                result = evaluate_postdeploy_health_gate(
+                    {
+                        "ok": True,
+                        "mode": "summary",
+                        "runtime_summary_artifact": str(artifact),
+                        "room_summaries": [
+                            {
+                                "room": "shardTest/E1N1",
+                                "name": "E1N1",
+                                "owned_creeps": 1,
+                                "owned_spawns": 1,
+                                "owner": "owner",
+                            }
+                        ],
+                    },
+                    {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+                )
+
+            self.assertFalse(result["ok"])
+            threshold_reason = next(reason for reason in result["reasons"] if reason["kind"] == "threshold_exceeds_capacity")
+            self.assertEqual(threshold_reason["threshold"], 350)
 
         def test_postdeploy_health_gate_rejects_threshold_above_capacity_in_any_room(self) -> None:
             result = evaluate_postdeploy_health_gate(
