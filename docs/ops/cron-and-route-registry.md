@@ -7,9 +7,9 @@ This registry keeps the minimum cron/channel contract in one place. Cron prompts
 
 ## Current target
 
-- Official bot deployment and gameplay target: `main / shardX / E26S49`.
+- Official bot deployment and gameplay target: `main / shardX / E24S49`.
 - Runtime monitoring and alerting jobs (`befcbb7b2d60`, `1df5ef0c3835`) auto-discover all owned rooms via `/api/user/overview` and are not constrained to the single-room target.
-- Old room references (`E48S28`, `E48S29`) are historical/superseded unless explicitly retargeted by the owner.
+- Old room references (`E48S28`, `E48S29`, `E26S49`) are historical/superseded unless explicitly retargeted by the owner.
 
 ## Discord routes
 
@@ -42,13 +42,13 @@ When using raw IDs and named channels together, this registry is the comparison 
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | Research/RL progress fanout. |
 | Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout. |
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | 6h health/progress report. |
-| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | 8h strategy review for current target `E26S49`. |
+| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | 8h strategy review for current target `E24S49`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | Archive accepted strategy decisions/current strategy. |
 | Screeps RL flywheel steward | `aed8362e4501` | `17 */6 * * *` | `discord:#task-queue` | P1 RL flywheel progress lane. |
 
 ## Cron prompt drift rules
 
-- Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E26S49` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
+- Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E24S49` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
 - Gameplay Evolution cadence is 8h, not 12h.
 - The P0 monitor should audit this registry's expected jobs and should not treat intentional schedule/debug changes as abnormal unless the current registry says they are unhealthy.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
