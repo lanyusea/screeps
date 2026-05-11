@@ -79,7 +79,7 @@ describe('claimed room bootstrapper', () => {
     });
     (room as Room & { memory?: RoomMemory }).memory = {};
     const homeRoom = {
-      name: 'E26S49',
+      name: 'E24S49',
       controller: { my: true },
       energyAvailable: 650,
       energyCapacityAvailable: 650
@@ -93,7 +93,7 @@ describe('claimed room bootstrapper', () => {
       },
       targets: [
         {
-          colony: 'E26S49',
+          colony: 'E24S49',
           roomName: 'E26S50',
           action: 'claim',
           createdBy: 'nextExpansionScoring',
@@ -109,7 +109,7 @@ describe('claimed room bootstrapper', () => {
 
     expect(result.detectedRoomNames).toEqual(['E26S50']);
     expect(Memory.territory?.postClaimBootstraps?.E26S50).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S50',
       status: 'spawnSitePending',
       claimedAt: 837,
@@ -130,7 +130,7 @@ describe('claimed room bootstrapper', () => {
         expect.objectContaining({
           type: 'postClaimBootstrap',
           roomName: 'E26S50',
-          colony: 'E26S49',
+          colony: 'E24S49',
           phase: 'spawnSite'
         })
       ])
@@ -146,7 +146,7 @@ describe('claimed room bootstrapper', () => {
       })
     );
     const homeRoom = {
-      name: 'E26S49',
+      name: 'E24S49',
       controller: { my: true, level: 4 },
       energyAvailable: 650,
       energyCapacityAvailable: 650
@@ -172,7 +172,7 @@ describe('claimed room bootstrapper', () => {
     for (const { room } of secondaryRooms) {
       const previousRoom = previousRooms[room.name as keyof typeof previousRooms];
       expect(Memory.territory?.postClaimBootstraps?.[room.name]).toMatchObject({
-        colony: 'E26S49',
+        colony: 'E24S49',
         roomName: room.name,
         status: 'spawnSitePending',
         claimedAt: previousRoom.claimedAt,
@@ -195,7 +195,7 @@ describe('claimed room bootstrapper', () => {
           expect.objectContaining({
             type: 'spawnSitePlaced',
             roomName: room.name,
-            colony: 'E26S49',
+            colony: 'E24S49',
             spawnSite: { roomName: room.name, x: 23, y: 23 }
           })
         )
@@ -210,7 +210,7 @@ describe('claimed room bootstrapper', () => {
       sources: [makeSource('e26s48-source-a', 21, 21, 'E26S48')]
     });
     const homeRoom = {
-      name: 'E26S49',
+      name: 'E24S49',
       controller: { my: true, level: 4 },
       energyAvailable: 650,
       energyCapacityAvailable: 650
@@ -230,7 +230,7 @@ describe('claimed room bootstrapper', () => {
 
     expect(result.detectedRoomNames).toEqual(['E26S48']);
     expect(Memory.territory?.postClaimBootstraps?.E26S48).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S48',
       status: 'spawnSitePending',
       claimedAt: 786700,

@@ -1,6 +1,6 @@
 import type { RoomStoredEnergyState } from './storageBalancer';
 
-export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ['E26S48', 'E26S49', 'E26S50'] as const;
+export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ['E26S48', 'E24S49', 'E26S50'] as const;
 export const MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 
 export type MultiRoomEnergyTransferAuditStatus = 'planned' | 'suppressed' | 'blocked';

@@ -9,15 +9,15 @@ export interface TerritoryExpansionScoutTargetConfig {
 
 export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScoutTargetConfig[] = [
   {
-    colony: 'E26S49',
+    colony: 'E24S49',
     roomName: 'E26S50',
-    nearestOwnedRoom: 'E26S49',
+    nearestOwnedRoom: 'E24S49',
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true
   },
   {
-    colony: 'E26S49',
+    colony: 'E24S49',
     roomName: 'E26S47',
     nearestOwnedRoom: 'E26S48',
     nearestOwnedRoomDistance: 1,

@@ -102,7 +102,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
     expect(refreshExpansionExecutorIntent(home, 900)).toMatchObject({
       status: 'planned',
-      colony: 'E26S49',
+      colony: 'E24S49',
       targetRoom: 'E26S47',
       controllerId: 'controller-e26s47'
     });
@@ -110,10 +110,10 @@ describe('E26S47 claimer dispatch and buildout', () => {
     expect(planSpawn(home, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 901)).toEqual({
       spawn: home.spawns[0],
       body: ['claim', 'move'],
-      name: 'claimer-E26S49-E26S47-901',
+      name: 'claimer-E24S49-E26S47-901',
       memory: {
         role: 'claimer',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
           targetRoom: 'E26S47',
           action: 'claim',
@@ -171,7 +171,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
     expect(Memory.territory?.targets).toEqual([]);
     expect(Memory.territory?.intents).toEqual([]);
     expect(Memory.territory?.postClaimBootstraps?.E26S47).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S47',
       status: 'spawnSitePending',
       claimedAt: 911,
@@ -180,19 +180,19 @@ describe('E26S47 claimer dispatch and buildout', () => {
     });
     expect(successEvents).toContainEqual({
       type: 'territoryClaim',
-      roomName: 'E26S49',
-      colony: 'E26S49',
+      roomName: 'E24S49',
+      colony: 'E24S49',
       phase: 'claim',
       targetRoom: 'E26S47',
       controllerId: 'controller-e26s47',
-      creepName: 'claimer-E26S49-E26S47',
+      creepName: 'claimer-E24S49-E26S47',
       result: OK_CODE
     });
     expect(successEvents).toContainEqual(
       expect.objectContaining({
         type: 'postClaimBootstrap',
         roomName: 'E26S47',
-        colony: 'E26S49',
+        colony: 'E24S49',
         phase: 'spawnSite',
         result: OK_CODE
       })
@@ -213,7 +213,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
     Memory.territory = {
       postClaimBootstraps: {
         E26S47: {
-          colony: 'E26S49',
+          colony: 'E24S49',
           roomName: 'E26S47',
           status: 'spawningWorkers',
           claimedAt: 910,
@@ -228,13 +228,13 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
     const telemetryEvents: RuntimeTelemetryEvent[] = [];
     recordPostClaimBootstrapClaimSuccess({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S47',
       controllerId: 'controller-e26s47' as Id<StructureController>
     }, telemetryEvents);
 
     expect(Memory.territory.postClaimBootstraps?.E26S47).toEqual({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S47',
       status: 'spawningWorkers',
       claimedAt: 910,
@@ -247,7 +247,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
     expect(telemetryEvents).toContainEqual({
       type: 'postClaimBootstrap',
       roomName: 'E26S47',
-      colony: 'E26S49',
+      colony: 'E24S49',
       phase: 'spawningWorkers',
       controllerId: 'controller-e26s47',
       workerTarget: 3
@@ -315,11 +315,11 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
 function makeHomeColony(): ColonySnapshot {
   const room = makeRoom({
-    roomName: 'E26S49',
+    roomName: 'E24S49',
     controllerLevel: 4,
     sources: [
-      makeSource('source-e26s49-a', 10, 10, 'E26S49'),
-      makeSource('source-e26s49-b', 40, 40, 'E26S49')
+      makeSource('source-e26s49-a', 10, 10, 'E24S49'),
+      makeSource('source-e26s49-b', 40, 40, 'E24S49')
     ]
   });
   const spawn = makeSpawn('Spawn1', room, 25, 25);
@@ -425,18 +425,18 @@ function installExpansionGame(home: ColonySnapshot, gameTime: number): void {
   (Game as Partial<Game>).map = {
     ...Game.map,
     describeExits: jest.fn((roomName: string) => {
-      if (roomName === 'E26S49') {
+      if (roomName === 'E24S49') {
         return { '5': 'E26S50', '7': 'E26S48' };
       }
 
       if (roomName === 'E26S48') {
-        return { '3': 'E26S49', '7': 'E26S47' };
+        return { '3': 'E24S49', '7': 'E26S47' };
       }
 
       return {};
     }),
     findRoute: jest.fn((fromRoom: string, toRoom: string) => {
-      if (fromRoom === 'E26S49' && toRoom === 'E26S47') {
+      if (fromRoom === 'E24S49' && toRoom === 'E26S47') {
         return [
           { exit: 7, room: 'E26S48' },
           { exit: 7, room: 'E26S47' }
@@ -480,8 +480,8 @@ function installE26S47ScoutIntel(updatedAt: number): void {
     ...(Memory.territory ?? {}),
     scoutIntel: {
       ...(Memory.territory?.scoutIntel ?? {}),
-      'E26S49>E26S47': {
-        colony: 'E26S49',
+      'E24S49>E26S47': {
+        colony: 'E24S49',
         roomName: 'E26S47',
         updatedAt,
         controller: { id: 'controller-e26s47' as Id<StructureController>, my: false },
@@ -501,8 +501,8 @@ function installE26S47ScoutIntel(updatedAt: number): void {
 function installRecommendedClaimMemory(updatedAt: number): void {
   Memory.territory = {
     expansionPipelines: {
-      E26S49: {
-        colony: 'E26S49',
+      E24S49: {
+        colony: 'E24S49',
         targetRoom: 'E26S47',
         status: 'active',
         stage: 'claiming',
@@ -516,7 +516,7 @@ function installRecommendedClaimMemory(updatedAt: number): void {
     },
     targets: [
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         roomName: 'E26S47',
         action: 'claim',
         createdBy: 'nextExpansionScoring',
@@ -525,7 +525,7 @@ function installRecommendedClaimMemory(updatedAt: number): void {
     ],
     intents: [
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         targetRoom: 'E26S47',
         action: 'claim',
         status: 'planned',
@@ -557,8 +557,8 @@ function installSafeHomeThreat(updatedAt: number): void {
     colonyThreats: {
       updatedAt,
       rooms: {
-        E26S49: {
-          roomName: 'E26S49',
+        E24S49: {
+          roomName: 'E24S49',
           level: 'none',
           updatedAt,
           hostileCreepCount: 0,
@@ -601,10 +601,10 @@ function makeClaimCreep(
   claimController: jest.Mock<ScreepsReturnCode, [StructureController]>
 ): Creep & { moveTo: jest.Mock } {
   return {
-    name: 'claimer-E26S49-E26S47',
+    name: 'claimer-E24S49-E26S47',
     memory: {
       role: 'claimer',
-      colony: 'E26S49',
+      colony: 'E24S49',
       territory: {
         targetRoom: 'E26S47',
         action: 'claim',

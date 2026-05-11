@@ -48,19 +48,19 @@ describe('E26S50 claim pipeline', () => {
   it('plans a direct E26S50 claim from viable legacy scout evidence', () => {
     const colony = makeColony();
     setGame(colony, 822);
-    setSafeHomeThreat('E26S49', 822);
+    setSafeHomeThreat('E24S49', 822);
     Memory.scout = {
       E26S50: makeLegacyScoutIntel()
     };
 
     expect(refreshExpansionExecutorIntent(colony, 822)).toMatchObject({
       status: 'planned',
-      colony: 'E26S49',
+      colony: 'E24S49',
       targetRoom: 'E26S50',
       controllerId: 'controller-e26s50'
     });
-    expect(Memory.territory?.expansionPipelines?.E26S49).toMatchObject({
-      colony: 'E26S49',
+    expect(Memory.territory?.expansionPipelines?.E24S49).toMatchObject({
+      colony: 'E24S49',
       targetRoom: 'E26S50',
       status: 'active',
       stage: 'claiming',
@@ -69,7 +69,7 @@ describe('E26S50 claim pipeline', () => {
     });
     expect(Memory.territory?.targets).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         roomName: 'E26S50',
         action: 'claim',
         createdBy: 'nextExpansionScoring',
@@ -79,7 +79,7 @@ describe('E26S50 claim pipeline', () => {
     ]);
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         targetRoom: 'E26S50',
         action: 'claim',
         status: 'planned',
@@ -94,30 +94,30 @@ describe('E26S50 claim pipeline', () => {
   it('triggers an E26S50 claim at RCL 3 when GCL capacity and claim energy are ready', () => {
     const colony = makeColony({ controllerLevel: 3 });
     setGame(colony, 827, { includeE26S48: true, gclLevel: 3 });
-    setSafeHomeThreat('E26S49', 827);
+    setSafeHomeThreat('E24S49', 827);
     Memory.scout = {
       E26S50: makeLegacyScoutIntel()
     };
 
     expect(refreshExpansionExecutorIntent(colony, 827)).toMatchObject({
       status: 'planned',
-      colony: 'E26S49',
+      colony: 'E24S49',
       targetRoom: 'E26S50',
       controllerId: 'controller-e26s50'
     });
     expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       roomName: 'E26S50',
       evidenceStatus: 'sufficient',
       recommendedAction: 'claim',
-      nearestOwnedRoom: 'E26S49',
+      nearestOwnedRoom: 'E24S49',
       nearestOwnedRoomDistance: 1,
       routeDistance: 1
     });
     expect(Memory.territory?.expansionCandidates?.[0]).not.toHaveProperty('preconditions');
     expect(Memory.territory?.targets).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         roomName: 'E26S50',
         action: 'claim',
         createdBy: 'nextExpansionScoring',
@@ -135,17 +135,17 @@ describe('E26S50 claim pipeline', () => {
       energyCapacityAvailable: 800
     });
     setGame(colony, 828, { includeE26S48: true, gclLevel: 3 });
-    setSafeHomeThreat('E26S49', 828);
+    setSafeHomeThreat('E24S49', 828);
     Memory.scout = {
       E26S50: makeLegacyScoutIntel()
     };
 
     expect(refreshExpansionExecutorIntent(colony, 828)).toEqual({
       status: 'skipped',
-      colony: 'E26S49',
+      colony: 'E24S49',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.expansionPipelines?.E26S49).toBeUndefined();
+    expect(Memory.territory?.expansionPipelines?.E24S49).toBeUndefined();
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
@@ -158,14 +158,14 @@ describe('E26S50 claim pipeline', () => {
   ])('does not claim E26S50 from %s', (_label, overrides: Partial<TerritoryScoutIntelMemory>) => {
     const colony = makeColony();
     setGame(colony, 823);
-    setSafeHomeThreat('E26S49', 823);
+    setSafeHomeThreat('E24S49', 823);
     Memory.scout = {
       E26S50: makeLegacyScoutIntel(overrides)
     };
 
     expect(refreshExpansionExecutorIntent(colony, 823)).toEqual({
       status: 'skipped',
-      colony: 'E26S49',
+      colony: 'E24S49',
       reason: 'unavailable'
     });
     expect(Memory.territory?.targets).toBeUndefined();
@@ -180,8 +180,8 @@ describe('E26S50 claim pipeline', () => {
     };
     Memory.territory = {
       expansionPipelines: {
-        E26S49: {
-          colony: 'E26S49',
+        E24S49: {
+          colony: 'E24S49',
           targetRoom: 'E26S50',
           status: 'active',
           stage: 'claiming',
@@ -195,7 +195,7 @@ describe('E26S50 claim pipeline', () => {
       },
       targets: [
         {
-          colony: 'E26S49',
+          colony: 'E24S49',
           roomName: 'E26S50',
           action: 'claim',
           createdBy: 'nextExpansionScoring',
@@ -204,7 +204,7 @@ describe('E26S50 claim pipeline', () => {
       ],
       intents: [
         {
-          colony: 'E26S49',
+          colony: 'E24S49',
           targetRoom: 'E26S50',
           action: 'claim',
           status: 'planned',
@@ -218,10 +218,10 @@ describe('E26S50 claim pipeline', () => {
     expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 824)).toEqual({
       spawn: colony.spawns[0],
       body: ['claim', 'move'],
-      name: 'claimer-E26S49-E26S50-824',
+      name: 'claimer-E24S49-E26S50-824',
       memory: {
         role: 'claimer',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
           targetRoom: 'E26S50',
           action: 'claim',
@@ -243,12 +243,12 @@ describe('E26S50 claim pipeline', () => {
         825
       )
     ).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       targetRoom: 'E26S50',
       action: 'claim',
       controllerId: 'controller-e26s50'
     });
-    expect(Memory.territory?.expansionPipelines?.E26S49).toMatchObject({
+    expect(Memory.territory?.expansionPipelines?.E24S49).toMatchObject({
       stage: 'claiming',
       claimState: 'claiming',
       updatedAt: 825
@@ -265,17 +265,17 @@ describe('E26S50 claim pipeline', () => {
       getObjectById: jest.fn().mockReturnValue(controller)
     };
     const creep = {
-      name: 'claimer-E26S49-E26S50-826',
+      name: 'claimer-E24S49-E26S50-826',
       memory: {
         role: 'claimer',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
           targetRoom: 'E26S50',
           action: 'claim',
           controllerId: 'controller-e26s50' as Id<StructureController>
         }
       },
-      room: { name: 'E26S49' },
+      room: { name: 'E24S49' },
       moveTo: jest.fn(),
       claimController: jest.fn()
     } as unknown as Creep;
@@ -286,7 +286,7 @@ describe('E26S50 claim pipeline', () => {
     expect(creep.claimController).not.toHaveBeenCalled();
   });
 
-  it('dispatches a dedicated E26S50 post-claim upgrader from E26S49 once the spawn site is pending', () => {
+  it('dispatches a dedicated E26S50 post-claim upgrader from E24S49 once the spawn site is pending', () => {
     const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     setGame(colony, 839);
     const claimedRoom = {
@@ -307,7 +307,7 @@ describe('E26S50 claim pipeline', () => {
     Memory.territory = {
       postClaimBootstraps: {
         E26S50: {
-          colony: 'E26S49',
+          colony: 'E24S49',
           roomName: 'E26S50',
           status: 'spawnSitePending',
           claimedAt: 837,
@@ -322,12 +322,12 @@ describe('E26S50 claim pipeline', () => {
 
     expect(planSpawn(colony, { worker: 4 }, 839)).toMatchObject({
       spawn: colony.spawns[0],
-      name: 'worker-E26S49-E26S50-upgrader-839',
+      name: 'worker-E24S49-E26S50-upgrader-839',
       memory: {
         role: 'worker',
         colony: 'E26S50',
         territory: { targetRoom: 'E26S50', action: 'claim', controllerId: 'controller-e26s50' },
-        controllerSustain: { homeRoom: 'E26S49', targetRoom: 'E26S50', role: 'upgrader' }
+        controllerSustain: { homeRoom: 'E24S49', targetRoom: 'E26S50', role: 'upgrader' }
       }
     });
   });
@@ -343,7 +343,7 @@ function makeColony({
   energyCapacityAvailable?: number;
 } = {}): ColonySnapshot {
   const room = {
-    name: 'E26S49',
+    name: 'E24S49',
     energyAvailable,
     energyCapacityAvailable,
     controller: {
@@ -358,7 +358,7 @@ function makeColony({
         getUsedCapacity: jest.fn(() => 0)
       }
     },
-    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('E26S49') : [])),
+    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('E24S49') : [])),
     memory: {}
   } as unknown as Room & { memory: RoomMemory };
   const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
@@ -385,7 +385,7 @@ function setGame(
   } = {}
 ): void {
   const rooms: Record<string, Room> = {
-    E26S49: colony.room
+    E24S49: colony.room
   };
   if (includeE26S48) {
     rooms.E26S48 = makeOwnedRoom('E26S48');
@@ -396,7 +396,7 @@ function setGame(
     rooms,
     ...(gclLevel !== undefined ? { gcl: { level: gclLevel, progress: 0, progressTotal: 1 } } : {}),
     map: {
-      describeExits: jest.fn((roomName: string) => (roomName === 'E26S49' ? { '5': 'E26S50' } : {}))
+      describeExits: jest.fn((roomName: string) => (roomName === 'E24S49' ? { '5': 'E26S50' } : {}))
     } as unknown as GameMap
   };
 }

@@ -506,9 +506,9 @@ describe('runtime telemetry summaries', () => {
   it('reports E26S50 post-claim construction, energy, and defense progress after worker readiness', () => {
     const remoteHarvester = makeWorker({
       role: 'remoteHarvester',
-      colony: 'E26S49',
+      colony: 'E24S49',
       remoteHarvester: {
-        homeRoom: 'E26S49',
+        homeRoom: 'E24S49',
         targetRoom: 'E26S50',
         sourceId: 'e26s50-source-a' as Id<Source>
       }
@@ -556,7 +556,7 @@ describe('runtime telemetry summaries', () => {
       territory: {
         postClaimBootstraps: {
           E26S50: {
-            colony: 'E26S49',
+            colony: 'E24S49',
             roomName: 'E26S50',
             status: 'ready',
             claimedAt: 837,
@@ -578,7 +578,7 @@ describe('runtime telemetry summaries', () => {
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
-      describeExits: jest.fn(() => ({ '5': 'E26S49' }))
+      describeExits: jest.fn(() => ({ '5': 'E24S49' }))
     } as unknown as GameMap;
     (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
       RemoteHarvester: remoteHarvester
@@ -589,7 +589,7 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.postClaimBootstrap).toMatchObject({
-      colony: 'E26S49',
+      colony: 'E24S49',
       status: 'ready',
       controllerId: 'controller-e26s50',
       progress: {

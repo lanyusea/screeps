@@ -157,7 +157,7 @@ describe('claimed room construction planner', () => {
       territory: {
         postClaimBootstraps: {
           E26S50: {
-            colony: 'E26S49',
+            colony: 'E24S49',
             roomName: 'E26S50',
             status: 'spawningWorkers',
             claimedAt: 837,

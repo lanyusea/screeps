@@ -28,12 +28,12 @@ describe('configured territory expansion scoring', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
-  it('scores E26S50 as the nearest configured expansion candidate for E26S49', () => {
-    const colony = makeColony('E26S49');
+  it('scores E26S50 as the nearest configured expansion candidate for E24S49', () => {
+    const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 840,
       rooms: {
-        E26S49: colony.room,
+        E24S49: colony.room,
         E26S48: makeOwnedRoom('E26S48')
       },
       map: {
@@ -50,7 +50,7 @@ describe('configured territory expansion scoring', () => {
       evidenceStatus: 'insufficient-evidence',
       visible: false,
       adjacentToOwnedRoom: true,
-      nearestOwnedRoom: 'E26S49',
+      nearestOwnedRoom: 'E24S49',
       nearestOwnedRoomDistance: 1,
       routeDistance: 1
     });
@@ -62,11 +62,11 @@ describe('configured territory expansion scoring', () => {
   });
 
   it('scores E26S47 for scouting once E26S48 is owned', () => {
-    const colony = makeColony('E26S49');
+    const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
       rooms: {
-        E26S49: colony.room,
+        E24S49: colony.room,
         E26S48: makeOwnedRoom('E26S48')
       },
       map: {
@@ -98,11 +98,11 @@ describe('configured territory expansion scoring', () => {
   });
 
   it('keeps E26S47 out of runtime scoring before E26S48 is owned', () => {
-    const colony = makeColony('E26S49');
+    const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
       rooms: {
-        E26S49: colony.room
+        E24S49: colony.room
       },
       map: {
         describeExits: jest.fn(() => ({})),

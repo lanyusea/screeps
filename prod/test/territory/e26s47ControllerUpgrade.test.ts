@@ -28,28 +28,28 @@ describe('E26S47 controller upgrade progression', () => {
   });
 
   it('dispatches a multi-room upgrader for claimed E26S47 below the post-claim desired RCL without waiting for storage surplus', () => {
-    const home = makeColony('E26S49', { controllerLevel: 4, energyAvailable: 650, energyCapacityAvailable: 650 });
+    const home = makeColony('E24S49', { controllerLevel: 4, energyAvailable: 650, energyCapacityAvailable: 650 });
     const targetRoom = makeRoom('E26S47', { controllerLevel: 2, energyAvailable: 300, energyCapacityAvailable: 300 });
     const targetSpawn = makeSpawn('Spawn-E26S47', targetRoom);
     installGame(home, targetRoom, targetSpawn, 1_000);
-    installPostClaimMemory('E26S49', 'E26S47', 995, 'ready');
+    installPostClaimMemory('E24S49', 'E26S47', 995, 'ready');
 
     expect(
       planSpawn(home, { worker: 3 }, 1_000, { controllerUpgradeTargetRooms: ['E26S47'] })
     ).toEqual({
       spawn: home.spawns[0],
       body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
-      name: 'worker-E26S49-E26S47-multiroom-upgrader-1000',
+      name: 'worker-E24S49-E26S47-multiroom-upgrader-1000',
       memory: {
         role: 'worker',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
           targetRoom: 'E26S47',
           action: 'claim',
           controllerId: 'controller-e26s47'
         },
         controllerSustain: {
-          homeRoom: 'E26S49',
+          homeRoom: 'E24S49',
           targetRoom: 'E26S47',
           role: 'upgrader'
         }
@@ -91,18 +91,18 @@ describe('E26S47 controller upgrade progression', () => {
   });
 
   it('keeps home worker recovery ahead of E26S47 post-claim RCL progression spending', () => {
-    const home = makeColony('E26S49', { controllerLevel: 4, energyAvailable: 650, energyCapacityAvailable: 650 });
+    const home = makeColony('E24S49', { controllerLevel: 4, energyAvailable: 650, energyCapacityAvailable: 650 });
     const targetRoom = makeRoom('E26S47', { controllerLevel: 2, energyAvailable: 300, energyCapacityAvailable: 300 });
     const targetSpawn = makeSpawn('Spawn-E26S47', targetRoom);
     installGame(home, targetRoom, targetSpawn, 1_002);
-    installPostClaimMemory('E26S49', 'E26S47', 995, 'ready');
+    installPostClaimMemory('E24S49', 'E26S47', 995, 'ready');
 
     expect(
       planSpawn(home, { worker: 3, workerCapacity: 2 }, 1_002, { controllerUpgradeTargetRooms: ['E26S47'] })
     ).toMatchObject({
       spawn: home.spawns[0],
-      name: 'worker-E26S49-1002',
-      memory: { role: 'worker', colony: 'E26S49' }
+      name: 'worker-E24S49-1002',
+      memory: { role: 'worker', colony: 'E24S49' }
     });
   });
 });

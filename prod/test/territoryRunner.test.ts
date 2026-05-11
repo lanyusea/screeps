@@ -200,7 +200,7 @@ describe('runTerritoryControllerCreep', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
       rooms: {
-        E26S49: { name: 'E26S49' } as Room
+        E24S49: { name: 'E24S49' } as Room
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
@@ -208,7 +208,7 @@ describe('runTerritoryControllerCreep', () => {
       territory: {
         intents: [
           {
-            colony: 'E26S49',
+            colony: 'E24S49',
             targetRoom: 'E26S47',
             action: 'scout',
             status: 'planned',
@@ -219,15 +219,15 @@ describe('runTerritoryControllerCreep', () => {
     };
     const creep = {
       name: 'ScoutE26S50',
-      memory: { role: 'scout', colony: 'E26S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
+      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
       room: makeScoutRoom('E26S50'),
       moveTo: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);
 
-    expect(Memory.territory?.scoutIntel?.['E26S49>E26S50']).toMatchObject({
-      colony: 'E26S49',
+    expect(Memory.territory?.scoutIntel?.['E24S49>E26S50']).toMatchObject({
+      colony: 'E24S49',
       roomName: 'E26S50',
       updatedAt: 841,
       scoutName: 'ScoutE26S50'
@@ -240,19 +240,19 @@ describe('runTerritoryControllerCreep', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 842,
       rooms: {
-        E26S49: { name: 'E26S49' } as Room
+        E24S49: { name: 'E24S49' } as Room
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        intents: [null, 42, { colony: 'E26S49', action: 'scout', status: 'planned' }],
+        intents: [null, 42, { colony: 'E24S49', action: 'scout', status: 'planned' }],
         scoutAttempts: {
           badNull: null,
           badPrimitive: 42,
-          missingRoom: { colony: 'E26S49', status: 'requested' },
+          missingRoom: { colony: 'E24S49', status: 'requested' },
           valid: {
-            colony: 'E26S49',
+            colony: 'E24S49',
             roomName: 'E26S47',
             status: 'requested',
             requestedAt: 841,
@@ -264,7 +264,7 @@ describe('runTerritoryControllerCreep', () => {
     };
     const creep = {
       name: 'ScoutE26S50',
-      memory: { role: 'scout', colony: 'E26S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
+      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
       room: makeScoutRoom('E26S50'),
       moveTo: jest.fn()
     } as unknown as Creep;

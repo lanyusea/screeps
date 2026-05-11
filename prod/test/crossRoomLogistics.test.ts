@@ -134,7 +134,7 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('audits E26S48 local energy as sufficient before importing from E26S49', () => {
+  it('audits E26S48 local energy as sufficient before importing from E24S49', () => {
     const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -153,7 +153,7 @@ describe('cross-room energy logistics', () => {
       }
     };
 
-    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E24S49', storedEnergy: 100 })).toMatchObject({
       enabled: true,
       sourceRoomAllowed: true,
       localEnergy: 550,
@@ -165,7 +165,7 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('audits E26S50 local energy as sufficient before importing from E26S49', () => {
+  it('audits E26S50 local energy as sufficient before importing from E24S49', () => {
     const sourceContainer = makeContainer('E26S50-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S50',
@@ -184,7 +184,7 @@ describe('cross-room energy logistics', () => {
       }
     };
 
-    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E24S49', storedEnergy: 100 })).toMatchObject({
       enabled: true,
       sourceRoomAllowed: true,
       localEnergy: 550,
@@ -196,8 +196,8 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('suppresses routine E26S49 to E26S48 transfers when local harvesting is sufficient', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+  it('suppresses routine E24S49 to E26S48 transfers when local harvesting is sufficient', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -226,8 +226,8 @@ describe('cross-room energy logistics', () => {
     expect(planCrossRoomHauler()).toBeNull();
   });
 
-  it('routes E26S49 surplus to E26S50 when E26S48 local-first energy is sufficient', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+  it('routes E24S49 surplus to E26S50 when E26S48 local-first energy is sufficient', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const e26s48SourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
     const localFirstRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -253,7 +253,7 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S50', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E26S50', amount: 150, updatedAt: 100 }
     ]);
     expect(Memory.economy?.multiRoomEnergy?.rooms.E26S48).toMatchObject({
       localProductionEnergyPerTick: 10,
@@ -262,7 +262,7 @@ describe('cross-room energy logistics', () => {
       suppressedImportEnergy: 150,
       bottleneck: 'local-first-sufficient'
     });
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S49).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E24S49).toMatchObject({
       plannedExportEnergy: 150,
       surplusEnergy: 0
     });
@@ -274,7 +274,7 @@ describe('cross-room energy logistics', () => {
     });
     expect(Memory.economy?.multiRoomEnergy?.transfers).toEqual([
       {
-        sourceRoom: 'E26S49',
+        sourceRoom: 'E24S49',
         targetRoom: 'E26S48',
         amount: 150,
         status: 'suppressed',
@@ -282,7 +282,7 @@ describe('cross-room energy logistics', () => {
         updatedAt: 100
       },
       {
-        sourceRoom: 'E26S49',
+        sourceRoom: 'E24S49',
         targetRoom: 'E26S50',
         amount: 150,
         status: 'planned',
@@ -298,7 +298,7 @@ describe('cross-room energy logistics', () => {
       }
     ]);
     expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S50'
     });
   });
@@ -348,7 +348,7 @@ describe('cross-room energy logistics', () => {
   });
 
   it('imports to E26S48 when local energy falls below the configured threshold', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -377,16 +377,16 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
     ]);
     expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S48'
     });
   });
 
   it('reuses the E26S48 local energy structure scan across multiple storage exporters', () => {
-    const primarySourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const primarySourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const secondarySourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E26S48-source-container', 100, 2_000);
     const targetRoom = makeOwnedRoom({
@@ -400,7 +400,7 @@ describe('cross-room energy logistics', () => {
         rooms: {
           E26S48: {
             importThreshold: 700,
-            sourceRooms: ['E26S49', 'W1N1']
+            sourceRooms: ['E24S49', 'W1N1']
           }
         }
       }
@@ -412,13 +412,13 @@ describe('cross-room energy logistics', () => {
     const structureScanCount = targetFind.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
     expect(structureScanCount).toBe(1);
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 },
+      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 },
       { sourceRoom: 'W1N1', targetRoom: 'E26S48', amount: 50, updatedAt: 100 }
     ]);
   });
 
   it('preserves E26S48 emergency imports for spawn collapse prevention', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const targetOwnedStructures: AnyOwnedStructure[] = [];
     const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
     const targetRoom = makeOwnedRoom({
@@ -445,7 +445,7 @@ describe('cross-room energy logistics', () => {
 
     balanceStorage();
 
-    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E24S49', storedEnergy: 100 })).toMatchObject({
       localEnergy: 700,
       localEnergyDeficit: 0,
       localHarvestSufficient: true,
@@ -454,12 +454,12 @@ describe('cross-room energy logistics', () => {
       reason: 'spawn-collapse-risk'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 400, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 400, updatedAt: 100 }
     ]);
   });
 
   it('treats unmet spawn queue reservations as local-first import pressure', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const targetOwnedStructures: AnyOwnedStructure[] = [];
     const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
@@ -498,7 +498,7 @@ describe('cross-room energy logistics', () => {
       }
     };
 
-    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E24S49', storedEnergy: 100 })).toMatchObject({
       localEnergy: 550,
       localEnergyDeficit: 0,
       localHarvestSufficient: true,
@@ -585,9 +585,9 @@ describe('cross-room energy logistics', () => {
     expect(planCrossRoomHauler()).toBeNull();
   });
 
-  it('selects the nearest eligible source store for an E26S49 to E26S48 hauler', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
-    (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('E26S49-terminal', 850, 1_000, 2, 2);
+  it('selects the nearest eligible source store for an E24S49 to E26S48 hauler', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('E24S49-terminal', 850, 1_000, 2, 2);
     const targetRoom = makeOwnedRoom({ roomName: 'E26S48', storageEnergy: 100 });
     const sourceSpawn = makeSpawn('Spawn1', sourceRoom, 0, 1, 1);
     installGame([sourceRoom, targetRoom], [sourceSpawn]);
@@ -605,9 +605,9 @@ describe('cross-room energy logistics', () => {
     const plan = planCrossRoomHauler();
 
     expect(plan?.memory.crossRoomHauler).toMatchObject({
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S48',
-      sourceId: 'E26S49-terminal'
+      sourceId: 'E24S49-terminal'
     });
   });
 
@@ -716,7 +716,7 @@ describe('cross-room energy logistics', () => {
 
   it('keeps home-room imports ahead of a larger distant-room deficit', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E26S50', storageEnergy: 950, energyAvailable: 800 });
-    const homeRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 100 });
+    const homeRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 100 });
     const distantRoom = makeOwnedRoom({
       roomName: 'E26S48',
       storageEnergy: 0,
@@ -727,7 +727,7 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S50', targetRoom: 'E26S49', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E26S50', targetRoom: 'E24S49', amount: 150, updatedAt: 100 }
     ]);
   });
 
@@ -762,7 +762,7 @@ describe('cross-room energy logistics', () => {
   });
 
   it('imports for a local-first room when its visible source workload is depleted', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -783,14 +783,14 @@ describe('cross-room energy logistics', () => {
 
     balanceStorage();
 
-    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E24S49', storedEnergy: 100 })).toMatchObject({
       localEnergy: 700,
       localHarvestSufficient: false,
       shouldImport: true,
       reason: 'local-harvest-insufficient'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
     ]);
   });
 
@@ -1134,7 +1134,7 @@ describe('cross-room energy logistics', () => {
   });
 
   it('delivers imported energy to the nearest same-priority target in E26S48', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
     const farContainer = makeContainer('E26S48-a-container', 0, 2_000, 20, 20);
     const nearContainer = makeContainer('E26S48-z-container', 0, 2_000, 2, 2);
     const targetRoom = makeOwnedRoom({
@@ -1149,11 +1149,11 @@ describe('cross-room energy logistics', () => {
       transfer: jest.fn(() => OK_CODE),
       pos: makeRoomPosition(1, 1, 'E26S48')
     });
-    creep.memory.colony = 'E26S49';
+    creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S48',
-      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
       route: ['E26S48']
     };
@@ -1165,7 +1165,7 @@ describe('cross-room energy logistics', () => {
   });
 
   it('delivers imported energy to a claimed-room tower before durable storage', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
     const tower = makeTower('E26S48-tower', 100, 900);
     const targetRoom = makeOwnedRoom({
       roomName: 'E26S48',
@@ -1178,11 +1178,11 @@ describe('cross-room energy logistics', () => {
       carriedEnergy: () => 100,
       transfer: jest.fn(() => OK_CODE)
     });
-    creep.memory.colony = 'E26S49';
+    creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S48',
-      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
       route: ['E26S48']
     };
@@ -1194,7 +1194,7 @@ describe('cross-room energy logistics', () => {
   });
 
   it('delivers imported energy to a tower before a container fallback with an earlier id', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
     const tower = makeTower('E26S48-z-tower', 100, 900);
     const container = makeContainer('E26S48-a-container', 0, 2_000);
     const targetRoom = makeOwnedRoom({
@@ -1209,11 +1209,11 @@ describe('cross-room energy logistics', () => {
       carriedEnergy: () => 100,
       transfer: jest.fn(() => OK_CODE)
     });
-    creep.memory.colony = 'E26S49';
+    creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
-      homeRoom: 'E26S49',
+      homeRoom: 'E24S49',
       targetRoom: 'E26S48',
-      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
       route: ['E26S48']
     };
