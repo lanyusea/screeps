@@ -399,6 +399,7 @@ declare global {
   type EconomyMultiRoomEnergyTransferReason =
     | 'storage-balance'
     | 'spawn-energy-buffer'
+    | 'post-claim-spawn-construction'
     | 'local-first-sufficient'
     | 'local-first-policy'
     | 'insufficient-exportable-energy'

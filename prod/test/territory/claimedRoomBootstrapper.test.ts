@@ -203,6 +203,44 @@ describe('claimed room bootstrapper', () => {
     );
   });
 
+  it('recovers an established spawnless dynamic claim without a preconfigured target', () => {
+    const { room } = makeBootstrapRoom({
+      roomName: 'E26S48',
+      controllerLevel: 4,
+      sources: [makeSource('e26s48-source-a', 21, 21, 'E26S48')]
+    });
+    const homeRoom = {
+      name: 'E26S49',
+      controller: { my: true, level: 4 },
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    } as Room;
+    const homeSpawn = { name: 'Spawn1', room: homeRoom, spawning: null } as StructureSpawn;
+    Memory.territory = {
+      claimedRoomBootstrapper: {
+        rooms: {
+          E26S48: { roomName: 'E26S48', owned: true, claimedAt: 786700, updatedAt: 786700 }
+        }
+      }
+    };
+    installGameRooms([homeRoom, room], 786805);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.spawns = { Spawn1: homeSpawn };
+
+    const result = refreshClaimedRoomBootstrapperOwnership();
+
+    expect(result.detectedRoomNames).toEqual(['E26S48']);
+    expect(Memory.territory?.postClaimBootstraps?.E26S48).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S48',
+      status: 'spawnSitePending',
+      claimedAt: 786700,
+      updatedAt: 786805,
+      spawnSite: { roomName: 'E26S48', x: 23, y: 23 },
+      lastResult: OK_CODE
+    });
+    expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);
+  });
+
   it('places the initial spawn site before other infrastructure', () => {
     const { room, colony } = makeBootstrapRoom({
       controllerLevel: 1,

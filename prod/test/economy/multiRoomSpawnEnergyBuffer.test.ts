@@ -136,6 +136,61 @@ describe('multi-room spawn energy buffer coordination', () => {
     });
   });
 
+  it('routes cross-room energy for post-claim spawn construction without a local spawn', () => {
+    const sourceStructures: AnyOwnedStructure[] = [];
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'E26S49',
+      storageEnergy: 2_000,
+      storageCapacity: 2_000,
+      energyAvailable: 800,
+      myStructures: sourceStructures
+    });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      storageCapacity: 1_000,
+      energyAvailable: 0
+    });
+    const sourceSpawn = makeSpawn('SpawnE26S49', sourceRoom, 0);
+    sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
+    installGame([sourceRoom, targetRoom], [sourceSpawn]);
+    Memory.territory = {
+      postClaimBootstraps: {
+        E26S48: {
+          colony: 'E26S49',
+          roomName: 'E26S48',
+          status: 'spawnSitePending',
+          claimedAt: 786700,
+          updatedAt: 786805,
+          workerTarget: 2,
+          spawnSite: { roomName: 'E26S48', x: 23, y: 23 }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E26S48).toMatchObject({
+      mode: 'import',
+      importDemand: 500
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 500, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
+      sourceRoom: 'E26S49',
+      targetRoom: 'E26S48',
+      amount: 500,
+      status: 'planned',
+      reason: 'post-claim-spawn-construction',
+      updatedAt: 100
+    });
+    expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48'
+    });
+  });
+
   it('keeps reservation-driven spawn buffer deficits from being subtracted twice from exports', () => {
     const sourceRoom = makeOwnedRoom({
       roomName: 'E26S49',
