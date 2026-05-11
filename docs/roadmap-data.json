@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-11T18:16:54Z",
-  "generatedAtCst": "2026-05-12 02:16:54 CST",
+  "generatedAt": "2026-05-11T18:27:25Z",
+  "generatedAtCst": "2026-05-12 02:27:25 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -15577,7 +15577,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 2
+        "value": 3
       },
       {
         "instrumented": true,
@@ -26259,6 +26259,30 @@
           "success": 2,
           "total": 2
         },
+        "createdAt": "2026-05-11T18:26:48Z",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 941,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "fix(economy): cap energy buffer dynamic threshold to prevent spending deadlock (#927)",
+        "type": "PullRequest",
+        "updatedAt": "2026-05-11T18:28:57Z",
+        "url": "https://github.com/lanyusea/screeps/pull/941"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
         "createdAt": "2026-05-11T18:20:43Z",
         "domain": "Bot capability",
         "domainSource": "heuristic",
@@ -26273,7 +26297,7 @@
         "status": "In review",
         "title": "fix: migrate all E26S49 room references to E24S49 after base retargeting (#936)",
         "type": "PullRequest",
-        "updatedAt": "2026-05-11T18:20:50Z",
+        "updatedAt": "2026-05-11T18:25:11Z",
         "url": "https://github.com/lanyusea/screeps/pull/940"
       },
       {
@@ -26297,7 +26321,7 @@
         "status": "In review",
         "title": "docs(roadmap): refresh Pages delivery metrics data",
         "type": "PullRequest",
-        "updatedAt": "2026-05-11T18:17:07Z",
+        "updatedAt": "2026-05-11T18:27:57Z",
         "url": "https://github.com/lanyusea/screeps/pull/939"
       }
     ],
@@ -27164,6 +27188,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -27213,6 +27244,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27266,6 +27304,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -27315,6 +27360,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27368,6 +27420,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -27417,6 +27476,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27470,6 +27536,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "cpu_bucket": [
@@ -27519,6 +27592,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27572,6 +27652,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -27621,6 +27708,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27674,6 +27768,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "enemy_kills": [
@@ -27723,6 +27824,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27776,6 +27884,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -27825,6 +27940,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27878,6 +28000,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "hostile_structures": [
@@ -27927,6 +28056,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -27980,6 +28116,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "objects_destroyed": [
@@ -28029,6 +28172,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28082,6 +28232,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -28131,6 +28288,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28184,6 +28348,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "reserved_remote_rooms": [
@@ -28233,6 +28404,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28286,6 +28464,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -28335,6 +28520,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "observed",
           "value": 0.0
         }
@@ -28388,6 +28580,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_queue_pressure": [
@@ -28437,6 +28636,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28490,6 +28696,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -28539,6 +28752,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28592,6 +28812,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "telemetry_silence_minutes": [
@@ -28641,6 +28868,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28694,6 +28928,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -28743,6 +28984,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-11T18:16:54Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
           "status": "not instrumented",
           "value": null
         }
@@ -28796,6 +29044,13 @@
           "sampledAt": "2026-05-11T18:16:54Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-11T18:27:25Z",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     },
@@ -28810,7 +29065,7 @@
         "matchedFiles": 110,
         "message": "Derived 5/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
         "runtimeSummaryLines": 257,
-        "scannedFiles": 506428,
+        "scannedFiles": 506431,
         "skippedFileCount": 13300,
         "status": "observed",
         "untimestampedRuntimeSummaryLines": 0
@@ -28944,7 +29199,7 @@
               "matchedFiles": 110,
               "message": "Derived 5/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
               "runtimeSummaryLines": 257,
-              "scannedFiles": 506428,
+              "scannedFiles": 506431,
               "skippedFileCount": 13300,
               "status": "observed",
               "untimestampedRuntimeSummaryLines": 0
@@ -29081,7 +29336,7 @@
               "matchedFiles": 110,
               "message": "Derived 5/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
               "runtimeSummaryLines": 257,
-              "scannedFiles": 506428,
+              "scannedFiles": 506431,
               "skippedFileCount": 13300,
               "status": "observed",
               "untimestampedRuntimeSummaryLines": 0
@@ -29218,7 +29473,7 @@
               "matchedFiles": 110,
               "message": "Derived 5/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
               "runtimeSummaryLines": 257,
-              "scannedFiles": 506428,
+              "scannedFiles": 506431,
               "skippedFileCount": 13300,
               "status": "observed",
               "untimestampedRuntimeSummaryLines": 0
@@ -29325,9 +29580,9 @@
         "delta": "+0",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 593,
+        "rawValue": 596,
         "source": "git rev-list --count HEAD",
-        "value": 593
+        "value": 596
       },
       {
         "delta": "+0",
@@ -29341,9 +29596,9 @@
         "delta": "+0",
         "detail": "478 merged",
         "label": "PRs",
-        "rawValue": 494,
+        "rawValue": 495,
         "source": "github",
-        "value": 494
+        "value": 495
       },
       {
         "delta": "+0",
@@ -29361,17 +29616,17 @@
       },
       {
         "delta": "+0",
-        "detail": "4,235,233,516 total; latest token_count in 2,048/2,287 sessions",
+        "detail": "4,235,368,202 total; latest token_count in 2,049/2,288 sessions",
         "label": "Agent tokens",
-        "rawValue": 4235233516,
+        "rawValue": 4235368202,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
         "value": "4.2B"
       },
       {
         "delta": "+0",
-        "detail": "summed first-to-last JSONL timestamps across 2,287/2,287 sessions",
+        "detail": "summed first-to-last JSONL timestamps across 2,288/2,288 sessions",
         "label": "Codex runtime",
-        "rawValueSeconds": 595193,
+        "rawValueSeconds": 595229,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
         "value": "6d 21h"
       },
@@ -29379,21 +29634,21 @@
         "delta": "+0",
         "detail": "rollout JSONL files counted as Codex runs",
         "label": "Codex runs",
-        "rawValue": 2287,
+        "rawValue": 2288,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
-        "value": "2,287"
+        "value": "2,288"
       },
       {
         "delta": "+0",
-        "detail": "6,302 cron outputs across 35 jobs",
+        "detail": "6,305 cron outputs across 35 jobs",
         "label": "Cron runs",
-        "rawValue": 6302,
+        "rawValue": 6305,
         "source": "repo-attributed .hermes/cron/output/*/*.md",
-        "value": "6,302"
+        "value": "6,305"
       },
       {
         "delta": "+0",
-        "detail": "maximum first-to-last JSONL timestamp span across 2,287/2,287 sessions",
+        "detail": "maximum first-to-last JSONL timestamp span across 2,288/2,288 sessions",
         "label": "Longest Codex run",
         "rawValueSeconds": 5765,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
