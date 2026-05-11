@@ -31915,7 +31915,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime27()),
     ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime27()),
     ...buildControllerSummary(colony.room),
-    resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
+    resources: summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
     survival: summarizeSurvival(colony, roleCounts),
@@ -32436,18 +32436,18 @@ function buildControllerSummary(room) {
   }
   return { controller: summary };
 }
-function summarizeResources(colony, colonyWorkers, events) {
-  var _a, _b, _c, _d, _e;
+function summarizeResources(colony, colonyWorkers, colonyCreeps, events) {
+  var _a, _b, _c, _d;
   const roomStructures = (_a = findRoomObjects24(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const ownedEnergyStructures = findOwnedEnergyStoreStructures(colony.room);
-  const roomCreeps = (_b = findRoomObjects24(colony.room, "FIND_MY_CREEPS")) != null ? _b : [];
-  const constructionSites = (_c = findRoomObjects24(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _c : [];
-  const droppedResources = (_d = findRoomObjects24(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _d : [];
+  const roomEnergyStructures = findRoomEnergyStoreStructures(colony.room, colony.spawns);
+  const roomCreeps = findOwnedRoomCreeps(colony.room, colonyCreeps);
+  const constructionSites = (_b = findRoomObjects24(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
+  const droppedResources = (_c = findRoomObjects24(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
   const sourceContainerCoverage = summarizeSourceContainerCoverage(colony.room);
   return {
-    storedEnergy: sumEnergyInStores(ownedEnergyStructures),
+    storedEnergy: summarizeStoredEnergy(colony, roomEnergyStructures),
     workerCarriedEnergy: sumEnergyInStores(roomCreeps),
-    harvestedThisTick: (_e = events == null ? void 0 : events.harvestedEnergy) != null ? _e : 0,
+    harvestedThisTick: (_d = events == null ? void 0 : events.harvestedEnergy) != null ? _d : 0,
     droppedEnergy: sumDroppedEnergy2(droppedResources),
     sourceCount: sourceContainerCoverage.sourceCount,
     sourceContainers: sourceContainerCoverage,
@@ -32479,15 +32479,43 @@ function summarizeMultiRoomEnergy(roomName) {
     }
   };
 }
-function findOwnedEnergyStoreStructures(room) {
-  var _a;
-  return ((_a = findRoomObjects24(room, "FIND_MY_STRUCTURES")) != null ? _a : []).filter(isOwnedEnergyStoreStructure);
+function findRoomEnergyStoreStructures(room, spawns) {
+  const allStructures = findRoomObjects24(room, "FIND_STRUCTURES");
+  const myStructures = findRoomObjects24(room, "FIND_MY_STRUCTURES");
+  const discoveredStructures = [...allStructures != null ? allStructures : [], ...myStructures != null ? myStructures : []];
+  return uniqueRoomObjects([
+    ...discoveredStructures,
+    ...discoveredStructures.length === 0 ? spawns : [],
+    ...getDirectRoomEnergyStructures(room)
+  ]).filter(isRoomEnergyStoreStructure);
 }
-function isOwnedEnergyStoreStructure(structure) {
+function getDirectRoomEnergyStructures(room) {
+  const roomWithDurableStores = room;
+  return [roomWithDurableStores.storage, roomWithDurableStores.terminal].filter(
+    (structure) => structure !== void 0 && structure !== null
+  );
+}
+function isRoomEnergyStoreStructure(structure) {
   if (!isRecord26(structure)) {
     return false;
   }
   return matchesStructureType25(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType25(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType25(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType25(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType25(structure.structureType, "STRUCTURE_LINK", "link") || matchesStructureType25(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+}
+function summarizeStoredEnergy(colony, roomEnergyStructures) {
+  return Math.max(sumEnergyInStores(roomEnergyStructures), getRoomEnergyAvailable11(colony));
+}
+function getRoomEnergyAvailable11(colony) {
+  return Math.max(
+    normalizeEnergyAmount7(colony.room.energyAvailable),
+    normalizeEnergyAmount7(colony.energyAvailable)
+  );
+}
+function findOwnedRoomCreeps(room, colonyCreeps) {
+  var _a;
+  return uniqueRoomObjects([
+    ...(_a = findRoomObjects24(room, "FIND_MY_CREEPS")) != null ? _a : [],
+    ...colonyCreeps
+  ]);
 }
 function summarizeEnergySurplus(room, colonyWorkers) {
   const state = getRoomEnergySurplusState(room);
@@ -32903,11 +32931,45 @@ function getRoomEventLog(room) {
     return void 0;
   }
   try {
-    const eventLog = getEventLog.call(room, getEnergyResource22());
+    const eventLog = getEventLog.call(room);
     return Array.isArray(eventLog) ? eventLog : void 0;
   } catch {
     return void 0;
   }
+}
+function uniqueRoomObjects(objects) {
+  const uniqueObjects = [];
+  const seenReferences = /* @__PURE__ */ new Set();
+  const seenKeys = /* @__PURE__ */ new Set();
+  for (const object of objects) {
+    if (object === void 0 || object === null) {
+      continue;
+    }
+    const key = getObjectIdentityKey(object);
+    if (key) {
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      seenKeys.add(key);
+    } else if (seenReferences.has(object)) {
+      continue;
+    }
+    seenReferences.add(object);
+    uniqueObjects.push(object);
+  }
+  return uniqueObjects;
+}
+function getObjectIdentityKey(object) {
+  if (!isRecord26(object)) {
+    return null;
+  }
+  if (typeof object.id === "string" && object.id.length > 0) {
+    return `id:${object.id}`;
+  }
+  if (typeof object.name === "string" && object.name.length > 0) {
+    return `name:${object.name}`;
+  }
+  return null;
 }
 function sumEnergyInStores(objects) {
   return objects.reduce((total, object) => total + getEnergyInStore(object), 0);
@@ -32926,6 +32988,9 @@ function getEnergyInStore(object) {
     return typeof usedCapacity === "number" ? usedCapacity : 0;
   }
   return 0;
+}
+function normalizeEnergyAmount7(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 function getEnergyCapacityInStore(object) {
   if (!isRecord26(object) || !isRecord26(object.store)) {
