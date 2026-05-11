@@ -3,7 +3,10 @@ import {
   runUpgrader,
   runUpgraderCreep
 } from '../src/creeps/upgraderRunner';
-import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
+import {
+  CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS,
+  OCCUPIED_CONTROLLER_SIGN_TEXT
+} from '../src/territory/controllerSigning';
 
 describe('upgrader runner', () => {
   beforeEach(() => {
@@ -81,6 +84,30 @@ describe('upgrader runner', () => {
   it('signs owned controllers before upgrading', () => {
     const controller = makeController({
       sign: { username: 'other', text: 'old', time: 1, datetime: new Date('2026-05-07T00:00:00.000Z') }
+    });
+    const creep = {
+      signController: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+
+    expect(runUpgrader(creep, controller)).toBe(0);
+
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+  });
+
+  it('refreshes stale owned controller signatures before upgrading', () => {
+    const signedAt = 25;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: signedAt + CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS
+    };
+    const controller = makeController({
+      sign: {
+        username: 'me',
+        text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+        time: signedAt,
+        datetime: new Date('2026-05-07T00:00:00.000Z')
+      }
     });
     const creep = {
       signController: jest.fn().mockReturnValue(0),

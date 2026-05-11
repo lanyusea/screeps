@@ -4,6 +4,10 @@ import {
   buildControllerManagementPlan,
   refreshControllerManagement
 } from '../src/territory/controllerManager';
+import {
+  CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS,
+  OCCUPIED_CONTROLLER_SIGN_TEXT
+} from '../src/territory/controllerSigning';
 
 describe('controller manager', () => {
   beforeEach(() => {
@@ -78,6 +82,48 @@ describe('controller manager', () => {
 
     expect(plan.upgradePriority).toBe('fallback');
     expect(plan.spawnDemand).toBeUndefined();
+  });
+
+  it('records a stale owned controller signature as signing demand', () => {
+    const signedAt = 300;
+    const plan = buildControllerManagementPlan(
+      makeColony({
+        controller: makeController({
+          sign: {
+            username: 'me',
+            text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+            time: signedAt,
+            datetime: new Date('2026-05-07T00:00:00.000Z')
+          }
+        })
+      }),
+      { worker: 3 },
+      3,
+      signedAt + CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS
+    );
+
+    expect(plan.signNeeded).toBe(true);
+  });
+
+  it('does not record signing demand for a fresh owned controller signature', () => {
+    const signedAt = 300;
+    const plan = buildControllerManagementPlan(
+      makeColony({
+        controller: makeController({
+          sign: {
+            username: 'me',
+            text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+            time: signedAt,
+            datetime: new Date('2026-05-07T00:00:00.000Z')
+          }
+        })
+      }),
+      { worker: 3 },
+      3,
+      signedAt + CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS - 1
+    );
+
+    expect(plan.signNeeded).toBe(false);
   });
 
   it('keeps the dedicated upgrade demand while construction work is visible', () => {
