@@ -54,7 +54,7 @@ SCREEPS_AUTH_TOKEN=***
 SCREEPS_BRANCH=main
 SCREEPS_API_URL=https://screeps.com
 SCREEPS_SHARD=shardX
-SCREEPS_ROOM=E26S49
+SCREEPS_ROOM=E24S49
 ```
 
 For private-server smoke tests:
@@ -74,7 +74,7 @@ User decision: local development must validate on a private server first. If pri
 
 For private-server validation we expect a Dockerized launcher/private-server path. The current environment already has Docker Engine and Docker Compose available, while direct npm installation is less attractive because the official `screeps` package currently expects Node.js 22+ and this host has Node 18.
 
-Verified local secret state on 2026-04-26:
+Verified local secret state on 2026-04-26 (historical selector evidence; current selectors are shown above):
 
 - `SCREEPS_AUTH_TOKEN`: present, value not printed.
 - `STEAM_KEY`: present, value not printed.
@@ -104,7 +104,8 @@ Likely private-server inputs:
 
 - Auth token: present in local secret storage; do not paste or commit it.
 - Deployment branch: `main`.
-- First public room: `E26S49`.
+- Current public room: `E24S49`.
+- Current spawn: `Spawn1` at `(32,19)`.
 - Shard: `shardX`, verified against the official API. The earlier `sharedX` spelling is invalid for official API calls.
 
 ## Open decisions
