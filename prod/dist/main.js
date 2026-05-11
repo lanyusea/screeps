@@ -2731,6 +2731,7 @@ var ENERGY_BUFFER_THRESHOLDS_BY_RCL = {
   8: 1e3
 };
 var SURVIVAL_ENERGY_BUFFER_MULTIPLIER = 1.5;
+var NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO = 0.65;
 var STORAGE_EMERGENCY_RESERVE = 1e3;
 var CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
 var CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
@@ -2740,12 +2741,17 @@ function getRoomEnergyBufferThreshold(room) {
 }
 function getEffectiveRoomEnergyBufferThreshold(room) {
   const threshold = getRoomEnergyBufferThreshold(room);
-  const effectiveThreshold = isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+  const survivalBufferMode = isSurvivalBufferMode(room);
+  const effectiveThreshold = survivalBufferMode ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
   if (energyCapacityAvailable === null) {
     return effectiveThreshold;
   }
-  return Math.min(effectiveThreshold, energyCapacityAvailable);
+  const capacityLimitedThreshold = Math.min(effectiveThreshold, energyCapacityAvailable);
+  if (survivalBufferMode) {
+    return capacityLimitedThreshold;
+  }
+  return Math.min(capacityLimitedThreshold, getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable));
 }
 function getStorageEnergyReserveThreshold(room) {
   return Math.min(getEffectiveConfiguredRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
@@ -2765,7 +2771,7 @@ function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (energyCapacityAvailable === null) {
     return false;
   }
-  return hasMinimumWorkerSpawnEnergyForConstruction(room) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
+  return hasMinimumWorkerSpawnEnergyForConstruction(room) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
 }
 function hasMinimumWorkerSpawnEnergyForConstruction(room) {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
@@ -2820,6 +2826,12 @@ function getConfiguredRoomEnergyBufferThreshold(room) {
 function getEffectiveConfiguredRoomEnergyBufferThreshold(room) {
   const threshold = getConfiguredRoomEnergyBufferThreshold(room);
   return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+}
+function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable) {
+  return Math.max(
+    MINIMUM_WORKER_SPAWN_ENERGY,
+    Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+  );
 }
 function isSurvivalBufferMode(room) {
   var _a;

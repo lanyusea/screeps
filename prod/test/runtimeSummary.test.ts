@@ -81,9 +81,9 @@ describe('runtime telemetry summaries', () => {
           energyCapacity: 300,
           energyBufferHealth: {
             currentEnergy: 250,
-            threshold: 300,
+            threshold: 200,
             room: 'W1N1',
-            healthy: false
+            healthy: true
           },
           workerCount: 2,
           spawnStatus: [
