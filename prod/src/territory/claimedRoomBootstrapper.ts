@@ -951,11 +951,15 @@ function resolveClaimOriginColony(
     return plannedClaimOrigin;
   }
 
-  if (previous?.owned === true && !isOwnedRoomMissingSpawn(room)) {
-    return null;
+  if (previous?.owned === true) {
+    return isOwnedRoomMissingSpawn(room)
+      ? selectNearestOwnedSpawnRoom(room.name, { requireFreshClaimFallback: false })
+      : null;
   }
 
-  return selectNearestOwnedSpawnRoom(room.name);
+  return selectNearestOwnedSpawnRoom(room.name, {
+    requireFreshClaimFallback: previous === undefined
+  });
 }
 
 function isOwnedRoomMissingSpawn(room: Room): boolean {
@@ -1019,14 +1023,21 @@ function getPlannedClaimOriginColony(roomName: string): string | null {
   return isNonEmptyString(intentOrigin) ? intentOrigin : null;
 }
 
-function selectNearestOwnedSpawnRoom(targetRoomName: string): string | null {
+function selectNearestOwnedSpawnRoom(
+  targetRoomName: string,
+  options: { requireFreshClaimFallback?: boolean } = {}
+): string | null {
   const game = (globalThis as { Game?: Partial<Game> }).Game;
   const spawns = game?.spawns;
   if (!spawns) {
     return null;
   }
 
-  if (!isFreshClaimFallbackEligibleRoom(game.rooms?.[targetRoomName])) {
+  const targetRoom = game.rooms?.[targetRoomName];
+  if (
+    !isSpawnlessOwnedFallbackEligibleRoom(targetRoom) ||
+    (options.requireFreshClaimFallback === true && !isFreshClaimFallbackEligibleRoom(targetRoom))
+  ) {
     return null;
   }
 
@@ -1056,6 +1067,10 @@ function selectNearestOwnedSpawnRoom(targetRoomName: string): string | null {
       routeDistances.get(right) ?? Number.POSITIVE_INFINITY
     ) || left.localeCompare(right)
   )[0] ?? null;
+}
+
+function isSpawnlessOwnedFallbackEligibleRoom(room: Room | undefined): boolean {
+  return room !== undefined && isOwnedRoomMissingSpawn(room);
 }
 
 function isFreshClaimFallbackEligibleRoom(room: Room | undefined): boolean {

@@ -194,6 +194,7 @@ export function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory):
   }
 
   if (
+    !hasPostClaimSpawnConstructionImportPressure(targetRoom.name) &&
     !shouldAllowLocalFirstEnergyImport(targetRoom, {
       sourceRoom: sourceRoom.name,
       storedEnergy: targetState.energy
@@ -203,6 +204,16 @@ export function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory):
   }
 
   return findOwnedLogisticsRoute(sourceRoom.name, targetRoom.name) !== null;
+}
+
+function hasPostClaimSpawnConstructionImportPressure(roomName: string): boolean {
+  const record = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps?.[roomName];
+  if (!record || record.status !== 'spawnSitePending' || record.spawnSite?.roomName !== roomName) {
+    return false;
+  }
+
+  const spawns = (globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  return !Object.values(spawns ?? {}).some((spawn) => spawn.room?.name === roomName);
 }
 
 function compareTransfers(

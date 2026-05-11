@@ -7,6 +7,7 @@ export type MultiRoomEnergyTransferAuditStatus = 'planned' | 'suppressed' | 'blo
 export type MultiRoomEnergyTransferAuditReason =
   | 'storage-balance'
   | 'spawn-energy-buffer'
+  | 'post-claim-spawn-construction'
   | 'local-first-sufficient'
   | 'local-first-policy'
   | 'insufficient-exportable-energy'

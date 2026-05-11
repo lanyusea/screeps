@@ -1088,10 +1088,12 @@ function shouldSpawnPostClaimEnergyHauler(
   counts: PostClaimControllerSustainCounts,
   workerTarget: number
 ): boolean {
+  const spawnConstructionPending =
+    room !== undefined && hasPostClaimSpawnConstructionPending(room.name);
   return (
     counts.haulers < POST_CLAIM_SUSTAIN_HAULER_TARGET &&
-    counts.workers < workerTarget &&
-    (room === undefined || isClaimedRoomEnergyInsufficient(room))
+    (counts.workers < workerTarget || spawnConstructionPending) &&
+    (room === undefined || isClaimedRoomEnergyInsufficient(room) || spawnConstructionPending)
   );
 }
 
@@ -1102,6 +1104,16 @@ function isClaimedRoomEnergyInsufficient(room: Room | undefined): boolean {
 
   const energyAvailable = room.energyAvailable;
   return typeof energyAvailable !== 'number' || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
+}
+
+function hasPostClaimSpawnConstructionPending(roomName: string): boolean {
+  const record = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps?.[roomName];
+  return Boolean(
+    record &&
+      record.status === 'spawnSitePending' &&
+      record.spawnSite?.roomName === roomName &&
+      !hasOperationalSpawnInRoom(roomName)
+  );
 }
 
 export function planDefenseSpawn(room: Room): SpawnPlan | null {

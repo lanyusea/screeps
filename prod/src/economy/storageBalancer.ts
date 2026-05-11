@@ -20,6 +20,7 @@ import {
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 export const STORAGE_BALANCE_REFRESH_INTERVAL = 25;
+export const POST_CLAIM_SPAWN_CONSTRUCTION_IMPORT_TARGET = 600;
 
 export interface RoomStoredEnergyState {
   roomName: string;
@@ -55,6 +56,8 @@ interface RoomEnergyStore {
     [resource: string]: unknown;
   };
 }
+
+type EnergyDropoffStructureConstantGlobal = 'STRUCTURE_CONTAINER';
 
 interface StorageTransferLocalEnergyAudit {
   audit: LocalEnergyImportAudit;
@@ -124,7 +127,10 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
     capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO
       ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy)
       : 0;
-  const importDemand = storageImportDemand + spawnEnergyBufferNeed.deficit;
+  const postClaimSpawnConstructionImportDemand = getPostClaimSpawnConstructionImportDemand(room);
+  const importDemand =
+    Math.max(storageImportDemand, postClaimSpawnConstructionImportDemand) +
+    spawnEnergyBufferNeed.deficit;
 
   return {
     roomName: room.name,
@@ -151,6 +157,51 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
     unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy,
     mode: selectStorageBalanceMode(capacity, ratio, exportableEnergy, importDemand)
   };
+}
+
+function getPostClaimSpawnConstructionImportDemand(room: Room): number {
+  if (!hasPostClaimSpawnConstructionImportPressure(room.name)) {
+    return 0;
+  }
+
+  const dropoffs = getPostClaimSpawnConstructionEnergyDropoffs(room);
+  if (dropoffs.length === 0) {
+    return 0;
+  }
+
+  const storedEnergy = dropoffs.reduce((total, dropoff) => total + getStoredEnergy(dropoff), 0);
+  const freeCapacity = dropoffs.reduce((total, dropoff) => total + getEnergyFreeCapacity(dropoff), 0);
+  const demand = Math.max(0, POST_CLAIM_SPAWN_CONSTRUCTION_IMPORT_TARGET - storedEnergy);
+  return Math.min(demand, freeCapacity);
+}
+
+function getPostClaimSpawnConstructionEnergyDropoffs(room: Room): RoomEnergyStore[] {
+  return [
+    room.storage as unknown as RoomEnergyStore | undefined,
+    room.terminal as unknown as RoomEnergyStore | undefined,
+    ...findRoomEnergyContainers(room)
+  ].filter(
+    (structure): structure is RoomEnergyStore =>
+      structure !== undefined && getEnergyFreeCapacity(structure) > 0
+  );
+}
+
+function findRoomEnergyContainers(room: Room): RoomEnergyStore[] {
+  const findStructures = (globalThis as { FIND_STRUCTURES?: number }).FIND_STRUCTURES;
+  if (typeof findStructures !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const structures = room.find(findStructures as FindConstant) as Structure[];
+    return structures.filter(isEnergyContainer) as unknown as RoomEnergyStore[];
+  } catch {
+    return [];
+  }
+}
+
+function isEnergyContainer(structure: Structure): boolean {
+  return structure.structureType === getStructureConstant('STRUCTURE_CONTAINER', 'container');
 }
 
 function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory {
@@ -348,8 +399,18 @@ function hasSpawnEnergyImportPressure(state: RoomStoredEnergyState): boolean {
   return (
     state.spawnEnergyBufferDeficit > 0 ||
     state.criticalSpawnEnergyDeficit > 0 ||
-    state.unmetSpawnEnergyReservation > 0
+    state.unmetSpawnEnergyReservation > 0 ||
+    hasPostClaimSpawnConstructionImportPressure(state.roomName)
   );
+}
+
+function hasPostClaimSpawnConstructionImportPressure(roomName: string): boolean {
+  const record = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps?.[roomName];
+  if (!record || record.status !== 'spawnSitePending' || record.spawnSite?.roomName !== roomName) {
+    return false;
+  }
+
+  return !hasOwnedSpawn(getVisibleRoom(roomName));
 }
 
 function getSpawnSupportExportableEnergy(state: RoomStoredEnergyState): number {
@@ -387,7 +448,11 @@ function getStorageTransferSuppressionReason(
   sourceRoom: string,
   localEnergyAudit: StorageTransferLocalEnergyAudit | undefined
 ): MultiRoomEnergyTransferAuditReason | null {
-  if (importer.criticalSpawnEnergyDeficit > 0 || importer.unmetSpawnEnergyReservation > 0) {
+  if (
+    importer.criticalSpawnEnergyDeficit > 0 ||
+    importer.unmetSpawnEnergyReservation > 0 ||
+    hasPostClaimSpawnConstructionImportPressure(importer.roomName)
+  ) {
     return null;
   }
 
@@ -462,7 +527,11 @@ function compareImportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergy
 }
 
 export function getRoomStorageImportPriorityRank(roomName: string): number {
-  if (hasRecordedSpawnEnergyPressure(roomName) || hasCriticalSpawnEnergyPressure(roomName)) {
+  if (
+    hasRecordedSpawnEnergyPressure(roomName) ||
+    hasCriticalSpawnEnergyPressure(roomName) ||
+    hasPostClaimSpawnConstructionImportPressure(roomName)
+  ) {
     return 0;
   }
 
@@ -479,7 +548,9 @@ export function getRoomStorageImportPriorityRank(roomName: string): number {
 }
 
 function getImportRoomPriorityRank(state: RoomStoredEnergyState): number {
-  return state.unmetSpawnEnergyReservation > 0 || state.criticalSpawnEnergyDeficit > 0
+  return state.unmetSpawnEnergyReservation > 0 ||
+    state.criticalSpawnEnergyDeficit > 0 ||
+    hasPostClaimSpawnConstructionImportPressure(state.roomName)
     ? 0
     : getRoomStorageImportPriorityRank(state.roomName);
 }
@@ -518,10 +589,20 @@ function hasCriticalSpawnEnergyPressure(roomName: string): boolean {
 }
 
 function selectPlannedTransferReason(importer: RoomStoredEnergyState): MultiRoomEnergyTransferAuditReason {
-  return importer.spawnEnergyBufferDeficit > 0 ? 'spawn-energy-buffer' : 'storage-balance';
+  if (importer.spawnEnergyBufferDeficit > 0) {
+    return 'spawn-energy-buffer';
+  }
+
+  return hasPostClaimSpawnConstructionImportPressure(importer.roomName)
+    ? 'post-claim-spawn-construction'
+    : 'storage-balance';
 }
 
-function hasOwnedSpawn(room: Room): boolean {
+function hasOwnedSpawn(room: Room | undefined): boolean {
+  if (!room) {
+    return false;
+  }
+
   return Object.values((globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns ?? {}).some(
     (spawn) => spawn.room?.name === room.name
   );
@@ -713,4 +794,12 @@ function normalizeNonNegativeInteger(value: unknown): number {
 
 function getEnergyResource(): ResourceConstant {
   return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
+}
+
+function getStructureConstant(
+  globalName: EnergyDropoffStructureConstantGlobal,
+  fallback: StructureConstant
+): StructureConstant {
+  const value = (globalThis as unknown as Partial<Record<EnergyDropoffStructureConstantGlobal, unknown>>)[globalName];
+  return typeof value === 'string' ? (value as StructureConstant) : fallback;
 }

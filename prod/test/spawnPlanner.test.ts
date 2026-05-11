@@ -1967,6 +1967,63 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps a post-claim spawn-construction hauler ahead of non-critical work after the worker target is met', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const remoteUpgrader = makePostClaimSustainUpgrader('E26S48', 'W1N1');
+    const remoteWorkers = {
+      RemoteWorker1: { memory: { role: 'worker', colony: 'E26S48' } } as Creep,
+      RemoteWorker2: { memory: { role: 'worker', colony: 'E26S48' } } as Creep,
+      RemoteWorker3: { memory: { role: 'worker', colony: 'E26S48' } } as Creep
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        E26S48: {
+          ...makeTerritoryRoom('E26S48', {
+            id: 'controller-E26S48',
+            my: true,
+            level: 2
+          } as StructureController),
+          energyAvailable: 0
+        } as Room
+      },
+      spawns: { Spawn1: spawn },
+      creeps: { RemoteUpgrader: remoteUpgrader, ...remoteWorkers }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E26S48: {
+            colony: 'W1N1',
+            roomName: 'E26S48',
+            status: 'spawnSitePending',
+            claimedAt: 786700,
+            updatedAt: 786805,
+            workerTarget: 2,
+            controllerId: 'controller-E26S48' as Id<StructureController>,
+            spawnSite: { roomName: 'E26S48', x: 23, y: 23 }
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 786806)).toEqual({
+      spawn,
+      body: SCALED_WORKER_550,
+      name: 'worker-W1N1-E26S48-hauler-786806',
+      memory: {
+        role: 'worker',
+        colony: 'E26S48',
+        territory: { targetRoom: 'E26S48', action: 'claim', controllerId: 'controller-E26S48' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E26S48', role: 'hauler' }
+      }
+    });
+  });
+
   it('lets an operational claimed-room spawn handle its own workers when it has usable energy', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
