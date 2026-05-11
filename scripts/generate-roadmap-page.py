@@ -2773,7 +2773,6 @@ def build_report_process_cards(
         }
 
     prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
-    cached_pr_card = cached_process_card(cached_process_cards, "PRs", "Total PRs")
     if pr_error is None:
         merged_prs = sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
         pr_card = {
@@ -2785,16 +2784,9 @@ def build_report_process_cards(
             "source": "github",
         }
     else:
-        pr_card = cached_or_unavailable_process_card(
-            cached_process_cards,
-            "PRs",
-            process_detail(pr_error, "gh pr list", "unavailable", cached_pr_card),
-            "unavailable",
-            "Total PRs",
-        )
+        pr_card = unavailable_process_card("PRs", format_fetch_error("gh pr list", pr_error))
 
     issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
-    cached_issue_card = cached_process_card(cached_process_cards, "Issues", "Total issues")
     if issue_error is None:
         open_issues = sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
         issue_card = {
@@ -2806,13 +2798,7 @@ def build_report_process_cards(
             "source": "github",
         }
     else:
-        issue_card = cached_or_unavailable_process_card(
-            cached_process_cards,
-            "Issues",
-            process_detail(issue_error, "gh issue list", "unavailable", cached_issue_card),
-            "unavailable",
-            "Total issues",
-        )
+        issue_card = unavailable_process_card("Issues", format_fetch_error("gh issue list", issue_error))
 
     official_deploy_summary = summarize_official_deploy_evidence(repo_root)
     official_deploy_project_count = count_official_deploy_evidence(repo_root, github_snapshot)
@@ -2994,6 +2980,10 @@ def cached_or_unavailable_process_card(
             "source": "cached",
             "delta": cached_card.get("delta", "cached"),
         }
+    return unavailable_process_card(label, detail, source)
+
+
+def unavailable_process_card(label: str, detail: str, source: str = "unavailable") -> JsonObject:
     return {
         "value": "unavailable",
         "label": label,
@@ -3294,21 +3284,6 @@ def cached_process_card(cards: Sequence[JsonObject], *labels: str) -> JsonObject
         if str(card.get("label") or "") in label_set:
             return card
     return {}
-
-
-def process_detail(
-    error: JsonObject | None,
-    command_label: str,
-    live_detail: str,
-    cached_card: JsonObject,
-) -> str:
-    if error is None:
-        return live_detail
-    cached_detail = str(cached_card.get("detail") or "").strip()
-    if cached_detail:
-        cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
-        return f"{cached_detail} · cached"
-    return format_fetch_error(command_label, error)
 
 
 def fetch_all_prs(repo_root: Path, repo_full_name: str) -> tuple[list[JsonObject], JsonObject | None]:
