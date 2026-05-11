@@ -135,7 +135,7 @@ def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, h
         "source": "test",
         "rooms": [
             {
-                "roomName": "E26S49",
+                "roomName": "E24S49",
                 "shard": "shardX",
                 "controller": {
                     "level": level,
@@ -183,10 +183,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         target = roadmap.build_screeps_room_target({})
 
         self.assertEqual(target["status"], "official target")
-        self.assertEqual(target["label"], "shardX/E26S49")
+        self.assertEqual(target["label"], "shardX/E24S49")
         self.assertEqual(target["shard"], "shardX")
-        self.assertEqual(target["room"], "E26S49")
-        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E26S49")
+        self.assertEqual(target["room"], "E24S49")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E24S49")
 
     def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -306,7 +306,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             artifact_dir.mkdir(parents=True)
             for day_offset in range(7):
                 timestamp = datetime(2026, 5, 1 + day_offset, 12, 0, tzinfo=timezone.utc)
-                path = artifact_dir / f"runtime-summary-monitor-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
+                path = artifact_dir / f"runtime-summary-console-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
                 path.write_text(
                     runtime_summary_line(tick=1000 + day_offset, level=2 + day_offset, stored_energy=day_offset * 10),
                     encoding="utf-8",
