@@ -7,6 +7,7 @@ import {
   getRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
+  MINIMUM_WORKER_SPAWN_ENERGY,
   NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO,
   STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
@@ -151,10 +152,10 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForSpending(room, 61)).toBe(false);
   });
 
-  it('allows capacity-enabling construction when spending would consume a full-capacity buffer', () => {
+  it('allows capacity-enabling construction when it preserves basic worker spawn energy', () => {
     const room = makeRoom({
       level: 3,
-      energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 50,
       energyCapacityAvailable: 300
     });
     recordSurvivalMode('BOOTSTRAP');
@@ -163,15 +164,19 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
   });
 
-  it('blocks capacity-enabling construction below worker spawn energy', () => {
+  it('blocks capacity-enabling construction below the worker spawn energy reserve', () => {
     const room = makeRoom({
       level: 3,
-      energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY - 1,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 49,
       energyCapacityAvailable: 300
     });
     recordSurvivalMode('BOOTSTRAP');
 
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
+  });
+
+  it('keeps the construction import pressure threshold at spawn capacity', () => {
+    expect(CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY).toBe(300);
   });
 
   it('gates routine storage withdrawals against the storage reserve', () => {

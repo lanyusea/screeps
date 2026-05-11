@@ -116,6 +116,7 @@ const DEFAULT_MAX_ROAD_SITES_PER_TICK = 1;
 const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
 const MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY = 4;
 const SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO = 0.5;
+const SPAWN_ENERGY_CAPACITY_FALLBACK = 300;
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 const SPAWN_EDGE_MIN = 2;
@@ -193,6 +194,11 @@ export function planConstructionForColony(
   if (rcl <= 0 || typeof room.createConstructionSite !== 'function') {
     return result;
   }
+  const extensionBootstrapPriority = shouldPrioritizeExtensionBootstrapConstruction(
+    room,
+    rcl,
+    getRoomEnergyCapacityAvailable(colony)
+  );
   const sourceLogisticsStarved = shouldPrioritizeSourceLogisticsBeforeCapacity(
     rcl,
     energyAvailable,
@@ -205,6 +211,10 @@ export function planConstructionForColony(
     if (spawnPlacement.result !== getOkCode()) {
       return result;
     }
+  }
+
+  if (extensionBootstrapPriority && planBootstrapExtension(colony, result, budgetState, options)) {
+    return result;
   }
 
   if (options.postClaimPriorityOrder === true) {
@@ -281,6 +291,46 @@ export function planConstructionForColony(
   return result;
 }
 
+function planBootstrapExtension(
+  colony: ColonySnapshot,
+  result: RoomConstructionPlannerResult,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): boolean {
+  if (countPendingConstructionSites(colony.room, 'extension') > 0) {
+    return false;
+  }
+
+  if (!canReserveBootstrapExtensionEnergy(colony.room, budgetState, options)) {
+    return false;
+  }
+
+  const extensionResult = planExtensionConstruction(colony);
+  if (extensionResult !== null) {
+    recordPlacement(result, budgetState, 'extension', extensionResult, options);
+    return true;
+  }
+
+  return false;
+}
+
+function canReserveBootstrapExtensionEnergy(
+  room: Room,
+  budgetState: ConstructionBudgetState,
+  options: ConstructionPlannerOptions
+): boolean {
+  const reservation = getConstructionEnergyReservation('extension', options);
+  if (reservation <= 0) {
+    return true;
+  }
+
+  if (budgetState.energyReserved + reservation > budgetState.energyBudget) {
+    return false;
+  }
+
+  return checkEnergyBufferForCapacityEnablingConstruction(room, budgetState.energyReserved + reservation);
+}
+
 function planExtensions(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
@@ -288,6 +338,7 @@ function planExtensions(
   options: ConstructionPlannerOptions
 ): void {
   if (
+    countPendingConstructionSites(colony.room, 'extension') > 0 ||
     !hasRemainingStructureCapacity(colony.room, 'extension') ||
     !canReserveConstructionEnergy(colony.room, budgetState, 'extension', options)
   ) {
@@ -617,6 +668,19 @@ function countExistingAndPendingStructures(room: Room, priority: ConstructionPla
   return countExistingStructures(room, priority) + countPendingConstructionSites(room, priority);
 }
 
+function shouldPrioritizeExtensionBootstrapConstruction(
+  room: Room,
+  rcl: number,
+  energyCapacityAvailable: number
+): boolean {
+  if (rcl < 2 || energyCapacityAvailable !== getSpawnEnergyCapacity()) {
+    return false;
+  }
+
+  const extensionLimit = getControllerStructureLimit(room, 'STRUCTURE_EXTENSION');
+  return extensionLimit > 0 && countExistingStructures(room, 'extension') < extensionLimit;
+}
+
 function countExistingStructures(room: Room, priority: ConstructionPlannerPriority): number {
   const structureType = getStructureConstant(PRIORITY_STRUCTURE_TYPES[priority]);
   const objects = [
@@ -805,6 +869,13 @@ function getOptionalRoomEnergyCapacityAvailable(room: Room): number | null {
   return typeof roomEnergyCapacity === 'number' && Number.isFinite(roomEnergyCapacity)
     ? Math.max(0, roomEnergyCapacity)
     : null;
+}
+
+function getSpawnEnergyCapacity(): number {
+  const value = (globalThis as { SPAWN_ENERGY_CAPACITY?: unknown }).SPAWN_ENERGY_CAPACITY;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : SPAWN_ENERGY_CAPACITY_FALLBACK;
 }
 
 function shouldPrioritizeSourceLogisticsBeforeCapacity(
