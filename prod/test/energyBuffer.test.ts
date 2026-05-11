@@ -64,14 +64,14 @@ describe('energyBuffer', () => {
     );
   });
 
-  it('caps the non-crisis RCL 4 buffer threshold below spawn-only room capacity', () => {
+  it('floors the non-crisis RCL 4 buffer threshold at basic worker spawn energy', () => {
     const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(200);
     expect(getRoomEnergyBufferHealth(room)).toEqual({
       currentEnergy: 300,
-      threshold: 195,
+      threshold: 200,
       room: 'W1N1',
       healthy: true
     });
@@ -114,12 +114,12 @@ describe('energyBuffer', () => {
     expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(550);
   });
 
-  it('keeps non-survival effective thresholds capped at the capacity ratio', () => {
+  it('keeps non-survival effective thresholds above basic worker spawn energy', () => {
     const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300 });
     recordSurvivalMode('LOCAL_STABLE');
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(200);
   });
 
   it('normalizes edge-case room capacity values before capping effective thresholds', () => {
@@ -137,7 +137,7 @@ describe('energyBuffer', () => {
     const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300, storage });
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(200);
     expect(getStorageEnergyReserveThreshold(room)).toBe(500);
     expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(20);
     expect(withdrawFromStorage(room, 20)).toBe(true);

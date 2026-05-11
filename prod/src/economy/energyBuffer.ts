@@ -169,7 +169,10 @@ function getEffectiveConfiguredRoomEnergyBufferThreshold(room: Room): number {
 }
 
 function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable: number): number {
-  return Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO);
+  return Math.max(
+    MINIMUM_WORKER_SPAWN_ENERGY,
+    Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+  );
 }
 
 function isSurvivalBufferMode(room: Room): boolean {

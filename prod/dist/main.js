@@ -2828,7 +2828,10 @@ function getEffectiveConfiguredRoomEnergyBufferThreshold(room) {
   return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
 }
 function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable) {
-  return Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO);
+  return Math.max(
+    MINIMUM_WORKER_SPAWN_ENERGY,
+    Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+  );
 }
 function isSurvivalBufferMode(room) {
   var _a;
