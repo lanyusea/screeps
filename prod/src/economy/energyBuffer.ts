@@ -16,8 +16,7 @@ export const NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO = 0.65;
 export const STORAGE_EMERGENCY_RESERVE = 1_000;
 export const CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
 export const CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
-
-const MINIMUM_WORKER_SPAWN_ENERGY = 200;
+export const MINIMUM_WORKER_SPAWN_ENERGY = 200;
 
 export interface EnergyBufferHealth {
   currentEnergy: number;
@@ -85,7 +84,7 @@ export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amo
   }
 
   return (
-    hasMinimumWorkerSpawnEnergyForConstruction(room) &&
+    hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) &&
     energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY &&
     getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable
   );
@@ -94,6 +93,14 @@ export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amo
 export function hasMinimumWorkerSpawnEnergyForConstruction(room: Room): boolean {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
   return !observation.known || observation.currentEnergy >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
+}
+
+function hasMinimumWorkerSpawnEnergyReserveForConstruction(room: Room, amount: number): boolean {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  return (
+    !observation.known ||
+    observation.currentEnergy - normalizeEnergyAmount(amount) >= MINIMUM_WORKER_SPAWN_ENERGY
+  );
 }
 
 export function withdrawFromStorage(
