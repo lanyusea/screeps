@@ -806,6 +806,26 @@ class RlSimulatorHarnessTest(unittest.TestCase):
             harness._build_run_ports(1),
         )
 
+    def test_select_run_ports_starts_from_configured_host_port_start(self) -> None:
+        observed_ports: list[int] = []
+
+        class FakeSmoke:
+            def host_port_unavailable_reason(self, host: str, port: int) -> str | None:
+                observed_ports.append(port)
+                return None
+
+        self.assertEqual(
+            harness._select_run_ports(
+                FakeSmoke(),
+                "127.0.0.1",
+                worker_index=0,
+                worker_count=1,
+                host_port_start=23125,
+            ),
+            (23125, 23126),
+        )
+        self.assertEqual(observed_ports, [23125, 23126])
+
     def test_run_variant_installs_repair_mod_before_compose_start(self) -> None:
         events: list[str] = []
         run_command_calls = 0
@@ -1007,6 +1027,50 @@ class RlSimulatorHarnessTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn('"ok": false', output.getvalue())
+
+    def test_run_command_parses_host_port_start(self) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_run_simulator(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {
+                "type": harness.RUN_SUMMARY_TYPE,
+                "runId": "host-port-start",
+                "variants": [{"variant_id": "baseline", "ok": True}],
+            }
+
+        output = io.StringIO()
+
+        with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+            with mock.patch("screeps_rl_simulator_harness.run_simulator", side_effect=fake_run_simulator):
+                exit_code = harness.main(
+                    ["run", "--variants", "baseline", "--host-port-start", "23125"],
+                    stdout=output,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured_kwargs["host_port_start"], 23125)
+
+    def test_run_command_uses_host_port_start_env_fallback(self) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_run_simulator(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {
+                "type": harness.RUN_SUMMARY_TYPE,
+                "runId": "host-port-start-env",
+                "variants": [{"variant_id": "baseline", "ok": True}],
+            }
+
+        output = io.StringIO()
+
+        with mock.patch.dict(os.environ, {harness.RUN_HOST_PORT_START_ENV: "23125"}):
+            with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+                with mock.patch("screeps_rl_simulator_harness.run_simulator", side_effect=fake_run_simulator):
+                    exit_code = harness.main(["run", "--variants", "baseline"], stdout=output)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured_kwargs["host_port_start"], 23125)
 
 
 if __name__ == "__main__":

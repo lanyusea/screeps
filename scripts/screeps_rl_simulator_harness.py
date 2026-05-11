@@ -74,6 +74,7 @@ DEFAULT_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
 RUN_HTTP_START = 21125
 RUN_CLI_START = 21126
+RUN_HOST_PORT_START_ENV = "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START"
 RUN_HTTP_PORT_STEP = 2
 RUN_PORT_SCAN_ATTEMPTS = 2048
 RUN_TICK_TIMEOUT_SECONDS = 300
@@ -363,9 +364,9 @@ def _coerce_int(value: Any) -> int | None:
     return None
 
 
-def _build_run_ports(worker_index: int) -> tuple[int, int]:
-    http_port = RUN_HTTP_START + (worker_index * RUN_HTTP_PORT_STEP)
-    cli_port = RUN_CLI_START + (worker_index * RUN_HTTP_PORT_STEP)
+def _build_run_ports(worker_index: int, host_port_start: int = RUN_HTTP_START) -> tuple[int, int]:
+    http_port = host_port_start + (worker_index * RUN_HTTP_PORT_STEP)
+    cli_port = http_port + 1
     if http_port > 65535:
         raise RuntimeError(f"worker HTTP port out of range: {http_port}")
     if cli_port > 65535:
@@ -389,6 +390,7 @@ def _select_run_ports(
     *,
     worker_index: int,
     worker_count: int,
+    host_port_start: int = RUN_HTTP_START,
 ) -> tuple[int, int]:
     if worker_count <= 0:
         raise RuntimeError("worker count must be a positive integer")
@@ -397,7 +399,7 @@ def _select_run_ports(
     for attempt in range(RUN_PORT_SCAN_ATTEMPTS):
         candidate_worker_index = worker_index + (attempt * worker_count)
         try:
-            http_port, cli_port = _build_run_ports(candidate_worker_index)
+            http_port, cli_port = _build_run_ports(candidate_worker_index, host_port_start)
         except RuntimeError as exc:
             last_failure = _safe_text(exc, 200)
             break
@@ -1176,6 +1178,7 @@ def _run_variant(
     *,
     run_id: str,
     worker_count: int = 1,
+    host_port_start: int = RUN_HTTP_START,
     ticks: int,
     room: str,
     shard: str,
@@ -1196,6 +1199,7 @@ def _run_variant(
         server_host,
         worker_index=worker_index,
         worker_count=worker_count,
+        host_port_start=host_port_start,
     )
     compose_project = f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}"
     password = secrets.token_urlsafe(20)
@@ -1405,6 +1409,7 @@ def run_variants(
     variants: Sequence[str],
     ticks: int,
     workers: int,
+    host_port_start: int = RUN_HTTP_START,
     room: str,
     shard: str,
     branch: str,
@@ -1436,6 +1441,7 @@ def run_variants(
                     variant_id=variant_id,
                     run_id=run_id,
                     worker_count=normalized_workers,
+                    host_port_start=host_port_start,
                     ticks=ticks,
                     room=room,
                     shard=shard,
@@ -1488,6 +1494,28 @@ def positive_int(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
     return parsed
+
+
+def host_port_start_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed < 1 or parsed >= 65535:
+        raise argparse.ArgumentTypeError("must be between 1 and 65534")
+    return parsed
+
+
+def resolve_run_host_port_start(cli_value: int | None) -> int:
+    if cli_value is not None:
+        return cli_value
+    env_value = os.environ.get(RUN_HOST_PORT_START_ENV)
+    if env_value:
+        try:
+            return host_port_start_int(env_value)
+        except argparse.ArgumentTypeError as error:
+            raise RuntimeError(f"{RUN_HOST_PORT_START_ENV} {error}") from error
+    return RUN_HTTP_START
 
 
 def positive_float(value: str) -> float:
@@ -2325,6 +2353,7 @@ def run_simulator(
     variants: Sequence[str],
     out_dir: Path,
     run_id: str | None = None,
+    host_port_start: int = RUN_HTTP_START,
     room: str = DEFAULT_SIM_ROOM,
     shard: str = DEFAULT_SIM_SHARD,
     branch: str = DEFAULT_ACTIVE_WORLD_BRANCH,
@@ -2352,6 +2381,7 @@ def run_simulator(
         variants=variants,
         ticks=ticks,
         workers=workers,
+        host_port_start=host_port_start,
         room=room,
         shard=shard,
         branch=api_branch,
@@ -2478,6 +2508,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Bot bundle commit recorded in run artifacts. Default: auto-detect git HEAD, then {DEFAULT_BOT_COMMIT}.",
     )
     run.add_argument(
+        "--host-port-start",
+        type=host_port_start_int,
+        default=None,
+        help=(
+            "Starting host HTTP port for worker private-server stacks. "
+            f"Default: ${RUN_HOST_PORT_START_ENV}, then {RUN_HTTP_START}."
+        ),
+    )
+    run.add_argument(
         "--ticks",
         type=positive_int,
         default=DEFAULT_RUN_TICKS,
@@ -2554,6 +2593,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             variants=variants,
             out_dir=args.out_dir,
             run_id=args.run_id,
+            host_port_start=resolve_run_host_port_start(args.host_port_start),
             room=args.room,
             shard=args.shard,
             branch=args.branch,
