@@ -10202,7 +10202,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'source-container-site1' });
   });
 
-  it('blocks capacity-enabling construction below worker spawn energy', () => {
+  it('builds capacity-enabling construction when carried energy leaves worker spawn energy reserved', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -10215,7 +10215,29 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({
         constructionSites: [site],
         controller,
-        energyAvailable: 299,
+        energyAvailable: 250,
+        energyCapacityAvailable: 300
+      })
+    } as unknown as Creep;
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('blocks capacity-enabling construction below worker spawn energy reserve', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 249,
         energyCapacityAvailable: 300
       })
     } as unknown as Creep;

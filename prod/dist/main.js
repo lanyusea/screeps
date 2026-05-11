@@ -2771,11 +2771,15 @@ function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (energyCapacityAvailable === null) {
     return false;
   }
-  return hasMinimumWorkerSpawnEnergyForConstruction(room) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
+  return hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
 }
 function hasMinimumWorkerSpawnEnergyForConstruction(room) {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
   return !observation.known || observation.currentEnergy >= CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY;
+}
+function hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  return !observation.known || observation.currentEnergy - normalizeEnergyAmount2(amount) >= MINIMUM_WORKER_SPAWN_ENERGY;
 }
 function withdrawFromStorage(room, amount, storage = getRoomStorage(room), currentStorageEnergy = storage ? getStoredEnergy(storage) : 0, options = {}) {
   if (!storage) {
@@ -9683,6 +9687,7 @@ var DEFAULT_MAX_ROAD_SITES_PER_TICK2 = 1;
 var DEFAULT_MAX_CONTAINER_SITES_PER_TICK3 = 1;
 var MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY2 = 4;
 var SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO2 = 0.5;
+var SPAWN_ENERGY_CAPACITY_FALLBACK = 300;
 var SPAWN_EDGE_MIN = 2;
 var SPAWN_EDGE_MAX = 47;
 var MAX_SPAWN_SITE_SCAN_RADIUS = 8;
@@ -9739,6 +9744,11 @@ function planConstructionForColony(colony, options = {}) {
   if (rcl <= 0 || typeof room.createConstructionSite !== "function") {
     return result;
   }
+  const extensionBootstrapPriority = shouldPrioritizeExtensionBootstrapConstruction(
+    room,
+    rcl,
+    getRoomEnergyCapacityAvailable5(colony)
+  );
   const sourceLogisticsStarved = shouldPrioritizeSourceLogisticsBeforeCapacity(
     rcl,
     energyAvailable,
@@ -9750,6 +9760,9 @@ function planConstructionForColony(colony, options = {}) {
     if (spawnPlacement.result !== getOkCode4()) {
       return result;
     }
+  }
+  if (extensionBootstrapPriority && planBootstrapExtension(colony, result, budgetState, options)) {
+    return result;
   }
   if (options.postClaimPriorityOrder === true) {
     planExtensions(colony, result, budgetState, options);
@@ -9810,6 +9823,30 @@ function planConstructionForColony(colony, options = {}) {
   planTowers(colony, result, budgetState, options);
   planStorage(colony, result, budgetState, options);
   return result;
+}
+function planBootstrapExtension(colony, result, budgetState, options) {
+  if (countPendingConstructionSites(colony.room, "extension") > 0) {
+    return true;
+  }
+  if (!canReserveBootstrapExtensionEnergy(colony.room, budgetState, options)) {
+    return false;
+  }
+  const extensionResult = planExtensionConstruction(colony);
+  if (extensionResult !== null) {
+    recordPlacement(result, budgetState, "extension", extensionResult, options);
+    return true;
+  }
+  return false;
+}
+function canReserveBootstrapExtensionEnergy(room, budgetState, options) {
+  const reservation = getConstructionEnergyReservation("extension", options);
+  if (reservation <= 0) {
+    return true;
+  }
+  if (budgetState.energyReserved + reservation > budgetState.energyBudget) {
+    return false;
+  }
+  return checkEnergyBufferForCapacityEnablingConstruction(room, budgetState.energyReserved + reservation);
 }
 function planExtensions(colony, result, budgetState, options) {
   if (!hasRemainingStructureCapacity(colony.room, "extension") || !canReserveConstructionEnergy(colony.room, budgetState, "extension", options)) {
@@ -10035,6 +10072,13 @@ function getRemainingStructureCapacity(room, priority) {
 function countExistingAndPendingStructures(room, priority) {
   return countExistingStructures(room, priority) + countPendingConstructionSites(room, priority);
 }
+function shouldPrioritizeExtensionBootstrapConstruction(room, rcl, energyCapacityAvailable) {
+  if (rcl < 2 || energyCapacityAvailable !== getSpawnEnergyCapacity()) {
+    return false;
+  }
+  const extensionLimit = getControllerStructureLimit(room, "STRUCTURE_EXTENSION");
+  return extensionLimit > 0 && countExistingStructures(room, "extension") < extensionLimit;
+}
 function countExistingStructures(room, priority) {
   const structureType = getStructureConstant(PRIORITY_STRUCTURE_TYPES[priority]);
   const objects = [
@@ -10157,6 +10201,10 @@ function getOptionalRoomEnergyAvailable(room) {
 function getOptionalRoomEnergyCapacityAvailable(room) {
   const roomEnergyCapacity = room.energyCapacityAvailable;
   return typeof roomEnergyCapacity === "number" && Number.isFinite(roomEnergyCapacity) ? Math.max(0, roomEnergyCapacity) : null;
+}
+function getSpawnEnergyCapacity() {
+  const value = globalThis.SPAWN_ENERGY_CAPACITY;
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : SPAWN_ENERGY_CAPACITY_FALLBACK;
 }
 function shouldPrioritizeSourceLogisticsBeforeCapacity(rcl, energyAvailable, energyCapacityAvailable) {
   return rcl >= MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY2 && energyCapacityAvailable > 0 && energyAvailable < energyCapacityAvailable * SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO2;
@@ -22541,13 +22589,13 @@ function compareLowEnergySpawnPriority(left, right) {
   return leftLowEnergySpawn ? -1 : 1;
 }
 function isLowEnergySpawn(structure) {
-  return isSpawnEnergySink(structure) && getStoredEnergy14(structure) < getSpawnEnergyCapacity();
+  return isSpawnEnergySink(structure) && getStoredEnergy14(structure) < getSpawnEnergyCapacity2();
 }
 function isCriticalSpawnEnergySink(structure) {
   const storedEnergy = getKnownStoredEnergy2(structure);
   return isSpawnEnergySink(structure) && storedEnergy !== null && storedEnergy < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
-function getSpawnEnergyCapacity() {
+function getSpawnEnergyCapacity2() {
   const spawnEnergyCapacity = globalThis.SPAWN_ENERGY_CAPACITY;
   return typeof spawnEnergyCapacity === "number" && Number.isFinite(spawnEnergyCapacity) && spawnEnergyCapacity > 0 ? spawnEnergyCapacity : DEFAULT_SPAWN_ENERGY_CAPACITY;
 }

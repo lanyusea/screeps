@@ -149,6 +149,66 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
   });
 
+  it('prioritizes spawn-only bootstrap extension construction while preserving worker spawn energy', () => {
+    installOpenTerrain();
+    recordBootstrapSurvivalMode();
+    const { room, colony } = makeColony({
+      controllerLevel: 2,
+      energyAvailable: 250,
+      energyCapacityAvailable: 300,
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyAvailable - result.energyReserved).toBeGreaterThanOrEqual(200);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
+  });
+
+  it('does not reserve spawn-only bootstrap extension construction below worker spawn energy', () => {
+    installOpenTerrain();
+    recordBootstrapSurvivalMode();
+    const { room, colony } = makeColony({
+      controllerLevel: 2,
+      energyAvailable: 249,
+      energyCapacityAvailable: 300,
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
+  it('does not start duplicate extension sites during spawn-only bootstrap', () => {
+    installOpenTerrain();
+    recordBootstrapSurvivalMode();
+    const { room, colony } = makeColony({
+      controllerLevel: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      constructionSites: [makeConstructionSite('extension-pending', TEST_GLOBALS.STRUCTURE_EXTENSION, 9, 9, 'W1N1')],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
   it('places source containers before extensions during RCL4 energy starvation', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
