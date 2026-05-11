@@ -63,10 +63,10 @@ describe('energyBuffer', () => {
     );
   });
 
-  it('caps the RCL 4 buffer threshold at spawn-only room capacity', () => {
+  it('caps the effective RCL 4 buffer threshold at spawn-only room capacity', () => {
     const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
 
-    expect(getRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getRoomEnergyBufferThreshold(room)).toBe(500);
     expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
     expect(getRoomEnergyBufferHealth(room)).toEqual({
       currentEnergy: 300,
@@ -76,27 +76,45 @@ describe('energyBuffer', () => {
     });
   });
 
-  it('caps the RCL 5 buffer threshold at limited extension capacity', () => {
+  it('caps the effective RCL 5 buffer threshold at limited extension capacity', () => {
     const room = makeRoom({ level: 5, energyAvailable: 650, energyCapacityAvailable: 650 });
 
-    expect(getRoomEnergyBufferThreshold(room)).toBe(650);
+    expect(getRoomEnergyBufferThreshold(room)).toBe(800);
     expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(650);
     expect(getRoomEnergyBufferHealth(room).healthy).toBe(true);
   });
 
-  it('applies the survival multiplier after capping the threshold to room capacity', () => {
-    const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
-    recordSurvivalMode('DEFENSE');
+  it('caps an RCL 2 bootstrap threshold after applying the survival multiplier', () => {
+    const room = makeRoom({ level: 2, energyAvailable: 300, energyCapacityAvailable: 300 });
+    recordSurvivalMode('BOOTSTRAP');
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(300);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(450);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
   });
 
-  it('normalizes edge-case room capacity values before capping thresholds', () => {
-    expect(getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: 0 }))).toBe(0);
-    expect(getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: -1 }))).toBe(0);
+  it('caps an RCL 3 bootstrap threshold after applying the survival multiplier', () => {
+    const room = makeRoom({ level: 3, energyAvailable: 550, energyCapacityAvailable: 550 });
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(500);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(550);
+  });
+
+  it('keeps non-survival effective thresholds capped at room capacity', () => {
+    const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300 });
+    recordSurvivalMode('LOCAL_STABLE');
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(500);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+  });
+
+  it('normalizes edge-case room capacity values before capping effective thresholds', () => {
+    expect(getEffectiveRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: 0 }))).toBe(0);
+    expect(getEffectiveRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: -1 }))).toBe(0);
     expect(
-      getRoomEnergyBufferThreshold(makeRoom({ level: 4, energyCapacityAvailable: Number.POSITIVE_INFINITY }))
+      getEffectiveRoomEnergyBufferThreshold(
+        makeRoom({ level: 4, energyCapacityAvailable: Number.POSITIVE_INFINITY })
+      )
     ).toBe(500);
   });
 
@@ -104,7 +122,8 @@ describe('energyBuffer', () => {
     const storage = makeStorage(520);
     const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300, storage });
 
-    expect(getRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getRoomEnergyBufferThreshold(room)).toBe(500);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
     expect(getStorageEnergyReserveThreshold(room)).toBe(500);
     expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(20);
     expect(withdrawFromStorage(room, 20)).toBe(true);
@@ -193,8 +212,9 @@ describe('energyBuffer', () => {
   });
 });
 
-function recordSurvivalMode(mode: 'LOCAL_STABLE' | 'DEFENSE'): void {
+function recordSurvivalMode(mode: 'BOOTSTRAP' | 'LOCAL_STABLE' | 'DEFENSE'): void {
   const inputByMode = {
+    BOOTSTRAP: { workerCapacity: 1, workerTarget: 3, hostileCreepCount: 0 },
     LOCAL_STABLE: { workerCapacity: 3, workerTarget: 4, hostileCreepCount: 0 },
     DEFENSE: { workerCapacity: 4, workerTarget: 4, hostileCreepCount: 1 }
   }[mode];

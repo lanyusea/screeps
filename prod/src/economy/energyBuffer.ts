@@ -38,18 +38,20 @@ interface EnergyObservation {
 }
 
 export function getRoomEnergyBufferThreshold(room: Room): number {
-  const desiredThreshold = getConfiguredRoomEnergyBufferThreshold(room);
-  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
-  if (energyCapacityAvailable === null) {
-    return desiredThreshold;
-  }
-
-  return Math.min(desiredThreshold, energyCapacityAvailable);
+  return getConfiguredRoomEnergyBufferThreshold(room);
 }
 
 export function getEffectiveRoomEnergyBufferThreshold(room: Room): number {
   const threshold = getRoomEnergyBufferThreshold(room);
-  return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+  const effectiveThreshold = isSurvivalBufferMode(room)
+    ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER)
+    : threshold;
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyCapacityAvailable === null) {
+    return effectiveThreshold;
+  }
+
+  return Math.min(effectiveThreshold, energyCapacityAvailable);
 }
 
 export function getStorageEnergyReserveThreshold(room: Room): number {
