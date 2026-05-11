@@ -25,6 +25,8 @@ def load_roadmap_module() -> Any:
 
 
 roadmap = load_roadmap_module()
+GENERATED_AT = "2026-05-05T00:00:00Z"
+DELIVERY_WINDOW_GENERATED_AT = "2026-05-12T00:00:00Z"
 
 
 def deploy_evidence(
@@ -60,6 +62,41 @@ def write_evidence(repo_root: Path, name: str, evidence: dict[str, Any] | str) -
         path.write_text(evidence, encoding="utf-8")
     else:
         path.write_text(json.dumps(evidence), encoding="utf-8")
+
+
+def private_smoke_report(
+    *,
+    ok: bool = True,
+    dry_run: bool = False,
+    started_at: str = "2026-05-10T00:00:00Z",
+    finished_at: str = "2026-05-10T00:10:00Z",
+    report_path: str = "",
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "ok": ok,
+        "dry_run": dry_run,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "smoke": {
+            "room": "E1S1",
+            "shard": "shardX",
+            "spawn": {"name": "Spawn1"},
+            "username": "smoke",
+        },
+    }
+    if report_path:
+        report["report_path"] = report_path
+    return report
+
+
+def write_private_smoke_report(repo_root: Path, relative: str, report: dict[str, Any] | str) -> None:
+    path = repo_root / "runtime-artifacts" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(report, str):
+        path.write_text(report, encoding="utf-8")
+    else:
+        report.setdefault("report_path", str(path))
+        path.write_text(json.dumps(report), encoding="utf-8")
 
 
 def write_codex_session(path: Path, records: list[dict[str, Any]]) -> None:
@@ -332,7 +369,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(territory["history"]["status"], "complete")
         self.assertIn("reducer-backed KPI history", territory["footer"])
 
-    def test_counts_only_successful_official_deploy_evidence_json(self) -> None:
+    def test_counts_only_successful_official_deploy_evidence_json_in_delivery_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             write_evidence(
@@ -348,6 +385,16 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 repo_root,
                 "official-screeps-deploy-20260429.json",
                 deploy_evidence(timestamp="2026-04-29T12:00:00Z", commit="b" * 40, run_id=8675309),
+            )
+            write_evidence(
+                repo_root,
+                "official-screeps-deploy-8675309/official-screeps-deploy.json",
+                deploy_evidence(timestamp="2026-04-29T12:00:00Z", commit="b" * 40),
+            )
+            write_evidence(
+                repo_root,
+                "official-screeps-deploy-20260420.json",
+                deploy_evidence(timestamp="2026-04-20T12:00:00Z", commit="c" * 40, run_id=1234),
             )
             write_evidence(repo_root, "official-screeps-deploy-dry-run.json", deploy_evidence(mode="dry-run"))
             write_evidence(repo_root, "official-screeps-deploy-failed.json", deploy_evidence(ok=False))
@@ -373,12 +420,14 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             )
             write_evidence(repo_root, "official-screeps-deploy-invalid.json", "{")
 
-            summary = roadmap.summarize_official_deploy_evidence(repo_root)
+            summary = roadmap.summarize_official_deploy_evidence(repo_root, GENERATED_AT)
 
         self.assertEqual(summary.count, 2)
+        self.assertEqual(summary.candidate_count, 11)
         self.assertIsNotNone(summary.latest)
         self.assertEqual(summary.latest.commit, "b" * 40)
         self.assertEqual(summary.latest.run_id, "8675309")
+        self.assertEqual(summary.evidence_ids, ("commit-time:" + "a" * 40 + ":2026-04-28T12:00:00Z", "run:8675309"))
 
     def test_report_process_card_uses_official_deploy_evidence_detail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -393,17 +442,121 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 patch.object(roadmap, "run_text", return_value="42\n"),
                 patch.object(roadmap, "fetch_all_prs", return_value=([{"state": "MERGED"}], None)),
                 patch.object(roadmap, "fetch_all_issues", return_value=([{"state": "OPEN"}], None)),
-                patch.object(roadmap, "count_private_smoke_process_reports", return_value=1),
                 patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
                 patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
             ):
-                cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
+                cards = roadmap.build_report_process_cards(
+                    repo_root,
+                    {"fullName": "lanyusea/screeps"},
+                    {},
+                    {},
+                    GENERATED_AT,
+                )
 
         release_card = next(card for card in cards if card["label"] == "Deploys")
         self.assertEqual(release_card["value"], 1)
-        self.assertEqual(release_card["source"], "official deploy evidence JSON")
+        self.assertEqual(release_card["source"], "accepted official deploy JSON")
         self.assertIn("latest commit cccccccccccc", release_card["detail"])
         self.assertIn("run 123456", release_card["detail"])
+        self.assertEqual(release_card["provenance"]["window"]["days"], 7)
+        self.assertEqual(release_card["provenance"]["countedIds"], ["run:123456"])
+
+    def test_report_process_cards_do_not_count_project_prose_or_markdown_smoke_mentions(self) -> None:
+        github_snapshot = {
+            "projectItems": [
+                {
+                    "number": 1,
+                    "title": "release item",
+                    "evidence": "Official deploy run 111 succeeded.",
+                },
+                {
+                    "number": 2,
+                    "title": "duplicate release item",
+                    "evidence": "Deployment floor satisfied by official deploy run 111.",
+                },
+            ],
+            "issues": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            process_doc = repo_root / "docs" / "process" / "2026-05-10-private-smoke-note.md"
+            process_doc.parent.mkdir(parents=True, exist_ok=True)
+            process_doc.write_text("Mentioned private-smoke-report-20260510T010000Z.json without JSON evidence.\n", encoding="utf-8")
+
+            with (
+                patch.object(roadmap, "run_text", return_value="42\n"),
+                patch.object(roadmap, "fetch_all_prs", return_value=([], None)),
+                patch.object(roadmap, "fetch_all_issues", return_value=([], None)),
+                patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
+            ):
+                cards = roadmap.build_report_process_cards(
+                    repo_root,
+                    {"fullName": "lanyusea/screeps"},
+                    github_snapshot,
+                    {},
+                    DELIVERY_WINDOW_GENERATED_AT,
+                )
+
+        cards_by_label = {card["label"]: card for card in cards}
+        self.assertEqual(cards_by_label["Deploys"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Deploys"]["source"], "unavailable")
+        self.assertIn("no accepted deploy evidence", cards_by_label["Deploys"]["detail"])
+        self.assertEqual(cards_by_label["Private smoke"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Private smoke"]["source"], "unavailable")
+        self.assertIn("no accepted private smoke report", cards_by_label["Private smoke"]["detail"])
+
+    def test_private_smoke_counts_only_live_accepted_json_reports_in_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-live-a/private-smoke-report-20260510T001000Z.json",
+                private_smoke_report(
+                    finished_at="2026-05-10T00:10:00Z",
+                    report_path="/tmp/private-smoke-report-20260510T001000Z.json",
+                ),
+            )
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-live-a/copy/private-smoke-report-20260510T001000Z.json",
+                private_smoke_report(
+                    finished_at="2026-05-10T00:10:00Z",
+                    report_path="/tmp/private-smoke-report-20260510T001000Z.json",
+                ),
+            )
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-live-b/private-smoke-report-20260511T001000Z.json",
+                private_smoke_report(finished_at="2026-05-11T00:10:00Z"),
+            )
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-live-old/private-smoke-report-20260420T001000Z.json",
+                private_smoke_report(finished_at="2026-04-20T00:10:00Z"),
+            )
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-dry-run/private-smoke-report-20260510T002000Z.json",
+                private_smoke_report(dry_run=True, finished_at="2026-05-10T00:20:00Z"),
+            )
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-failed/private-smoke-report-20260510T003000Z.json",
+                private_smoke_report(ok=False, finished_at="2026-05-10T00:30:00Z"),
+            )
+
+            summary = roadmap.summarize_private_smoke_evidence(repo_root, DELIVERY_WINDOW_GENERATED_AT)
+
+        self.assertEqual(summary.count, 2)
+        self.assertEqual(summary.candidate_count, 6)
+        self.assertEqual(
+            summary.evidence_ids,
+            (
+                "report:private-smoke-report-20260510T001000Z.json:2026-05-10T00:10:00Z",
+                "report:private-smoke-report-20260511T001000Z.json:2026-05-11T00:10:00Z",
+            ),
+        )
 
     def test_report_process_cards_compute_agent_metrics_from_local_fixtures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -418,6 +571,11 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             process_doc = repo_root / "docs" / "process" / "2026-05-01-private-smoke.md"
             process_doc.parent.mkdir(parents=True, exist_ok=True)
             process_doc.write_text("private-smoke-report-20260501.json\n", encoding="utf-8")
+            write_private_smoke_report(
+                repo_root,
+                "screeps-private-smoke-live-20260501/private-smoke-report-20260501T031500Z.json",
+                private_smoke_report(finished_at="2026-05-01T03:15:00Z"),
+            )
             write_codex_session(
                 codex_root / "2026" / "05" / "01" / "rollout-alpha.jsonl",
                 [
@@ -462,9 +620,14 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "fetch_all_issues",
                     return_value=([{"state": "OPEN"}, {"state": "CLOSED"}, {"state": "OPEN"}], None),
                 ),
-                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
             ):
-                cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
+                cards = roadmap.build_report_process_cards(
+                    repo_root,
+                    {"fullName": "lanyusea/screeps"},
+                    {},
+                    {},
+                    GENERATED_AT,
+                )
 
         cards_by_label = {card["label"]: card for card in cards}
         self.assertEqual([card["label"] for card in cards], [
@@ -541,8 +704,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
                 patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
                 patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
-                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
-                patch.object(roadmap, "count_private_smoke_process_reports", return_value=0),
+                patch.object(roadmap, "summarize_private_smoke_evidence", return_value=roadmap.PrivateSmokeEvidenceSummary(0)),
             ):
                 cards = roadmap.build_report_process_cards(
                     repo_root,
@@ -606,7 +768,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 patch.object(roadmap, "fetch_all_prs", return_value=([], {"message": "unavailable"})),
                 patch.object(roadmap, "fetch_all_issues", return_value=([], {"message": "unavailable"})),
                 patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
-                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
+                patch.object(roadmap, "summarize_private_smoke_evidence", return_value=roadmap.PrivateSmokeEvidenceSummary(0)),
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 

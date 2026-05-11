@@ -25,6 +25,7 @@ import screeps_runtime_kpi_reducer as runtime_kpi_reducer
 
 SCHEMA_VERSION = 1
 KPI_HISTORY_WINDOW_DAYS = 7
+DELIVERY_METRICS_WINDOW_DAYS = 7
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
@@ -118,12 +119,34 @@ class OfficialDeployEvidenceRecord:
     timestamp: datetime | None
     commit: str
     run_id: str
+    evidence_id: str
 
 
 @dataclass(frozen=True)
 class OfficialDeployEvidenceSummary:
     count: int
     latest: OfficialDeployEvidenceRecord | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    evidence_ids: tuple[str, ...] = ()
+    candidate_count: int = 0
+
+
+@dataclass(frozen=True)
+class PrivateSmokeEvidenceRecord:
+    path: Path
+    timestamp: datetime | None
+    evidence_id: str
+
+
+@dataclass(frozen=True)
+class PrivateSmokeEvidenceSummary:
+    count: int
+    latest: PrivateSmokeEvidenceRecord | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    evidence_ids: tuple[str, ...] = ()
+    candidate_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -551,6 +574,7 @@ OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
     "official-screeps-deploy.json",
     "official-screeps-deploy-*.json",
 )
+PRIVATE_SMOKE_EVIDENCE_PATTERN = "private-smoke-report-*.json"
 CODEX_SESSION_ROOT = Path("/root/.codex/sessions")
 CODEX_SESSION_PATTERN = "rollout-*.jsonl"
 HERMES_CRON_OUTPUT_ROOT = Path("/root/.hermes/cron/output")
@@ -2226,7 +2250,7 @@ def build_approved_report_model(
         "kpiCards": build_report_kpi_cards(history, generated_at, history_source),
         "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
         "domainKanban": build_report_domain_kanban(github_snapshot),
-        "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data),
+        "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data, generated_at),
     }
 
 
@@ -2286,6 +2310,10 @@ def parse_timestamp(value: str) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def format_timestamp_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def metric_history_values(history: JsonObject, metric_key: str, buckets: Sequence[date]) -> tuple[list[int | float | None], list[str]]:
@@ -2751,6 +2779,7 @@ def build_report_process_cards(
     repo: JsonObject,
     github_snapshot: JsonObject,
     cached_page_data: JsonObject,
+    generated_at: str | None = None,
 ) -> list[JsonObject]:
     cached_process_cards = cached_report_process_cards(cached_page_data)
     commit_count = git_commit_count(repo_root)
@@ -2800,35 +2829,60 @@ def build_report_process_cards(
     else:
         issue_card = unavailable_process_card("Issues", format_fetch_error("gh issue list", issue_error))
 
-    official_deploy_summary = summarize_official_deploy_evidence(repo_root)
-    official_deploy_project_count = count_official_deploy_evidence(repo_root, github_snapshot)
-    official_deploy_count = max(official_deploy_summary.count, official_deploy_project_count)
-    official_deploy_value: int | str = official_deploy_count if official_deploy_count > 0 else INSUFFICIENT_EVIDENCE
+    official_deploy_summary = summarize_official_deploy_evidence(repo_root, generated_at)
     if official_deploy_summary.count > 0:
         official_deploy_detail = official_deploy_process_detail(official_deploy_summary)
-        official_deploy_source = "official deploy evidence JSON"
-    elif official_deploy_project_count > 0:
-        official_deploy_detail = "GitHub Project official deploy evidence"
-        official_deploy_source = "github project evidence"
+        deploy_card = {
+            "value": official_deploy_summary.count,
+            "rawValue": official_deploy_summary.count,
+            "label": "Deploys",
+            "detail": official_deploy_detail,
+            "delta": "+0",
+            "source": "accepted official deploy JSON",
+            "provenance": delivery_metric_provenance(
+                official_deploy_summary.window_start,
+                official_deploy_summary.window_end,
+                "runtime-artifacts/official-screeps-deploy JSON",
+                official_deploy_summary.evidence_ids,
+                official_deploy_summary.candidate_count,
+            ),
+        }
     else:
-        official_deploy_detail = "evidence unavailable"
-        official_deploy_source = "unavailable"
+        deploy_card = unavailable_delivery_metric_card(
+            "Deploys",
+            "no accepted deploy evidence in last 7d",
+            official_deploy_summary.window_start,
+            official_deploy_summary.window_end,
+            "runtime-artifacts/official-screeps-deploy JSON",
+            official_deploy_summary.candidate_count,
+        )
 
-    deploy_card = {
-        "value": official_deploy_value,
-        "label": "Deploys",
-        "detail": official_deploy_detail,
-        "delta": "+0",
-        "source": official_deploy_source,
-    }
-    private_smoke_count = count_private_smoke_process_reports(repo_root)
-    private_smoke_card = {
-        "value": private_smoke_count if private_smoke_count > 0 else INSUFFICIENT_EVIDENCE,
-        "label": "Private smoke",
-        "detail": "smoke/report evidence" if private_smoke_count > 0 else "no accepted private smoke report",
-        "delta": "+0",
-        "source": "approved process report count" if private_smoke_count > 0 else "unavailable",
-    }
+    private_smoke_summary = summarize_private_smoke_evidence(repo_root, generated_at)
+    if private_smoke_summary.count > 0:
+        private_smoke_card = {
+            "value": private_smoke_summary.count,
+            "rawValue": private_smoke_summary.count,
+            "label": "Private smoke",
+            "detail": private_smoke_process_detail(private_smoke_summary),
+            "delta": "+0",
+            "source": "accepted private smoke JSON",
+            "provenance": delivery_metric_provenance(
+                private_smoke_summary.window_start,
+                private_smoke_summary.window_end,
+                "runtime-artifacts private-smoke-report JSON",
+                private_smoke_summary.evidence_ids,
+                private_smoke_summary.candidate_count,
+            ),
+        }
+    else:
+        private_smoke_card = unavailable_delivery_metric_card(
+            "Private smoke",
+            "no accepted private smoke report in last 7d",
+            private_smoke_summary.window_start,
+            private_smoke_summary.window_end,
+            "runtime-artifacts private-smoke-report JSON",
+            private_smoke_summary.candidate_count,
+        )
 
     return [
         commit_card,
@@ -2990,6 +3044,49 @@ def unavailable_process_card(label: str, detail: str, source: str = "unavailable
         "detail": detail,
         "delta": "n/a",
         "source": source,
+    }
+
+
+def unavailable_delivery_metric_card(
+    label: str,
+    detail: str,
+    window_start: datetime | None,
+    window_end: datetime | None,
+    source_kind: str,
+    candidate_count: int,
+) -> JsonObject:
+    return {
+        "value": "unavailable",
+        "label": label,
+        "detail": detail,
+        "delta": "n/a",
+        "source": "unavailable",
+        "provenance": delivery_metric_provenance(
+            window_start,
+            window_end,
+            source_kind,
+            (),
+            candidate_count,
+        ),
+    }
+
+
+def delivery_metric_provenance(
+    window_start: datetime | None,
+    window_end: datetime | None,
+    source_kind: str,
+    evidence_ids: Sequence[str],
+    candidate_count: int,
+) -> JsonObject:
+    return {
+        "window": {
+            "days": DELIVERY_METRICS_WINDOW_DAYS,
+            "start": format_timestamp_z(window_start) if window_start is not None else "",
+            "end": format_timestamp_z(window_end) if window_end is not None else "",
+        },
+        "sourceKind": source_kind,
+        "countedIds": list(evidence_ids),
+        "candidateFiles": candidate_count,
     }
 
 
@@ -3337,33 +3434,79 @@ def parse_optional_count(value: str) -> int | None:
         return None
 
 
-def summarize_official_deploy_evidence(repo_root: Path) -> OfficialDeployEvidenceSummary:
+def delivery_metric_window(generated_at: str | None = None) -> tuple[datetime, datetime]:
+    end = parse_timestamp(generated_at or "") if generated_at else None
+    if end is None:
+        end = datetime.now(timezone.utc).replace(microsecond=0)
+    end = end.astimezone(timezone.utc)
+    return end - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS), end
+
+
+def timestamp_in_window(timestamp: datetime | None, window_start: datetime, window_end: datetime) -> bool:
+    if timestamp is None:
+        return False
+    normalized = timestamp.astimezone(timezone.utc)
+    return window_start <= normalized <= window_end
+
+
+def summarize_official_deploy_evidence(
+    repo_root: Path,
+    generated_at: str | None = None,
+) -> OfficialDeployEvidenceSummary:
+    window_start, window_end = delivery_metric_window(generated_at)
     records: list[OfficialDeployEvidenceRecord] = []
-    for path in official_deploy_evidence_paths(repo_root):
+    seen_content: set[str] = set()
+    seen_evidence: set[str] = set()
+    candidate_paths = official_deploy_evidence_paths(repo_root)
+    for path in candidate_paths:
         evidence = read_json_object(path)
         if not official_deploy_evidence_succeeded(evidence):
             continue
+        timestamp = official_deploy_evidence_timestamp(evidence)
+        if not timestamp_in_window(timestamp, window_start, window_end):
+            continue
+        commit = official_deploy_commit(evidence)
+        run_id = official_deploy_run_id(evidence) or official_deploy_run_id_from_path(path)
+        evidence_id = official_deploy_evidence_id(run_id, commit, timestamp, path)
+        content_id = official_deploy_content_id(commit, timestamp)
+        if evidence_id in seen_evidence or (content_id and content_id in seen_content):
+            continue
+        seen_evidence.add(evidence_id)
+        if content_id:
+            seen_content.add(content_id)
         records.append(
             OfficialDeployEvidenceRecord(
                 path=path,
-                timestamp=official_deploy_evidence_timestamp(evidence),
-                commit=official_deploy_commit(evidence),
-                run_id=official_deploy_run_id(evidence),
+                timestamp=timestamp,
+                commit=commit,
+                run_id=run_id,
+                evidence_id=evidence_id,
             )
         )
 
     latest = max(records, key=official_deploy_record_sort_key) if records else None
-    return OfficialDeployEvidenceSummary(count=len(records), latest=latest)
+    evidence_ids = tuple(sorted(record.evidence_id for record in records))
+    return OfficialDeployEvidenceSummary(
+        count=len(records),
+        latest=latest,
+        window_start=window_start,
+        window_end=window_end,
+        evidence_ids=evidence_ids,
+        candidate_count=len(candidate_paths),
+    )
 
 
 def official_deploy_evidence_paths(repo_root: Path) -> list[Path]:
     evidence_dir = repo_root / OFFICIAL_DEPLOY_EVIDENCE_DIR
-    if not evidence_dir.exists():
-        return []
-
     paths: dict[Path, Path] = {}
-    for pattern in OFFICIAL_DEPLOY_EVIDENCE_PATTERNS:
-        for path in evidence_dir.glob(pattern):
+    if evidence_dir.exists():
+        for pattern in OFFICIAL_DEPLOY_EVIDENCE_PATTERNS:
+            for path in evidence_dir.rglob(pattern):
+                if path.is_file():
+                    paths[path.resolve()] = path
+    artifact_root = repo_root / "runtime-artifacts"
+    if artifact_root.exists():
+        for path in artifact_root.glob("official-screeps-deploy-*.json"):
             if path.is_file():
                 paths[path.resolve()] = path
     return sorted(paths.values())
@@ -3480,6 +3623,36 @@ def official_deploy_run_id(evidence: Mapping[str, Any]) -> str:
     )
 
 
+def official_deploy_run_id_from_path(path: Path) -> str:
+    for part in reversed(path.parts):
+        match = re.search(r"official-screeps-deploy-(\d+)", part)
+        if match:
+            return match.group(1)
+        if part.isdigit():
+            return part
+    return ""
+
+
+def official_deploy_content_id(commit: str, timestamp: datetime | None) -> str:
+    if not commit or timestamp is None:
+        return ""
+    return f"{commit}:{format_timestamp_z(timestamp)}"
+
+
+def official_deploy_evidence_id(
+    run_id: str,
+    commit: str,
+    timestamp: datetime | None,
+    path: Path,
+) -> str:
+    if run_id:
+        return f"run:{run_id}"
+    content_id = official_deploy_content_id(commit, timestamp)
+    if content_id:
+        return f"commit-time:{content_id}"
+    return f"file:{path.name}"
+
+
 def first_nested_scalar_text(value: Mapping[str, Any], paths: Sequence[Sequence[str]]) -> str:
     for keys in paths:
         item: Any = value
@@ -3510,7 +3683,7 @@ def official_deploy_record_sort_key(record: OfficialDeployEvidenceRecord) -> tup
 
 
 def official_deploy_process_detail(summary: OfficialDeployEvidenceSummary) -> str:
-    detail = "official deploy evidence"
+    detail = "accepted deploy evidence, last 7d"
     if summary.latest is None:
         return detail
 
@@ -3529,75 +3702,88 @@ def short_commit(commit: str) -> str:
     return text[:12] if len(text) > 12 else text
 
 
-def count_process_evidence(
+def summarize_private_smoke_evidence(
     repo_root: Path,
-    required_terms: Sequence[str],
-    excluded_terms: Sequence[str] = (),
-) -> int:
-    process_dir = repo_root / "docs" / "process"
-    if not process_dir.exists():
-        return 0
-    count = 0
-    for path in process_dir.glob("*.md"):
-        try:
-            text = path.read_text(encoding="utf-8").lower()
-        except OSError:
+    generated_at: str | None = None,
+) -> PrivateSmokeEvidenceSummary:
+    window_start, window_end = delivery_metric_window(generated_at)
+    records: list[PrivateSmokeEvidenceRecord] = []
+    seen_evidence: set[str] = set()
+    candidate_paths = private_smoke_evidence_paths(repo_root)
+    for path in candidate_paths:
+        evidence = read_json_object(path)
+        if not private_smoke_evidence_succeeded(evidence):
             continue
-        if all(term.lower() in text for term in required_terms) and not any(
-            term.lower() in text for term in excluded_terms
-        ):
-            count += 1
-    return count
+        timestamp = private_smoke_evidence_timestamp(evidence)
+        if not timestamp_in_window(timestamp, window_start, window_end):
+            continue
+        evidence_id = private_smoke_evidence_id(evidence, path)
+        if evidence_id in seen_evidence:
+            continue
+        seen_evidence.add(evidence_id)
+        records.append(PrivateSmokeEvidenceRecord(path=path, timestamp=timestamp, evidence_id=evidence_id))
 
-
-def count_official_deploy_evidence(repo_root: Path, github_snapshot: JsonObject) -> int:
-    evidence: set[str] = set()
-    artifact_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
-    if artifact_dir.is_dir():
-        for path in artifact_dir.glob("official-screeps-deploy-*.json"):
-            evidence.add(f"artifact:{path.name}")
-
-    process_count = count_process_evidence(
-        repo_root,
-        required_terms=("official", "deploy evidence"),
-        excluded_terms=("temporary official MMO link validation",),
+    latest = max(records, key=private_smoke_record_sort_key) if records else None
+    evidence_ids = tuple(sorted(record.evidence_id for record in records))
+    return PrivateSmokeEvidenceSummary(
+        count=len(records),
+        latest=latest,
+        window_start=window_start,
+        window_end=window_end,
+        evidence_ids=evidence_ids,
+        candidate_count=len(candidate_paths),
     )
-    for index in range(process_count):
-        evidence.add(f"process:{index}")
-
-    for collection_name in ("issues", "projectItems"):
-        collection = github_snapshot.get(collection_name)
-        if not isinstance(collection, list):
-            continue
-        for item in collection:
-            if not isinstance(item, dict):
-                continue
-            text = " ".join(
-                str(item.get(key) or "") for key in ("title", "status", "evidence", "nextAction")
-            ).lower()
-            run_ids = re.findall(r"official deploy run\s+(\d+)", text)
-            for run_id in run_ids:
-                evidence.add(f"run:{run_id}")
-            if not run_ids and "deployment floor satisfied" in text and "official deploy" in text:
-                evidence.add(f"item:{item.get('number', len(evidence))}")
-    return len(evidence)
 
 
-def count_private_smoke_process_reports(repo_root: Path) -> int:
-    process_dir = repo_root / "docs" / "process"
-    if not process_dir.exists():
-        return 0
+def private_smoke_evidence_paths(repo_root: Path) -> list[Path]:
+    artifact_root = repo_root / "runtime-artifacts"
+    if not artifact_root.exists():
+        return []
+    paths: dict[Path, Path] = {}
+    for path in artifact_root.rglob(PRIVATE_SMOKE_EVIDENCE_PATTERN):
+        if path.is_file():
+            paths[path.resolve()] = path
+    return sorted(paths.values())
 
-    accepted_reports = 0
-    for path in process_dir.glob("*private-smoke*.md"):
-        try:
-            text = path.read_text(encoding="utf-8").lower()
-        except OSError:
-            continue
-        if "private-smoke-report-" in text:
-            accepted_reports += 1
 
-    return accepted_reports
+def private_smoke_evidence_succeeded(evidence: Mapping[str, Any]) -> bool:
+    return evidence.get("ok") is True and evidence.get("dry_run") is not True
+
+
+def private_smoke_evidence_timestamp(evidence: Mapping[str, Any]) -> datetime | None:
+    timestamp = first_nested_scalar_text(
+        evidence,
+        (
+            ("finished_at",),
+            ("completed_at",),
+            ("timestampUtc",),
+            ("timestamp",),
+            ("generatedAt",),
+            ("started_at",),
+        ),
+    )
+    return parse_timestamp(timestamp) if timestamp else None
+
+
+def private_smoke_evidence_id(evidence: Mapping[str, Any], path: Path) -> str:
+    report_path = first_nested_scalar_text(evidence, (("report_path",),))
+    report_name = Path(report_path).name if report_path else path.name
+    timestamp = private_smoke_evidence_timestamp(evidence)
+    if timestamp is not None:
+        return f"report:{report_name}:{format_timestamp_z(timestamp)}"
+    return f"report:{report_name}"
+
+
+def private_smoke_record_sort_key(record: PrivateSmokeEvidenceRecord) -> tuple[datetime, str]:
+    timestamp = record.timestamp or datetime.min.replace(tzinfo=timezone.utc)
+    return timestamp, record.path.name
+
+
+def private_smoke_process_detail(summary: PrivateSmokeEvidenceSummary) -> str:
+    detail = "accepted private-smoke evidence, last 7d"
+    if summary.latest is None or summary.latest.timestamp is None:
+        return detail
+    return f"{detail} · latest {format_timestamp_z(summary.latest.timestamp)}"
 
 
 def render_html(data: JsonObject) -> str:
