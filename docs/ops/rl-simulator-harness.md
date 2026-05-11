@@ -37,7 +37,7 @@ python3 scripts/screeps_rl_simulator_harness.py run \
   --variants baseline \
   --ticks 100 \
   --workers 2 \
-  --room E26S49 \
+  --room E24S49 \
   --shard shardX \
   --branch activeWorld \
   --code-path prod/dist/main.js \
