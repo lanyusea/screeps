@@ -399,15 +399,15 @@ def parse_runtime_log(path: Path) -> tuple[list[JsonObject], int]:
     summaries: list[JsonObject] = []
     malformed = 0
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                summary, was_malformed = parse_runtime_summary_line(line)
+                if was_malformed:
+                    malformed += 1
+                if summary is not None:
+                    summaries.append(summary)
     except OSError as error:
         raise ScorecardError(f"could not read {path}: {error}") from error
-    for line in lines:
-        summary, was_malformed = parse_runtime_summary_line(line)
-        if was_malformed:
-            malformed += 1
-        if summary is not None:
-            summaries.append(summary)
     summaries.sort(key=lambda item: number_value(item.get("tick")) or 0.0)
     return summaries, malformed
 
@@ -462,8 +462,17 @@ def collect_referenced_paths(payload: Any, base_dir: Path, repo_root: Path) -> l
             except OSError:
                 continue
             if resolved.exists() and resolved.suffix.lower() in {".json", ".log"}:
-                paths.append(resolved)
-                break
+                try:
+                    resolved.relative_to(base_dir)
+                    paths.append(resolved)
+                    break
+                except ValueError:
+                    try:
+                        resolved.relative_to(repo_root)
+                        paths.append(resolved)
+                        break
+                    except ValueError:
+                        continue
 
     visit(payload)
     unique: list[Path] = []
@@ -695,10 +704,10 @@ def ingest_training_or_advantage(accumulator: MetricAccumulator, payload: JsonOb
         best_tuple = reward_tuple_from_ranking_item(ranking[0])
         incumbent = next((item for item in ranking if text_value(item.get("variantId")) in incumbent_ids), None)
         incumbent_tuple = reward_tuple_from_ranking_item(incumbent) if incumbent else []
-        if len(best_tuple) >= 3 and len(incumbent_tuple) >= 3:
-            accumulator.add("owned_room_count", best_tuple[0] - incumbent_tuple[0], source, "ranking territory advantage")
-            accumulator.add("productive_energy", best_tuple[1] - incumbent_tuple[1], source, "ranking resource advantage")
-            accumulator.add("combat_score", best_tuple[2] - incumbent_tuple[2], source, "ranking combat advantage")
+        if len(best_tuple) >= 4 and len(incumbent_tuple) >= 4:
+            accumulator.add("owned_room_count", best_tuple[1] - incumbent_tuple[1], source, "ranking territory advantage")
+            accumulator.add("productive_energy", best_tuple[2] - incumbent_tuple[2], source, "ranking resource advantage")
+            accumulator.add("combat_score", best_tuple[3] - incumbent_tuple[3], source, "ranking combat advantage")
 
 
 def reward_tuple_from_ranking_item(item: Any) -> list[float]:

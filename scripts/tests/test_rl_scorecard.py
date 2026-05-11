@@ -106,8 +106,8 @@ def write_bundle(root: Path, *, candidate: bool, safety_regression: bool = False
             "rankingDiffCount": 1,
             "incumbentStrategyIds": ["incumbent.v1"],
             "ranking": [
-                {"variantId": "candidate.v1", "reward": {"tuple": [0, 2 if candidate else 1, 0]}},
-                {"variantId": "incumbent.v1", "reward": {"tuple": [0, 1, 0]}},
+                {"variantId": "candidate.v1", "reward": {"tuple": [0, 0, 2 if candidate else 1, 0]}},
+                {"variantId": "incumbent.v1", "reward": {"tuple": [0, 0, 1, 0]}},
             ],
         },
     )
