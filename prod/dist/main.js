@@ -2736,16 +2736,16 @@ var CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
 var CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
 var MINIMUM_WORKER_SPAWN_ENERGY = 200;
 function getRoomEnergyBufferThreshold(room) {
-  const desiredThreshold = getConfiguredRoomEnergyBufferThreshold(room);
-  const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
-  if (energyCapacityAvailable === null) {
-    return desiredThreshold;
-  }
-  return Math.min(desiredThreshold, energyCapacityAvailable);
+  return getConfiguredRoomEnergyBufferThreshold(room);
 }
 function getEffectiveRoomEnergyBufferThreshold(room) {
   const threshold = getRoomEnergyBufferThreshold(room);
-  return isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+  const effectiveThreshold = isSurvivalBufferMode(room) ? Math.ceil(threshold * SURVIVAL_ENERGY_BUFFER_MULTIPLIER) : threshold;
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
+  if (energyCapacityAvailable === null) {
+    return effectiveThreshold;
+  }
+  return Math.min(effectiveThreshold, energyCapacityAvailable);
 }
 function getStorageEnergyReserveThreshold(room) {
   return Math.min(getEffectiveConfiguredRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
