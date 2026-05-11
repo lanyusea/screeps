@@ -56,11 +56,11 @@ describe('historical replay validator', () => {
 
   it('loads historical replay skeleton data from Memory by room', () => {
     Memory.strategyHistoricalReplays = {
-      E26S49: [
+      E24S49: [
         replay('stored-1', 120, [12]),
         {
           replayId: 'invalid',
-          room: 'E26S49',
+          room: 'E24S49',
           startTick: 1,
           endTick: 2,
           finalScore: 10,
@@ -70,7 +70,7 @@ describe('historical replay validator', () => {
       E27S49: [replay('other-room', 900, [90], 'E27S49')]
     };
 
-    expect(loadHistoricalReplays('E26S49')).toEqual([replay('stored-1', 120, [12])]);
+    expect(loadHistoricalReplays('E24S49')).toEqual([replay('stored-1', 120, [12])]);
     expect(loadHistoricalReplays('W1N1')).toEqual([]);
   });
 
@@ -79,7 +79,7 @@ describe('historical replay validator', () => {
 
     const decision = gate.validateStrategyRollout({
       strategyId: STRATEGY_ID,
-      room: 'E26S49',
+      room: 'E24S49',
       historicalReplays: [replay('replay-1', 100, [10]), replay('replay-2', 200, [20])]
     });
 
@@ -89,7 +89,7 @@ describe('historical replay validator', () => {
   });
 });
 
-function replay(replayId: string, finalScore: number, strategyScores: number[], room = 'E26S49'): HistoricalReplay {
+function replay(replayId: string, finalScore: number, strategyScores: number[], room = 'E24S49'): HistoricalReplay {
   return {
     replayId,
     room,

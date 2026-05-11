@@ -199,12 +199,12 @@ describe('planTerritoryIntent', () => {
   });
 
   it('plans configured expansion scouting per target when another target has a runnable lane', () => {
-    const colony = makeSafeColony({ roomName: 'E26S49' });
+    const colony = makeSafeColony({ roomName: 'E24S49' });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
-        E26S49: colony.room,
-        E26S50: {
-          name: 'E26S50',
+        E24S49: colony.room,
+        E24S50: {
+          name: 'E24S50',
           controller: { id: 'controller50' as Id<StructureController>, my: false } as StructureController
         } as Room
       },
@@ -216,16 +216,16 @@ describe('planTerritoryIntent', () => {
       territory: {
         intents: [
           {
-            colony: 'E26S49',
-            targetRoom: 'E26S50',
+            colony: 'E24S49',
+            targetRoom: 'E24S50',
             action: 'reserve',
             status: 'active',
             updatedAt: 840
           }
         ],
         routeDistances: {
-          'E26S49>E26S50': 1,
-          'E26S49>E26S47': 2
+          'E24S49>E24S50': 1,
+          'E24S49>E26S47': 2
         }
       }
     };
@@ -239,20 +239,20 @@ describe('planTerritoryIntent', () => {
         { scoutOnly: true }
       )
     ).toEqual({
-      colony: 'E26S49',
+      colony: 'E24S49',
       targetRoom: 'E26S47',
       action: 'scout'
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
-        targetRoom: 'E26S50',
+        colony: 'E24S49',
+        targetRoom: 'E24S50',
         action: 'reserve',
         status: 'active',
         updatedAt: 840
       },
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         targetRoom: 'E26S47',
         action: 'scout',
         status: 'planned',

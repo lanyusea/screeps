@@ -166,13 +166,13 @@ describe('room scouting', () => {
   });
 
   it('requests configured E26S47 expansion scouting when its intel is missing', () => {
-    const colony = makeColony('E26S49');
+    const colony = makeColony('E24S49');
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         scoutIntel: {
-          'E26S49>E26S50': {
-            colony: 'E26S49',
-            roomName: 'E26S50',
+          'E24S49>E24S50': {
+            colony: 'E24S49',
+            roomName: 'E24S50',
             updatedAt: 300,
             sourceIds: [],
             sourceCount: 0,
@@ -186,7 +186,7 @@ describe('room scouting', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 300,
       rooms: {
-        E26S49: colony.room
+        E24S49: colony.room
       }
     };
 
@@ -194,15 +194,15 @@ describe('room scouting', () => {
 
     expect(result.records).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         roomName: 'E26S47',
         status: 'requested',
         updatedAt: 300,
         distance: 2
       }
     ]);
-    expect(Memory.territory?.scoutAttempts?.['E26S49>E26S47']).toMatchObject({
-      colony: 'E26S49',
+    expect(Memory.territory?.scoutAttempts?.['E24S49>E26S47']).toMatchObject({
+      colony: 'E24S49',
       roomName: 'E26S47',
       status: 'requested',
       requestedAt: 300,
@@ -211,7 +211,7 @@ describe('room scouting', () => {
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         targetRoom: 'E26S47',
         action: 'scout',
         status: 'planned',

@@ -5,7 +5,7 @@ export interface LogisticsRoute {
   rooms: string[];
 }
 
-export const safeTransitAllowlist = new Set<string>(['E26S49']);
+export const safeTransitAllowlist = new Set<string>(['E24S49']);
 
 export function canFindOwnedLogisticsRoute(): boolean {
   return typeof getGameMap()?.findRoute === 'function';

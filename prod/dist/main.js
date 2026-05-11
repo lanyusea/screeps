@@ -3795,17 +3795,17 @@ function isRecord4(value) {
 // src/territory/expansionConfig.ts
 var TERRITORY_EXPANSION_SCOUT_TARGETS = [
   {
-    colony: "E26S49",
-    roomName: "E26S50",
-    nearestOwnedRoom: "E26S49",
+    colony: "E24S49",
+    roomName: "E24S50",
+    nearestOwnedRoom: "E24S49",
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true
   },
   {
-    colony: "E26S49",
+    colony: "E24S49",
     roomName: "E26S47",
-    nearestOwnedRoom: "E26S48",
+    nearestOwnedRoom: "E24S48",
     nearestOwnedRoomDistance: 1,
     routeDistance: 2,
     adjacentToOwnedRoom: true
@@ -18728,12 +18728,12 @@ function matchesStructureType13(actual, globalName, fallback) {
 }
 
 // src/economy/localEnergyStrategy.ts
-var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E26S48";
-var DEFAULT_E26S50_LOCAL_FIRST_ENERGY_ROOM = "E26S50";
-var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = "E26S49";
+var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E24S48";
+var DEFAULT_E24S50_LOCAL_FIRST_ENERGY_ROOM = "E24S50";
+var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = "E24S49";
 var DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = [
   DEFAULT_LOCAL_FIRST_ENERGY_ROOM,
-  DEFAULT_E26S50_LOCAL_FIRST_ENERGY_ROOM
+  DEFAULT_E24S50_LOCAL_FIRST_ENERGY_ROOM
 ];
 var DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD = 500;
 var DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO = 0.8;
@@ -18987,7 +18987,7 @@ function getEnergyResource12() {
 }
 
 // src/economy/multiRoomEnergy.ts
-var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E26S48", "E26S49", "E26S50"];
+var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E24S48", "E24S49", "E24S50"];
 var MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 function buildMultiRoomEnergyState(roomStates, transfers, auditEntries, gameTime) {
   const importsByRoom = sumTransfersByRoom(transfers, "targetRoom");
@@ -19214,7 +19214,7 @@ function roundRatio4(numerator, denominator) {
 }
 
 // src/economy/roomLogistics.ts
-var safeTransitAllowlist = /* @__PURE__ */ new Set(["E26S49"]);
+var safeTransitAllowlist = /* @__PURE__ */ new Set(["E24S49"]);
 function canFindOwnedLogisticsRoute() {
   var _a;
   return typeof ((_a = getGameMap()) == null ? void 0 : _a.findRoute) === "function";
@@ -19617,7 +19617,7 @@ function compareExportRoomsForImporter(left, right, importer, routeContext) {
   return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || getRoomEnergyTransferExportLimit(right, importer) - getRoomEnergyTransferExportLimit(left, importer) || compareExportRooms(left, right);
 }
 function getCorridorExporterPriority(sourceRoom, targetRoom) {
-  if (sourceRoom === "E26S49" && targetRoom === "E26S50") {
+  if (sourceRoom === "E24S49" && targetRoom === "E24S50") {
     return 0;
   }
   return 1;
@@ -41585,7 +41585,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary"],
       shards: ["shardX"],
-      rooms: ["E26S49"],
+      rooms: ["E24S49"],
       minRcl: 1,
       maxRcl: 4,
       notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
@@ -41621,7 +41621,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary"],
       shards: ["shardX"],
-      rooms: ["E26S49"],
+      rooms: ["E24S49"],
       minRcl: 1,
       maxRcl: 4,
       notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
@@ -41657,7 +41657,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E26S49"],
+      rooms: ["E24S49"],
       minRcl: 1,
       notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
     },
@@ -41692,7 +41692,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E26S49"],
+      rooms: ["E24S49"],
       minRcl: 1,
       notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
     },
@@ -41727,7 +41727,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E26S49"],
+      rooms: ["E24S49"],
       minRcl: 1,
       notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
     },

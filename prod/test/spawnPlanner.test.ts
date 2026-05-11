@@ -356,6 +356,19 @@ describe('planSpawn', () => {
     } as Creep;
   }
 
+  function makeFreshScoutIntel(colony: string, roomName: string, updatedAt: number): TerritoryScoutIntelMemory {
+    return {
+      colony,
+      roomName,
+      updatedAt,
+      sourceIds: [],
+      sourceCount: 0,
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      hostileSpawnCount: 0
+    };
+  }
+
   function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId = 'W2N1-container0'): Creep {
     return {
       memory: {
@@ -1187,14 +1200,14 @@ describe('planSpawn', () => {
     installHostileFindGlobals();
     const hostile = { id: 'hostile1' } as Creep;
     const { colony: threatenedColony } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       hostileCreeps: [hostile],
       controller: makeSafeOwnedController()
     });
     const { colony: spawnlessRecoveryColony } = makeColony({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       energyAvailable: 300,
       energyCapacityAvailable: 300,
       controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
@@ -1205,11 +1218,11 @@ describe('planSpawn', () => {
       orderColoniesForSpawnPlanning(
         [spawnlessRecoveryColony, threatenedColony],
         new Map([
-          ['E26S49', { worker: 3 }],
-          ['E26S48', { worker: 0 }]
+          ['E24S49', { worker: 3 }],
+          ['E24S48', { worker: 0 }]
         ])
       ).map((colony) => colony.room.name)
-    ).toEqual(['E26S49', 'E26S48']);
+    ).toEqual(['E24S49', 'E24S48']);
   });
 
   it('uses construction and source pressure as multi-room ordering tie breakers', () => {
@@ -1640,8 +1653,8 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
-        E26S48: makeTerritoryRoom('E26S48', {
-          id: 'controller-E26S48',
+        E24S48: makeTerritoryRoom('E24S48', {
+          id: 'controller-E24S48',
           my: true,
           level: 1
         } as StructureController)
@@ -1652,14 +1665,14 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
+          E24S48: {
             colony: 'W1N1',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             status: 'spawnSitePending',
             claimedAt: 813,
             updatedAt: 813,
             workerTarget: 2,
-            controllerId: 'controller-E26S48' as Id<StructureController>
+            controllerId: 'controller-E24S48' as Id<StructureController>
           }
         }
       }
@@ -1668,12 +1681,12 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 813)).toEqual({
       spawn,
       body: ['work', 'carry', 'move'],
-      name: 'worker-W1N1-E26S48-upgrader-813',
+      name: 'worker-W1N1-E24S48-upgrader-813',
       memory: {
         role: 'worker',
-        colony: 'E26S48',
-        territory: { targetRoom: 'E26S48', action: 'claim', controllerId: 'controller-E26S48' },
-        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E26S48', role: 'upgrader' }
+        colony: 'E24S48',
+        territory: { targetRoom: 'E24S48', action: 'claim', controllerId: 'controller-E24S48' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E24S48', role: 'upgrader' }
       }
     });
   });
@@ -1688,8 +1701,8 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
-        E26S48: makeTerritoryRoom('E26S48', {
-          id: 'controller-E26S48',
+        E24S48: makeTerritoryRoom('E24S48', {
+          id: 'controller-E24S48',
           my: true,
           level: 1
         } as StructureController)
@@ -1700,14 +1713,14 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
+          E24S48: {
             colony: 'W1N1',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             status: 'spawnSitePending',
             claimedAt: 814,
             updatedAt: 814,
             workerTarget: 2,
-            controllerId: 'controller-E26S48' as Id<StructureController>
+            controllerId: 'controller-E24S48' as Id<StructureController>
           }
         }
       }
@@ -1973,18 +1986,18 @@ describe('planSpawn', () => {
       energyCapacityAvailable: 650,
       controller: makeSafeOwnedController()
     });
-    const remoteUpgrader = makePostClaimSustainUpgrader('E26S48', 'W1N1');
+    const remoteUpgrader = makePostClaimSustainUpgrader('E24S48', 'W1N1');
     const remoteWorkers = {
-      RemoteWorker1: { memory: { role: 'worker', colony: 'E26S48' } } as Creep,
-      RemoteWorker2: { memory: { role: 'worker', colony: 'E26S48' } } as Creep,
-      RemoteWorker3: { memory: { role: 'worker', colony: 'E26S48' } } as Creep
+      RemoteWorker1: { memory: { role: 'worker', colony: 'E24S48' } } as Creep,
+      RemoteWorker2: { memory: { role: 'worker', colony: 'E24S48' } } as Creep,
+      RemoteWorker3: { memory: { role: 'worker', colony: 'E24S48' } } as Creep
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
-        E26S48: {
-          ...makeTerritoryRoom('E26S48', {
-            id: 'controller-E26S48',
+        E24S48: {
+          ...makeTerritoryRoom('E24S48', {
+            id: 'controller-E24S48',
             my: true,
             level: 2
           } as StructureController),
@@ -1997,15 +2010,15 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
+          E24S48: {
             colony: 'W1N1',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             status: 'spawnSitePending',
             claimedAt: 786700,
             updatedAt: 786805,
             workerTarget: 2,
-            controllerId: 'controller-E26S48' as Id<StructureController>,
-            spawnSite: { roomName: 'E26S48', x: 23, y: 23 }
+            controllerId: 'controller-E24S48' as Id<StructureController>,
+            spawnSite: { roomName: 'E24S48', x: 23, y: 23 }
           }
         }
       }
@@ -2014,12 +2027,12 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 786806)).toEqual({
       spawn,
       body: SCALED_WORKER_550,
-      name: 'worker-W1N1-E26S48-hauler-786806',
+      name: 'worker-W1N1-E24S48-hauler-786806',
       memory: {
         role: 'worker',
-        colony: 'E26S48',
-        territory: { targetRoom: 'E26S48', action: 'claim', controllerId: 'controller-E26S48' },
-        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E26S48', role: 'hauler' }
+        colony: 'E24S48',
+        territory: { targetRoom: 'E24S48', action: 'claim', controllerId: 'controller-E24S48' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'E24S48', role: 'hauler' }
       }
     });
   });
@@ -2256,41 +2269,45 @@ describe('planSpawn', () => {
     });
   });
 
-  it('assigns a dedicated remote miner to an E26S48 source after the room is claimed', () => {
+  it('assigns a dedicated remote miner to an E24S48 source after the room is claimed', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       controller: makeSafeOwnedController()
     });
-    const source = makeRemoteSource('e26s48-source-a', 10, 10, 'E26S48');
+    const source = makeRemoteSource('e24s48-source-a', 10, 10, 'E24S48');
     const claimedRoom = makeRemoteEconomyRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       source,
       container: null,
       controller: {
-        id: 'controller-e26s48',
+        id: 'controller-e24s48',
         my: true,
         level: 1
       } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 814,
-      rooms: { E26S49: colony.room, E26S48: claimedRoom },
+      rooms: { E24S49: colony.room, E24S48: claimedRoom },
       spawns: { Spawn1: spawn },
       creeps: {
-        RemoteUpgrader: makePostClaimSustainUpgrader('E26S48', 'E26S49')
+        RemoteUpgrader: makePostClaimSustainUpgrader('E24S48', 'E24S49')
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
-            ...makeSatisfiedPostClaimRemoteMemory('E26S48'),
-            colony: 'E26S49',
-            controllerId: 'controller-e26s48' as Id<StructureController>
+          E24S48: {
+            ...makeSatisfiedPostClaimRemoteMemory('E24S48'),
+            colony: 'E24S49',
+            controllerId: 'controller-e24s48' as Id<StructureController>
           }
+        },
+        scoutIntel: {
+          'E24S49>E24S50': makeFreshScoutIntel('E24S49', 'E24S50', 814),
+          'E24S49>E26S47': makeFreshScoutIntel('E24S49', 'E26S47', 814)
         }
       }
     };
@@ -2298,54 +2315,58 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 815)).toEqual({
       spawn,
       body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
-      name: 'remoteHarvester-E26S49-E26S48-e26s48-source-a-815',
+      name: 'remoteHarvester-E24S49-E24S48-e24s48-source-a-815',
       memory: {
         role: 'remoteHarvester',
-        colony: 'E26S49',
+        colony: 'E24S49',
         remoteHarvester: {
-          homeRoom: 'E26S49',
-          targetRoom: 'E26S48',
-          sourceId: 'e26s48-source-a'
+          homeRoom: 'E24S49',
+          targetRoom: 'E24S48',
+          sourceId: 'e24s48-source-a'
         }
       }
     });
   });
 
-  it('assigns a dedicated remote miner to an E26S50 source after the room is claimed', () => {
+  it('assigns a dedicated remote miner to an E24S50 source after the room is claimed', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       controller: makeSafeOwnedController()
     });
-    const source = makeRemoteSource('e26s50-source-a', 10, 10, 'E26S50');
+    const source = makeRemoteSource('e24s50-source-a', 10, 10, 'E24S50');
     const claimedRoom = makeRemoteEconomyRoom({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       source,
       container: null,
       controller: {
-        id: 'controller-e26s50',
+        id: 'controller-e24s50',
         my: true,
         level: 1
       } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 837,
-      rooms: { E26S49: colony.room, E26S50: claimedRoom },
+      rooms: { E24S49: colony.room, E24S50: claimedRoom },
       spawns: { Spawn1: spawn },
       creeps: {
-        RemoteUpgrader: makePostClaimSustainUpgrader('E26S50', 'E26S49')
+        RemoteUpgrader: makePostClaimSustainUpgrader('E24S50', 'E24S49')
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S50: {
-            ...makeSatisfiedPostClaimRemoteMemory('E26S50'),
-            colony: 'E26S49',
-            controllerId: 'controller-e26s50' as Id<StructureController>
+          E24S50: {
+            ...makeSatisfiedPostClaimRemoteMemory('E24S50'),
+            colony: 'E24S49',
+            controllerId: 'controller-e24s50' as Id<StructureController>
           }
+        },
+        scoutIntel: {
+          'E24S49>E24S50': makeFreshScoutIntel('E24S49', 'E24S50', 837),
+          'E24S49>E26S47': makeFreshScoutIntel('E24S49', 'E26S47', 837)
         }
       }
     };
@@ -2353,14 +2374,14 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 838)).toEqual({
       spawn,
       body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
-      name: 'remoteHarvester-E26S49-E26S50-e26s50-source-a-838',
+      name: 'remoteHarvester-E24S49-E24S50-e24s50-source-a-838',
       memory: {
         role: 'remoteHarvester',
-        colony: 'E26S49',
+        colony: 'E24S49',
         remoteHarvester: {
-          homeRoom: 'E26S49',
-          targetRoom: 'E26S50',
-          sourceId: 'e26s50-source-a'
+          homeRoom: 'E24S49',
+          targetRoom: 'E24S50',
+          sourceId: 'e24s50-source-a'
         }
       }
     });
@@ -4474,9 +4495,9 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('spawns a scout for the E26S48 claim intent before claim capacity is available', () => {
+  it('spawns a scout for the E24S48 claim intent before claim capacity is available', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 300,
       energyCapacityAvailable: 300,
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
@@ -4485,12 +4506,12 @@ describe('planSpawn', () => {
       territory: {
         intents: [
           {
-            colony: 'E26S49',
-            targetRoom: 'E26S48',
+            colony: 'E24S49',
+            targetRoom: 'E24S48',
             action: 'claim',
             status: 'planned',
             updatedAt: 806,
-            controllerId: 'controller-e26s48' as Id<StructureController>
+            controllerId: 'controller-e24s48' as Id<StructureController>
           }
         ]
       }
@@ -4499,40 +4520,40 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 807)).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-E26S49-E26S48-807',
+      name: 'scout-E24S49-E24S48-807',
       memory: {
         role: 'scout',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
-          targetRoom: 'E26S48',
+          targetRoom: 'E24S48',
           action: 'scout',
-          controllerId: 'controller-e26s48' as Id<StructureController>
+          controllerId: 'controller-e24s48' as Id<StructureController>
         }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
-        targetRoom: 'E26S48',
+        colony: 'E24S49',
+        targetRoom: 'E24S48',
         action: 'claim',
         status: 'planned',
         updatedAt: 806,
-        controllerId: 'controller-e26s48'
+        controllerId: 'controller-e24s48'
       },
       {
-        colony: 'E26S49',
-        targetRoom: 'E26S48',
+        colony: 'E24S49',
+        targetRoom: 'E24S48',
         action: 'scout',
         status: 'planned',
         updatedAt: 807,
-        controllerId: 'controller-e26s48'
+        controllerId: 'controller-e24s48'
       }
     ]);
   });
 
-  it('spawns a MOVE-only scout for the configured E26S50 expansion candidate at 300 energy', () => {
+  it('spawns a MOVE-only scout for the configured E24S50 expansion candidate at 300 energy', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 300,
       energyCapacityAvailable: 300,
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
@@ -4541,8 +4562,8 @@ describe('planSpawn', () => {
       territory: {
         expansionCandidates: [
           {
-            colony: 'E26S49',
-            roomName: 'E26S50',
+            colony: 'E24S49',
+            roomName: 'E24S50',
             rank: 1,
             score: 369,
             evidenceStatus: 'insufficient-evidence',
@@ -4551,37 +4572,37 @@ describe('planSpawn', () => {
             adjacentToOwnedRoom: true,
             recommendedAction: 'scout',
             routeDistance: 1,
-            nearestOwnedRoom: 'E26S49',
+            nearestOwnedRoom: 'E24S49',
             nearestOwnedRoomDistance: 1
           }
         ]
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      rooms: { E26S49: colony.room },
+      rooms: { E24S49: colony.room },
       map: {
-        describeExits: jest.fn((roomName: string) => (roomName === 'E26S49' ? { '5': 'E26S50' } : {})),
-        findRoute: jest.fn(() => [{ exit: 5, room: 'E26S50' }])
+        describeExits: jest.fn((roomName: string) => (roomName === 'E24S49' ? { '5': 'E24S50' } : {})),
+        findRoute: jest.fn(() => [{ exit: 5, room: 'E24S50' }])
       } as unknown as GameMap
     };
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 821)).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-E26S49-E26S50-821',
+      name: 'scout-E24S49-E24S50-821',
       memory: {
         role: 'scout',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
-          targetRoom: 'E26S50',
+          targetRoom: 'E24S50',
           action: 'scout'
         }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
-        targetRoom: 'E26S50',
+        colony: 'E24S49',
+        targetRoom: 'E24S50',
         action: 'scout',
         status: 'planned',
         updatedAt: 821
@@ -4591,7 +4612,7 @@ describe('planSpawn', () => {
 
   it('spawns a MOVE-only scout for a persisted E26S47 scout intent at local-stable energy', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 300,
       energyCapacityAvailable: 300,
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
@@ -4600,7 +4621,7 @@ describe('planSpawn', () => {
       territory: {
         intents: [
           {
-            colony: 'E26S49',
+            colony: 'E24S49',
             targetRoom: 'E26S47',
             action: 'scout',
             status: 'planned',
@@ -4610,16 +4631,16 @@ describe('planSpawn', () => {
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      rooms: { E26S49: colony.room }
+      rooms: { E24S49: colony.room }
     };
 
     expect(planSpawn(colony, { worker: 5, claimer: 0, claimersByTargetRoom: {} }, 841)).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-E26S49-E26S47-841',
+      name: 'scout-E24S49-E26S47-841',
       memory: {
         role: 'scout',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
           targetRoom: 'E26S47',
           action: 'scout'
@@ -4628,7 +4649,7 @@ describe('planSpawn', () => {
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
+        colony: 'E24S49',
         targetRoom: 'E26S47',
         action: 'scout',
         status: 'planned',
@@ -4637,9 +4658,9 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('spawns a minimal claimer for E26S48 after scout intel and claim capacity are ready', () => {
+  it('spawns a minimal claimer for E24S48 after scout intel and claim capacity are ready', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'E26S49',
+      roomName: 'E24S49',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
@@ -4648,19 +4669,19 @@ describe('planSpawn', () => {
       territory: {
         intents: [
           {
-            colony: 'E26S49',
-            targetRoom: 'E26S48',
+            colony: 'E24S49',
+            targetRoom: 'E24S48',
             action: 'claim',
             status: 'planned',
             updatedAt: 806
           }
         ],
         scoutIntel: {
-          'E26S49>E26S48': {
-            colony: 'E26S49',
-            roomName: 'E26S48',
+          'E24S49>E24S48': {
+            colony: 'E24S49',
+            roomName: 'E24S48',
             updatedAt: 807,
-            controller: { id: 'controller-e26s48' as Id<StructureController>, my: false },
+            controller: { id: 'controller-e24s48' as Id<StructureController>, my: false },
             sourceIds: ['source1', 'source2'],
             sourceCount: 2,
             hostileCreepCount: 0,
@@ -4674,25 +4695,25 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 808)).toEqual({
       spawn,
       body: ['claim', 'move'],
-      name: 'claimer-E26S49-E26S48-808',
+      name: 'claimer-E24S49-E24S48-808',
       memory: {
         role: 'claimer',
-        colony: 'E26S49',
+        colony: 'E24S49',
         territory: {
-          targetRoom: 'E26S48',
+          targetRoom: 'E24S48',
           action: 'claim',
-          controllerId: 'controller-e26s48' as Id<StructureController>
+          controllerId: 'controller-e24s48' as Id<StructureController>
         }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E26S49',
-        targetRoom: 'E26S48',
+        colony: 'E24S49',
+        targetRoom: 'E24S48',
         action: 'claim',
         status: 'planned',
         updatedAt: 808,
-        controllerId: 'controller-e26s48'
+        controllerId: 'controller-e24s48'
       }
     ]);
   });
