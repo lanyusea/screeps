@@ -1,6 +1,6 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-09
+Last updated: 2026-05-12
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry keeps the minimum cron/channel contract in one place. Cron prompts may embed short self-contained summaries, but their target/cadence/route expectations must match this file.
@@ -40,7 +40,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 | Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for all owned rooms (auto-discovered via `/api/user/overview`); no-alert runs return exactly `[SILENT]`. |
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | Research/RL progress fanout. |
-| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout. |
+| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout; regenerate and include `runtime-artifacts/rl-dashboard.html` with the roadmap output. |
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | 6h health/progress report. |
 | Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | 8h strategy review for current target `E24S49`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | Archive accepted strategy decisions/current strategy. |
@@ -49,6 +49,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 ## Cron prompt drift rules
 
 - Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E24S49` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
+- Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must include the generated `runtime-artifacts/rl-dashboard.html` file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
 - Gameplay Evolution cadence is 8h, not 12h.
 - The P0 monitor should audit this registry's expected jobs and should not treat intentional schedule/debug changes as abnormal unless the current registry says they are unhealthy.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
