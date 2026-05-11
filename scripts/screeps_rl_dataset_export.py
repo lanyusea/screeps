@@ -30,6 +30,10 @@ DEFAULT_INPUT_PATHS = (
     "/root/.hermes/cron/output",
     "runtime-artifacts",
 )
+CONSOLE_CAPTURE_INPUT_PATHS = (
+    "/root/screeps/runtime-artifacts/runtime-summary-console",
+    "runtime-artifacts/runtime-summary-console",
+)
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-datasets")
 DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_SAMPLE_LIMIT = 200
@@ -1276,6 +1280,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--console-capture-only",
+        action="store_true",
+        help=(
+            "Scan only runtime-summary-console capture directories. "
+            "When set, positional input paths are ignored."
+        ),
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=DEFAULT_OUT_DIR,
@@ -1315,10 +1327,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
+def resolve_cli_input_paths(args: argparse.Namespace, stderr: TextIO = sys.stderr) -> list[str]:
+    if args.console_capture_only:
+        if args.paths:
+            stderr.write("warning: --console-capture-only ignores positional input paths\n")
+        return list(CONSOLE_CAPTURE_INPUT_PATHS)
+    return list(args.paths)
+
+
+def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
     args = build_parser().parse_args(argv)
+    input_paths = resolve_cli_input_paths(args, stderr)
     summary = build_dataset(
-        args.paths,
+        input_paths,
         args.out_dir,
         run_id=args.run_id,
         bot_commit=args.bot_commit,
