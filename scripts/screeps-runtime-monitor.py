@@ -2729,6 +2729,25 @@ def resolve_owned_count(room_summary_payload: dict[str, Any], owned_key: str, fa
     return room_summary_payload.get(fallback_key)
 
 
+def threshold_exceeds_capacity_reason(room: dict[str, Any]) -> dict[str, Any] | None:
+    buffer_health = as_dict(room.get("energyBufferHealth"))
+    threshold = number_value(buffer_health.get("threshold"))
+    capacity = number_value(room.get("energyCapacity"))
+    if capacity is None:
+        capacity = number_value(room.get("energyCapacityAvailable"))
+    if threshold is None or capacity is None or threshold <= capacity:
+        return None
+
+    room_name = room.get("room") or room.get("roomName") or room.get("name")
+    return {
+        "kind": "threshold_exceeds_capacity",
+        "room": room_name,
+        "threshold": threshold,
+        "energyCapacity": capacity,
+        "message": f"{room_name}: energyBufferHealth.threshold {threshold} exceeds energyCapacity {capacity}",
+    }
+
+
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
     reasons: list[dict[str, Any]] = []
     if summary_payload.get("ok") is not True:
@@ -2753,6 +2772,9 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             owner = room.get("owner")
             room_name = room.get("room")
             owner_missing = owner is None or owner == ""
+            threshold_reason = threshold_exceeds_capacity_reason(room)
+            if threshold_reason is not None:
+                reasons.append(threshold_reason)
             if owner_missing:
                 creeps = 0
                 spawns = 0
@@ -3420,6 +3442,67 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "spawns": 1,
                             "owned_spawns": 1,
                         }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertTrue(result["ok"])
+
+        def test_postdeploy_health_gate_rejects_threshold_above_capacity_in_any_room(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 300},
+                        },
+                        {
+                            "room": "shardTest/E2N2",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 350},
+                        },
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertIn("threshold_exceeds_capacity", [reason["kind"] for reason in result["reasons"]])
+            threshold_reason = next(reason for reason in result["reasons"] if reason["kind"] == "threshold_exceeds_capacity")
+            self.assertEqual(threshold_reason["room"], "shardTest/E2N2")
+
+        def test_postdeploy_health_gate_accepts_threshold_at_or_below_capacity(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 300},
+                        },
+                        {
+                            "room": "shardTest/E2N2",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "owner": "owner",
+                            "energyCapacity": 300,
+                            "energyBufferHealth": {"threshold": 250},
+                        },
                     ],
                 },
                 {"ok": True, "mode": "alert", "alert": False, "reasons": []},
