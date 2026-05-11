@@ -188,6 +188,76 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(first["runtimeSummaryArtifactCount"], 1)
         self.assertEqual(second["runtimeSummaryArtifactCount"], 1)
 
+    def test_console_capture_only_flag_is_accepted(self) -> None:
+        args = exporter.build_parser().parse_args(["--console-capture-only"])
+
+        self.assertTrue(args.console_capture_only)
+        self.assertEqual(args.paths, [])
+
+    def test_default_input_paths_are_unchanged_without_console_capture_only(self) -> None:
+        self.assertEqual(
+            exporter.DEFAULT_INPUT_PATHS,
+            (
+                "/root/screeps/runtime-artifacts",
+                "/root/.hermes/cron/output",
+                "runtime-artifacts",
+            ),
+        )
+
+        args = exporter.build_parser().parse_args([])
+        stderr = io.StringIO()
+
+        self.assertEqual(exporter.resolve_cli_input_paths(args, stderr), [])
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_console_capture_only_overrides_positional_paths_with_warning(self) -> None:
+        args = exporter.build_parser().parse_args(["/tmp/ignored", "--console-capture-only"])
+        stderr = io.StringIO()
+
+        self.assertEqual(exporter.resolve_cli_input_paths(args, stderr), list(exporter.CONSOLE_CAPTURE_INPUT_PATHS))
+        self.assertIn("--console-capture-only ignores positional input paths", stderr.getvalue())
+
+    def test_console_capture_only_run_completes_with_sample_limit_flags(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 120,
+            "rooms": [{"roomName": "E26S49", "resources": {"storedEnergy": 154, "workerCarriedEnergy": 25}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            console_root = root / "runtime-summary-console"
+            console_root.mkdir()
+            artifact = console_root / "runtime.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = root / "datasets"
+            stdout = io.StringIO()
+
+            with mock.patch.object(exporter, "CONSOLE_CAPTURE_INPUT_PATHS", (str(console_root),)):
+                exit_code = exporter.main(
+                    [
+                        "--console-capture-only",
+                        "--sample-limit",
+                        "5",
+                        "--max-file-bytes",
+                        "1048576",
+                        "--out-dir",
+                        str(out_dir),
+                        "--run-id",
+                        "console-capture-run",
+                        "--bot-commit",
+                        "1" * 40,
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                )
+
+            summary = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
+
     def test_monitor_summary_json_is_converted_to_sample(self) -> None:
         monitor_payload = {
             "ok": True,
