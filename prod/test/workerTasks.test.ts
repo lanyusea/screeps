@@ -10144,7 +10144,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
-  it('keeps critical road construction behind the buffer during capacity recovery', () => {
+  it('builds critical road construction when the non-crisis capacity cap leaves room energy healthy', () => {
     const roadSite = {
       id: 'road-critical-site1',
       structureType: 'road',
@@ -10172,7 +10172,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
   });
 
   it('builds RCL3 spawn-only source container construction when capacity is below the energy buffer threshold', () => {
@@ -10219,6 +10219,7 @@ describe('selectWorkerTask', () => {
         energyCapacityAvailable: 300
       })
     } as unknown as Creep;
+    recordSurvivalMode('BOOTSTRAP');
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
