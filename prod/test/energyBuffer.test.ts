@@ -7,6 +7,7 @@ import {
   getRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
+  NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO,
   STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../src/economy/energyBuffer';
@@ -63,25 +64,38 @@ describe('energyBuffer', () => {
     );
   });
 
-  it('caps the effective RCL 4 buffer threshold at spawn-only room capacity', () => {
+  it('caps the non-crisis RCL 4 buffer threshold below spawn-only room capacity', () => {
     const room = makeRoom({ level: 4, energyAvailable: 300, energyCapacityAvailable: 300 });
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
     expect(getRoomEnergyBufferHealth(room)).toEqual({
       currentEnergy: 300,
-      threshold: 300,
+      threshold: 195,
       room: 'W1N1',
       healthy: true
     });
   });
 
-  it('caps the effective RCL 5 buffer threshold at limited extension capacity', () => {
+  it('caps the non-crisis RCL 5 buffer threshold at a capacity ratio', () => {
     const room = makeRoom({ level: 5, energyAvailable: 650, energyCapacityAvailable: 650 });
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(800);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(650);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(
+      Math.floor(650 * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+    );
     expect(getRoomEnergyBufferHealth(room).healthy).toBe(true);
+  });
+
+  it('keeps partial RCL 5 rooms from reserving 82 percent of spawn energy outside crisis mode', () => {
+    const room = makeRoom({ level: 5, energyAvailable: 975, energyCapacityAvailable: 975 });
+
+    expect(getRoomEnergyBufferThreshold(room)).toBe(800);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(
+      Math.floor(975 * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+    );
+    expect(checkEnergyBufferForSpending(room, 342)).toBe(true);
+    expect(checkEnergyBufferForSpending(room, 343)).toBe(false);
   });
 
   it('caps an RCL 2 bootstrap threshold after applying the survival multiplier', () => {
@@ -100,12 +114,12 @@ describe('energyBuffer', () => {
     expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(550);
   });
 
-  it('keeps non-survival effective thresholds capped at room capacity', () => {
+  it('keeps non-survival effective thresholds capped at the capacity ratio', () => {
     const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300 });
     recordSurvivalMode('LOCAL_STABLE');
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
   });
 
   it('normalizes edge-case room capacity values before capping effective thresholds', () => {
@@ -123,7 +137,7 @@ describe('energyBuffer', () => {
     const room = makeRoom({ level: 3, energyAvailable: 300, energyCapacityAvailable: 300, storage });
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(195);
     expect(getStorageEnergyReserveThreshold(room)).toBe(500);
     expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(20);
     expect(withdrawFromStorage(room, 20)).toBe(true);
@@ -143,6 +157,7 @@ describe('energyBuffer', () => {
       energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
       energyCapacityAvailable: 300
     });
+    recordSurvivalMode('BOOTSTRAP');
 
     expect(checkEnergyBufferForSpending(room, 50)).toBe(false);
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
@@ -154,6 +169,7 @@ describe('energyBuffer', () => {
       energyAvailable: CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY - 1,
       energyCapacityAvailable: 300
     });
+    recordSurvivalMode('BOOTSTRAP');
 
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
   });
