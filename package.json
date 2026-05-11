@@ -1,5 +1,8 @@
 {
   "private": true,
+  "scripts": {
+    "rl-dashboard": "python3 scripts/screeps_rl_dashboard.py"
+  },
   "devDependencies": {
     "playwright": "1.59.1"
   }
