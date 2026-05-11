@@ -118,7 +118,7 @@ describe('runtime telemetry summaries', () => {
             ticksToDowngrade: 15000
           },
           resources: {
-            storedEnergy: 175,
+            storedEnergy: 250,
             workerCarriedEnergy: 60,
             harvestedThisTick: 10,
             droppedEnergy: 25,
@@ -879,6 +879,33 @@ describe('runtime telemetry summaries', () => {
     expect((room.resources as Record<string, unknown>).storedEnergy).toBe(255);
   });
 
+  it('reports storedEnergy from direct room storage and terminal when room.find misses them', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeRoomFind: false,
+      includeEventLog: false
+    });
+    (colony.spawns[0] as unknown as { store: unknown }).store = makeEnergyStore(0, 300);
+    (colony.room as unknown as { energyAvailable: number; storage: unknown; terminal: unknown }).energyAvailable = 0;
+    colony.energyAvailable = 0;
+    (colony.room as unknown as { storage: unknown }).storage = {
+      id: 'storage1',
+      structureType: TEST_GLOBALS.STRUCTURE_STORAGE,
+      store: makeEnergyStore(200, 1000)
+    };
+    (colony.room as unknown as { terminal: unknown }).terminal = {
+      id: 'terminal1',
+      structureType: TEST_GLOBALS.STRUCTURE_TERMINAL,
+      store: makeEnergyStore(70, 1000)
+    };
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).storedEnergy).toBe(270);
+  });
+
   it('reports workerCarriedEnergy from owned creeps in the room', () => {
     const roomCreeps = [
       makeWorker({ role: 'worker', colony: 'W1N1' }, 15, 'WorkerA'),
@@ -896,6 +923,24 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(45);
+  });
+
+  it('reports workerCarriedEnergy from known colony creeps when room.find is unavailable', () => {
+    const colonyCreeps = [
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 18, 'WorkerA'),
+      makeWorker({ role: 'hauler', colony: 'W1N1' }, 22, 'HaulerA')
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeRoomFind: false,
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([colony], colonyCreeps);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(40);
   });
 
   it('reports energy surplus routing KPIs in room resource telemetry', () => {
@@ -965,7 +1010,7 @@ describe('runtime telemetry summaries', () => {
     const resources = room.resources as Record<string, unknown>;
     expect(resources.harvestedThisTick).toBe(12);
     expect((resources.events as Record<string, unknown>).harvestedEnergy).toBe(12);
-    expect(getEventLog).toHaveBeenCalledWith(TEST_GLOBALS.RESOURCE_ENERGY);
+    expect(getEventLog).toHaveBeenCalledWith();
   });
 
   it('reports zero energy fields when structures and creeps have no energy', () => {
@@ -982,6 +1027,8 @@ describe('runtime telemetry summaries', () => {
       ],
       creeps: roomCreeps
     });
+    (colony.room as { energyAvailable: number }).energyAvailable = 0;
+    colony.energyAvailable = 0;
 
     emitRuntimeSummary([colony], roomCreeps as Creep[]);
 
@@ -1310,8 +1357,8 @@ describe('runtime telemetry summaries', () => {
         ticksToDowngrade: 15000
       },
       resources: {
-        storedEnergy: 0,
-        workerCarriedEnergy: 0,
+        storedEnergy: 250,
+        workerCarriedEnergy: 7,
         harvestedThisTick: 0,
         droppedEnergy: 0,
         sourceCount: 0
