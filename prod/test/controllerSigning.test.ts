@@ -1,4 +1,5 @@
 import {
+  CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS,
   getControllerSigningActorUsername,
   OCCUPIED_CONTROLLER_SIGN_TEXT,
   shouldSignOccupiedController,
@@ -11,6 +12,7 @@ describe('controller signing', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number; OK: number }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { OK: number }).OK = 0;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { time: 1_000 };
   });
 
   it('signs an unsigned owned controller with the occupied-area text', () => {
@@ -81,6 +83,31 @@ describe('controller signing', () => {
 
     expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a correctly signed owned controller after the periodic interval', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 123 + CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS
+    };
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: {
+        username: 'me',
+        text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+        time: 123,
+        datetime: '2026-04-29T00:00:00.000Z'
+      }
+    } as unknown as StructureController;
+    const creep = {
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    expect(shouldSignOccupiedController(controller)).toBe(true);
+    expect(signOccupiedControllerIfNeeded(creep, controller)).toBe('signed');
+
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
   });
 
   it('signs a controller reserved by the colony actor', () => {

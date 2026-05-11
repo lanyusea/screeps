@@ -142,7 +142,7 @@ export function buildControllerManagementPlan(
     controllerId,
     controllerLevel,
     desiredControllerLevel,
-    signNeeded: shouldSignOccupiedController(controller),
+    signNeeded: shouldSignOccupiedController(controller, gameTime),
     upgradePriority,
     desiredUpgraderCount,
     activeUpgraderCount,

@@ -1,4 +1,5 @@
 export const OCCUPIED_CONTROLLER_SIGN_TEXT = 'by Hermes Screeps Project';
+export const CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS = 5_000;
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_TIRED_CODE = -11 as ScreepsReturnCode;
@@ -6,45 +7,54 @@ const OK_CODE = 0 as ScreepsReturnCode;
 
 export type ControllerSigningResult = 'skipped' | 'signed' | 'moving' | 'blocked';
 
-export function shouldSignOccupiedController(controller: StructureController | null | undefined): boolean {
-  return controller?.my === true && hasMissingControllerSignature(controller);
+export function shouldSignOccupiedController(
+  controller: StructureController | null | undefined,
+  gameTime: number | null = getGameTime()
+): boolean {
+  return controller?.my === true && hasMissingOrStaleControllerSignature(controller, gameTime);
 }
 
 export function shouldSignReservedController(
   controller: StructureController | null | undefined,
-  actorUsername: string | undefined
+  actorUsername: string | undefined,
+  gameTime: number | null = getGameTime()
 ): boolean {
   return Boolean(
     controller &&
       isControllerReservedByActor(controller, actorUsername) &&
-      hasMissingControllerSignature(controller)
+      hasMissingOrStaleControllerSignature(controller, gameTime)
   );
 }
 
 export function shouldSignControllerForCreep(
   creep: Creep,
-  controller: StructureController | null | undefined
+  controller: StructureController | null | undefined,
+  gameTime: number | null = getGameTime()
 ): boolean {
   return (
-    shouldSignOccupiedController(controller) ||
-    shouldSignReservedController(controller, getControllerSigningActorUsername(creep))
+    shouldSignOccupiedController(controller, gameTime) ||
+    shouldSignReservedController(controller, getControllerSigningActorUsername(creep), gameTime)
   );
 }
 
 export function signOccupiedControllerIfNeeded(
   creep: Creep,
-  controller: StructureController | null | undefined
+  controller: StructureController | null | undefined,
+  gameTime: number | null = getGameTime()
 ): ControllerSigningResult {
-  return signControllerWithPredicate(creep, controller, shouldSignOccupiedController);
+  return signControllerWithPredicate(creep, controller, (candidate) =>
+    shouldSignOccupiedController(candidate, gameTime)
+  );
 }
 
 export function signReservedControllerIfNeeded(
   creep: Creep,
   controller: StructureController | null | undefined,
-  actorUsername: string | undefined = getControllerSigningActorUsername(creep)
+  actorUsername: string | undefined = getControllerSigningActorUsername(creep),
+  gameTime: number | null = getGameTime()
 ): ControllerSigningResult {
   return signControllerWithPredicate(creep, controller, (candidate) =>
-    shouldSignReservedController(candidate, actorUsername)
+    shouldSignReservedController(candidate, actorUsername, gameTime)
   );
 }
 
@@ -86,8 +96,23 @@ function signControllerWithPredicate(
   return result === OK_CODE ? 'signed' : 'skipped';
 }
 
-function hasMissingControllerSignature(controller: StructureController): boolean {
-  return controller.sign?.text !== OCCUPIED_CONTROLLER_SIGN_TEXT;
+function hasMissingOrStaleControllerSignature(
+  controller: StructureController,
+  gameTime: number | null
+): boolean {
+  if (controller.sign?.text !== OCCUPIED_CONTROLLER_SIGN_TEXT) {
+    return true;
+  }
+
+  if (!isFiniteNumber(gameTime)) {
+    return false;
+  }
+
+  const signedAt = controller.sign?.time;
+  return (
+    !isFiniteNumber(signedAt) ||
+    gameTime - signedAt >= CONTROLLER_SIGN_REFRESH_INTERVAL_TICKS
+  );
 }
 
 function isControllerReservedByActor(
@@ -104,4 +129,13 @@ function isControllerReservedByActor(
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function getGameTime(): number | null {
+  const gameTime = (globalThis as { Game?: Partial<Pick<Game, 'time'>> }).Game?.time;
+  return isFiniteNumber(gameTime) ? gameTime : null;
 }
