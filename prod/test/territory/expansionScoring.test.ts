@@ -28,13 +28,13 @@ describe('configured territory expansion scoring', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
-  it('scores E26S50 as the nearest configured expansion candidate for E24S49', () => {
+  it('scores E24S50 as the nearest configured expansion candidate for E24S49', () => {
     const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 840,
       rooms: {
         E24S49: colony.room,
-        E26S48: makeOwnedRoom('E26S48')
+        E24S48: makeOwnedRoom('E24S48')
       },
       map: {
         describeExits: jest.fn(() => ({})),
@@ -43,10 +43,10 @@ describe('configured territory expansion scoring', () => {
     };
 
     const report = buildRuntimeExpansionCandidateReport(colony);
-    const candidate = getCandidate(report, 'E26S50');
+    const candidate = getCandidate(report, 'E24S50');
 
     expect(report.candidates[0]).toMatchObject({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       evidenceStatus: 'insufficient-evidence',
       visible: false,
       adjacentToOwnedRoom: true,
@@ -56,18 +56,18 @@ describe('configured territory expansion scoring', () => {
     });
     expect(candidate).toBe(report.candidates[0]);
     expect(selectExpansionScoutTargets(report, 2, 840).map((target) => target.roomName)).toEqual([
-      'E26S50',
+      'E24S50',
       'E26S47'
     ]);
   });
 
-  it('scores E26S47 for scouting once E26S48 is owned', () => {
+  it('scores E26S47 for scouting once E24S48 is owned', () => {
     const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
       rooms: {
         E24S49: colony.room,
-        E26S48: makeOwnedRoom('E26S48')
+        E24S48: makeOwnedRoom('E24S48')
       },
       map: {
         describeExits: jest.fn(() => ({})),
@@ -83,7 +83,7 @@ describe('configured territory expansion scoring', () => {
       visible: false,
       evidenceStatus: 'insufficient-evidence',
       adjacentToOwnedRoom: true,
-      nearestOwnedRoom: 'E26S48',
+      nearestOwnedRoom: 'E24S48',
       nearestOwnedRoomDistance: 1,
       routeDistance: 2,
       risks: expect.arrayContaining([
@@ -97,7 +97,7 @@ describe('configured territory expansion scoring', () => {
     );
   });
 
-  it('keeps E26S47 out of runtime scoring before E26S48 is owned', () => {
+  it('keeps E26S47 out of runtime scoring before E24S48 is owned', () => {
     const colony = makeColony('E24S49');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,

@@ -71,11 +71,11 @@ describe('claimed room bootstrapper', () => {
     });
   });
 
-  it('transitions a newly owned E26S50 claim into post-claim bootstrap and places the first spawn', () => {
+  it('transitions a newly owned E24S50 claim into post-claim bootstrap and places the first spawn', () => {
     const { room } = makeBootstrapRoom({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       controllerLevel: 1,
-      sources: [makeSource('e26s50-source-a', 21, 21, 'E26S50')]
+      sources: [makeSource('e24s50-source-a', 21, 21, 'E24S50')]
     });
     (room as Room & { memory?: RoomMemory }).memory = {};
     const homeRoom = {
@@ -88,13 +88,13 @@ describe('claimed room bootstrapper', () => {
     Memory.territory = {
       claimedRoomBootstrapper: {
         rooms: {
-          E26S50: { roomName: 'E26S50', owned: false, updatedAt: 836 }
+          E24S50: { roomName: 'E24S50', owned: false, updatedAt: 836 }
         }
       },
       targets: [
         {
           colony: 'E24S49',
-          roomName: 'E26S50',
+          roomName: 'E24S50',
           action: 'claim',
           createdBy: 'nextExpansionScoring',
           controllerId: 'controller1' as Id<StructureController>
@@ -107,15 +107,15 @@ describe('claimed room bootstrapper', () => {
     const events: RuntimeTelemetryEvent[] = [];
     const result = refreshClaimedRoomBootstrapperOwnership(events);
 
-    expect(result.detectedRoomNames).toEqual(['E26S50']);
-    expect(Memory.territory?.postClaimBootstraps?.E26S50).toMatchObject({
+    expect(result.detectedRoomNames).toEqual(['E24S50']);
+    expect(Memory.territory?.postClaimBootstraps?.E24S50).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       status: 'spawnSitePending',
       claimedAt: 837,
       updatedAt: 837,
       controllerId: 'controller1',
-      spawnSite: { roomName: 'E26S50', x: 23, y: 23 },
+      spawnSite: { roomName: 'E24S50', x: 23, y: 23 },
       lastResult: OK_CODE
     });
     expect((room as Room & { memory: RoomMemory }).memory.colonyStage?.mode).toBe('BOOTSTRAP');
@@ -129,7 +129,7 @@ describe('claimed room bootstrapper', () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: 'postClaimBootstrap',
-          roomName: 'E26S50',
+          roomName: 'E24S50',
           colony: 'E24S49',
           phase: 'spawnSite'
         })
@@ -138,7 +138,7 @@ describe('claimed room bootstrapper', () => {
   });
 
   it('recovers already-owned spawnless secondary rooms that missed post-claim bootstrap records', () => {
-    const secondaryRooms = ['E26S48', 'E27S48', 'E27S49'].map((roomName) =>
+    const secondaryRooms = ['E24S48', 'E27S48', 'E27S49'].map((roomName) =>
       makeBootstrapRoom({
         roomName,
         controllerLevel: 1,
@@ -153,7 +153,7 @@ describe('claimed room bootstrapper', () => {
     } as Room;
     const homeSpawn = { name: 'Spawn1', room: homeRoom, spawning: null } as StructureSpawn;
     const previousRooms = {
-      E26S48: { roomName: 'E26S48', owned: true, claimedAt: 786700, updatedAt: 786700 },
+      E24S48: { roomName: 'E24S48', owned: true, claimedAt: 786700, updatedAt: 786700 },
       E27S48: { roomName: 'E27S48', owned: true, claimedAt: 786701, updatedAt: 786701 },
       E27S49: { roomName: 'E27S49', owned: true, claimedAt: 786702, updatedAt: 786702 }
     } as const;
@@ -168,7 +168,7 @@ describe('claimed room bootstrapper', () => {
     const events: RuntimeTelemetryEvent[] = [];
     const result = refreshClaimedRoomBootstrapperOwnership(events);
 
-    expect(result.detectedRoomNames).toEqual(['E26S48', 'E27S48', 'E27S49']);
+    expect(result.detectedRoomNames).toEqual(['E24S48', 'E27S48', 'E27S49']);
     for (const { room } of secondaryRooms) {
       const previousRoom = previousRooms[room.name as keyof typeof previousRooms];
       expect(Memory.territory?.postClaimBootstraps?.[room.name]).toMatchObject({
@@ -205,9 +205,9 @@ describe('claimed room bootstrapper', () => {
 
   it('recovers an established spawnless dynamic claim without a preconfigured target', () => {
     const { room } = makeBootstrapRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       controllerLevel: 4,
-      sources: [makeSource('e26s48-source-a', 21, 21, 'E26S48')]
+      sources: [makeSource('e24s48-source-a', 21, 21, 'E24S48')]
     });
     const homeRoom = {
       name: 'E24S49',
@@ -219,7 +219,7 @@ describe('claimed room bootstrapper', () => {
     Memory.territory = {
       claimedRoomBootstrapper: {
         rooms: {
-          E26S48: { roomName: 'E26S48', owned: true, claimedAt: 786700, updatedAt: 786700 }
+          E24S48: { roomName: 'E24S48', owned: true, claimedAt: 786700, updatedAt: 786700 }
         }
       }
     };
@@ -228,14 +228,14 @@ describe('claimed room bootstrapper', () => {
 
     const result = refreshClaimedRoomBootstrapperOwnership();
 
-    expect(result.detectedRoomNames).toEqual(['E26S48']);
-    expect(Memory.territory?.postClaimBootstraps?.E26S48).toMatchObject({
+    expect(result.detectedRoomNames).toEqual(['E24S48']);
+    expect(Memory.territory?.postClaimBootstraps?.E24S48).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       status: 'spawnSitePending',
       claimedAt: 786700,
       updatedAt: 786805,
-      spawnSite: { roomName: 'E26S48', x: 23, y: 23 },
+      spawnSite: { roomName: 'E24S48', x: 23, y: 23 },
       lastResult: OK_CODE
     });
     expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);

@@ -318,8 +318,8 @@ function makeHomeColony(): ColonySnapshot {
     roomName: 'E24S49',
     controllerLevel: 4,
     sources: [
-      makeSource('source-e26s49-a', 10, 10, 'E24S49'),
-      makeSource('source-e26s49-b', 40, 40, 'E24S49')
+      makeSource('source-e24s49-a', 10, 10, 'E24S49'),
+      makeSource('source-e24s49-b', 40, 40, 'E24S49')
     ]
   });
   const spawn = makeSpawn('Spawn1', room, 25, 25);
@@ -416,20 +416,20 @@ function makeRoom(options: TestRoomOptions): MockRoom {
 }
 
 function installExpansionGame(home: ColonySnapshot, gameTime: number): void {
-  const e26s48 = makeRoom({
-    roomName: 'E26S48',
+  const e24s48 = makeRoom({
+    roomName: 'E24S48',
     controllerLevel: 3,
-    sources: [makeSource('source-e26s48-a', 20, 20, 'E26S48')]
+    sources: [makeSource('source-e24s48-a', 20, 20, 'E24S48')]
   });
-  installGameRooms([home.room as MockRoom, e26s48], gameTime);
+  installGameRooms([home.room as MockRoom, e24s48], gameTime);
   (Game as Partial<Game>).map = {
     ...Game.map,
     describeExits: jest.fn((roomName: string) => {
       if (roomName === 'E24S49') {
-        return { '5': 'E26S50', '7': 'E26S48' };
+        return { '5': 'E24S50', '7': 'E24S48' };
       }
 
-      if (roomName === 'E26S48') {
+      if (roomName === 'E24S48') {
         return { '3': 'E24S49', '7': 'E26S47' };
       }
 
@@ -438,7 +438,7 @@ function installExpansionGame(home: ColonySnapshot, gameTime: number): void {
     findRoute: jest.fn((fromRoom: string, toRoom: string) => {
       if (fromRoom === 'E24S49' && toRoom === 'E26S47') {
         return [
-          { exit: 7, room: 'E26S48' },
+          { exit: 7, room: 'E24S48' },
           { exit: 7, room: 'E26S47' }
         ];
       }

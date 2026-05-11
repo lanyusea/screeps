@@ -134,20 +134,20 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('audits E26S48 local energy as sufficient before importing from E24S49', () => {
-    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+  it('audits E24S48 local energy as sufficient before importing from E24S49', () => {
+    const sourceContainer = makeContainer('E24S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
     installGame([targetRoom], []);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       }
@@ -165,20 +165,20 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('audits E26S50 local energy as sufficient before importing from E24S49', () => {
-    const sourceContainer = makeContainer('E26S50-source-container', 450, 2_000);
+  it('audits E24S50 local energy as sufficient before importing from E24S49', () => {
+    const sourceContainer = makeContainer('E24S50-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
     installGame([targetRoom], []);
     Memory.economy = {
       sourceWorkloads: {
-        E26S50: {
+        E24S50: {
           updatedAt: 100,
           sources: {
-            'E26S50-source': makeSourceWorkload('E26S50-source', 10, 10)
+            'E24S50-source': makeSourceWorkload('E24S50-source', 10, 10)
           }
         }
       }
@@ -196,21 +196,21 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('suppresses routine E24S49 to E26S48 transfers when local harvesting is sufficient', () => {
+  it('suppresses routine E24S49 to E24S48 transfers when local harvesting is sufficient', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
-    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       }
@@ -218,7 +218,7 @@ describe('cross-room energy logistics', () => {
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E26S48).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E24S48).toMatchObject({
       mode: 'import',
       importDemand: 200
     });
@@ -226,25 +226,25 @@ describe('cross-room energy logistics', () => {
     expect(planCrossRoomHauler()).toBeNull();
   });
 
-  it('routes E24S49 surplus to E26S50 when E26S48 local-first energy is sufficient', () => {
+  it('routes E24S49 surplus to E24S50 when E24S48 local-first energy is sufficient', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
-    const e26s48SourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const e24s48SourceContainer = makeContainer('E24S48-source-container', 450, 2_000);
     const localFirstRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
-      structures: [e26s48SourceContainer]
+      structures: [e24s48SourceContainer]
     });
-    const e26s50Room = makeOwnedRoom({
-      roomName: 'E26S50',
+    const e24s50Room = makeOwnedRoom({
+      roomName: 'E24S50',
       storageEnergy: 100
     });
-    installGame([sourceRoom, localFirstRoom, e26s50Room], [makeSpawn('Spawn1', sourceRoom)]);
+    installGame([sourceRoom, localFirstRoom, e24s50Room], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       }
@@ -253,9 +253,9 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S50', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E24S50', amount: 150, updatedAt: 100 }
     ]);
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S48).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E24S48).toMatchObject({
       localProductionEnergyPerTick: 10,
       localHarvestCapacityEnergyPerTick: 10,
       localHarvestCoverageRatio: 1,
@@ -266,7 +266,7 @@ describe('cross-room energy logistics', () => {
       plannedExportEnergy: 150,
       surplusEnergy: 0
     });
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S50).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E24S50).toMatchObject({
       importDemand: 200,
       plannedImportEnergy: 150,
       storageDeficit: 50,
@@ -275,7 +275,7 @@ describe('cross-room energy logistics', () => {
     expect(Memory.economy?.multiRoomEnergy?.transfers).toEqual([
       {
         sourceRoom: 'E24S49',
-        targetRoom: 'E26S48',
+        targetRoom: 'E24S48',
         amount: 150,
         status: 'suppressed',
         reason: 'local-first-sufficient',
@@ -283,14 +283,14 @@ describe('cross-room energy logistics', () => {
       },
       {
         sourceRoom: 'E24S49',
-        targetRoom: 'E26S50',
+        targetRoom: 'E24S50',
         amount: 150,
         status: 'planned',
         reason: 'storage-balance',
         updatedAt: 100
       },
       {
-        targetRoom: 'E26S50',
+        targetRoom: 'E24S50',
         amount: 50,
         status: 'blocked',
         reason: 'insufficient-exportable-energy',
@@ -299,26 +299,26 @@ describe('cross-room energy logistics', () => {
     ]);
     expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
       homeRoom: 'E24S49',
-      targetRoom: 'E26S50'
+      targetRoom: 'E24S50'
     });
   });
 
   it('tracks local production, local consumption, and deficits in spawn forecasts', () => {
     const roomCreeps: Creep[] = [];
     const room = makeOwnedRoom({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       storageEnergy: 100,
       myCreeps: roomCreeps
     });
-    const builder = makeWorker('builder-E26S50', room, { type: 'build', targetId: 'site1' as Id<ConstructionSite> }, 2);
+    const builder = makeWorker('builder-E24S50', room, { type: 'build', targetId: 'site1' as Id<ConstructionSite> }, 2);
     roomCreeps.push(builder);
     installGame([room], [], { [builder.name]: builder });
     Memory.economy = {
       sourceWorkloads: {
-        E26S50: {
+        E24S50: {
           updatedAt: 100,
           sources: {
-            'E26S50-source': makeSourceWorkload('E26S50-source', 8, 10)
+            'E24S50-source': makeSourceWorkload('E24S50-source', 8, 10)
           }
         }
       }
@@ -326,7 +326,7 @@ describe('cross-room energy logistics', () => {
 
     balanceStorage();
 
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S50).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E24S50).toMatchObject({
       localProductionEnergyPerTick: 8,
       localHarvestCapacityEnergyPerTick: 10,
       localHarvestCoverageRatio: 0.8,
@@ -339,7 +339,7 @@ describe('cross-room energy logistics', () => {
       bottleneck: 'no-exporter'
     });
     expect(getSpawnEnergyForecast(makeColony(room))).toMatchObject({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       localProductionEnergyPerTick: 8,
       localConsumptionEnergyPerTick: 10,
       netLocalEnergyPerTick: -2,
@@ -347,11 +347,11 @@ describe('cross-room energy logistics', () => {
     });
   });
 
-  it('imports to E26S48 when local energy falls below the configured threshold', () => {
+  it('imports to E24S48 when local energy falls below the configured threshold', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
-    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
@@ -359,16 +359,16 @@ describe('cross-room energy logistics', () => {
     Memory.economy = {
       energyIndependence: {
         rooms: {
-          E26S48: {
+          E24S48: {
             importThreshold: 700
           }
         }
       },
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       }
@@ -377,20 +377,20 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E24S48', amount: 150, updatedAt: 100 }
     ]);
     expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
       homeRoom: 'E24S49',
-      targetRoom: 'E26S48'
+      targetRoom: 'E24S48'
     });
   });
 
-  it('reuses the E26S48 local energy structure scan across multiple storage exporters', () => {
+  it('reuses the E24S48 local energy structure scan across multiple storage exporters', () => {
     const primarySourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const secondarySourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
-    const sourceContainer = makeContainer('E26S48-source-container', 100, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 100, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
@@ -398,7 +398,7 @@ describe('cross-room energy logistics', () => {
     Memory.economy = {
       energyIndependence: {
         rooms: {
-          E26S48: {
+          E24S48: {
             importThreshold: 700,
             sourceRooms: ['E24S49', 'W1N1']
           }
@@ -412,17 +412,17 @@ describe('cross-room energy logistics', () => {
     const structureScanCount = targetFind.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
     expect(structureScanCount).toBe(1);
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 },
-      { sourceRoom: 'W1N1', targetRoom: 'E26S48', amount: 50, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E24S48', amount: 150, updatedAt: 100 },
+      { sourceRoom: 'W1N1', targetRoom: 'E24S48', amount: 50, updatedAt: 100 }
     ]);
   });
 
-  it('preserves E26S48 emergency imports for spawn collapse prevention', () => {
+  it('preserves E24S48 emergency imports for spawn collapse prevention', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const targetOwnedStructures: AnyOwnedStructure[] = [];
-    const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 600, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       energyAvailable: 100,
       energyCapacityAvailable: 800,
@@ -434,10 +434,10 @@ describe('cross-room energy logistics', () => {
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       }
@@ -454,16 +454,16 @@ describe('cross-room energy logistics', () => {
       reason: 'spawn-collapse-risk'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 400, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E24S48', amount: 400, updatedAt: 100 }
     ]);
   });
 
   it('treats unmet spawn queue reservations as local-first import pressure', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     const targetOwnedStructures: AnyOwnedStructure[] = [];
-    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 450, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       energyAvailable: 300,
       energyCapacityAvailable: 650,
@@ -475,23 +475,23 @@ describe('cross-room energy logistics', () => {
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 10, 10)
           }
         }
       },
       spawnEnergyReservation: {
         updatedAt: 99,
         rooms: {
-          E26S48: {
+          E24S48: {
             bodyCost: 650,
-            creepName: 'worker-E26S48-101',
+            creepName: 'worker-E24S48-101',
             reservedAt: 99,
             reservedEnergy: 650,
             role: 'worker',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             updatedAt: 99
           }
         }
@@ -585,16 +585,16 @@ describe('cross-room energy logistics', () => {
     expect(planCrossRoomHauler()).toBeNull();
   });
 
-  it('selects the nearest eligible source store for an E24S49 to E26S48 hauler', () => {
+  it('selects the nearest eligible source store for an E24S49 to E24S48 hauler', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
     (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('E24S49-terminal', 850, 1_000, 2, 2);
-    const targetRoom = makeOwnedRoom({ roomName: 'E26S48', storageEnergy: 100 });
+    const targetRoom = makeOwnedRoom({ roomName: 'E24S48', storageEnergy: 100 });
     const sourceSpawn = makeSpawn('Spawn1', sourceRoom, 0, 1, 1);
     installGame([sourceRoom, targetRoom], [sourceSpawn]);
     Memory.economy = {
       energyIndependence: {
         rooms: {
-          E26S48: {
+          E24S48: {
             importThreshold: 2_000
           }
         }
@@ -606,7 +606,7 @@ describe('cross-room energy logistics', () => {
 
     expect(plan?.memory.crossRoomHauler).toMatchObject({
       homeRoom: 'E24S49',
-      targetRoom: 'E26S48',
+      targetRoom: 'E24S48',
       sourceId: 'E24S49-terminal'
     });
   });
@@ -715,10 +715,10 @@ describe('cross-room energy logistics', () => {
   });
 
   it('keeps home-room imports ahead of a larger distant-room deficit', () => {
-    const sourceRoom = makeOwnedRoom({ roomName: 'E26S50', storageEnergy: 950, energyAvailable: 800 });
+    const sourceRoom = makeOwnedRoom({ roomName: 'E24S50', storageEnergy: 950, energyAvailable: 800 });
     const homeRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 100 });
     const distantRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 0,
       storageCapacity: 2_000
     });
@@ -727,7 +727,7 @@ describe('cross-room energy logistics', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S50', targetRoom: 'E24S49', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S50', targetRoom: 'E24S49', amount: 150, updatedAt: 100 }
     ]);
   });
 
@@ -763,19 +763,19 @@ describe('cross-room energy logistics', () => {
 
   it('imports for a local-first room when its visible source workload is depleted', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950, energyAvailable: 800 });
-    const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
+    const sourceContainer = makeContainer('E24S48-source-container', 600, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       structures: [sourceContainer]
     });
     installGame([sourceRoom, targetRoom], []);
     Memory.economy = {
       sourceWorkloads: {
-        E26S48: {
+        E24S48: {
           updatedAt: 100,
           sources: {
-            'E26S48-source': makeSourceWorkload('E26S48-source', 0, 0)
+            'E24S48-source': makeSourceWorkload('E24S48-source', 0, 0)
           }
         }
       }
@@ -790,7 +790,7 @@ describe('cross-room energy logistics', () => {
       reason: 'local-harvest-insufficient'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E24S49', targetRoom: 'E24S48', amount: 150, updatedAt: 100 }
     ]);
   });
 
@@ -1133,12 +1133,12 @@ describe('cross-room energy logistics', () => {
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-container' });
   });
 
-  it('delivers imported energy to the nearest same-priority target in E26S48', () => {
+  it('delivers imported energy to the nearest same-priority target in E24S48', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
-    const farContainer = makeContainer('E26S48-a-container', 0, 2_000, 20, 20);
-    const nearContainer = makeContainer('E26S48-z-container', 0, 2_000, 2, 2);
+    const farContainer = makeContainer('E24S48-a-container', 0, 2_000, 20, 20);
+    const nearContainer = makeContainer('E24S48-z-container', 0, 2_000, 2, 2);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 1_000,
       structures: [farContainer, nearContainer]
     });
@@ -1147,28 +1147,28 @@ describe('cross-room energy logistics', () => {
       room: targetRoom,
       carriedEnergy: () => 100,
       transfer: jest.fn(() => OK_CODE),
-      pos: makeRoomPosition(1, 1, 'E26S48')
+      pos: makeRoomPosition(1, 1, 'E24S48')
     });
     creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
       homeRoom: 'E24S49',
-      targetRoom: 'E26S48',
+      targetRoom: 'E24S48',
       sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
-      route: ['E26S48']
+      route: ['E24S48']
     };
 
     runCrossRoomHauler(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(nearContainer, RESOURCE_ENERGY);
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-z-container' });
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E24S48-z-container' });
   });
 
   it('delivers imported energy to a claimed-room tower before durable storage', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
-    const tower = makeTower('E26S48-tower', 100, 900);
+    const tower = makeTower('E24S48-tower', 100, 900);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       myStructures: [tower as unknown as AnyOwnedStructure]
     });
@@ -1181,24 +1181,24 @@ describe('cross-room energy logistics', () => {
     creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
       homeRoom: 'E24S49',
-      targetRoom: 'E26S48',
+      targetRoom: 'E24S48',
       sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
-      route: ['E26S48']
+      route: ['E24S48']
     };
 
     runCrossRoomHauler(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-tower' });
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E24S48-tower' });
   });
 
   it('delivers imported energy to a tower before a container fallback with an earlier id', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E24S49', storageEnergy: 950 });
-    const tower = makeTower('E26S48-z-tower', 100, 900);
-    const container = makeContainer('E26S48-a-container', 0, 2_000);
+    const tower = makeTower('E24S48-z-tower', 100, 900);
+    const container = makeContainer('E24S48-a-container', 0, 2_000);
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       storageEnergy: 100,
       myStructures: [tower as unknown as AnyOwnedStructure],
       structures: [container as unknown as Structure]
@@ -1212,16 +1212,16 @@ describe('cross-room energy logistics', () => {
     creep.memory.colony = 'E24S49';
     creep.memory.crossRoomHauler = {
       homeRoom: 'E24S49',
-      targetRoom: 'E26S48',
+      targetRoom: 'E24S48',
       sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
       state: 'delivering',
-      route: ['E26S48']
+      route: ['E24S48']
     };
 
     runCrossRoomHauler(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-z-tower' });
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E24S48-z-tower' });
   });
 
   it('delivers to deficit-room storage when transient sinks are unavailable', () => {

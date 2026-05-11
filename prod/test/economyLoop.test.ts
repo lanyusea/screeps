@@ -3223,7 +3223,7 @@ describe('runEconomy', () => {
     );
   });
 
-  it('spawns a cross-room worker for spawnless E26S48 when claimed sources and containers are visible', () => {
+  it('spawns a cross-room worker for spawnless E24S48 when claimed sources and containers are visible', () => {
     installMultiRoomSpawnQueueGlobals();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const homeRoom = makeSpawnCoordinationRoom({
@@ -3231,7 +3231,7 @@ describe('runEconomy', () => {
       energyAvailable: 950,
       energyCapacityAvailable: 950
     });
-    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 2 });
+    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E24S48', sourceCount: 2 });
     const spawn = {
       name: 'Spawn1',
       room: homeRoom,
@@ -3240,7 +3240,7 @@ describe('runEconomy', () => {
     } as unknown as StructureSpawn;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 818,
-      rooms: { E24S49: homeRoom, E26S48: claimedRoom },
+      rooms: { E24S49: homeRoom, E24S48: claimedRoom },
       spawns: { Spawn1: spawn },
       creeps: {
         Worker1: makeEconomyWorker(homeRoom),
@@ -3254,16 +3254,16 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E26S48-818', {
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E24S48-818', {
       memory: {
         role: 'worker',
-        colony: 'E26S48',
-        spawnSupport: { originRoom: 'E24S49', targetRoom: 'E26S48' }
+        colony: 'E24S48',
+        spawnSupport: { originRoom: 'E24S49', targetRoom: 'E24S48' }
       }
     });
   });
 
-  it('keeps E24S49 defender spawning ahead of E26S48 economic recovery', () => {
+  it('keeps E24S49 defender spawning ahead of E24S48 economic recovery', () => {
     installMultiRoomSpawnQueueGlobals();
     const hostile = { id: 'hostile1' } as Creep;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -3277,7 +3277,7 @@ describe('runEconomy', () => {
       ...baseHomeRoom,
       find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : homeFind(type)))
     } as unknown as Room;
-    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 2 });
+    const claimedRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E24S48', sourceCount: 2 });
     const spawn = {
       name: 'Spawn1',
       room: homeRoom,
@@ -3286,7 +3286,7 @@ describe('runEconomy', () => {
     } as unknown as StructureSpawn;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 819,
-      rooms: { E24S49: homeRoom, E26S48: claimedRoom },
+      rooms: { E24S49: homeRoom, E24S48: claimedRoom },
       spawns: { Spawn1: spawn },
       creeps: {
         Worker1: makeEconomyWorker(homeRoom),
@@ -3313,7 +3313,7 @@ describe('runEconomy', () => {
   it('uses the nearest viable spawn room for a spawnless colony worker deficit', () => {
     installMultiRoomSpawnQueueGlobals();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const targetRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E26S48', sourceCount: 1 });
+    const targetRoom = makeClaimedSpawnlessEconomyRoom({ roomName: 'E24S48', sourceCount: 1 });
     const nearRoom = makeSpawnCoordinationRoom({
       roomName: 'E24S49',
       energyAvailable: 950,
@@ -3339,7 +3339,7 @@ describe('runEconomy', () => {
     } as unknown as StructureSpawn;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 820,
-      rooms: { E26S48: targetRoom, W9N9: farRoom, E24S49: nearRoom },
+      rooms: { E24S48: targetRoom, W9N9: farRoom, E24S49: nearRoom },
       spawns: { FarSpawn: farSpawn, NearSpawn: nearSpawn },
       creeps: {
         TargetWorker1: makeEconomyWorker(targetRoom),
@@ -3363,11 +3363,11 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(nearSpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E26S48-820', {
+    expect(nearSpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E24S48-820', {
       memory: {
         role: 'worker',
-        colony: 'E26S48',
-        spawnSupport: { originRoom: 'E24S49', targetRoom: 'E26S48' }
+        colony: 'E24S48',
+        spawnSupport: { originRoom: 'E24S49', targetRoom: 'E24S48' }
       }
     });
     expect(farSpawn.spawnCreep).not.toHaveBeenCalled();
@@ -3474,7 +3474,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('registers all visible E26S48 sources for post-claim remote mining from E24S49', () => {
+  it('registers all visible E24S48 sources for post-claim remote mining from E24S49', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;
       FIND_STRUCTURES: number;
@@ -3494,14 +3494,14 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
+          E24S48: {
             colony: 'E24S49',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             status: 'ready',
             claimedAt: 814,
             updatedAt: 815,
             workerTarget: 2,
-            controllerId: 'controller-e26s48' as Id<StructureController>
+            controllerId: 'controller-e24s48' as Id<StructureController>
           }
         }
       }
@@ -3510,20 +3510,20 @@ describe('runEconomy', () => {
     (homeRoom as Room & { name: string }).name = 'E24S49';
     const constructionSites: ConstructionSite[] = [];
     const claimedRoom = {
-      name: 'E26S48',
+      name: 'E24S48',
       energyAvailable: 0,
       energyCapacityAvailable: 0,
       controller: {
-        id: 'controller-e26s48',
+        id: 'controller-e24s48',
         my: true,
         level: 1,
-        pos: { x: 25, y: 25, roomName: 'E26S48' } as RoomPosition
+        pos: { x: 25, y: 25, roomName: 'E24S48' } as RoomPosition
       } as StructureController,
       find: jest.fn((type: number) => {
         if (type === FIND_SOURCES) {
           return [
-            { id: 'e26s48-source-a', pos: { x: 10, y: 10, roomName: 'E26S48' } as RoomPosition } as Source,
-            { id: 'e26s48-source-b', pos: { x: 35, y: 35, roomName: 'E26S48' } as RoomPosition } as Source
+            { id: 'e24s48-source-a', pos: { x: 10, y: 10, roomName: 'E24S48' } as RoomPosition } as Source,
+            { id: 'e24s48-source-b', pos: { x: 35, y: 35, roomName: 'E24S48' } as RoomPosition } as Source
           ];
         }
 
@@ -3545,14 +3545,14 @@ describe('runEconomy', () => {
         constructionSites.push({
           id: `site-${x}-${y}`,
           structureType,
-          pos: { x, y, roomName: 'E26S48' } as RoomPosition
+          pos: { x, y, roomName: 'E24S48' } as RoomPosition
         } as ConstructionSite);
         return OK_CODE;
       })
     } as unknown as Room & { createConstructionSite: jest.Mock };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 816,
-      rooms: { E24S49: homeRoom, E26S48: claimedRoom },
+      rooms: { E24S49: homeRoom, E24S48: claimedRoom },
       spawns: {},
       creeps: {
         Worker1: makeEconomyWorker(homeRoom),
@@ -3568,20 +3568,20 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(Object.keys(Memory.territory?.remoteMining?.['E24S49:E26S48']?.sources ?? {})).toEqual([
-      'e26s48-source-a',
-      'e26s48-source-b'
+    expect(Object.keys(Memory.territory?.remoteMining?.['E24S49:E24S48']?.sources ?? {})).toEqual([
+      'e24s48-source-a',
+      'e24s48-source-b'
     ]);
-    expect(Memory.territory?.remoteMining?.['E24S49:E26S48']).toMatchObject({
+    expect(Memory.territory?.remoteMining?.['E24S49:E24S48']).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       status: 'containerPending',
       sources: {
-        'e26s48-source-a': {
-          sourceId: 'e26s48-source-a'
+        'e24s48-source-a': {
+          sourceId: 'e24s48-source-a'
         },
-        'e26s48-source-b': {
-          sourceId: 'e26s48-source-b'
+        'e24s48-source-b': {
+          sourceId: 'e24s48-source-b'
         }
       }
     });

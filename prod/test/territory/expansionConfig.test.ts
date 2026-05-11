@@ -5,7 +5,7 @@ describe('territory expansion config', () => {
     expect(TERRITORY_EXPANSION_SCOUT_TARGETS).toEqual([
       {
         colony: 'E24S49',
-        roomName: 'E26S50',
+        roomName: 'E24S50',
         nearestOwnedRoom: 'E24S49',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
@@ -14,7 +14,7 @@ describe('territory expansion config', () => {
       {
         colony: 'E24S49',
         roomName: 'E26S47',
-        nearestOwnedRoom: 'E26S48',
+        nearestOwnedRoom: 'E24S48',
         nearestOwnedRoomDistance: 1,
         routeDistance: 2,
         adjacentToOwnedRoom: true

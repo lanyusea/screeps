@@ -203,8 +203,8 @@ describe('planTerritoryIntent', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         E24S49: colony.room,
-        E26S50: {
-          name: 'E26S50',
+        E24S50: {
+          name: 'E24S50',
           controller: { id: 'controller50' as Id<StructureController>, my: false } as StructureController
         } as Room
       },
@@ -217,14 +217,14 @@ describe('planTerritoryIntent', () => {
         intents: [
           {
             colony: 'E24S49',
-            targetRoom: 'E26S50',
+            targetRoom: 'E24S50',
             action: 'reserve',
             status: 'active',
             updatedAt: 840
           }
         ],
         routeDistances: {
-          'E24S49>E26S50': 1,
+          'E24S49>E24S50': 1,
           'E24S49>E26S47': 2
         }
       }
@@ -246,7 +246,7 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E24S49',
-        targetRoom: 'E26S50',
+        targetRoom: 'E24S50',
         action: 'reserve',
         status: 'active',
         updatedAt: 840

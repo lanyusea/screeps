@@ -3784,7 +3784,7 @@ function isRecord4(value) {
 var TERRITORY_EXPANSION_SCOUT_TARGETS = [
   {
     colony: "E24S49",
-    roomName: "E26S50",
+    roomName: "E24S50",
     nearestOwnedRoom: "E24S49",
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
@@ -3793,7 +3793,7 @@ var TERRITORY_EXPANSION_SCOUT_TARGETS = [
   {
     colony: "E24S49",
     roomName: "E26S47",
-    nearestOwnedRoom: "E26S48",
+    nearestOwnedRoom: "E24S48",
     nearestOwnedRoomDistance: 1,
     routeDistance: 2,
     adjacentToOwnedRoom: true
@@ -18716,12 +18716,12 @@ function matchesStructureType13(actual, globalName, fallback) {
 }
 
 // src/economy/localEnergyStrategy.ts
-var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E26S48";
-var DEFAULT_E26S50_LOCAL_FIRST_ENERGY_ROOM = "E26S50";
+var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E24S48";
+var DEFAULT_E24S50_LOCAL_FIRST_ENERGY_ROOM = "E24S50";
 var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = "E24S49";
 var DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = [
   DEFAULT_LOCAL_FIRST_ENERGY_ROOM,
-  DEFAULT_E26S50_LOCAL_FIRST_ENERGY_ROOM
+  DEFAULT_E24S50_LOCAL_FIRST_ENERGY_ROOM
 ];
 var DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD = 500;
 var DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO = 0.8;
@@ -18975,7 +18975,7 @@ function getEnergyResource12() {
 }
 
 // src/economy/multiRoomEnergy.ts
-var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E26S48", "E24S49", "E26S50"];
+var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E24S48", "E24S49", "E24S50"];
 var MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 function buildMultiRoomEnergyState(roomStates, transfers, auditEntries, gameTime) {
   const importsByRoom = sumTransfersByRoom(transfers, "targetRoom");
@@ -19605,7 +19605,7 @@ function compareExportRoomsForImporter(left, right, importer, routeContext) {
   return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || getRoomEnergyTransferExportLimit(right, importer) - getRoomEnergyTransferExportLimit(left, importer) || compareExportRooms(left, right);
 }
 function getCorridorExporterPriority(sourceRoom, targetRoom) {
-  if (sourceRoom === "E24S49" && targetRoom === "E26S50") {
+  if (sourceRoom === "E24S49" && targetRoom === "E24S50") {
     return 0;
   }
   return 1;

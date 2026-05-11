@@ -92,7 +92,7 @@ describe('E26S47 claim pipeline', () => {
     setGame(colony, 851);
     setSafeHomeThreat('E24S49', 851);
     setE26S47ScoutIntel(makeScoutIntel({ hostileCreepCount: 1 }));
-    setE26S50UnavailableScoutIntel(851);
+    setE24S50UnavailableScoutIntel(851);
 
     expect(refreshExpansionExecutorIntent(colony, 851)).toMatchObject({
       status: 'skipped',
@@ -113,7 +113,7 @@ describe('E26S47 claim pipeline', () => {
         controller: { id: 'controller-e26s47' as Id<StructureController>, ownerUsername: 'enemy' }
       })
     );
-    setE26S50UnavailableScoutIntel(852);
+    setE24S50UnavailableScoutIntel(852);
 
     expect(refreshExpansionExecutorIntent(colony, 852)).toMatchObject({
       status: 'skipped',
@@ -274,38 +274,38 @@ function makeOwnedRoom(roomName: string): Room & { memory: RoomMemory } {
 }
 
 function setGame(colony: ColonySnapshot, gameTime: number): void {
-  const e26s48 = makeOwnedRoom('E26S48');
+  const e24s48 = makeOwnedRoom('E24S48');
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: gameTime,
     rooms: {
       E24S49: colony.room,
-      E26S48: e26s48
+      E24S48: e24s48
     },
     map: {
       describeExits: jest.fn((roomName: string) => {
         if (roomName === 'E24S49') {
-          return { '5': 'E26S50', '7': 'E26S48' };
+          return { '5': 'E24S50', '7': 'E24S48' };
         }
 
-        if (roomName === 'E26S48') {
+        if (roomName === 'E24S48') {
           return { '3': 'E24S49', '7': 'E26S47' };
         }
 
         return {};
       }),
       findRoute: jest.fn((fromRoom: string, toRoom: string) => {
-        if (fromRoom === 'E24S49' && toRoom === 'E26S50') {
-          return [{ exit: 5, room: 'E26S50' }];
+        if (fromRoom === 'E24S49' && toRoom === 'E24S50') {
+          return [{ exit: 5, room: 'E24S50' }];
         }
 
         if (fromRoom === 'E24S49' && toRoom === 'E26S47') {
           return [
-            { exit: 7, room: 'E26S48' },
+            { exit: 7, room: 'E24S48' },
             { exit: 7, room: 'E26S47' }
           ];
         }
 
-        if (fromRoom === 'E26S48' && toRoom === 'E26S47') {
+        if (fromRoom === 'E24S48' && toRoom === 'E26S47') {
           return [{ exit: 7, room: 'E26S47' }];
         }
 
@@ -325,17 +325,17 @@ function setE26S47ScoutIntel(intel: TerritoryScoutIntelMemory): void {
   };
 }
 
-function setE26S50UnavailableScoutIntel(updatedAt: number): void {
+function setE24S50UnavailableScoutIntel(updatedAt: number): void {
   Memory.territory = {
     ...(Memory.territory ?? {}),
     scoutIntel: {
       ...(Memory.territory?.scoutIntel ?? {}),
-      'E24S49>E26S50': {
+      'E24S49>E24S50': {
         colony: 'E24S49',
-        roomName: 'E26S50',
+        roomName: 'E24S50',
         updatedAt,
-        controller: { id: 'controller-e26s50' as Id<StructureController>, ownerUsername: 'enemy' },
-        sourceIds: ['source-e26s50-a', 'source-e26s50-b'],
+        controller: { id: 'controller-e24s50' as Id<StructureController>, ownerUsername: 'enemy' },
+        sourceIds: ['source-e24s50-a', 'source-e24s50-b'],
         sourceCount: 2,
         sourceAccessPoints: 7,
         controllerSourceRange: 9,

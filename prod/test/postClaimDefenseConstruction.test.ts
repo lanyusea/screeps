@@ -26,20 +26,20 @@ describe('post-claim defense construction refresh', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S48: {
+          E24S48: {
             colony: 'E24S49',
-            roomName: 'E26S48',
+            roomName: 'E24S48',
             status: 'ready',
             claimedAt: 817,
             updatedAt: 818,
             workerTarget: 2,
-            controllerId: 'controller-e26s48' as Id<StructureController>
+            controllerId: 'controller-e24s48' as Id<StructureController>
           }
         },
         claimedRoomBootstrapper: {
           rooms: {
-            E26S48: {
-              roomName: 'E26S48',
+            E24S48: {
+              roomName: 'E24S48',
               owned: true,
               claimedAt: 817,
               updatedAt: 818
@@ -59,19 +59,19 @@ describe('post-claim defense construction refresh', () => {
     delete globals.Memory;
   });
 
-  it('queues a tower and an exit rampart for claimed E26S48 defense bootstrap', () => {
+  it('queues a tower and an exit rampart for claimed E24S48 defense bootstrap', () => {
     const { colony, room } = makePostClaimDefenseColony();
     installGame(room);
 
     const result = refreshPostClaimDefenseConstruction(colony);
 
     expect(result.tower).toMatchObject({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       status: 'created',
       result: OK_CODE
     });
     expect(result.barrier).toEqual({
-      roomName: 'E26S48',
+      roomName: 'E24S48',
       status: 'created',
       result: OK_CODE,
       stage: 'entranceRampart',
@@ -87,24 +87,24 @@ describe('post-claim defense construction refresh', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
-  it('queues a tower and an exit rampart for claimed E26S50 defense bootstrap', () => {
+  it('queues a tower and an exit rampart for claimed E24S50 defense bootstrap', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S50: {
+          E24S50: {
             colony: 'E24S49',
-            roomName: 'E26S50',
+            roomName: 'E24S50',
             status: 'ready',
             claimedAt: 837,
             updatedAt: 838,
             workerTarget: 2,
-            controllerId: 'controller-e26s50' as Id<StructureController>
+            controllerId: 'controller-e24s50' as Id<StructureController>
           }
         },
         claimedRoomBootstrapper: {
           rooms: {
-            E26S50: {
-              roomName: 'E26S50',
+            E24S50: {
+              roomName: 'E24S50',
               owned: true,
               claimedAt: 837,
               updatedAt: 838
@@ -113,18 +113,18 @@ describe('post-claim defense construction refresh', () => {
         }
       }
     };
-    const { colony, room } = makePostClaimDefenseColony('E26S50');
+    const { colony, room } = makePostClaimDefenseColony('E24S50');
     installGame(room);
 
     const result = refreshPostClaimDefenseConstruction(colony);
 
     expect(result.tower).toMatchObject({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       status: 'created',
       result: OK_CODE
     });
     expect(result.barrier).toEqual({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       status: 'created',
       result: OK_CODE,
       stage: 'entranceRampart',
@@ -144,7 +144,7 @@ describe('post-claim defense construction refresh', () => {
   it('does not run defense planning when the post-claim bootstrap record is missing', () => {
     const territory = (globalThis as unknown as { Memory: Partial<Memory> }).Memory.territory;
     if (territory?.postClaimBootstraps) {
-      delete territory.postClaimBootstraps.E26S48;
+      delete territory.postClaimBootstraps.E24S48;
     }
     const { colony, room } = makePostClaimDefenseColony();
     installGame(room);
@@ -157,7 +157,7 @@ describe('post-claim defense construction refresh', () => {
 
   it('does not run defense planning after the claimed room bootstrap is established', () => {
     const claimedRoomRecord = (globalThis as unknown as { Memory: Partial<Memory> }).Memory.territory
-      ?.claimedRoomBootstrapper?.rooms.E26S48;
+      ?.claimedRoomBootstrapper?.rooms.E24S48;
     if (claimedRoomRecord) {
       claimedRoomRecord.completedAt = 900;
     }
@@ -176,13 +176,13 @@ interface PostClaimDefenseRoom extends Room {
   find: jest.Mock;
 }
 
-function makePostClaimDefenseColony(roomName = 'E26S48'): { colony: ColonySnapshot; room: PostClaimDefenseRoom } {
+function makePostClaimDefenseColony(roomName = 'E24S48'): { colony: ColonySnapshot; room: PostClaimDefenseRoom } {
   const constructionSites: ConstructionSite[] = [];
   const sources = [
     makeSource('source-a', 10, 10, roomName),
     makeSource('source-b', 40, 10, roomName)
   ];
-  const spawn = makeStructure('spawn-e26s48', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, roomName);
+  const spawn = makeStructure('spawn-e24s48', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, roomName);
   const containers = [
     makeStructure('container-a', TEST_GLOBALS.STRUCTURE_CONTAINER, 11, 11, roomName),
     makeStructure('container-b', TEST_GLOBALS.STRUCTURE_CONTAINER, 39, 11, roomName)
@@ -196,7 +196,7 @@ function makePostClaimDefenseColony(roomName = 'E26S48'): { colony: ColonySnapsh
     energyAvailable: 800,
     energyCapacityAvailable: 800,
     controller: {
-      id: 'controller-e26s48' as Id<StructureController>,
+      id: 'controller-e24s48' as Id<StructureController>,
       my: true,
       level: 3,
       pos: makePosition(25, 25, roomName)

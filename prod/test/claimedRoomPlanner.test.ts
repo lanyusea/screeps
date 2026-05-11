@@ -152,30 +152,30 @@ describe('claimed room construction planner', () => {
     ]);
   });
 
-  it('uses the E26S50 post-claim construction order after the first spawn exists', () => {
+  it('uses the E24S50 post-claim construction order after the first spawn exists', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E26S50: {
+          E24S50: {
             colony: 'E24S49',
-            roomName: 'E26S50',
+            roomName: 'E24S50',
             status: 'spawningWorkers',
             claimedAt: 837,
             updatedAt: 838,
             workerTarget: 2,
-            controllerId: 'controller-e26s50' as Id<StructureController>
+            controllerId: 'controller-e24s50' as Id<StructureController>
           }
         }
       }
     };
     const { room, colony } = makeColony({
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       controllerLevel: 4,
       energyAvailable: 2_000,
       energyCapacityAvailable: 2_000,
       controllerPosition: { x: 25, y: 25 },
-      sources: [makeSource('e26s50-source-a', 20, 10, 'E26S50')],
-      structures: makeExtensions(19, 'E26S50'),
+      sources: [makeSource('e24s50-source-a', 20, 10, 'E24S50')],
+      structures: makeExtensions(19, 'E24S50'),
       pathsByTarget: {
         '20,10': [{ x: 23, y: 25 }]
       }

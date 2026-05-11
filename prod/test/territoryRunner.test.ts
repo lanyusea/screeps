@@ -218,19 +218,19 @@ describe('runTerritoryControllerCreep', () => {
       }
     };
     const creep = {
-      name: 'ScoutE26S50',
-      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
-      room: makeScoutRoom('E26S50'),
+      name: 'ScoutE24S50',
+      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E24S50', action: 'scout' } },
+      room: makeScoutRoom('E24S50'),
       moveTo: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);
 
-    expect(Memory.territory?.scoutIntel?.['E24S49>E26S50']).toMatchObject({
+    expect(Memory.territory?.scoutIntel?.['E24S49>E24S50']).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       updatedAt: 841,
-      scoutName: 'ScoutE26S50'
+      scoutName: 'ScoutE24S50'
     });
     expect(creep.memory.territory).toEqual({ targetRoom: 'E26S47', action: 'scout' });
     expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
@@ -263,9 +263,9 @@ describe('runTerritoryControllerCreep', () => {
       } as unknown as TerritoryMemory
     };
     const creep = {
-      name: 'ScoutE26S50',
-      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
-      room: makeScoutRoom('E26S50'),
+      name: 'ScoutE24S50',
+      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E24S50', action: 'scout' } },
+      room: makeScoutRoom('E24S50'),
       moveTo: jest.fn()
     } as unknown as Creep;
 

@@ -170,9 +170,9 @@ describe('room scouting', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         scoutIntel: {
-          'E24S49>E26S50': {
+          'E24S49>E24S50': {
             colony: 'E24S49',
-            roomName: 'E26S50',
+            roomName: 'E24S50',
             updatedAt: 300,
             sourceIds: [],
             sourceCount: 0,

@@ -276,7 +276,7 @@ describe('expansion executor', () => {
     });
     expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       evidenceStatus: 'insufficient-evidence',
       recommendedAction: 'scout',
       visible: false,
@@ -285,9 +285,9 @@ describe('expansion executor', () => {
       nearestOwnedRoomDistance: 1,
       routeDistance: 1
     });
-    expect(Memory.territory?.scoutAttempts?.['E24S49>E26S50']).toMatchObject({
+    expect(Memory.territory?.scoutAttempts?.['E24S49>E24S50']).toMatchObject({
       colony: 'E24S49',
-      roomName: 'E26S50',
+      roomName: 'E24S50',
       status: 'requested',
       requestedAt: 821,
       updatedAt: 821,
@@ -304,7 +304,7 @@ describe('expansion executor', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E24S49',
-        targetRoom: 'E26S50',
+        targetRoom: 'E24S50',
         action: 'scout',
         status: 'planned',
         updatedAt: 821
