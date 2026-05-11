@@ -298,7 +298,7 @@ function planBootstrapExtension(
   options: ConstructionPlannerOptions
 ): boolean {
   if (countPendingConstructionSites(colony.room, 'extension') > 0) {
-    return true;
+    return false;
   }
 
   if (!canReserveBootstrapExtensionEnergy(colony.room, budgetState, options)) {
@@ -338,6 +338,7 @@ function planExtensions(
   options: ConstructionPlannerOptions
 ): void {
   if (
+    countPendingConstructionSites(colony.room, 'extension') > 0 ||
     !hasRemainingStructureCapacity(colony.room, 'extension') ||
     !canReserveConstructionEnergy(colony.room, budgetState, 'extension', options)
   ) {
