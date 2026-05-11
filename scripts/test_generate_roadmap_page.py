@@ -501,6 +501,80 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
         self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
 
+    def test_report_process_cards_hide_cached_issue_pr_counts_when_github_unavailable(self) -> None:
+        cached_page_data = {
+            "report": {
+                "processCards": [
+                    {
+                        "label": "Issues",
+                        "value": 210,
+                        "rawValue": 210,
+                        "detail": "210 total issues",
+                        "delta": "+0",
+                        "source": "cached",
+                    },
+                    {
+                        "label": "PRs",
+                        "value": 248,
+                        "rawValue": 248,
+                        "detail": "248 total PRs",
+                        "delta": "+0",
+                        "source": "cached",
+                    },
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            with (
+                patch.object(roadmap, "run_text", return_value="42\n"),
+                patch.object(
+                    roadmap,
+                    "fetch_all_prs",
+                    return_value=([], {"message": "unavailable", "exitCode": 1}),
+                ),
+                patch.object(
+                    roadmap,
+                    "fetch_all_issues",
+                    return_value=([], {"message": "unavailable", "exitCode": 1}),
+                ),
+                patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
+                patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
+                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
+                patch.object(roadmap, "count_private_smoke_process_reports", return_value=0),
+            ):
+                cards = roadmap.build_report_process_cards(
+                    repo_root,
+                    {"fullName": "lanyusea/screeps"},
+                    {},
+                    cached_page_data,
+                )
+
+        self.assertEqual([card["label"] for card in cards], [
+            "Commits",
+            "Issues",
+            "PRs",
+            "Deploys",
+            "Private smoke",
+            "Agent tokens",
+            "Codex runtime",
+            "Codex runs",
+            "Cron runs",
+            "Longest Codex run",
+        ])
+        cards_by_label = {card["label"]: card for card in cards}
+        expected_commands = {"Issues": "gh issue list", "PRs": "gh pr list"}
+        for label, command in expected_commands.items():
+            with self.subTest(label=label):
+                card = cards_by_label[label]
+                self.assertEqual(card["value"], "unavailable")
+                self.assertEqual(card["delta"], "n/a")
+                self.assertEqual(card["source"], "unavailable")
+                self.assertNotIn("rawValue", card)
+                self.assertIn(command, card["detail"])
+                self.assertIn("unavailable", card["detail"])
+
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
