@@ -282,7 +282,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                         "kind": "postdeploy_no_owned_spawn",
                         "room": "shardX/E26S49",
                         "spawns": 0,
-                        "creeps": 1,
+                        "creeps": 0,
                         "message": "shardX/E26S49: no owned spawn recovery path is visible after deploy",
                     }
                 ],
