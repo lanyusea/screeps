@@ -60,7 +60,14 @@ CREATE TABLE IF NOT EXISTS runtime_room_metrics (
   room_name TEXT NOT NULL,
   pending_build_progress REAL,
   build_carried_energy REAL,
+  build_blocked_reason TEXT,
   construction_site_count REAL,
+  extension_count REAL,
+  extension_capacity_contribution REAL,
+  path_finding_failures REAL,
+  destination_blocked REAL,
+  worker_load_trip_energy_mean REAL,
+  worker_load_trip_energy_min REAL,
   cpu_used REAL,
   cpu_bucket REAL,
   rcl_level REAL,
@@ -313,6 +320,26 @@ METRIC_DEFINITIONS = [
         "promotion_rule": "Repeated sub-0.10 values promote to logistics issue.",
     },
     {
+        "metric_name": "creep.worker_load_trip_energy_mean",
+        "category": "creep efficiency",
+        "purpose": "Track average worker trip energy from runtime load-efficiency telemetry.",
+        "source_artifacts": "#runtime-summary workerLoadEfficiency.tripEnergyMean",
+        "directionality": "higher is better",
+        "interpretation": "Values below 10 energy/trip indicate severe logistics waste outside emergencies.",
+        "missing_coverage_behavior": "Record low-load telemetry gap.",
+        "promotion_rule": "Repeated low means promote to worker logistics issue.",
+    },
+    {
+        "metric_name": "creep.worker_load_trip_energy_min",
+        "category": "creep efficiency",
+        "purpose": "Track minimum worker trip energy from runtime load-efficiency telemetry.",
+        "source_artifacts": "#runtime-summary workerLoadEfficiency.tripEnergyMin",
+        "directionality": "higher is better",
+        "interpretation": "A minimum below 10 identifies specific low-yield trips.",
+        "missing_coverage_behavior": "Record low-load telemetry gap.",
+        "promotion_rule": "Repeated low means promote to worker logistics issue.",
+    },
+    {
         "metric_name": "creep.idle_count",
         "category": "creep efficiency",
         "purpose": "Track idle/actionless worker count or idle tick windows.",
@@ -331,6 +358,26 @@ METRIC_DEFINITIONS = [
         "interpretation": "Long windows waste CPU and block planned work.",
         "missing_coverage_behavior": "Record stuck/actionless telemetry gap.",
         "promotion_rule": "Critical if >=50 ticks repeats or blocks survival work.",
+    },
+    {
+        "metric_name": "creep.path_finding_failures",
+        "category": "creep efficiency",
+        "purpose": "Count inferred pathing failure ticks from stuck workers with no work ticks.",
+        "source_artifacts": "#runtime-summary behavior.totals.pathFindingFailures",
+        "directionality": "lower is better",
+        "interpretation": "Nonzero values indicate pathing or blocked target failures are wasting creep ticks.",
+        "missing_coverage_behavior": "Record stuck/actionless telemetry gap.",
+        "promotion_rule": "Repeated nonzero values promote pathing recovery work.",
+    },
+    {
+        "metric_name": "creep.destination_blocked",
+        "category": "creep efficiency",
+        "purpose": "Count blocked destinations inferred from stuck no-work creep samples.",
+        "source_artifacts": "#runtime-summary behavior.totals.destinationBlocked",
+        "directionality": "lower is better",
+        "interpretation": "Nonzero values distinguish target obstruction from ordinary idle windows.",
+        "missing_coverage_behavior": "Record stuck/actionless telemetry gap.",
+        "promotion_rule": "Repeated nonzero values promote target/path selection work.",
     },
     {
         "metric_name": "construction.backlog_progress",
@@ -391,6 +438,36 @@ METRIC_DEFINITIONS = [
         "interpretation": "0 with backlog confirms builders are not servicing construction.",
         "missing_coverage_behavior": "Record progress telemetry gap when backlog exists.",
         "promotion_rule": "Repeated 0/gap with backlog promotes to construction issue.",
+    },
+    {
+        "metric_name": "construction.build_blocked_reason",
+        "category": "construction/infrastructure",
+        "purpose": "Classify why visible construction backlog is not producing build work.",
+        "source_artifacts": "#runtime-summary resources.productiveEnergy.buildBlockedReason",
+        "directionality": "categorical",
+        "interpretation": "worker_assignment_gap means energy/backlog exists but no builder assignment is visible; energy_buffer_blocked means construction should wait for recovery energy.",
+        "missing_coverage_behavior": "Record construction blocked-reason coverage gap when backlog exists.",
+        "promotion_rule": "Repeated worker_assignment_gap with backlog promotes construction assignment work.",
+    },
+    {
+        "metric_name": "economy.extension_count",
+        "category": "resource economy",
+        "purpose": "Track completed extension infrastructure per room.",
+        "source_artifacts": "#runtime-summary structures.extensionCount",
+        "directionality": "higher is better until RCL cap",
+        "interpretation": "A flat zero at RCL2+ explains spawn-only energy capacity.",
+        "missing_coverage_behavior": "Record extension telemetry gap when structure snapshots are missing.",
+        "promotion_rule": "Repeated zero/absence with RCL2+ promotes extension construction telemetry/work.",
+    },
+    {
+        "metric_name": "economy.extension_capacity_contribution",
+        "category": "resource economy",
+        "purpose": "Track extension energy capacity contribution separate from spawn capacity.",
+        "source_artifacts": "#runtime-summary structures.extensionCapacityContribution",
+        "directionality": "higher is better until RCL cap",
+        "interpretation": "0 means room capacity is likely spawn-only.",
+        "missing_coverage_behavior": "Record extension capacity coverage gap.",
+        "promotion_rule": "Repeated zero capacity at RCL2+ promotes extension construction work.",
     },
     {
         "metric_name": "construction.defense_backlog",
@@ -546,7 +623,14 @@ SOURCE_ROOT_METRICS = {
 RUNTIME_ROOM_METRIC_COLUMNS = {
     "pending_build_progress": "REAL",
     "build_carried_energy": "REAL",
+    "build_blocked_reason": "TEXT",
     "construction_site_count": "REAL",
+    "extension_count": "REAL",
+    "extension_capacity_contribution": "REAL",
+    "path_finding_failures": "REAL",
+    "destination_blocked": "REAL",
+    "worker_load_trip_energy_mean": "REAL",
+    "worker_load_trip_energy_min": "REAL",
     "cpu_used": "REAL",
     "cpu_bucket": "REAL",
     "rcl_level": "REAL",
@@ -882,7 +966,14 @@ def record_runtime_room_metrics(
     room_name: str,
     pending_build_progress: float | None,
     build_carried_energy: float | None,
+    build_blocked_reason: str | None,
     construction_site_count: float | None,
+    extension_count: float | None,
+    extension_capacity_contribution: float | None,
+    path_finding_failures: float | None,
+    destination_blocked: float | None,
+    worker_load_trip_energy_mean: float | None,
+    worker_load_trip_energy_min: float | None,
     cpu_used: float | None,
     cpu_bucket: float | None,
     rcl_level: float | None,
@@ -901,10 +992,13 @@ def record_runtime_room_metrics(
         """
         INSERT OR IGNORE INTO runtime_room_metrics (
           tick, shard, room_name, pending_build_progress, build_carried_energy,
-          construction_site_count, cpu_used, cpu_bucket, rcl_level, stored_energy,
+          build_blocked_reason, construction_site_count, extension_count,
+          extension_capacity_contribution, path_finding_failures, destination_blocked,
+          worker_load_trip_energy_mean, worker_load_trip_energy_min,
+          cpu_used, cpu_bucket, rcl_level, stored_energy,
           source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             tick,
@@ -912,7 +1006,14 @@ def record_runtime_room_metrics(
             room_name,
             pending_build_progress,
             build_carried_energy,
+            build_blocked_reason,
             construction_site_count,
+            extension_count,
+            extension_capacity_contribution,
+            path_finding_failures,
+            destination_blocked,
+            worker_load_trip_energy_mean,
+            worker_load_trip_energy_min,
             cpu_used,
             cpu_bucket,
             rcl_level,
@@ -1437,8 +1538,15 @@ def process_runtime_room(
     construction_backlog = construction_backlog_progress(room)
     pending_build_progress = pending_build_progress_value(room)
     construction_site_count = construction_site_count_value(room)
+    build_blocked_reason = build_blocked_reason_value(room)
+    extension_count = extension_count_value(room)
+    extension_capacity_contribution = extension_capacity_contribution_value(room)
     built_progress = built_progress_value(room)
     build_carried_energy = build_carried_energy_value(room)
+    path_finding_failures = path_finding_failures_value(room)
+    destination_blocked = destination_blocked_value(room)
+    worker_load_trip_energy_mean = worker_load_trip_energy_mean_value(room)
+    worker_load_trip_energy_min = worker_load_trip_energy_min_value(room)
     cpu_used = room_cpu_used_value(room)
     cpu_bucket = room_cpu_bucket_value(room)
     rcl_level = rcl_level_value(room)
@@ -1456,7 +1564,14 @@ def process_runtime_room(
         room_name=room_name,
         pending_build_progress=pending_build_progress,
         build_carried_energy=build_carried_energy,
+        build_blocked_reason=build_blocked_reason,
         construction_site_count=construction_site_count,
+        extension_count=extension_count,
+        extension_capacity_contribution=extension_capacity_contribution,
+        path_finding_failures=path_finding_failures,
+        destination_blocked=destination_blocked,
+        worker_load_trip_energy_mean=worker_load_trip_energy_mean,
+        worker_load_trip_energy_min=worker_load_trip_energy_min,
         cpu_used=cpu_used,
         cpu_bucket=cpu_bucket,
         rcl_level=rcl_level,
@@ -1534,6 +1649,29 @@ def process_runtime_room(
         room_name,
         {},
     )
+    if build_blocked_reason is not None:
+        record_observation(
+            conn,
+            "construction.build_blocked_reason",
+            None,
+            source_artifact=source_artifact,
+            tick=tick,
+            shard=shard,
+            room_name=room_name,
+            value_text=build_blocked_reason,
+            evidence={"constructionBacklog": construction_backlog},
+        )
+    record_number_if_present(conn, "economy.extension_count", extension_count, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(
+        conn,
+        "economy.extension_capacity_contribution",
+        extension_capacity_contribution,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
     record_number_if_present(
         conn,
         "construction.defense_backlog",
@@ -1550,6 +1688,46 @@ def process_runtime_room(
     record_number_if_present(conn, "territory.rcl_level", rcl_level, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "cpu.used", cpu_used, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "cpu.bucket", cpu_bucket, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(
+        conn,
+        "creep.path_finding_failures",
+        path_finding_failures,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "creep.destination_blocked",
+        destination_blocked,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "creep.worker_load_trip_energy_mean",
+        worker_load_trip_energy_mean,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "creep.worker_load_trip_energy_min",
+        worker_load_trip_energy_min,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
 
     process_energy_metrics(conn, room, source_artifact, tick, shard, room_name)
     process_low_load_metrics(conn, room, source_artifact, tick, shard, room_name)
@@ -1577,6 +1755,7 @@ def process_runtime_room(
         build_tasks,
         built_progress,
         build_carried_energy,
+        build_blocked_reason,
         defense_backlog,
     )
     process_defense_findings(
@@ -1751,6 +1930,92 @@ def construction_site_count_value(room: dict[str, object]) -> float | None:
         value = room.get(key)
         if isinstance(value, list):
             return float(len(value))
+    return None
+
+
+def build_blocked_reason_value(room: dict[str, object]) -> str | None:
+    reason = first_text_by_paths(
+        room,
+        (
+            ("buildBlockedReason",),
+            ("resources", "productiveEnergy", "buildBlockedReason"),
+            ("construction", "buildBlockedReason"),
+        ),
+    )
+    if reason in {"energy_buffer_blocked", "no_construction_sites", "worker_assignment_gap"}:
+        return reason
+    return None
+
+
+def extension_count_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("extensionCount",),
+            ("structures", "extensionCount"),
+            ("resources", "extensionCount"),
+        ),
+    )
+
+
+def extension_capacity_contribution_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("extensionCapacityContribution",),
+            ("structures", "extensionCapacityContribution"),
+            ("resources", "extensionCapacityContribution"),
+        ),
+    )
+
+
+def path_finding_failures_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("pathFindingFailures",),
+            ("behavior", "pathFindingFailures"),
+            ("behavior", "totals", "pathFindingFailures"),
+        ),
+    )
+
+
+def destination_blocked_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("destinationBlocked",),
+            ("behavior", "destinationBlocked"),
+            ("behavior", "totals", "destinationBlocked"),
+        ),
+    )
+
+
+def worker_load_trip_energy_mean_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("workerLoadEfficiency", "tripEnergyMean"),
+            ("workerEfficiency", "tripEnergyMean"),
+        ),
+    )
+
+
+def worker_load_trip_energy_min_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("workerLoadEfficiency", "tripEnergyMin"),
+            ("workerEfficiency", "tripEnergyMin"),
+        ),
+    )
+
+
+def first_text_by_paths(value: object, paths: tuple[tuple[str, ...], ...]) -> str | None:
+    for path in paths:
+        found = text_value(nested_value(value, path))
+        if found is not None:
+            return found
     return None
 
 
@@ -1956,8 +2221,10 @@ def process_low_load_metrics(
         load_factor = round(return_energy / return_capacity, 4)
     if low_count is None and load_factor is not None and load_factor <= 0.10:
         low_count = 1
+    trip_energy_mean = worker_load_trip_energy_mean_value(room)
+    trip_energy_min = worker_load_trip_energy_min_value(room)
 
-    if low_count is None and load_factor is None:
+    if low_count is None and load_factor is None and trip_energy_mean is None and trip_energy_min is None:
         record_coverage_gap(
             conn,
             metric_name="creep.low_load_return_count",
@@ -1994,7 +2261,10 @@ def process_low_load_metrics(
             evidence={"returnEnergy": return_energy, "returnCapacity": return_capacity},
         )
 
-    if (low_count is not None and low_count > 0) or (load_factor is not None and load_factor <= 0.10):
+    low_trip_energy = (trip_energy_min is not None and trip_energy_min < 10) or (
+        trip_energy_mean is not None and trip_energy_mean < 10
+    )
+    if (low_count is not None and low_count > 0) or (load_factor is not None and load_factor <= 0.10) or low_trip_energy:
         record_finding(
             conn,
             finding_key=f"low-load-return:{room_name}:{tick}",
@@ -2009,6 +2279,8 @@ def process_low_load_metrics(
                 "returnEnergy": return_energy,
                 "returnCapacity": return_capacity,
                 "loadFactor": load_factor,
+                "tripEnergyMean": trip_energy_mean,
+                "tripEnergyMin": trip_energy_min,
             },
             recommendation="Audit worker return/transfer selection and suppress low-load trips outside emergency recovery.",
         )
@@ -2029,6 +2301,7 @@ def process_stuck_idle_metrics(
     stuck_ticks = first_number(
         room,
         (
+            ("behavior", "totals", "stuckTicks"),
             ("behavior", "stuckTicks"),
             ("behavior", "actionlessTicks"),
             ("stuckTicks",),
@@ -2036,6 +2309,8 @@ def process_stuck_idle_metrics(
             ("stuckCreepCount",),
         ),
     )
+    path_finding_failures = path_finding_failures_value(room)
+    destination_blocked = destination_blocked_value(room)
     if idle_count is not None:
         record_observation(
             conn,
@@ -2056,7 +2331,7 @@ def process_stuck_idle_metrics(
             shard=shard,
             room_name=room_name,
         )
-    if idle_count is None and stuck_ticks is None:
+    if idle_count is None and stuck_ticks is None and path_finding_failures is None and destination_blocked is None:
         record_coverage_gap(
             conn,
             metric_name="creep.stuck_ticks",
@@ -2067,6 +2342,24 @@ def process_stuck_idle_metrics(
             room_name=room_name,
             gap_type="missing_stuck_actionless_fields",
             message="idle/stuck/actionless fields were not present",
+        )
+    if path_finding_failures is not None and path_finding_failures > 0:
+        record_finding(
+            conn,
+            finding_key=f"path-finding-failure:{room_name}:{tick}",
+            category="stuck-actionless",
+            severity="warning",
+            metric_name="creep.path_finding_failures",
+            source_artifact=source_artifact,
+            tick=tick,
+            room_name=room_name,
+            evidence={
+                "pathFindingFailures": path_finding_failures,
+                "destinationBlocked": destination_blocked,
+                "stuckTicks": stuck_ticks,
+            },
+            recommendation="Inspect pathing and target selection for blocked destinations before long stuck windows accumulate.",
+            promotion_state="promote-if-repeated",
         )
     if stuck_ticks is not None and stuck_ticks >= 50:
         record_finding(
@@ -2143,6 +2436,7 @@ def process_construction_findings(
     build_tasks: float | None,
     built_progress: float | None,
     build_carried_energy: float | None,
+    build_blocked_reason: str | None,
     defense_backlog: float | None,
 ) -> None:
     if construction_backlog is None or construction_backlog <= 0:
@@ -2171,6 +2465,18 @@ def process_construction_findings(
             gap_type="missing_build_carried_energy",
             message="construction backlog exists but build-carried energy telemetry is missing",
         )
+    if build_blocked_reason is None:
+        record_coverage_gap(
+            conn,
+            metric_name="construction.build_blocked_reason",
+            category="construction/infrastructure",
+            severity="warning",
+            source_artifact=source_artifact,
+            tick=tick,
+            room_name=room_name,
+            gap_type="missing_build_blocked_reason",
+            message="construction backlog exists but buildBlockedReason telemetry is missing",
+        )
 
     build_zero = build_tasks == 0 or build_tasks is None
     progress_zero = built_progress == 0 or built_progress is None
@@ -2194,6 +2500,7 @@ def process_construction_findings(
                 "buildTaskCount": build_tasks,
                 "builtProgress": built_progress,
                 "buildCarriedEnergy": build_carried_energy,
+                "buildBlockedReason": build_blocked_reason,
                 "defenseBacklog": defense_backlog,
             },
             recommendation="Assign builder work or clear stale construction plans when backlog cannot progress.",
@@ -2551,6 +2858,12 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                   SUM(COALESCE(pending_build_progress, 0)) AS pending_build_progress,
                   SUM(COALESCE(build_carried_energy, 0)) AS build_carried_energy,
                   SUM(COALESCE(construction_site_count, 0)) AS construction_site_count,
+                  SUM(COALESCE(extension_count, 0)) AS extension_count,
+                  SUM(COALESCE(extension_capacity_contribution, 0)) AS extension_capacity_contribution,
+                  SUM(COALESCE(path_finding_failures, 0)) AS path_finding_failures,
+                  SUM(COALESCE(destination_blocked, 0)) AS destination_blocked,
+                  AVG(worker_load_trip_energy_mean) AS worker_load_trip_energy_mean,
+                  MIN(worker_load_trip_energy_min) AS worker_load_trip_energy_min,
                   AVG(cpu_used) AS avg_cpu_used,
                   MIN(cpu_bucket) AS min_cpu_bucket,
                   MAX(rcl_level) AS max_rcl_level,
@@ -2570,6 +2883,12 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                 "pendingBuildProgress": runtime_room_row["pending_build_progress"],
                 "buildCarriedEnergy": runtime_room_row["build_carried_energy"],
                 "constructionSiteCount": runtime_room_row["construction_site_count"],
+                "extensionCount": runtime_room_row["extension_count"],
+                "extensionCapacityContribution": runtime_room_row["extension_capacity_contribution"],
+                "pathFindingFailures": runtime_room_row["path_finding_failures"],
+                "destinationBlocked": runtime_room_row["destination_blocked"],
+                "workerLoadTripEnergyMean": runtime_room_row["worker_load_trip_energy_mean"],
+                "workerLoadTripEnergyMin": runtime_room_row["worker_load_trip_energy_min"],
                 "avgCpuUsed": runtime_room_row["avg_cpu_used"],
                 "minCpuBucket": runtime_room_row["min_cpu_bucket"],
                 "maxRclLevel": runtime_room_row["max_rcl_level"],
@@ -2605,6 +2924,12 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
         lines.append(f"  pendingBuildProgress: {runtime_room_row['pending_build_progress']}")
         lines.append(f"  buildCarriedEnergy: {runtime_room_row['build_carried_energy']}")
         lines.append(f"  constructionSiteCount: {runtime_room_row['construction_site_count']}")
+        lines.append(f"  extensionCount: {runtime_room_row['extension_count']}")
+        lines.append(f"  extensionCapacityContribution: {runtime_room_row['extension_capacity_contribution']}")
+        lines.append(f"  pathFindingFailures: {runtime_room_row['path_finding_failures']}")
+        lines.append(f"  destinationBlocked: {runtime_room_row['destination_blocked']}")
+        lines.append(f"  workerLoadTripEnergyMean: {runtime_room_row['worker_load_trip_energy_mean']}")
+        lines.append(f"  workerLoadTripEnergyMin: {runtime_room_row['worker_load_trip_energy_min']}")
         lines.append(f"  avgCpuUsed: {runtime_room_row['avg_cpu_used']}")
         lines.append(f"  minCpuBucket: {runtime_room_row['min_cpu_bucket']}")
         lines.append(f"  maxRclLevel: {runtime_room_row['max_rcl_level']}")

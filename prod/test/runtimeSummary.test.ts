@@ -79,6 +79,8 @@ describe('runtime telemetry summaries', () => {
           roomName: 'W1N1',
           energyAvailable: 250,
           energyCapacity: 300,
+          cpuUsed: 4.2,
+          cpuBucket: 9000,
           energyBufferHealth: {
             currentEnergy: 250,
             threshold: 200,
@@ -105,6 +107,8 @@ describe('runtime telemetry summaries', () => {
           structures: {
             towerCount: 0,
             rampartCount: 0,
+            extensionCount: 0,
+            extensionCapacityContribution: 0,
             containers: [],
             repairTargets: [],
             roadCount: 0,
@@ -137,6 +141,7 @@ describe('runtime telemetry summaries', () => {
               upgradeCarriedEnergy: 0,
               pendingBuildProgress: 0,
               repairBacklogHits: 0,
+              buildBlockedReason: 'no_construction_sites',
               controllerProgressRemaining: 43766
             },
             energySurplus: {
@@ -285,6 +290,8 @@ describe('runtime telemetry summaries', () => {
           moveTicks: 3,
           workTicks: 2,
           stuckTicks: 1,
+          pathFindingFailures: 0,
+          destinationBlocked: 0,
           containerTransfers: 1,
           sourceContainerWithdrawals: 2,
           pathLength: 2,
@@ -296,6 +303,8 @@ describe('runtime telemetry summaries', () => {
         moveTicks: 3,
         workTicks: 2,
         stuckTicks: 1,
+        pathFindingFailures: 0,
+        destinationBlocked: 0,
         containerTransfers: 1,
         sourceContainerWithdrawals: 2,
         pathLength: 2
@@ -307,6 +316,8 @@ describe('runtime telemetry summaries', () => {
           moveTicks: 3,
           workTicks: 2,
           stuckTicks: 1,
+          pathFindingFailures: 0,
+          destinationBlocked: 0,
           containerTransfers: 1,
           sourceContainerWithdrawals: 2,
           pathLength: 2,
@@ -351,6 +362,8 @@ describe('runtime telemetry summaries', () => {
         moveTicks: 0,
         workTicks: 0,
         stuckTicks: 0,
+        pathFindingFailures: 0,
+        destinationBlocked: 0,
         containerTransfers: 0,
         sourceContainerWithdrawals: 0,
         pathLength: 0
@@ -362,6 +375,37 @@ describe('runtime telemetry summaries', () => {
       ]
     });
     expect(workers.map((worker) => worker.memory.behaviorTelemetry)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('infers path finding failures and blocked destinations from stuck no-work behavior', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          moveTicks: 3,
+          workTicks: 0,
+          stuckTicks: 3
+        }
+      },
+      0,
+      'BlockedWorker'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    expect(totals.pathFindingFailures).toBe(3);
+    expect(totals.destinationBlocked).toBe(1);
+    expect((behavior.creeps as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({
+      creepName: 'BlockedWorker',
+      pathFindingFailures: 3,
+      destinationBlocked: 1
+    });
   });
 
   it('reports energy acquisition method distribution across workers and haulers', () => {
@@ -416,6 +460,7 @@ describe('runtime telemetry summaries', () => {
         { id: 'tower1', structureType: TEST_GLOBALS.STRUCTURE_TOWER },
         { id: 'rampart1', structureType: TEST_GLOBALS.STRUCTURE_RAMPART, my: true },
         { id: 'enemy-rampart', structureType: TEST_GLOBALS.STRUCTURE_RAMPART, my: false },
+        { id: 'extension1', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, store: makeEnergyStore(50, 50) },
         { id: 'container-b', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(400, 2000) },
         { id: 'container-a', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(50, 2000) },
         { id: 'road-damaged', structureType: TEST_GLOBALS.STRUCTURE_ROAD, hits: 1000, hitsMax: 5000 },
@@ -446,6 +491,8 @@ describe('runtime telemetry summaries', () => {
     expect(room.structures).toEqual({
       towerCount: 1,
       rampartCount: 1,
+      extensionCount: 1,
+      extensionCapacityContribution: 50,
       containers: [
         { id: 'container-a', energy: 50, capacity: 2000 },
         { id: 'container-b', energy: 400, capacity: 2000 }
@@ -858,6 +905,24 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports build block reasons when construction backlog has no build work', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+
+    emitRuntimeSummary([colony], [makeWorker({ role: 'worker', colony: 'W1N1' }, 50, 'UnassignedWorker')]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBe(
+      'worker_assignment_gap'
+    );
+  });
+
   it('reports storedEnergy from owned spawn, extension, container, and terminal stores', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -1179,6 +1244,11 @@ describe('runtime telemetry summaries', () => {
         }
       ],
       omittedSampleCount: 2
+    });
+    expect(room.workerLoadEfficiency).toEqual({
+      sampleCount: 3,
+      tripEnergyMean: 8,
+      tripEnergyMin: 6
     });
   });
 
@@ -1742,6 +1812,8 @@ function makeIdleBehaviorSummary(creepName: string, idleTicks: number): Record<s
     moveTicks: 0,
     workTicks: 0,
     stuckTicks: 0,
+    pathFindingFailures: 0,
+    destinationBlocked: 0,
     containerTransfers: 0,
     sourceContainerWithdrawals: 0,
     pathLength: 0

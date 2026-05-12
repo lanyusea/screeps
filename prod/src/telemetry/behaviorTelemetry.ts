@@ -4,6 +4,8 @@ export interface RuntimeCreepBehaviorSummary {
   moveTicks: number;
   workTicks: number;
   stuckTicks: number;
+  pathFindingFailures: number;
+  destinationBlocked: number;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -22,6 +24,8 @@ interface RuntimeBehaviorTotals {
   moveTicks: number;
   workTicks: number;
   stuckTicks: number;
+  pathFindingFailures: number;
+  destinationBlocked: number;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -182,13 +186,18 @@ function toRuntimeCreepBehaviorSummary(creep: Creep): RuntimeCreepBehaviorSummar
   if (!telemetry || !hasReportableBehaviorTelemetry(telemetry)) {
     return null;
   }
+  const workTicks = getNonNegativeCounter(telemetry.workTicks);
+  const stuckTicks = getNonNegativeCounter(telemetry.stuckTicks);
+  const pathFindingFailures = summarizePathFindingFailures(stuckTicks, workTicks);
 
   return {
     ...buildCreepNameSummary(creep),
     idleTicks: getNonNegativeCounter(telemetry.idleTicks),
     moveTicks: getNonNegativeCounter(telemetry.moveTicks),
-    workTicks: getNonNegativeCounter(telemetry.workTicks),
-    stuckTicks: getNonNegativeCounter(telemetry.stuckTicks),
+    workTicks,
+    stuckTicks,
+    pathFindingFailures,
+    destinationBlocked: pathFindingFailures > 0 ? 1 : 0,
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
     sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
@@ -232,6 +241,8 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       moveTicks: totals.moveTicks + creep.moveTicks,
       workTicks: totals.workTicks + creep.workTicks,
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
+      pathFindingFailures: totals.pathFindingFailures + creep.pathFindingFailures,
+      destinationBlocked: totals.destinationBlocked + creep.destinationBlocked,
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
       sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
       pathLength: totals.pathLength + creep.pathLength,
@@ -242,11 +253,17 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       moveTicks: 0,
       workTicks: 0,
       stuckTicks: 0,
+      pathFindingFailures: 0,
+      destinationBlocked: 0,
       containerTransfers: 0,
       sourceContainerWithdrawals: 0,
       pathLength: 0
     }
   );
+}
+
+function summarizePathFindingFailures(stuckTicks: number, workTicks: number): number {
+  return stuckTicks > 0 && workTicks === 0 ? stuckTicks : 0;
 }
 
 function summarizeEnergyAcquisitionMethods(

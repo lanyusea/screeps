@@ -306,6 +306,146 @@
       ],
       "title": "Metric Coverage Gaps",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
+      "id": 9,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT COALESCE(build_blocked_reason, 'missing') AS buildBlockedReason, COUNT(*) AS sample_count FROM runtime_room_metrics GROUP BY COALESCE(build_blocked_reason, 'missing') ORDER BY sample_count DESC;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Build Blocked Reason Distribution",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 32
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "queryText": "SELECT observed_at AS time, room_name || ':extensions' AS metric, extension_count AS value FROM runtime_room_metrics WHERE extension_count IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':extensionCapacity' AS metric, extension_capacity_contribution AS value FROM runtime_room_metrics WHERE extension_capacity_contribution IS NOT NULL ORDER BY time;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Extension Count Trend",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 32
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "format": "time_series",
+          "queryText": "SELECT observed_at AS time, room_name || ':pathFindingFailures' AS metric, path_finding_failures AS value FROM runtime_room_metrics WHERE path_finding_failures IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':destinationBlocked' AS metric, destination_blocked AS value FROM runtime_room_metrics WHERE destination_blocked IS NOT NULL ORDER BY time;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Path Finding Failures Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 32
+      },
+      "id": 12,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, tick, room_name, worker_load_trip_energy_mean AS tripEnergyMean, worker_load_trip_energy_min AS tripEnergyMin, source_artifact FROM runtime_room_metrics WHERE worker_load_trip_energy_mean IS NOT NULL OR worker_load_trip_energy_min IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
+          "rawQuery": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Worker Load Efficiency Distribution",
+      "type": "table"
     }
   ],
   "refresh": "5m",

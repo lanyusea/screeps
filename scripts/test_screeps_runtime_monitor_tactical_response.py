@@ -615,9 +615,19 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["buildCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["constructionSiteCount"], 1)
+        self.assertEqual(payload["rooms"][0]["extensionCount"], 1)
+        self.assertEqual(payload["rooms"][0]["extensionCapacityContribution"], 50)
+        self.assertEqual(payload["rooms"][0]["structures"]["extensionCount"], 1)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["buildCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionSiteCount"], 1)
+        self.assertNotIn("buildBlockedReason", payload["rooms"][0]["resources"]["productiveEnergy"])
+        self.assertEqual(payload["rooms"][0]["behavior"]["totals"]["pathFindingFailures"], 0)
+        self.assertEqual(payload["rooms"][0]["behavior"]["totals"]["destinationBlocked"], 0)
+        self.assertEqual(
+            payload["rooms"][0]["workerLoadEfficiency"],
+            {"sampleCount": 1, "tripEnergyMean": 61.0, "tripEnergyMin": 61},
+        )
         self.assertEqual(payload["rooms"][0]["cpuUsed"], 7.25)
         self.assertEqual(payload["rooms"][0]["cpuBucket"], 9123)
         self.assertEqual(payload["cpu"], {"used": 7.25, "bucket": 9123})
@@ -640,6 +650,36 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = json.loads(line.split(" ", 1)[1])
         self.assertEqual(payload["tick"], 265631)
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
+
+    def test_runtime_summary_payload_classifies_unassigned_build_backlog(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    }
+                }
+            ),
+            tick=265632,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["rooms"][0]["buildBlockedReason"], "worker_assignment_gap")
+        self.assertEqual(
+            payload["rooms"][0]["resources"]["productiveEnergy"]["buildBlockedReason"],
+            "worker_assignment_gap",
+        )
 
     def test_runtime_summary_does_not_label_unknown_structures_as_hostile(self) -> None:
         snapshot = monitor.RoomSnapshot(

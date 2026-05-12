@@ -29,6 +29,12 @@ ROOM_LEVEL_FIELDS = (
     "pendingBuildProgress",
     "buildCarriedEnergy",
     "constructionSiteCount",
+    "extensionCount",
+    "extensionCapacityContribution",
+    "pathFindingFailures",
+    "destinationBlocked",
+    "tripEnergyMean",
+    "tripEnergyMin",
     "cpuUsed",
     "cpuBucket",
     "rclLevel",
@@ -94,10 +100,20 @@ def clean_room_level_metrics(room: dict[str, Any]) -> dict[str, int | float | No
     resources = room.get("resources") if isinstance(room.get("resources"), dict) else {}
     productive = resources.get("productiveEnergy") if isinstance(resources.get("productiveEnergy"), dict) else {}
     controller = room.get("controller") if isinstance(room.get("controller"), dict) else {}
+    structures = room.get("structures") if isinstance(room.get("structures"), dict) else {}
+    behavior = room.get("behavior") if isinstance(room.get("behavior"), dict) else {}
+    behavior_totals = behavior.get("totals") if isinstance(behavior.get("totals"), dict) else {}
+    worker_load_efficiency = room.get("workerLoadEfficiency") if isinstance(room.get("workerLoadEfficiency"), dict) else {}
     values = {
         "pendingBuildProgress": first_number(room, resources, productive, key="pendingBuildProgress"),
         "buildCarriedEnergy": first_number(room, resources, productive, key="buildCarriedEnergy"),
         "constructionSiteCount": first_number(room, productive, key="constructionSiteCount"),
+        "extensionCount": first_number(room, structures, key="extensionCount"),
+        "extensionCapacityContribution": first_number(room, structures, key="extensionCapacityContribution"),
+        "pathFindingFailures": first_number(room, behavior, behavior_totals, key="pathFindingFailures"),
+        "destinationBlocked": first_number(room, behavior, behavior_totals, key="destinationBlocked"),
+        "tripEnergyMean": first_number(room, worker_load_efficiency, key="tripEnergyMean"),
+        "tripEnergyMin": first_number(room, worker_load_efficiency, key="tripEnergyMin"),
         "cpuUsed": room.get("cpuUsed") if is_number(room.get("cpuUsed")) else None,
         "cpuBucket": room.get("cpuBucket") if is_number(room.get("cpuBucket")) else None,
         "rclLevel": first_number(room, controller, key="rclLevel") or (controller.get("level") if is_number(controller.get("level")) else None),

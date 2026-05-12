@@ -402,6 +402,9 @@ class RoomSummaryMetrics:
     construction_sites: list[dict[str, Any]]
     pending_build_progress: int | float
     build_carried_energy: int | float
+    build_blocked_reason: str | None
+    extension_count: int
+    extension_capacity_contribution: int | float
     stored_energy: int | float
     cpu_used: int | float | None
     cpu_bucket: int | float | None
@@ -2456,7 +2459,13 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "expected_owner_id": snapshot.expected_owner_id,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
+        "buildBlockedReason": metrics.build_blocked_reason,
         "constructionSiteCount": len(metrics.construction_sites),
+        "extensionCount": metrics.extension_count,
+        "extensionCapacityContribution": metrics.extension_capacity_contribution,
+        "pathFindingFailures": 0,
+        "destinationBlocked": 0,
+        "workerLoadEfficiency": worker_load_efficiency(metrics.owned_creep_objects),
         "cpuUsed": metrics.cpu_used,
         "cpuBucket": metrics.cpu_bucket,
         "rclLevel": metrics.rcl_level,
@@ -2465,6 +2474,8 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "energyCapacityAvailable": number_value(info.get("energyCapacityAvailable")),
         "energyBufferHealth": as_dict(info.get("energyBufferHealth")),
     }
+    if metrics.build_blocked_reason is None:
+        summary.pop("buildBlockedReason", None)
     if image:
         summary["image"] = image
     return summary
@@ -2619,6 +2630,20 @@ def store_energy(obj: dict[str, Any]) -> int | float:
     return energy if energy is not None else 0
 
 
+def store_capacity(obj: dict[str, Any], fallback: int | float = 0) -> int | float:
+    store = obj.get("store")
+    if isinstance(store, dict):
+        for key in ("capacity", "storeCapacity", "energyCapacity"):
+            capacity = number_value(store.get(key))
+            if capacity is not None:
+                return capacity
+    for key in ("storeCapacity", "energyCapacity", "capacity"):
+        capacity = number_value(obj.get(key))
+        if capacity is not None:
+            return capacity
+    return fallback
+
+
 def carried_energy(obj: dict[str, Any]) -> int | float:
     carry = obj.get("carry")
     if isinstance(carry, dict):
@@ -2698,6 +2723,55 @@ def room_stored_energy(objects: dict[str, dict[str, Any]], owner_username: str |
     return total
 
 
+def room_extension_metrics(structures: list[dict[str, Any]], owner_username: str | None) -> tuple[int, int | float]:
+    extensions = [
+        structure
+        for structure in structures
+        if structure.get("type") == "extension" and not confirmed_foreign_owner(structure, owner_username)
+    ]
+    return len(extensions), sum(store_capacity(extension, fallback=50) for extension in extensions)
+
+
+def worker_load_efficiency(owned_creeps: list[dict[str, Any]]) -> dict[str, Any]:
+    trip_energies = [carried_energy(creep) for creep in owned_creeps]
+    if not trip_energies:
+        return {"sampleCount": 0, "tripEnergyMean": None, "tripEnergyMin": None}
+    return {
+        "sampleCount": len(trip_energies),
+        "tripEnergyMean": round(sum(trip_energies) / len(trip_energies), 3),
+        "tripEnergyMin": min(trip_energies),
+    }
+
+
+def build_blocked_reason(
+    snapshot: RoomSnapshot,
+    pending_build_progress: int | float,
+    construction_site_count: int,
+    build_carried_energy: int | float,
+) -> str | None:
+    if construction_site_count <= 0 or pending_build_progress <= 0:
+        return "no_construction_sites"
+    if build_carried_energy > 0:
+        return None
+
+    info = snapshot.info if isinstance(snapshot.info, dict) else {}
+    energy_available = first_number_value(info, ("energyAvailable",), ("energy", "available"), ("energy",))
+    buffer_health = as_dict(info.get("energyBufferHealth"))
+    buffer_current = number_value(buffer_health.get("currentEnergy"))
+    buffer_threshold = number_value(buffer_health.get("threshold"))
+    if (
+        energy_available == 0
+        or (
+            buffer_health.get("healthy") is False
+            and buffer_current is not None
+            and buffer_threshold is not None
+            and buffer_current < buffer_threshold
+        )
+    ):
+        return "energy_buffer_blocked"
+    return "worker_assignment_gap"
+
+
 def snapshot_cpu_used(snapshot: RoomSnapshot) -> int | float | None:
     return first_number_value(
         snapshot.info,
@@ -2732,6 +2806,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
     construction_sites = owned_construction_sites(snapshot)
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
+    extension_count, extension_capacity_contribution = room_extension_metrics(structures, snapshot.owner)
     stored_energy = room_stored_energy(snapshot.objects, snapshot.owner)
     controller_summary: dict[str, Any] = {}
     if controller is not None:
@@ -2745,6 +2820,14 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         construction_sites=construction_sites,
         pending_build_progress=pending_build_progress,
         build_carried_energy=build_carried_energy,
+        build_blocked_reason=build_blocked_reason(
+            snapshot,
+            pending_build_progress,
+            len(construction_sites),
+            build_carried_energy,
+        ),
+        extension_count=extension_count,
+        extension_capacity_contribution=extension_capacity_contribution,
         stored_energy=stored_energy,
         cpu_used=snapshot_cpu_used(snapshot),
         cpu_bucket=snapshot_cpu_bucket(snapshot),
@@ -2777,17 +2860,24 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         if confirmed_foreign_owner(obj, snapshot.owner)
     ]
 
-    return {
+    summary = {
         "roomName": snapshot.ref.room,
         "shard": snapshot.ref.shard,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
+        "buildBlockedReason": metrics.build_blocked_reason,
         "constructionSiteCount": len(metrics.construction_sites),
+        "extensionCount": metrics.extension_count,
+        "extensionCapacityContribution": metrics.extension_capacity_contribution,
         "cpuUsed": metrics.cpu_used,
         "cpuBucket": metrics.cpu_bucket,
         "rclLevel": metrics.rcl_level,
         "storedEnergy": metrics.stored_energy,
         "controller": metrics.controller_summary,
+        "structures": {
+            "extensionCount": metrics.extension_count,
+            "extensionCapacityContribution": metrics.extension_capacity_contribution,
+        },
         "resources": {
             "storedEnergy": metrics.stored_energy,
             "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
@@ -2797,13 +2887,25 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
                 "pendingBuildProgress": metrics.pending_build_progress,
                 "buildCarriedEnergy": metrics.build_carried_energy,
                 "constructionSiteCount": len(metrics.construction_sites),
+                "buildBlockedReason": metrics.build_blocked_reason,
             },
         },
+        "behavior": {
+            "totals": {
+                "pathFindingFailures": 0,
+                "destinationBlocked": 0,
+            },
+        },
+        "workerLoadEfficiency": worker_load_efficiency(owned_creeps),
         "combat": {
             "hostileCreepCount": len(hostiles),
             "hostileStructureCount": len(hostile_structures),
         },
     }
+    if metrics.build_blocked_reason is None:
+        summary.pop("buildBlockedReason", None)
+        as_dict(as_dict(summary.get("resources")).get("productiveEnergy")).pop("buildBlockedReason", None)
+    return summary
 
 
 def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dict[str, Any]:

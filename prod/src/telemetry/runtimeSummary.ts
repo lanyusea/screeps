@@ -61,9 +61,14 @@ const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 100_000;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
 const PRODUCTIVE_WORKER_TASK_TYPES = ['build', 'repair', 'upgrade'] as const;
+const DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
 
 type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
 type ProductiveWorkerTaskType = (typeof PRODUCTIVE_WORKER_TASK_TYPES)[number];
+type RuntimeBuildBlockedReason =
+  | 'energy_buffer_blocked'
+  | 'no_construction_sites'
+  | 'worker_assignment_gap';
 
 interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
   none: number;
@@ -204,6 +209,8 @@ interface RuntimeRoomSummary {
   roomName: string;
   energyAvailable: number;
   energyCapacity: number;
+  cpuUsed?: number;
+  cpuBucket?: number;
   energyBufferHealth: EnergyBufferHealth;
   workerCount: number;
   spawnStatus: RuntimeSpawnStatus[];
@@ -211,6 +218,7 @@ interface RuntimeRoomSummary {
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
+  workerLoadEfficiency?: RuntimeWorkerLoadEfficiencySummary;
   refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
   refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
   workerEnergyThroughput?: RuntimeWorkerEnergyThroughputSummary;
@@ -245,6 +253,8 @@ interface RuntimeControllerSummary {
 interface RuntimeStructureSnapshotSummary {
   towerCount: number;
   rampartCount: number;
+  extensionCount: number;
+  extensionCapacityContribution: number;
   containers: RuntimeContainerSnapshotSummary[];
   repairTargets: RuntimeRepairTargetSnapshotSummary[];
   roadCount: number;
@@ -333,6 +343,7 @@ interface RuntimeProductiveEnergySummary {
   upgradeCarriedEnergy: number;
   pendingBuildProgress: number;
   repairBacklogHits: number;
+  buildBlockedReason?: RuntimeBuildBlockedReason;
   controllerProgressRemaining?: number;
 }
 
@@ -344,6 +355,12 @@ interface RuntimeWorkerEfficiencySummary {
   lowLoadReturnReasons?: RuntimeWorkerEfficiencyLowLoadReturnReasonSummary[];
   samples: RuntimeWorkerEfficiencySampleSummary[];
   omittedSampleCount?: number;
+}
+
+interface RuntimeWorkerLoadEfficiencySummary {
+  sampleCount: number;
+  tripEnergyMean: number;
+  tripEnergyMin: number;
 }
 
 interface RuntimeBehaviorSummary {
@@ -359,6 +376,8 @@ interface RuntimeCreepBehaviorSummary {
   moveTicks: number;
   workTicks: number;
   stuckTicks: number;
+  pathFindingFailures: number;
+  destinationBlocked: number;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -371,6 +390,8 @@ interface RuntimeBehaviorTotals {
   moveTicks: number;
   workTicks: number;
   stuckTicks: number;
+  pathFindingFailures: number;
+  destinationBlocked: number;
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
@@ -592,21 +613,23 @@ export function emitRuntimeSummary(
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
+  const cpuSummary = buildCpuSummary();
+  const rooms = colonies.map((colony) =>
+    summarizeRoom(
+      colony,
+      creepsByColony.get(colony.room.name) ?? [],
+      persistOccupationRecommendations,
+      eventMetricsByRoom.get(colony.room.name) ?? {},
+      shouldBuildStructureSnapshot(tick)
+    )
+  );
   const summary: RuntimeSummary = {
     type: 'runtime-summary',
     tick,
-    rooms: colonies.map((colony) =>
-      summarizeRoom(
-        colony,
-        creepsByColony.get(colony.room.name) ?? [],
-        persistOccupationRecommendations,
-        eventMetricsByRoom.get(colony.room.name) ?? {},
-        shouldBuildStructureSnapshot(tick)
-      )
-    ),
+    rooms: applyCpuSummaryToRooms(rooms, cpuSummary.cpu),
     ...(reportedEvents.length > 0 ? { events: reportedEvents } : {}),
     ...(events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {}),
-    ...buildCpuSummary()
+    ...cpuSummary
   };
 
   console.log(`${RUNTIME_SUMMARY_PREFIX}${JSON.stringify(summary)}`);
@@ -978,16 +1001,28 @@ function summarizeStructures(colony: ColonySnapshot, colonyWorkers: Creep[]): Ru
   const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const roadCount = countStructuresByType(roomStructures, 'STRUCTURE_ROAD', 'road');
   const pendingRoadSiteCount = countConstructionSitesByType(constructionSites, 'STRUCTURE_ROAD', 'road');
+  const extensions = roomStructures.filter((structure) =>
+    isStructureOfType(structure, 'STRUCTURE_EXTENSION', 'extension')
+  );
 
   return {
     towerCount: countStructuresByType(roomStructures, 'STRUCTURE_TOWER', 'tower'),
     rampartCount: countOwnedRamparts(roomStructures),
+    extensionCount: extensions.length,
+    extensionCapacityContribution: sumExtensionCapacityContribution(extensions),
     containers: summarizeContainers(roomStructures),
     repairTargets: summarizeRepairTargetDistribution(colonyWorkers, roomStructures),
     roadCount,
     pendingRoadSiteCount,
     roadCoverageRatio: calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount)
   };
+}
+
+function sumExtensionCapacityContribution(extensions: unknown[]): number {
+  return extensions.reduce<number>((total, extension) => {
+    const capacity = getEnergyCapacityInStore(extension);
+    return total + (capacity > 0 ? capacity : DEFAULT_EXTENSION_ENERGY_CAPACITY);
+  }, 0);
 }
 
 function countStructuresByType(
@@ -1094,7 +1129,10 @@ function calculateRoadCoverageRatio(roadCount: number, pendingRoadSiteCount: num
 function summarizeWorkerEfficiency(
   workers: Creep[],
   tick: number
-): { workerEfficiency?: RuntimeWorkerEfficiencySummary } {
+): {
+  workerEfficiency?: RuntimeWorkerEfficiencySummary;
+  workerLoadEfficiency?: RuntimeWorkerLoadEfficiencySummary;
+} {
   const samples = workers
     .map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.workerEfficiency }))
     .filter(
@@ -1113,6 +1151,9 @@ function summarizeWorkerEfficiency(
     isEmergencyLowLoadReturnReason(getLowLoadReturnReason(entry.sample))
   ).length;
   const lowLoadReturnReasons = summarizeLowLoadReturnReasons(lowLoadReturnSamples);
+  const workerLoadEfficiency = summarizeWorkerLoadEfficiency(
+    lowLoadReturnSamples.length > 0 ? lowLoadReturnSamples : samples
+  );
 
   return {
     workerEfficiency: {
@@ -1125,7 +1166,25 @@ function summarizeWorkerEfficiency(
       ...(samples.length > MAX_WORKER_EFFICIENCY_SAMPLES
         ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES }
         : {})
-    }
+    },
+    ...(workerLoadEfficiency ? { workerLoadEfficiency } : {})
+  };
+}
+
+function summarizeWorkerLoadEfficiency(
+  samples: RuntimeWorkerEfficiencySampleEntry[]
+): RuntimeWorkerLoadEfficiencySummary | null {
+  const tripEnergies = samples
+    .map((entry) => entry.sample.carriedEnergy)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (tripEnergies.length === 0) {
+    return null;
+  }
+
+  return {
+    sampleCount: tripEnergies.length,
+    tripEnergyMean: roundRatio(tripEnergies.reduce((total, value) => total + value, 0), tripEnergies.length),
+    tripEnergyMin: Math.min(...tripEnergies)
   };
 }
 
@@ -1574,7 +1633,7 @@ function summarizeResources(
     droppedEnergy: sumDroppedEnergy(droppedResources),
     sourceCount: sourceContainerCoverage.sourceCount,
     sourceContainers: sourceContainerCoverage,
-    productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
+    productiveEnergy: summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roomStructures, events),
     energySurplus: summarizeEnergySurplus(colony.room, colonyWorkers),
     ...summarizeMultiRoomEnergy(colony.room.name),
     ...(events ? { events } : {})
@@ -1701,19 +1760,62 @@ function getEnergySurplusSinkIds(state: RoomEnergySurplusState): Set<string> {
 }
 
 function summarizeProductiveEnergy(
-  room: Room,
+  colony: ColonySnapshot,
   colonyWorkers: Creep[],
   constructionSites: unknown[],
-  roomStructures: unknown[]
+  roomStructures: unknown[],
+  events: RuntimeResourceEventSummary | undefined
 ): RuntimeProductiveEnergySummary {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
+  const pendingBuildProgress = sumPendingBuildProgress(constructionSites);
+  const buildBlockedReason = selectBuildBlockedReason(
+    colony,
+    productiveAssignments,
+    pendingBuildProgress,
+    constructionSites.length,
+    events
+  );
 
   return {
     ...productiveAssignments,
-    pendingBuildProgress: sumPendingBuildProgress(constructionSites),
+    pendingBuildProgress,
     repairBacklogHits: sumRepairBacklogHits(roomStructures),
-    ...buildControllerProgressRemaining(room)
+    ...(buildBlockedReason ? { buildBlockedReason } : {}),
+    ...buildControllerProgressRemaining(colony.room)
   };
+}
+
+function selectBuildBlockedReason(
+  colony: ColonySnapshot,
+  productiveAssignments: Pick<
+    RuntimeProductiveEnergySummary,
+    'assignedCarriedEnergy' | 'buildCarriedEnergy'
+  >,
+  pendingBuildProgress: number,
+  constructionSiteCount: number,
+  events: RuntimeResourceEventSummary | undefined
+): RuntimeBuildBlockedReason | undefined {
+  if (constructionSiteCount <= 0 || pendingBuildProgress <= 0) {
+    return 'no_construction_sites';
+  }
+
+  if ((events?.builtProgress ?? 0) > 0 || productiveAssignments.buildCarriedEnergy > 0) {
+    return undefined;
+  }
+
+  return isBuildBlockedByEnergyBuffer(colony, productiveAssignments.assignedCarriedEnergy)
+    ? 'energy_buffer_blocked'
+    : 'worker_assignment_gap';
+}
+
+function isBuildBlockedByEnergyBuffer(colony: ColonySnapshot, assignedCarriedEnergy: number): boolean {
+  const energyAvailable = getRoomEnergyAvailable(colony);
+  if (energyAvailable <= 0) {
+    return true;
+  }
+
+  const buffer = getRoomEnergyBufferHealth(colony.room);
+  return buffer.healthy === false && buffer.currentEnergy < buffer.threshold && assignedCarriedEnergy <= 0;
 }
 
 function summarizeProductiveWorkerAssignments(
@@ -2375,6 +2477,21 @@ function buildCpuSummary(): { cpu?: RuntimeCpuSummary } {
   }
 
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
+}
+
+function applyCpuSummaryToRooms(
+  rooms: RuntimeRoomSummary[],
+  cpu: RuntimeCpuSummary | undefined
+): RuntimeRoomSummary[] {
+  if (!cpu || (cpu.used === undefined && cpu.bucket === undefined)) {
+    return rooms;
+  }
+
+  return rooms.map((room) => ({
+    ...room,
+    ...(cpu.used !== undefined ? { cpuUsed: cpu.used } : {}),
+    ...(cpu.bucket !== undefined ? { cpuBucket: cpu.bucket } : {})
+  }));
 }
 
 function getGameTime(): number {
