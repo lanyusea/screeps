@@ -338,6 +338,24 @@ def _safe_filename(value: str) -> str:
     return safe or "variant"
 
 
+def _safe_compose_project_name(value: str) -> str:
+    """Return a Docker Compose-compatible project name.
+
+    Docker Compose rejects COMPOSE_PROJECT_NAME values containing uppercase
+    letters or dots. Run IDs commonly include UTC timestamps such as
+    ``20260512T183509Z``; if that token reaches COMPOSE_PROJECT_NAME unchanged,
+    ``docker compose up`` exits immediately and the harness later waits for HTTP
+    until timeout. Keep the artifact/run directory name untouched, but normalize
+    the Compose project name used for Docker resources.
+    """
+    safe = _safe_filename(value).lower().replace(".", "-")
+    safe = re.sub(r"[^a-z0-9_-]", "-", safe)
+    safe = re.sub(r"-+", "-", safe).strip("-_")
+    if not safe or not re.match(r"^[a-z0-9]", safe):
+        safe = f"rl-sim-{safe}".strip("-_")
+    return safe or "rl-sim-worker"
+
+
 def validate_run_id_token(value: str) -> str:
     if (
         not value
@@ -924,6 +942,18 @@ def _require_launcher_cli_success(smoke: Any, compose: list[str], cfg: Any, expr
     raise RuntimeError(f"{phase} failed: launcher CLI result did not include success status")
 
 
+def _require_command_success(smoke: Any, result: Any, phase: str) -> JsonObject:
+    """Validate a private-smoke run_command result without losing fake-test compatibility."""
+    require_success = getattr(smoke, "require_success", None)
+    if callable(require_success):
+        result = require_success(result)
+    if not isinstance(result, dict):
+        raise RuntimeError(f"{phase} failed: command returned non-object result")
+    if result.get("returncode") not in (None, 0):
+        raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
+    return result
+
+
 def _install_simulator_repair_mod(smoke: Any, cfg: Any) -> Path:
     """Install local launcher compatibility fixes into this worker's generated mod dir."""
     mod_path = cfg.work_dir / "mods" / SIMULATOR_REPAIR_MOD_FILENAME
@@ -1448,7 +1478,7 @@ def _run_variant(
             worker_count=worker_count,
             host_port_start=host_port_start,
         )
-        compose_project = f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}"
+        compose_project = _safe_compose_project_name(f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}")
         password = secrets.token_urlsafe(20)
         cfg = smoke.SmokeConfig(
             work_dir=safe_run_root,
@@ -1506,9 +1536,31 @@ def _run_variant(
 
         # Reset server-owned state by removing any leftover stack and volumes first.
         _debug_worker_phase(worker_index, variant_id, "before docker compose down", command="down -v")
-        smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
+        down_result = _require_command_success(
+            smoke,
+            smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS),
+            "docker compose down",
+        )
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after docker compose down",
+            returncode=down_result.get("returncode"),
+            elapsed_seconds=down_result.get("elapsed_seconds"),
+        )
         _debug_worker_phase(worker_index, variant_id, "before docker compose up", command="up -d")
-        smoke.run_command([*compose, "up", "-d"], cfg, timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
+        up_result = _require_command_success(
+            smoke,
+            smoke.run_command([*compose, "up", "-d"], cfg, timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS),
+            "docker compose up",
+        )
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after docker compose up",
+            returncode=up_result.get("returncode"),
+            elapsed_seconds=up_result.get("elapsed_seconds"),
+        )
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         _require_launcher_cli_success(smoke, compose, cfg, "system.resetAllData()", "reset simulator data")
         _require_launcher_cli_success(
@@ -1518,7 +1570,18 @@ def _run_variant(
             "utils.importMapFile('/screeps/maps/map-0b6758af.json')",
             "import simulator map",
         )
-        smoke.run_command([*compose, "restart", "screeps"], cfg, timeout=RUN_CONTAINER_RESTART_TIMEOUT_SECONDS)
+        restart_result = _require_command_success(
+            smoke,
+            smoke.run_command([*compose, "restart", "screeps"], cfg, timeout=RUN_CONTAINER_RESTART_TIMEOUT_SECONDS),
+            "docker compose restart screeps",
+        )
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after docker compose restart screeps",
+            returncode=restart_result.get("returncode"),
+            elapsed_seconds=restart_result.get("elapsed_seconds"),
+        )
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         terrain_ready = _wait_for_terrain_ready(cfg, smoke, room=room, shard=shard)
 
