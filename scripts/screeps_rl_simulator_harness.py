@@ -61,7 +61,7 @@ RUN_CONTAINER_UP_TIMEOUT_SECONDS = 900
 RUN_CONTAINER_RESTART_TIMEOUT_SECONDS = 240
 RUN_PHASE_TIMEOUT_SECONDS = 240
 RUN_API_TIMEOUT_SECONDS = 25
-DEFAULT_SIM_ROOM = "E24S49"
+DEFAULT_SIM_ROOM = "E1S1"
 DEFAULT_SIM_SHARD = "shardX"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
@@ -99,6 +99,7 @@ HARNESS_BINARY_FILE_EXTENSIONS = (
 SIMULATOR_REPAIR_MOD_SOURCE = """\
 const bodyParser = require('body-parser');
 const zlib = require('zlib');
+const common = require('@screeps/common');
 
 const plainTerrain = '0'.repeat(2500);
 
@@ -116,21 +117,36 @@ function buildFallbackTerrainData(accessibleRoomsJson) {
   return zlib.deflateSync(Buffer.from(JSON.stringify(payload))).toString('base64');
 }
 
+function installStorageFallback(storage) {
+  const env = storage && storage.env;
+  if (!env || !env.keys || typeof env.get !== 'function' || env.__rlSimulatorHarnessRepairInstalled) {
+    return;
+  }
+  const originalGet = env.get.bind(env);
+  env.get = key => Promise.resolve(originalGet(key)).then(value => {
+    if ((value === null || value === undefined) && key === env.keys.ACCESSIBLE_ROOMS) {
+      return '[]';
+    }
+    if ((value === null || value === undefined) && key === env.keys.TERRAIN_DATA) {
+      return Promise.resolve(originalGet(env.keys.ACCESSIBLE_ROOMS))
+        .then(buildFallbackTerrainData)
+        .catch(() => buildFallbackTerrainData('[]'));
+    }
+    return value;
+  });
+  env.__rlSimulatorHarnessRepairInstalled = true;
+}
+
 module.exports = config => {
-  const env = config.common && config.common.storage && config.common.storage.env;
-  if (env && env.keys && typeof env.get === 'function') {
-    const originalGet = env.get.bind(env);
-    env.get = key => Promise.resolve(originalGet(key)).then(value => {
-      if ((value === null || value === undefined) && key === env.keys.ACCESSIBLE_ROOMS) {
-        return '[]';
-      }
-      if ((value === null || value === undefined) && key === env.keys.TERRAIN_DATA) {
-        return Promise.resolve(originalGet(env.keys.ACCESSIBLE_ROOMS))
-          .then(buildFallbackTerrainData)
-          .catch(() => buildFallbackTerrainData('[]'));
-      }
-      return value;
+  const storage = (config.common && config.common.storage) || common.storage;
+  installStorageFallback(storage);
+  if (storage && typeof storage._connect === 'function' && !storage.__rlSimulatorHarnessConnectPatched) {
+    const originalConnect = storage._connect.bind(storage);
+    storage._connect = (...args) => originalConnect(...args).then(result => {
+      installStorageFallback(storage);
+      return result;
     });
+    storage.__rlSimulatorHarnessConnectPatched = true;
   }
 
   if (config.backend) {
@@ -915,6 +931,37 @@ def _install_simulator_repair_mod(smoke: Any, cfg: Any) -> Path:
     return mod_path
 
 
+def _strip_launcher_auto_map_import(config_text: str) -> str:
+    """Remove serverConfig.mapFile so map import only happens in the explicit harness phase."""
+    return re.sub(r"(?m)^  mapFile:\s+.+\n", "", config_text)
+
+
+def _disable_launcher_auto_map_import(smoke: Any, cfg: Any) -> bool:
+    """Rewrite the generated launcher config to avoid racing config auto-import with CLI import."""
+    build_config = getattr(smoke, "build_launcher_config", None)
+    write_text = getattr(smoke, "write_generated_text", None)
+    config_path = getattr(cfg, "config_path", None)
+    work_dir = getattr(cfg, "work_dir", None)
+    if not callable(build_config) or not callable(write_text) or config_path is None or work_dir is None:
+        return False
+    original = build_config(cfg)
+    updated = _strip_launcher_auto_map_import(original)
+    if updated == original:
+        return False
+    write_text(work_dir, config_path, updated)
+    return True
+
+
+def _resolve_smoke_map_source_file(map_source_file: Path) -> Path | None:
+    """Use the local map when present, otherwise let private-smoke fetch its default map."""
+    resolved = map_source_file.expanduser()
+    if resolved.is_file():
+        return resolved
+    if resolved.resolve(strict=False) == DEFAULT_MAP_SOURCE_FILE.expanduser().resolve(strict=False):
+        return None
+    raise RuntimeError(f"map source file is not a file: {resolved}")
+
+
 def _terrain_payload_has_data(payload: Any) -> bool:
     summary = _terrain_summary(payload)
     return bool(summary.get("bytes"))
@@ -1237,6 +1284,31 @@ def _read_gametime_from_stats(payload: Any) -> int | None:
     return None
 
 
+def _read_current_gametime(
+    cfg: Any,
+    smoke: Any,
+    token: str,
+    shard: str,
+    overview_payload: Any,
+) -> tuple[str, int | None]:
+    """Read the freshest game time, preferring /stats over stale private overview clocks."""
+    overview_tick = _read_gametime_from_overview(overview_payload, shard)
+    stats_tick: int | None = None
+    try:
+        stats_result = smoke.http_json(
+            "GET",
+            cfg.server_url,
+            "/stats",
+            headers=smoke.token_headers(token),
+            timeout=RUN_API_TIMEOUT_SECONDS,
+        )
+        token = smoke.update_token_from_headers(token, stats_result.headers)
+        stats_tick = _read_gametime_from_stats(stats_result.payload)
+    except Exception:
+        stats_tick = None
+    return token, stats_tick if stats_tick is not None else overview_tick
+
+
 def _safe_redact_smoke_payload(payload: Any) -> JsonObject:
     return {"ok": True, "payload": dataset_export.redact_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))[:2000]}
 
@@ -1290,17 +1362,7 @@ def _run_one_tick(
             timeout=RUN_API_TIMEOUT_SECONDS,
         )
         token = smoke.update_token_from_headers(token, terrain_result.headers)
-        current_tick = _read_gametime_from_overview(overview_result.payload, shard)
-        if current_tick is None:
-            stats_result = smoke.http_json(
-                "GET",
-                cfg.server_url,
-                "/stats",
-                headers=smoke.token_headers(token),
-                timeout=RUN_API_TIMEOUT_SECONDS,
-            )
-            token = smoke.update_token_from_headers(token, stats_result.headers)
-            current_tick = _read_gametime_from_stats(stats_result.payload)
+        token, current_tick = _read_current_gametime(cfg, smoke, token, shard, overview_result.payload)
         if isinstance(overview_result.payload, dict) and not smoke.api_dict_succeeded(overview_result):
             raise RuntimeError(f"/api/user/overview returned unusable payload: {_safe_redact_smoke_payload(overview_result.payload)}")
         if current_tick is None:
@@ -1354,9 +1416,13 @@ def _run_variant(
     variant_ticks: list[JsonObject] = []
     terrain_ready: JsonObject | None = None
     repair_mod_path: Path | None = None
+    launcher_auto_map_import_disabled = False
+    scenario_map_source_file = map_source_file
     compose: list[str] | None = None
     try:
         smoke = _load_private_smoke_module()
+        smoke_map_source_file = _resolve_smoke_map_source_file(map_source_file)
+        smoke_map_url = str(getattr(smoke, "DEFAULT_MAP_URL", "")) if smoke_map_source_file is None else ""
         http_port, cli_port = _select_run_ports(
             smoke,
             server_host,
@@ -1382,8 +1448,8 @@ def _run_variant(
             spawn_y=DEFAULT_SPAWN_Y,
             branch=api_branch,
             code_path=code_path,
-            map_url="",
-            map_source_file=map_source_file,
+            map_url=smoke_map_url,
+            map_source_file=smoke_map_source_file,
             stats_timeout=30,
             poll_interval=1,
             min_creeps=1,
@@ -1397,15 +1463,15 @@ def _run_variant(
         smoke.assert_safe_work_dir(cfg.work_dir)
         if not code_path.is_file():
             raise RuntimeError(f"code path is not a file: {code_path}")
-        if not map_source_file.is_file():
-            raise RuntimeError(f"map source file is not a file: {map_source_file}")
         preflight = smoke.preflight_host_ports(cfg)
         if preflight.get("checks") and not preflight["checks"]:
             raise RuntimeError("port preflight returned empty checks")
         compose = smoke.find_compose_command()
         smoke.prepare_work_dir(cfg)
+        launcher_auto_map_import_disabled = _disable_launcher_auto_map_import(smoke, cfg)
         repair_mod_path = _install_simulator_repair_mod(smoke, cfg)
         smoke.prepare_map(cfg)
+        scenario_map_source_file = smoke_map_source_file or cfg.map_path
 
         # Reset server-owned state by removing any leftover stack and volumes first.
         smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
@@ -1486,7 +1552,7 @@ def _run_variant(
             timeout=RUN_PHASE_TIMEOUT_SECONDS,
         )
         token = smoke.update_token_from_headers(token, initial_state.headers)
-        previous_tick = _read_gametime_from_overview(initial_state.payload, shard)
+        token, previous_tick = _read_current_gametime(cfg, smoke, token, shard, initial_state.payload)
         _require_launcher_cli_success(smoke, compose, cfg, "system.resumeSimulation()", "resume simulator")
 
         for _ in range(ticks):
@@ -1529,7 +1595,7 @@ def _run_variant(
             branch=api_branch,
             ticks=ticks,
             code_path=code_path,
-            map_source_file=map_source_file,
+            map_source_file=scenario_map_source_file,
         ),
         "ticks_requested": ticks,
         "ticks_run": ticks_run,
@@ -1548,6 +1614,7 @@ def _run_variant(
         "requestedBranch": branch,
         "terrainReady": terrain_ready,
         "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,
+        "launcherAutoMapImportDisabled": launcher_auto_map_import_disabled,
     }
 
 
