@@ -1,0 +1,101 @@
+# RL Reward Component Schema v1
+# Machine-readable schema for reward components in the Screeps RL training pipeline.
+# Container issue: #967 (#907 replacement)
+# Umbrella: #879 (ALL IN RL)
+# Human-readable registry: docs/ops/rl-reward-decision-registry.md
+
+schema: 1
+source_issues: [967, 879]
+last_updated: "2026-05-12"
+
+# Reward components are additive: total_reward = sum(component_reward * weight)
+components:
+  # RD-V3-001: Penalize sub-10 energy trips when container fill >= 100
+  - component_id: worker-load-efficiency
+    decision_id: RD-V3-001-workerLoadEfficiency
+    type: penalty
+    category: logistics
+    status: PROPOSED
+    candidate_weight: -0.1
+    hypothesis: >
+      Penalizing avoidable sub-10 energy trips when a container has at least
+      100 energy will reduce wasted worker travel and increase useful energy
+      delivered per trip without weakening emergency recovery.
+    predicate:
+      emergency: false
+      carried_energy_lt: 10
+      container_fill_gte: 100
+    validation:
+      metric: meanWithdrawnPerTrip
+      threshold: 15
+      captures_pct: 60
+    rollback:
+      worker_count_lt: 3
+      energy_buffer_unhealthy_consecutive: 2
+
+  # RD-V3-002: Positive reward for >=1 build task when backlog exists
+  - component_id: build-allocation-minimum
+    decision_id: RD-V3-002-buildAllocationMinimum
+    type: reward
+    category: resources
+    status: PROPOSED
+    candidate_weight: 0.05
+    hypothesis: >
+      A small positive reward for at least 1 build task when construction
+      backlog exists and energy is healthy will prevent upgrade-only drift
+      during buildable windows.
+    predicate:
+      build_task_count_gte: 1
+      pending_build_progress_gt: 0
+      energy_buffer_healthy: true
+    validation:
+      metric: taskCounts.build
+      threshold_gte: 1
+      captures_pct: 60
+    rollback:
+      worker_count_lt: 3
+      energy_buffer_unhealthy_consecutive: 2
+
+  # RD-V3-003: Verify stuck penalty is active in reward formula
+  - component_id: stuck-penalty
+    decision_id: RD-V3-003-verifyStuckPenalty
+    type: penalty
+    category: reliability
+    status: PROPOSED
+    candidate_weight: -0.02
+    hypothesis: >
+      Ensuring stuck ticks produce a negative reward will reduce repeated
+      pathing/action stalls while preserving valid stationary work.
+    predicate:
+      stuck_ticks_gt: 0
+      productive_stationary: false
+    validation:
+      metric: maxStuckTicks
+      threshold_lte: 5
+      captures_pct: 80
+    rollback:
+      false_positive_pct_gt: 10
+
+  # Territory expansion placeholder from v2 registry
+  - component_id: territory-expansion-reward
+    decision_id: TBD
+    type: reward
+    category: territory
+    status: PROPOSED
+    candidate_weight: null
+    hypothesis: TBD
+    linked_issue: 958
+
+# Component status workflow (mirrors markdown registry)
+# PROPOSED -> APPROVED -> IMPLEMENTED -> VALIDATING -> ACCEPTED
+#                                            \-> REJECTED
+# ACCEPTED -> ROLLED_BACK
+
+# Integration points
+integration:
+  gameplay_evolution_review: c7b3dda8f1ac
+  rl_steward: aed8362e4501
+  e1_shadow_eval_gate: d6cff532edd4
+  e4_training_ledger: 5c869e7d8a1d
+  scorecard: "#924"
+  metric_taxonomy: "#906"
