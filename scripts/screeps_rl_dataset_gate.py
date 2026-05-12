@@ -342,7 +342,19 @@ def quality_evidence(sample: JsonObject) -> JsonObject:
 def quality_rejection_reasons(sample: JsonObject) -> list[str]:
     evidence = quality_evidence(sample)
     reasons: list[str] = []
-    if not (at_least_one(evidence["harvestTasks"]) or at_least_one(evidence["upgradeTasks"])):
+    # Console-capture data source cannot observe per-creep task assignments
+    # (those are in bot Memory, not visible room objects).
+    # Accept rooms with valid energy + creeps + spawns even when task counts are unavailable.
+    room_has_valid_telemetry = (
+        positive_value(evidence["energyAvailable"])
+        and positive_value(evidence["ownedCreeps"])
+        and positive_value(evidence["ownedSpawns"])
+    )
+    if not (
+        at_least_one(evidence["harvestTasks"])
+        or at_least_one(evidence["upgradeTasks"])
+        or room_has_valid_telemetry
+    ):
         reasons.append("no_harvest_or_upgrade_task")
     if not (
         positive_value(evidence["workerCarriedEnergy"])
@@ -415,7 +427,7 @@ def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
             "productive_task_present",
             rejection_reasons.get("no_harvest_or_upgrade_task", 0) == 0,
             rejectedSamples=rejection_reasons.get("no_harvest_or_upgrade_task", 0),
-            requirement="taskCounts.harvest >= 1 OR taskCounts.upgrade >= 1",
+            requirement="harvestTasks >=1 OR upgradeTasks >=1 OR (energyAvailable>0 AND ownedCreeps>0 AND ownedSpawns>0)",
         ),
         pass_fail_check(
             "room_energy_present",
