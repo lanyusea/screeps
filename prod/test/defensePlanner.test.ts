@@ -24,10 +24,16 @@ const TEST_GLOBALS = {
   TERRAIN_MASK_WALL: 1
 } as const;
 
+let previousGlobals: Partial<Record<keyof typeof TEST_GLOBALS, unknown>> = {};
+
 describe('defensePlanner', () => {
   beforeEach(() => {
     const globals = globalThis as Record<string, unknown>;
+    previousGlobals = {};
     for (const [key, value] of Object.entries(TEST_GLOBALS)) {
+      if (key in globals) {
+        previousGlobals[key as keyof typeof TEST_GLOBALS] = globals[key];
+      }
       globals[key] = value;
     }
     installOpenTerrain();
@@ -35,8 +41,12 @@ describe('defensePlanner', () => {
 
   afterEach(() => {
     const globals = globalThis as Record<string, unknown>;
-    for (const key of Object.keys(TEST_GLOBALS)) {
-      delete globals[key];
+    for (const [key] of Object.entries(TEST_GLOBALS)) {
+      if (key in previousGlobals) {
+        globals[key] = previousGlobals[key as keyof typeof TEST_GLOBALS];
+      } else {
+        delete globals[key];
+      }
     }
     delete globals.Game;
   });
