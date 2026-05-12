@@ -17,6 +17,7 @@ import {
   estimateNearTermSpawnExtensionRefillReserve,
   isWorkerPreHarvestSource,
   canLevelUpController,
+  canSpendWorkerEnergyOnConstructionSite,
   canUpgradeController,
   isUpgraderBoostActive,
   selectWorkerEnergyCriticalAcquisitionTask,
@@ -10322,6 +10323,52 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('bypasses construction energy buffer for spawn sites when no owned spawn exists', () => {
+    const spawnSite = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const makeCreep = (myStructures: AnyOwnedStructure[] = []): Creep =>
+      ({
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room: makeWorkerTaskRoom({
+          constructionSites: [spawnSite],
+          energyAvailable: 0,
+          myStructures
+        })
+      }) as unknown as Creep;
+
+    expect(canSpendWorkerEnergyOnConstructionSite(makeCreep(), spawnSite)).toBe(true);
+    expect(canSpendWorkerEnergyOnConstructionSite(makeCreep([fullSpawn as AnyOwnedStructure]), spawnSite)).toBe(false);
+  });
+
+  it('builds missing spawn construction during bootstrap suppression even when room energy is zero', () => {
+    const spawnSite = {
+      id: 'spawn-site1',
+      structureType: 'spawn',
+      progress: 0,
+      progressTotal: 15_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [spawnSite],
+        controller,
+        energyAvailable: 0,
+        energyCapacityAvailable: 650,
+        myStructures: []
+      })
+    } as unknown as Creep;
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
   it('uses the survival buffer multiplier before selecting construction spending', () => {

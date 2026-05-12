@@ -23585,7 +23585,23 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return checkEnergyBufferForSpending(creep.room, carriedEnergy) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || checkEnergyBufferForSpending(creep.room, carriedEnergy) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+}
+function isMissingSpawnRecoveryConstructionSite(room, site) {
+  return isSpawnConstructionSite(site) && getOwnedSpawnCount(room) === 0;
+}
+function getOwnedSpawnCount(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return null;
+  }
+  try {
+    return room.find(FIND_MY_STRUCTURES).filter(isOwnedSpawnStructure).length;
+  } catch {
+    return null;
+  }
+}
+function isOwnedSpawnStructure(structure) {
+  return matchesStructureType18(structure.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isCapacityEnablingConstructionSite(site, priorityContext) {
   if (isExtensionConstructionSite(site)) {
