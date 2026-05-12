@@ -1,4 +1,5 @@
 import {
+  checkEnergyBufferForExtensionConstruction,
   checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForSpending,
   CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY,
@@ -175,6 +176,32 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
   });
 
+  it('allows bootstrap extension construction at the capacity line with a reduced reserve', () => {
+    const room = makeRoom({
+      level: 2,
+      energyAvailable: 400,
+      energyCapacityAvailable: 400,
+      myStructures: [makeExtension('extension1'), makeExtension('extension2')]
+    });
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(checkEnergyBufferForSpending(room, 250)).toBe(false);
+    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 250)).toBe(false);
+    expect(checkEnergyBufferForExtensionConstruction(room, 250)).toBe(true);
+  });
+
+  it('does not use the bootstrap extension reserve after extension capacity is complete', () => {
+    const room = makeRoom({
+      level: 2,
+      energyAvailable: 400,
+      energyCapacityAvailable: 400,
+      myStructures: Array.from({ length: 5 }, (_, index) => makeExtension(`extension${index}`))
+    });
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(checkEnergyBufferForExtensionConstruction(room, 250)).toBe(false);
+  });
+
   it('keeps the construction import pressure threshold at spawn capacity', () => {
     expect(CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY).toBe(300);
   });
@@ -253,13 +280,16 @@ function makeRoom({
   energyAvailable = 0,
   energyCapacityAvailable,
   level,
+  myStructures = [],
   storage
 }: {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   level?: number;
+  myStructures?: AnyOwnedStructure[];
   storage?: StructureStorage;
 }): Room {
+  const visibleStructures = storage ? [storage as unknown as AnyOwnedStructure, ...myStructures] : myStructures;
   return {
     name: 'W1N1',
     energyAvailable,
@@ -268,7 +298,7 @@ function makeRoom({
     ...(storage ? { storage } : {}),
     find: jest.fn((type: number) => {
       if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
-        return storage ? [storage] : [];
+        return visibleStructures;
       }
 
       return [];
@@ -284,4 +314,11 @@ function makeStorage(energy: number): StructureStorage {
       getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
     }
   } as unknown as StructureStorage;
+}
+
+function makeExtension(id: string): StructureExtension {
+  return {
+    id,
+    structureType: 'extension'
+  } as unknown as StructureExtension;
 }

@@ -17,6 +17,7 @@ export const STORAGE_EMERGENCY_RESERVE = 1_000;
 export const CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY = 550;
 export const CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY = 300;
 export const MINIMUM_WORKER_SPAWN_ENERGY = 200;
+export const BOOTSTRAP_EXTENSION_CONSTRUCTION_RESERVE_MARGIN = 50;
 
 export interface EnergyBufferHealth {
   currentEnergy: number;
@@ -36,6 +37,28 @@ interface EnergyObservation {
   currentEnergy: number;
   known: boolean;
 }
+
+const FALLBACK_SPAWN_ENERGY_CAPACITY = 300;
+const FALLBACK_EXTENSION_LIMITS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
+  1: 0,
+  2: 5,
+  3: 10,
+  4: 20,
+  5: 30,
+  6: 40,
+  7: 50,
+  8: 60
+};
+const FALLBACK_EXTENSION_ENERGY_CAPACITY_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
+  1: 0,
+  2: 50,
+  3: 50,
+  4: 50,
+  5: 50,
+  6: 50,
+  7: 100,
+  8: 200
+};
 
 export function getRoomEnergyBufferThreshold(room: Room): number {
   return getConfiguredRoomEnergyBufferThreshold(room);
@@ -88,6 +111,14 @@ export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amo
     energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY &&
     getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable
   );
+}
+
+export function checkEnergyBufferForExtensionConstruction(room: Room, amount: number): boolean {
+  if (checkEnergyBufferForCapacityEnablingConstruction(room, amount)) {
+    return true;
+  }
+
+  return hasBootstrapExtensionConstructionEnergyReserve(room);
 }
 
 export function hasMinimumWorkerSpawnEnergyForConstruction(room: Room): boolean {
@@ -185,6 +216,79 @@ function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable: number): n
 function isSurvivalBufferMode(room: Room): boolean {
   const mode = getRecordedColonySurvivalAssessment(getRoomName(room))?.mode;
   return mode === 'BOOTSTRAP' || mode === 'DEFENSE';
+}
+
+function hasBootstrapExtensionConstructionEnergyReserve(room: Room): boolean {
+  if (getRecordedColonySurvivalAssessment(getRoomName(room))?.mode !== 'BOOTSTRAP') {
+    return false;
+  }
+
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+
+  if (!hasBuildableExtensionCapacity(room, energyCapacityAvailable)) {
+    return false;
+  }
+
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  return observation.known && observation.currentEnergy >= getBootstrapExtensionConstructionReserve(energyCapacityAvailable);
+}
+
+function hasBuildableExtensionCapacity(room: Room, energyCapacityAvailable: number): boolean {
+  const rcl = getRoomRcl(room);
+  const extensionLimit = getRoomExtensionLimit(room, rcl);
+  if (extensionLimit <= 0 || countExistingExtensions(room) >= extensionLimit) {
+    return false;
+  }
+
+  return energyCapacityAvailable < getTargetExtensionEnergyCapacity(rcl, extensionLimit);
+}
+
+function getBootstrapExtensionConstructionReserve(energyCapacityAvailable: number): number {
+  return Math.min(
+    energyCapacityAvailable,
+    getSpawnEnergyCapacity() + BOOTSTRAP_EXTENSION_CONSTRUCTION_RESERVE_MARGIN
+  );
+}
+
+function getTargetExtensionEnergyCapacity(rcl: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, extensionLimit: number): number {
+  return getSpawnEnergyCapacity() + extensionLimit * getExtensionEnergyCapacityForRcl(rcl);
+}
+
+function getSpawnEnergyCapacity(): number {
+  const value = (globalThis as { SPAWN_ENERGY_CAPACITY?: unknown }).SPAWN_ENERGY_CAPACITY;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : FALLBACK_SPAWN_ENERGY_CAPACITY;
+}
+
+function getExtensionEnergyCapacityForRcl(rcl: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8): number {
+  const value = (globalThis as { EXTENSION_ENERGY_CAPACITY?: unknown }).EXTENSION_ENERGY_CAPACITY;
+  const capacity = getIndexedNumber(value, rcl);
+  return capacity ?? FALLBACK_EXTENSION_ENERGY_CAPACITY_BY_RCL[rcl];
+}
+
+function getRoomExtensionLimit(room: Room, rcl: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8): number {
+  const controllerStructures = (globalThis as { CONTROLLER_STRUCTURES?: unknown }).CONTROLLER_STRUCTURES;
+  const extensionLimits = isRecord(controllerStructures)
+    ? controllerStructures[getStructureConstant('STRUCTURE_EXTENSION', 'extension')]
+    : undefined;
+  return getIndexedNumber(extensionLimits, rcl) ?? FALLBACK_EXTENSION_LIMITS_BY_RCL[rcl];
+}
+
+function getIndexedNumber(value: unknown, index: number): number | null {
+  const indexedValue = isRecord(value) || Array.isArray(value) ? value[index] : undefined;
+  return typeof indexedValue === 'number' && Number.isFinite(indexedValue)
+    ? Math.max(0, Math.floor(indexedValue))
+    : null;
+}
+
+function countExistingExtensions(room: Room): number {
+  return findRoomStructures(room).filter((structure) =>
+    matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')
+  ).length;
 }
 
 function getStorageEnergyReserve(room: Room): number {
@@ -315,11 +419,18 @@ function getObjectId(object: unknown): string {
   return typeof candidate.name === 'string' ? candidate.name : '';
 }
 
+function getStructureConstant(globalName: StructureConstantGlobal, fallback: string): string {
+  return (globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>)[globalName] ?? fallback;
+}
+
 function matchesStructureType(
   actual: string | undefined,
   globalName: StructureConstantGlobal,
   fallback: string
 ): boolean {
-  const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
-  return actual === (constants[globalName] ?? fallback);
+  return actual === getStructureConstant(globalName, fallback);
+}
+
+function isRecord(value: unknown): value is Record<string | number, unknown> {
+  return typeof value === 'object' && value !== null;
 }

@@ -10144,6 +10144,34 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
+  it('builds bootstrap extension construction at the 400 capacity line with carried remote energy', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const builtExtensions = [
+      makeEnergySink('extension-built1', 'extension' as StructureConstant, 0),
+      makeEnergySink('extension-built2', 'extension' as StructureConstant, 0)
+    ];
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(250) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 400,
+        energyCapacityAvailable: 400,
+        myStructures: builtExtensions as AnyOwnedStructure[]
+      })
+    } as unknown as Creep;
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
   it('builds critical road construction when the non-crisis capacity cap leaves room energy healthy', () => {
     const roadSite = {
       id: 'road-critical-site1',
