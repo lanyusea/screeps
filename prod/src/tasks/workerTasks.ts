@@ -262,6 +262,10 @@ export interface HarvestSourceSelectionOptions {
   allowPreHarvest?: boolean;
 }
 
+interface WorkerHarvestTaskOptions extends HarvestSourceSelectionOptions {
+  assignSourceContainer?: boolean;
+}
+
 interface SourceContainerWithdrawalContext {
   assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>;
   sources: Source[];
@@ -774,7 +778,7 @@ function selectMinimumHarvesterAllocationTask(creep: Creep): Extract<CreepTaskMe
     return null;
   }
 
-  return selectWorkerHarvestTask(creep, { allowPreHarvest: false });
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false, assignSourceContainer: true });
 }
 
 function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
@@ -3901,20 +3905,23 @@ export function selectWorkerPreHarvestTask(creep: Creep): Extract<CreepTaskMemor
 
 function selectWorkerHarvestTask(
   creep: Creep,
-  options: HarvestSourceSelectionOptions = {}
+  options: WorkerHarvestTaskOptions = {}
 ): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
   const source = selectHarvestSource(creep, options);
-  return source ? createHarvestTaskForSource(creep, source) : null;
+  return source ? createHarvestTaskForSource(creep, source, options) : null;
 }
 
 function createHarvestTaskForSource(
   creep: Creep,
-  source: Source
+  source: Source,
+  options: Pick<WorkerHarvestTaskOptions, 'assignSourceContainer'> = {}
 ): Extract<CreepTaskMemory, { type: 'harvest' }> {
+  const sourceContainerAssigned = options.assignSourceContainer === true && findVisibleSourceContainer(creep, source);
   return {
     type: 'harvest',
     targetId: source.id,
-    ...(findVisibleSourceContainer(creep, source) ? { sourceContainerAssigned: true as const } : {})
+    // Ordinary harvest fallbacks stay preemptible for build/upgrade returns; only explicit source-container roles pin workers.
+    ...(sourceContainerAssigned ? { sourceContainerAssigned: true as const } : {})
   };
 }
 

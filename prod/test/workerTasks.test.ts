@@ -9998,7 +9998,7 @@ describe('selectWorkerTask', () => {
     const controller = {
       id: 'controller1',
       my: true,
-      level: 4,
+      level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
