@@ -102,6 +102,13 @@ CRITICAL_STRUCTURE_TYPES = {
     "tower",
 }
 
+ENERGY_STORAGE_STRUCTURE_TYPES = {
+    "container",
+    "extension",
+    "spawn",
+    "storage",
+}
+
 TACTICAL_SEVERITY_RANK = {
     "none": 0,
     "warning": 1,
@@ -385,6 +392,20 @@ class RoomSnapshot:
             for obj in self.objects.values()
             if isinstance(obj, dict)
         )
+
+
+@dataclass
+class RoomSummaryMetrics:
+    structures: list[dict[str, Any]]
+    controller_summary: dict[str, Any]
+    owned_creep_objects: list[dict[str, Any]]
+    construction_sites: list[dict[str, Any]]
+    pending_build_progress: int | float
+    build_carried_energy: int | float
+    stored_energy: int | float
+    cpu_used: int | float | None
+    cpu_bucket: int | float | None
+    rcl_level: int | float | None
 
 
 def esc(value: Any) -> str:
@@ -2401,8 +2422,7 @@ def render_room_snapshot(
 def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, Any]:
     info = snapshot.info if isinstance(snapshot.info, dict) else {}
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
-    structures = structure_objects(snapshot.objects)
-    owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
+    metrics = compute_room_summary_metrics(snapshot)
     owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
     summary = {
         "room": snapshot.ref.key,
@@ -2411,14 +2431,21 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "tick": snapshot.tick,
         "objects": len(snapshot.objects),
         "creeps": snapshot.counts.get("creep", 0),
-        "owned_creeps": owned_creeps,
-        "structures": len(structures),
-        "spawns": sum(1 for structure in structures if structure.get("type") == "spawn"),
+        "owned_creeps": len(metrics.owned_creep_objects),
+        "structures": len(metrics.structures),
+        "spawns": sum(1 for structure in metrics.structures if structure.get("type") == "spawn"),
         "owned_spawns": owned_spawns,
         "hostiles": len(hostiles),
         "owner": snapshot.owner,
         "expected_owner": snapshot.expected_owner,
         "expected_owner_id": snapshot.expected_owner_id,
+        "pendingBuildProgress": metrics.pending_build_progress,
+        "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionSiteCount": len(metrics.construction_sites),
+        "cpuUsed": metrics.cpu_used,
+        "cpuBucket": metrics.cpu_bucket,
+        "rclLevel": metrics.rcl_level,
+        "storedEnergy": metrics.stored_energy,
         "energyCapacity": number_value(info.get("energyCapacity") or info.get("energyCapacityAvailable")),
         "energyCapacityAvailable": number_value(info.get("energyCapacityAvailable")),
         "energyBufferHealth": as_dict(info.get("energyBufferHealth")),
@@ -2568,8 +2595,146 @@ def store_energy(obj: dict[str, Any]) -> int | float:
         energy = number_value(store.get("energy"))
         if energy is not None:
             return energy
+    carry = obj.get("carry")
+    if isinstance(carry, dict):
+        energy = number_value(carry.get("energy"))
+        if energy is not None:
+            return energy
     energy = number_value(obj.get("energy"))
     return energy if energy is not None else 0
+
+
+def carried_energy(obj: dict[str, Any]) -> int | float:
+    carry = obj.get("carry")
+    if isinstance(carry, dict):
+        energy = number_value(carry.get("energy"))
+        if energy is not None:
+            return energy
+    return store_energy(obj)
+
+
+def first_number_value(value: Any, *paths: tuple[str, ...]) -> int | float | None:
+    for path in paths:
+        found = number_value(nested_value(value, *path))
+        if found is not None:
+            return found
+    return None
+
+
+def construction_site_pending_progress(site: dict[str, Any]) -> int | float:
+    progress = number_value(site.get("progress")) or 0
+    progress_total = number_value(site.get("progressTotal"))
+    if progress_total is None:
+        return 0
+    return max(0, progress_total - progress)
+
+
+def is_owned_construction_site(site: dict[str, Any], snapshot: RoomSnapshot) -> bool:
+    return site.get("type") == "constructionSite" and is_owned_object(
+        site,
+        snapshot.owner,
+        snapshot.expected_owner_id,
+    )
+
+
+def owned_construction_sites(snapshot: RoomSnapshot) -> list[dict[str, Any]]:
+    return [
+        obj
+        for obj in snapshot.objects.values()
+        if isinstance(obj, dict) and is_owned_construction_site(obj, snapshot)
+    ]
+
+
+def object_has_build_task(value: Any) -> bool:
+    if isinstance(value, str):
+        lowered = value.lower()
+        return lowered == "build" or lowered == "builder" or lowered.endswith(":build")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            lowered_key = str(key).lower()
+            if lowered_key in {"role", "task", "taskname", "action", "job", "intent"} and object_has_build_task(item):
+                return True
+            if isinstance(item, dict) and object_has_build_task(item):
+                return True
+        return False
+    return False
+
+
+def creep_has_build_task(creep: dict[str, Any]) -> bool:
+    for candidate in (
+        creep.get("role"),
+        creep.get("task"),
+        creep.get("memory"),
+        creep.get("runtimeTask"),
+        creep.get("assignment"),
+    ):
+        if object_has_build_task(candidate):
+            return True
+    return False
+
+
+def room_stored_energy(objects: dict[str, dict[str, Any]], owner_username: str | None) -> int | float:
+    total: int | float = 0
+    for obj in structure_objects(objects):
+        if confirmed_foreign_owner(obj, owner_username):
+            continue
+        if isinstance(obj.get("store"), dict) or obj.get("type") in ENERGY_STORAGE_STRUCTURE_TYPES:
+            total += store_energy(obj)
+    return total
+
+
+def snapshot_cpu_used(snapshot: RoomSnapshot) -> int | float | None:
+    return first_number_value(
+        snapshot.info,
+        ("cpu", "used"),
+        ("cpu", "cpuUsed"),
+        ("cpuUsed",),
+        ("usedCpu",),
+    )
+
+
+def snapshot_cpu_bucket(snapshot: RoomSnapshot) -> int | float | None:
+    return first_number_value(
+        snapshot.info,
+        ("cpu", "bucket"),
+        ("cpuBucket",),
+        ("bucket",),
+    )
+
+
+def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
+    structures = structure_objects(snapshot.objects)
+    controller = next((obj for obj in structures if obj.get("type") == "controller"), None)
+    owned_creep_objects = [
+        obj
+        for obj in snapshot.objects.values()
+        if (
+            isinstance(obj, dict)
+            and obj.get("type") == "creep"
+            and is_owned_object(obj, snapshot.owner, snapshot.expected_owner_id)
+        )
+    ]
+    construction_sites = owned_construction_sites(snapshot)
+    pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
+    build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
+    stored_energy = room_stored_energy(snapshot.objects, snapshot.owner)
+    controller_summary: dict[str, Any] = {}
+    if controller is not None:
+        for key in ("level", "progress", "progressTotal", "ticksToDowngrade"):
+            controller_summary[key] = number_value(controller.get(key))
+
+    return RoomSummaryMetrics(
+        structures=structures,
+        controller_summary=controller_summary,
+        owned_creep_objects=owned_creep_objects,
+        construction_sites=construction_sites,
+        pending_build_progress=pending_build_progress,
+        build_carried_energy=build_carried_energy,
+        stored_energy=stored_energy,
+        cpu_used=snapshot_cpu_used(snapshot),
+        cpu_bucket=snapshot_cpu_bucket(snapshot),
+        rcl_level=number_value(controller.get("level")) if controller is not None else None,
+    )
 
 
 def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> bool:
@@ -2579,12 +2744,8 @@ def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> 
 
 def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     objects = snapshot.objects
-    owned_structures = [obj for obj in structure_objects(objects) if is_owned_object(obj, snapshot.owner)]
-    owned_creeps = [
-        obj
-        for obj in objects.values()
-        if isinstance(obj, dict) and obj.get("type") == "creep" and is_owned_object(obj, snapshot.owner)
-    ]
+    metrics = compute_room_summary_metrics(snapshot)
+    owned_creeps = metrics.owned_creep_objects
     sources = [obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "source"]
     dropped_energy = [
         obj
@@ -2597,25 +2758,31 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     hostiles = detect_hostile_creeps(objects, snapshot.owner)
     hostile_structures = [
         obj
-        for obj in structure_objects(objects)
+        for obj in metrics.structures
         if confirmed_foreign_owner(obj, snapshot.owner)
     ]
-    controller = next((obj for obj in structure_objects(objects) if obj.get("type") == "controller"), None)
-
-    controller_summary: dict[str, Any] = {}
-    if controller is not None:
-        for key in ("level", "progress", "progressTotal", "ticksToDowngrade"):
-            controller_summary[key] = number_value(controller.get(key))
 
     return {
         "roomName": snapshot.ref.room,
         "shard": snapshot.ref.shard,
-        "controller": controller_summary,
+        "pendingBuildProgress": metrics.pending_build_progress,
+        "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionSiteCount": len(metrics.construction_sites),
+        "cpuUsed": metrics.cpu_used,
+        "cpuBucket": metrics.cpu_bucket,
+        "rclLevel": metrics.rcl_level,
+        "storedEnergy": metrics.stored_energy,
+        "controller": metrics.controller_summary,
         "resources": {
-            "storedEnergy": sum(store_energy(obj) for obj in owned_structures),
+            "storedEnergy": metrics.stored_energy,
             "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
             "droppedEnergy": sum(number_value(obj.get("amount")) or 0 for obj in dropped_energy),
             "sourceCount": len(sources),
+            "productiveEnergy": {
+                "pendingBuildProgress": metrics.pending_build_progress,
+                "buildCarriedEnergy": metrics.build_carried_energy,
+                "constructionSiteCount": len(metrics.construction_sites),
+            },
         },
         "combat": {
             "hostileCreepCount": len(hostiles),
@@ -2626,10 +2793,13 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
 
 def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
     ticks = [snapshot.tick for snapshot in snapshots if isinstance(snapshot.tick, int)]
+    cpu_used = next((value for value in (snapshot_cpu_used(snapshot) for snapshot in snapshots) if value is not None), None)
+    cpu_bucket = next((value for value in (snapshot_cpu_bucket(snapshot) for snapshot in snapshots) if value is not None), None)
     return {
         "type": "runtime-summary",
         "tick": max(ticks) if ticks else None,
         "rooms": [runtime_summary_room(snapshot) for snapshot in snapshots],
+        "cpu": {"used": cpu_used, "bucket": cpu_bucket},
         "source": "screeps-runtime-monitor",
     }
 

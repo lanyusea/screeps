@@ -52,6 +52,24 @@ CREATE TABLE IF NOT EXISTS metric_observations (
   dedupe_key TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS runtime_room_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  tick INTEGER,
+  shard TEXT,
+  room_name TEXT NOT NULL,
+  pending_build_progress REAL,
+  build_carried_energy REAL,
+  construction_site_count REAL,
+  cpu_used REAL,
+  cpu_bucket REAL,
+  rcl_level REAL,
+  stored_energy REAL,
+  source_artifact TEXT NOT NULL,
+  evidence_json TEXT NOT NULL DEFAULT '{}',
+  dedupe_key TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS gameplay_behavior_findings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   finding_key TEXT NOT NULL,
@@ -134,6 +152,8 @@ CREATE TABLE IF NOT EXISTS metric_iteration_decisions (
 
 CREATE INDEX IF NOT EXISTS idx_metric_observations_metric_tick
   ON metric_observations(metric_name, tick);
+CREATE INDEX IF NOT EXISTS idx_runtime_room_metrics_room_tick
+  ON runtime_room_metrics(room_name, tick);
 CREATE INDEX IF NOT EXISTS idx_findings_category_severity
   ON gameplay_behavior_findings(category, severity);
 CREATE INDEX IF NOT EXISTS idx_coverage_metric
@@ -211,6 +231,16 @@ METRIC_DEFINITIONS = [
         "interpretation": "A value above grace means expansion survival is failing.",
         "missing_coverage_behavior": "Record a gap if claim age is not emitted.",
         "promotion_rule": "Critical after grace; warning while age telemetry is missing.",
+    },
+    {
+        "metric_name": "territory.rcl_level",
+        "category": "survival/ownership",
+        "purpose": "Track room controller level from room-level runtime summary fields.",
+        "source_artifacts": "#runtime-summary room.rclLevel or controller.level",
+        "directionality": "higher is better",
+        "interpretation": "RCL progression is durable territory/economy capability evidence.",
+        "missing_coverage_behavior": "Leave historical rows NULL and rely on controller coverage gaps.",
+        "promotion_rule": "Repeated absence promotes controller-level telemetry work.",
     },
     {
         "metric_name": "economy.energy_available",
@@ -311,6 +341,26 @@ METRIC_DEFINITIONS = [
         "interpretation": "Backlog with no build progress means construction is stalled.",
         "missing_coverage_behavior": "Record construction telemetry gap when priority exists but backlog/progress is absent.",
         "promotion_rule": "Repeated backlog with zero build promotes to construction issue.",
+    },
+    {
+        "metric_name": "construction.pending_build_progress",
+        "category": "construction/infrastructure",
+        "purpose": "Track remaining progress across owned construction sites.",
+        "source_artifacts": "#runtime-summary pendingBuildProgress",
+        "directionality": "lower is better when planned work should progress",
+        "interpretation": "Positive values mean build work remains available in the room.",
+        "missing_coverage_behavior": "Leave historical rows NULL and fall back to backlog coverage gaps.",
+        "promotion_rule": "Repeated positive value with no build work promotes construction issue.",
+    },
+    {
+        "metric_name": "construction.site_count",
+        "category": "construction/infrastructure",
+        "purpose": "Track active owned construction site count per room.",
+        "source_artifacts": "#runtime-summary constructionSiteCount",
+        "directionality": "lower is better after planned sites complete",
+        "interpretation": "Nonzero sites identify build backlog shape and help distinguish no-work from no-builder states.",
+        "missing_coverage_behavior": "Leave historical rows NULL and use construction backlog gaps.",
+        "promotion_rule": "Repeated nonzero value with no build progress promotes construction issue.",
     },
     {
         "metric_name": "construction.build_task_count",
@@ -493,8 +543,20 @@ SOURCE_ROOT_METRICS = {
 }
 
 
+RUNTIME_ROOM_METRIC_COLUMNS = {
+    "pending_build_progress": "REAL",
+    "build_carried_energy": "REAL",
+    "construction_site_count": "REAL",
+    "cpu_used": "REAL",
+    "cpu_bucket": "REAL",
+    "rcl_level": "REAL",
+    "stored_energy": "REAL",
+}
+
+
 DEDUPE_TABLE_KEYS = {
     "metric_observations": ("metric_name", "tick", "room_name", "source_artifact", "evidence_json"),
+    "runtime_room_metrics": ("tick", "shard", "room_name", "source_artifact"),
     "gameplay_behavior_findings": ("finding_key", "source_artifact", "tick", "room_name"),
     "metric_coverage_gaps": ("metric_name", "source_artifact", "room_name", "tick", "gap_type"),
     "rl_dataset_gate_metrics": ("gate_id", "status", "metric_name", "source_artifact", "evidence_json"),
@@ -670,6 +732,13 @@ def table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     return {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
 
 
+def ensure_runtime_room_metrics_schema(conn: sqlite3.Connection) -> None:
+    columns = table_columns(conn, "runtime_room_metrics")
+    for column_name, column_type in RUNTIME_ROOM_METRIC_COLUMNS.items():
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE runtime_room_metrics ADD COLUMN {column_name} {column_type}")
+
+
 def ensure_dedupe_schema(conn: sqlite3.Connection) -> None:
     for table_name, key_columns in DEDUPE_TABLE_KEYS.items():
         columns = table_columns(conn, table_name)
@@ -719,6 +788,7 @@ def remove_duplicate_dedupe_rows(conn: sqlite3.Connection, table_name: str) -> N
 def initialize_database(db_path: Path) -> dict[str, int]:
     with connect_database(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        ensure_runtime_room_metrics_schema(conn)
         ensure_dedupe_schema(conn)
         upsert_metric_definitions(conn)
         conn.commit()
@@ -796,6 +866,57 @@ def record_observation(
             value,
             value_text,
             unit,
+            source_artifact,
+            evidence_json,
+            dedupe_key,
+        ),
+    )
+
+
+def record_runtime_room_metrics(
+    conn: sqlite3.Connection,
+    *,
+    source_artifact: str,
+    tick: int | None,
+    shard: str | None,
+    room_name: str,
+    pending_build_progress: float | None,
+    build_carried_energy: float | None,
+    construction_site_count: float | None,
+    cpu_used: float | None,
+    cpu_bucket: float | None,
+    rcl_level: float | None,
+    stored_energy: float | None,
+    evidence: object | None = None,
+) -> None:
+    evidence_json = canonical_json(evidence or {})
+    dedupe_key = dedupe_key_for_values(
+        "runtime_room_metrics",
+        tick=tick,
+        shard=shard,
+        room_name=room_name,
+        source_artifact=source_artifact,
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO runtime_room_metrics (
+          tick, shard, room_name, pending_build_progress, build_carried_energy,
+          construction_site_count, cpu_used, cpu_bucket, rcl_level, stored_energy,
+          source_artifact, evidence_json, dedupe_key
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tick,
+            shard,
+            room_name,
+            pending_build_progress,
+            build_carried_energy,
+            construction_site_count,
+            cpu_used,
+            cpu_bucket,
+            rcl_level,
+            stored_energy,
             source_artifact,
             evidence_json,
             dedupe_key,
@@ -1314,13 +1435,34 @@ def process_runtime_room(
     build_tasks = task_count(task_counts, "build")
     upgrade_tasks = task_count(task_counts, "upgrade")
     construction_backlog = construction_backlog_progress(room)
+    pending_build_progress = pending_build_progress_value(room)
+    construction_site_count = construction_site_count_value(room)
     built_progress = built_progress_value(room)
     build_carried_energy = build_carried_energy_value(room)
+    cpu_used = room_cpu_used_value(room)
+    cpu_bucket = room_cpu_bucket_value(room)
+    rcl_level = rcl_level_value(room)
+    stored_energy = stored_energy_value(room)
     hostile_count = hostile_creep_count(room)
     tower_count = structure_count(room, ("tower", "towers"))
     rampart_count = structure_count(room, ("rampart", "ramparts"))
     defense_backlog = defense_backlog_value(room, construction_backlog)
 
+    record_runtime_room_metrics(
+        conn,
+        source_artifact=source_artifact,
+        tick=tick,
+        shard=shard,
+        room_name=room_name,
+        pending_build_progress=pending_build_progress,
+        build_carried_energy=build_carried_energy,
+        construction_site_count=construction_site_count,
+        cpu_used=cpu_used,
+        cpu_bucket=cpu_bucket,
+        rcl_level=rcl_level,
+        stored_energy=stored_energy,
+        evidence={"line": line_number},
+    )
     record_number_if_present(
         conn,
         "survival.owned_spawns",
@@ -1351,6 +1493,26 @@ def process_runtime_room(
         shard,
         room_name,
         {"taskCounts": task_counts},
+    )
+    record_number_if_present(
+        conn,
+        "construction.pending_build_progress",
+        pending_build_progress,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
+    )
+    record_number_if_present(
+        conn,
+        "construction.site_count",
+        construction_site_count,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {},
     )
     record_number_if_present(
         conn,
@@ -1385,6 +1547,9 @@ def process_runtime_room(
     record_number_if_present(conn, "defense.hostile_creep_count", hostile_count, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "defense.tower_count", tower_count, source_artifact, tick, shard, room_name, {})
     record_number_if_present(conn, "defense.rampart_count", rampart_count, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(conn, "territory.rcl_level", rcl_level, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(conn, "cpu.used", cpu_used, source_artifact, tick, shard, room_name, {})
+    record_number_if_present(conn, "cpu.bucket", cpu_bucket, source_artifact, tick, shard, room_name, {})
 
     process_energy_metrics(conn, room, source_artifact, tick, shard, room_name)
     process_low_load_metrics(conn, room, source_artifact, tick, shard, room_name)
@@ -1559,6 +1724,36 @@ def construction_backlog_progress(room: dict[str, object]) -> float | None:
     return None
 
 
+def pending_build_progress_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("pendingBuildProgress",),
+            ("resources", "productiveEnergy", "pendingBuildProgress"),
+            ("resources", "pendingBuildProgress"),
+            ("construction", "pendingBuildProgress"),
+        ),
+    )
+
+
+def construction_site_count_value(room: dict[str, object]) -> float | None:
+    direct = first_number(
+        room,
+        (
+            ("constructionSiteCount",),
+            ("construction", "siteCount"),
+            ("constructionSites", "count"),
+        ),
+    )
+    if direct is not None:
+        return direct
+    for key in ("constructionSites", "sites"):
+        value = room.get(key)
+        if isinstance(value, list):
+            return float(len(value))
+    return None
+
+
 def built_progress_value(room: dict[str, object]) -> float | None:
     direct = first_number(
         room,
@@ -1588,6 +1783,18 @@ def build_carried_energy_value(room: dict[str, object]) -> float | None:
             ("buildCarriedEnergy",),
         ),
     ) or find_first_number_by_keys(room, ("buildCarriedEnergy", "builderCarriedEnergy"))
+
+
+def rcl_level_value(room: dict[str, object]) -> float | None:
+    return first_number(room, (("rclLevel",), ("controller", "rclLevel"), ("controller", "level")))
+
+
+def room_cpu_used_value(room: dict[str, object]) -> float | None:
+    return first_number(room, (("cpuUsed",), ("cpu", "used")))
+
+
+def room_cpu_bucket_value(room: dict[str, object]) -> float | None:
+    return first_number(room, (("cpuBucket",), ("cpu", "bucket")))
 
 
 def hostile_creep_count(room: dict[str, object]) -> float | None:
@@ -1645,7 +1852,7 @@ def process_energy_metrics(
     room_name: str,
 ) -> None:
     energy_available = first_number(room, (("energyAvailable",), ("energy", "available")))
-    stored_energy = first_number(room, (("resources", "storedEnergy"), ("storedEnergy",), ("storage", "energy")))
+    stored_energy = stored_energy_value(room)
     worker_carried = first_number(
         room,
         (("resources", "workerCarriedEnergy"), ("workerCarriedEnergy",), ("workers", "carriedEnergy")),
@@ -1691,6 +1898,10 @@ def process_energy_metrics(
             gap_type="missing_energy_fields",
             message="no energyAvailable, storedEnergy, or workerCarriedEnergy fields were present",
         )
+
+
+def stored_energy_value(room: dict[str, object]) -> float | None:
+    return first_number(room, (("resources", "storedEnergy"), ("storedEnergy",), ("storage", "energy")))
 
 
 def process_low_load_metrics(
@@ -2302,6 +2513,7 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
         for table in (
             "metric_definitions",
             "metric_observations",
+            "runtime_room_metrics",
             "gameplay_behavior_findings",
             "metric_coverage_gaps",
             "rl_dataset_gate_metrics",
@@ -2327,14 +2539,49 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
             LIMIT 10
             """
         ).fetchall()
+        latest_tick_row = conn.execute("SELECT MAX(tick) AS latest_tick FROM runtime_room_metrics").fetchone()
+        latest_tick = latest_tick_row["latest_tick"] if latest_tick_row is not None else None
+        if latest_tick is None:
+            runtime_room_row = None
+        else:
+            runtime_room_row = conn.execute(
+                """
+                SELECT
+                  COUNT(*) AS room_samples,
+                  SUM(COALESCE(pending_build_progress, 0)) AS pending_build_progress,
+                  SUM(COALESCE(build_carried_energy, 0)) AS build_carried_energy,
+                  SUM(COALESCE(construction_site_count, 0)) AS construction_site_count,
+                  AVG(cpu_used) AS avg_cpu_used,
+                  MIN(cpu_bucket) AS min_cpu_bucket,
+                  MAX(rcl_level) AS max_rcl_level,
+                  SUM(COALESCE(stored_energy, 0)) AS stored_energy
+                FROM runtime_room_metrics
+                WHERE tick = ?
+                """,
+                (latest_tick,),
+            ).fetchone()
 
     if output_format == "json":
+        latest_runtime_room_metrics = {}
+        if runtime_room_row is not None:
+            latest_runtime_room_metrics = {
+                "tick": latest_tick,
+                "roomSamples": runtime_room_row["room_samples"],
+                "pendingBuildProgress": runtime_room_row["pending_build_progress"],
+                "buildCarriedEnergy": runtime_room_row["build_carried_energy"],
+                "constructionSiteCount": runtime_room_row["construction_site_count"],
+                "avgCpuUsed": runtime_room_row["avg_cpu_used"],
+                "minCpuBucket": runtime_room_row["min_cpu_bucket"],
+                "maxRclLevel": runtime_room_row["max_rcl_level"],
+                "storedEnergy": runtime_room_row["stored_energy"],
+            }
         return json.dumps(
             {
                 "db": str(db_path),
                 "counts": counts,
                 "findingsBySeverity": {row["severity"]: row["count"] for row in severity_rows},
                 "topCoverageGaps": {row["metric_name"]: row["count"] for row in gap_rows},
+                "latestRuntimeRoomMetrics": latest_runtime_room_metrics,
             },
             indent=2,
             sort_keys=True,
@@ -2351,6 +2598,17 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
         lines.append("top_coverage_gaps:")
         for row in gap_rows:
             lines.append(f"  {row['metric_name']}: {row['count']}")
+    if runtime_room_row is not None:
+        lines.append("latest_runtime_room_metrics:")
+        lines.append(f"  tick: {latest_tick}")
+        lines.append(f"  room_samples: {runtime_room_row['room_samples']}")
+        lines.append(f"  pendingBuildProgress: {runtime_room_row['pending_build_progress']}")
+        lines.append(f"  buildCarriedEnergy: {runtime_room_row['build_carried_energy']}")
+        lines.append(f"  constructionSiteCount: {runtime_room_row['construction_site_count']}")
+        lines.append(f"  avgCpuUsed: {runtime_room_row['avg_cpu_used']}")
+        lines.append(f"  minCpuBucket: {runtime_room_row['min_cpu_bucket']}")
+        lines.append(f"  maxRclLevel: {runtime_room_row['max_rcl_level']}")
+        lines.append(f"  storedEnergy: {runtime_room_row['stored_energy']}")
     return "\n".join(lines)
 
 

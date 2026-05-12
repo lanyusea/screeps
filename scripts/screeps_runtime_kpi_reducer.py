@@ -25,6 +25,15 @@ RESOURCE_FIELDS = ("storedEnergy", "workerCarriedEnergy", "harvestedThisTick", "
 RESOURCE_EVENT_FIELDS = ("harvestedEnergy", "transferredEnergy")
 COMBAT_FIELDS = ("hostileCreepCount", "hostileStructureCount")
 COMBAT_EVENT_FIELDS = ("attackCount", "attackDamage", "objectDestroyedCount", "creepDestroyedCount")
+ROOM_LEVEL_FIELDS = (
+    "pendingBuildProgress",
+    "buildCarriedEnergy",
+    "constructionSiteCount",
+    "cpuUsed",
+    "cpuBucket",
+    "rclLevel",
+    "storedEnergy",
+)
 
 
 JsonObject = dict[str, Any]
@@ -41,6 +50,7 @@ class RoomState:
     controller: SectionState = field(default_factory=SectionState)
     resources: SectionState = field(default_factory=SectionState)
     combat: SectionState = field(default_factory=SectionState)
+    room_metrics: SectionState = field(default_factory=SectionState)
     resource_events: dict[str, int | float] = field(default_factory=lambda: zero_totals(RESOURCE_EVENT_FIELDS))
     combat_events: dict[str, int | float] = field(default_factory=lambda: zero_totals(COMBAT_EVENT_FIELDS))
     resource_event_seen: bool = False
@@ -78,6 +88,32 @@ def clean_numeric_section(section: Any, fields: tuple[str, ...]) -> dict[str, in
         return None
 
     return values
+
+
+def clean_room_level_metrics(room: dict[str, Any]) -> dict[str, int | float | None] | None:
+    resources = room.get("resources") if isinstance(room.get("resources"), dict) else {}
+    productive = resources.get("productiveEnergy") if isinstance(resources.get("productiveEnergy"), dict) else {}
+    controller = room.get("controller") if isinstance(room.get("controller"), dict) else {}
+    values = {
+        "pendingBuildProgress": first_number(room, resources, productive, key="pendingBuildProgress"),
+        "buildCarriedEnergy": first_number(room, resources, productive, key="buildCarriedEnergy"),
+        "constructionSiteCount": first_number(room, productive, key="constructionSiteCount"),
+        "cpuUsed": room.get("cpuUsed") if is_number(room.get("cpuUsed")) else None,
+        "cpuBucket": room.get("cpuBucket") if is_number(room.get("cpuBucket")) else None,
+        "rclLevel": first_number(room, controller, key="rclLevel") or (controller.get("level") if is_number(controller.get("level")) else None),
+        "storedEnergy": first_number(room, resources, key="storedEnergy"),
+    }
+    if all(value is None for value in values.values()):
+        return None
+    return values
+
+
+def first_number(*sections: dict[str, Any], key: str) -> int | float | None:
+    for section in sections:
+        value = section.get(key)
+        if is_number(value):
+            return value
+    return None
 
 
 def add_events(target: dict[str, int | float], events: Any, fields: tuple[str, ...]) -> bool:
@@ -162,6 +198,9 @@ def reduce_runtime_kpis(lines: Iterable[str]) -> JsonObject:
                 summary_rooms.add(room_name)
                 room_state = state.rooms.setdefault(room_name, RoomState())
 
+                room_metrics = clean_room_level_metrics(room)
+                update_section(room_state.room_metrics, room_metrics)
+
                 controller = clean_numeric_section(room.get("controller"), CONTROLLER_FIELDS)
                 update_section(room_state.controller, controller)
 
@@ -225,6 +264,16 @@ def build_report(state: ReductionState) -> JsonObject:
             COMBAT_EVENT_FIELDS,
             "combat_events",
             "combat_event_seen",
+        ),
+        "roomMetrics": build_numeric_section_report(
+            state.rooms,
+            first_rooms,
+            latest_rooms,
+            ROOM_LEVEL_FIELDS,
+            "room_metrics",
+            (),
+            "",
+            "",
         ),
     }
 
@@ -463,6 +512,7 @@ def render_human(report: JsonObject) -> str:
 
     lines.append(render_section_human("resources", report["resources"], RESOURCE_FIELDS, RESOURCE_EVENT_FIELDS))
     lines.append(render_section_human("combat", report["combat"], COMBAT_FIELDS, COMBAT_EVENT_FIELDS))
+    lines.append(render_section_human("roomMetrics", report["roomMetrics"], ROOM_LEVEL_FIELDS, ()))
 
     return "\n".join(lines)
 
@@ -501,6 +551,8 @@ def render_section_human(
     latest = section_report["totals"]["latest"]
     delta = section_report["totals"]["delta"]
     values = ", ".join(f"{field_name} {format_value(latest[field_name])} ({format_delta(delta[field_name])})" for field_name in fields)
+    if not event_fields:
+        return f"{label}: {values}"
     events = section_report.get("eventDeltas")
     if not isinstance(events, dict) or events["status"] != OBSERVED:
         return f"{label}: {values}; events {NOT_OBSERVED}"
