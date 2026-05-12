@@ -2891,6 +2891,7 @@ function canSpendCreepEnergyOnConstructionSite(
 ): boolean {
   const carriedEnergy = getUsedEnergy(creep);
   return (
+    (carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site)) ||
     checkEnergyBufferForSpending(creep.room, carriedEnergy) ||
     (carriedEnergy > 0 &&
       isExtensionConstructionSite(site) &&
@@ -2903,6 +2904,26 @@ function canSpendCreepEnergyOnConstructionSite(
       hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
       isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
   );
+}
+
+function isMissingSpawnRecoveryConstructionSite(room: Room, site: ConstructionSite): boolean {
+  return isSpawnConstructionSite(site) && getOwnedSpawnCount(room) === 0;
+}
+
+function getOwnedSpawnCount(room: Room): number | null {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  try {
+    return room.find(FIND_MY_STRUCTURES).filter(isOwnedSpawnStructure).length;
+  } catch {
+    return null;
+  }
+}
+
+function isOwnedSpawnStructure(structure: AnyOwnedStructure): structure is StructureSpawn {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn');
 }
 
 function isCapacityEnablingConstructionSite(
