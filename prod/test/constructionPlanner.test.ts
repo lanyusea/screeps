@@ -58,7 +58,7 @@ describe('owned room construction planner', () => {
     delete globals.PathFinder;
   });
 
-  it('queues essential sites in spawn, extension, container, road, tower priority order', () => {
+  it('queues essential sites in extension, road, container, tower, defense-floor priority order', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
       controllerLevel: 3,
@@ -80,17 +80,19 @@ describe('owned room construction planner', () => {
     expect(result.placements.map((placement) => placement.priority)).toEqual([
       'extension',
       'container',
-      'road',
-      'tower'
+      'tower',
+      'rampart',
+      'wall'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
       STRUCTURE_EXTENSION,
       STRUCTURE_CONTAINER,
-      STRUCTURE_ROAD,
-      STRUCTURE_TOWER
+      STRUCTURE_TOWER,
+      STRUCTURE_RAMPART,
+      STRUCTURE_WALL
     ]);
     expect(result.energyBudget).toBe(500);
-    expect(result.energyReserved).toBe(200);
+    expect(result.energyReserved).toBe(300);
   });
 
   it('places spawn and controller staging containers after extension work before roads', () => {
@@ -116,12 +118,19 @@ describe('owned room construction planner', () => {
       'container',
       'container',
       'road',
-      'tower'
+      'container',
+      'container',
+      'tower',
+      'rampart',
+      'wall'
     ]);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 9, 9, STRUCTURE_EXTENSION);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 11, 11, STRUCTURE_CONTAINER);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(3, 24, 24, STRUCTURE_CONTAINER);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(4, 10, 11, STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 10, 11, STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(3, 11, 11, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(4, 24, 24, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(5, 10, 9, STRUCTURE_TOWER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(6, 10, 10, STRUCTURE_RAMPART);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(7, 11, 9, STRUCTURE_WALL);
   });
 
   it('keeps non-spawn construction site placement within half of available room energy', () => {
@@ -309,6 +318,8 @@ describe('owned room construction planner', () => {
     controllerStructures.road[2] = 0;
     controllerStructures.container[2] = 0;
     controllerStructures.tower[2] = 0;
+    controllerStructures.rampart[2] = 0;
+    controllerStructures.constructedWall[2] = 0;
     (globalThis as unknown as { CONTROLLER_STRUCTURES: ReturnType<typeof makeControllerStructures> }).CONTROLLER_STRUCTURES =
       controllerStructures;
     installOpenTerrain();
@@ -415,11 +426,31 @@ describe('owned room construction planner', () => {
         structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
         result: OK_CODE,
         energyReserved: 50,
+        x: 10,
+        y: 10
+      },
+      {
+        priority: 'wall',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_WALL,
+        result: OK_CODE,
+        energyReserved: 50,
+        x: 11,
+        y: 9
+      },
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: OK_CODE,
+        energyReserved: 50,
         x: 26,
         y: 24
       }
     ]);
-    expect(room.createConstructionSite).toHaveBeenCalledTimes(2);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(4);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(10, 10, TEST_GLOBALS.STRUCTURE_RAMPART);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 9, TEST_GLOBALS.STRUCTURE_WALL);
     expect(room.createConstructionSite).toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 });

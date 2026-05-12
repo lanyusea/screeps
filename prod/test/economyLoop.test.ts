@@ -1266,6 +1266,8 @@ describe('runEconomy', () => {
       STRUCTURE_EXTENSION: StructureConstant;
       STRUCTURE_TOWER: StructureConstant;
       STRUCTURE_CONTAINER: StructureConstant;
+      STRUCTURE_RAMPART: StructureConstant;
+      STRUCTURE_WALL: StructureConstant;
       LOOK_STRUCTURES: LOOK_STRUCTURES;
       LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
       TERRAIN_MASK_WALL: number;
@@ -1279,6 +1281,8 @@ describe('runEconomy', () => {
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
     (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
     (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
       'constructionSite';
@@ -1359,9 +1363,18 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(room.createConstructionSite).toHaveBeenCalledTimes(2);
+    const constructionSiteCalls = (room.createConstructionSite as jest.Mock).mock.calls as Array<
+      [number, number, StructureConstant]
+    >;
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(4);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 11, 11, STRUCTURE_CONTAINER);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 24, 24, STRUCTURE_TOWER);
+    expect(constructionSiteCalls.map(([, , structureType]) => structureType)).toEqual([
+      STRUCTURE_CONTAINER,
+      STRUCTURE_TOWER,
+      STRUCTURE_RAMPART,
+      STRUCTURE_WALL
+    ]);
   });
 
   it('runs existing worker creeps', () => {

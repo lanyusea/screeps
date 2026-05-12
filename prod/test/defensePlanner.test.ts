@@ -1,14 +1,56 @@
 import {
+  assessBootstrapDefenseFloor,
   buildDefenderBody,
   getDesiredDefenderCount,
   hasDefensePressure,
+  planBootstrapDefenseFloorPlacements,
   planDefenderSpawn,
   selectDefenderAttackTarget,
   selectTowerAttackTarget,
   shouldActivateSafeMode
 } from '../src/defense/defensePlanner';
 
+const TEST_GLOBALS = {
+  FIND_STRUCTURES: 1,
+  FIND_CONSTRUCTION_SITES: 2,
+  FIND_MY_STRUCTURES: 3,
+  FIND_MY_CONSTRUCTION_SITES: 4,
+  STRUCTURE_SPAWN: 'spawn',
+  STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_WALL: 'constructedWall',
+  STRUCTURE_TOWER: 'tower',
+  STRUCTURE_ROAD: 'road',
+  TERRAIN_MASK_WALL: 1
+} as const;
+
+let previousGlobals: Partial<Record<keyof typeof TEST_GLOBALS, unknown>> = {};
+
 describe('defensePlanner', () => {
+  beforeEach(() => {
+    const globals = globalThis as Record<string, unknown>;
+    previousGlobals = {};
+    for (const [key, value] of Object.entries(TEST_GLOBALS)) {
+      if (key in globals) {
+        previousGlobals[key as keyof typeof TEST_GLOBALS] = globals[key];
+      }
+      globals[key] = value;
+    }
+    installOpenTerrain();
+  });
+
+  afterEach(() => {
+    const globals = globalThis as Record<string, unknown>;
+    for (const [key] of Object.entries(TEST_GLOBALS)) {
+      if (key in previousGlobals) {
+        globals[key] = previousGlobals[key as keyof typeof TEST_GLOBALS];
+      } else {
+        delete globals[key];
+      }
+    }
+    delete globals.Game;
+  });
+
   it('summarizes defense pressure from visible hostiles or damaged critical structures', () => {
     expect(
       hasDefensePressure({
@@ -189,7 +231,142 @@ describe('defensePlanner', () => {
       })
     ).toBe(false);
   });
+
+  it('keeps controller rampart anchors placeable over existing roads', () => {
+    const room = makeDefenseRoom({
+      structures: [
+        makeDefenseStructure('controller-road', TEST_GLOBALS.STRUCTURE_ROAD, 24, 24)
+      ]
+    });
+
+    expect(planBootstrapDefenseFloorPlacements(room, { maxPlacements: 10 })).toContainEqual(
+      expect.objectContaining({
+        kind: 'controllerRampart',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        x: 24,
+        y: 24
+      })
+    );
+  });
+
+  it('treats unavailable spawn-wall anchors as satisfying the wall readiness requirement', () => {
+    const room = makeDefenseRoom({
+      structures: [
+        makeDefenseStructure('spawn-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 10, 10),
+        makeDefenseStructure('wall-blocker-a', TEST_GLOBALS.STRUCTURE_WALL, 9, 9),
+        makeDefenseStructure('wall-blocker-b', TEST_GLOBALS.STRUCTURE_WALL, 11, 9),
+        makeDefenseStructure('wall-blocker-c', TEST_GLOBALS.STRUCTURE_WALL, 9, 11),
+        makeDefenseStructure('wall-blocker-d', TEST_GLOBALS.STRUCTURE_WALL, 11, 11)
+      ]
+    });
+
+    const assessment = assessBootstrapDefenseFloor(room);
+
+    expect(assessment.anchors.filter((anchor) => anchor.kind === 'spawnWall')).toHaveLength(0);
+    expect(assessment.spawnRampartReady).toBe(true);
+    expect(assessment.wallAnchorCount).toBe(0);
+    expect(assessment.ready).toBe(true);
+  });
+
+  it('caches visible structure and construction-site lookups for defense-floor assessment', () => {
+    const room = makeDefenseRoom({
+      structures: [
+        makeDefenseStructure('road-a', TEST_GLOBALS.STRUCTURE_ROAD, 24, 24),
+        makeDefenseStructure('container-a', TEST_GLOBALS.STRUCTURE_CONTAINER, 20, 20)
+      ],
+      constructionSites: [
+        makeDefenseConstructionSite('pending-road-a', TEST_GLOBALS.STRUCTURE_ROAD, 9, 9)
+      ]
+    });
+
+    assessBootstrapDefenseFloor(room);
+    assessBootstrapDefenseFloor(room);
+
+    expect(room.find).toHaveBeenCalledTimes(2);
+    expect(room.find.mock.calls.map(([findType]) => findType)).toEqual([
+      TEST_GLOBALS.FIND_STRUCTURES,
+      TEST_GLOBALS.FIND_CONSTRUCTION_SITES
+    ]);
+  });
 });
+
+interface MockDefenseRoom extends Room {
+  find: jest.Mock;
+}
+
+function makeDefenseRoom({
+  controllerLevel = 2,
+  structures = [],
+  constructionSites = []
+}: {
+  controllerLevel?: number;
+  structures?: Structure[];
+  constructionSites?: ConstructionSite[];
+} = {}): MockDefenseRoom {
+  const roomName = 'W1N1';
+  const spawn = makeDefenseStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10, roomName, true);
+  const roomStructures = [spawn, ...structures];
+
+  return {
+    name: roomName,
+    controller: {
+      id: 'controller1',
+      my: true,
+      level: controllerLevel,
+      pos: makePosition(25, 25, roomName)
+    } as unknown as StructureController,
+    find: jest.fn((findType: number) => {
+      if (findType === TEST_GLOBALS.FIND_STRUCTURES) {
+        return roomStructures;
+      }
+      if (findType === TEST_GLOBALS.FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+      return [];
+    })
+  } as unknown as MockDefenseRoom;
+}
+
+function makeDefenseStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  roomName = 'W1N1',
+  my?: boolean
+): Structure {
+  return {
+    id,
+    structureType,
+    my,
+    pos: makePosition(x, y, roomName)
+  } as unknown as Structure;
+}
+
+function makeDefenseConstructionSite(
+  id: string,
+  structureType: BuildableStructureConstant,
+  x: number,
+  y: number,
+  roomName = 'W1N1'
+): ConstructionSite {
+  return {
+    id,
+    structureType,
+    pos: makePosition(x, y, roomName)
+  } as unknown as ConstructionSite;
+}
+
+function installOpenTerrain(): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    time: 100,
+    map: {
+      getRoomTerrain: jest.fn().mockReturnValue({
+        get: jest.fn().mockReturnValue(0)
+      })
+    } as unknown as GameMap
+  };
+}
 
 function makeCreep(id: string, x: number, y: number, roomName: string): Creep {
   return {

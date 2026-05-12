@@ -95,9 +95,13 @@ describe('claimed room construction planner', () => {
 
     const result = planClaimedRoomConstruction(colony);
 
-    expect(result.placements.map((placement) => placement.priority)).toEqual(['container', 'road']);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 19, 11, STRUCTURE_CONTAINER);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 11, 10, STRUCTURE_ROAD);
+    expect(result.placements.map((placement) => placement.priority)).toEqual([
+      'road',
+      'container',
+      'rampart',
+      'wall'
+    ]);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 11, 10, STRUCTURE_ROAD);
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 11, STRUCTURE_ROAD);
   });
 
