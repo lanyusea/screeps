@@ -25,6 +25,16 @@ def read_json(path: Path) -> dict[str, object]:
 
 
 class RlSimulatorHarnessTest(unittest.TestCase):
+    def test_safe_compose_project_name_normalizes_timestamp_run_ids(self) -> None:
+        name = harness._safe_compose_project_name(
+            "rl-sim-worker-rl-sim-run-mainagent2-20260512T183509Z-00"
+        )
+
+        self.assertEqual(name, "rl-sim-worker-rl-sim-run-mainagent2-20260512t183509z-00")
+        self.assertRegex(name, r"^[a-z0-9][a-z0-9_-]*$")
+        self.assertNotIn("T", name)
+        self.assertEqual(harness._safe_compose_project_name("Run.With.Dots"), "run-with-dots")
+
     def test_builds_manifest_from_local_metadata_without_raw_logs_or_secrets(self) -> None:
         secret = "supersecret123456"
         runtime_payload = {
