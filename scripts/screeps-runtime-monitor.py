@@ -2857,7 +2857,12 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
                         "message": f"{room_name}: owner missing and no spawn recovery is visible",
                     }
                 )
-            if not owner_missing and (not isinstance(spawns, (int, float)) or spawns <= 0):
+            if (
+                not owner_missing
+                and isinstance(creeps, (int, float))
+                and creeps <= 0
+                and (not isinstance(spawns, (int, float)) or spawns <= 0)
+            ):
                 reasons.append(
                     {
                         "kind": "postdeploy_no_owned_spawn",
@@ -3684,7 +3689,7 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertFalse(result["ok"])
             self.assertIn("postdeploy_room_dead", [reason["kind"] for reason in result["reasons"]])
 
-        def test_postdeploy_health_gate_rejects_owned_room_without_spawn_even_with_worker(self) -> None:
+        def test_postdeploy_health_gate_accepts_owned_room_without_spawn_when_worker_survives(self) -> None:
             result = evaluate_postdeploy_health_gate(
                 {
                     "ok": True,
@@ -3705,8 +3710,34 @@ def command_self_test(_args: argparse.Namespace) -> int:
                 {"ok": True, "mode": "alert", "alert": False, "reasons": []},
             )
 
+            self.assertTrue(result["ok"])
+            self.assertNotIn("postdeploy_no_owned_spawn", [reason["kind"] for reason in result["reasons"]])
+
+        def test_postdeploy_health_gate_rejects_owned_room_without_spawn_or_creeps(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "creeps": 0,
+                            "owned_creeps": 0,
+                            "structures": 4,
+                            "owner": "owner",
+                            "expected_owner": "owner",
+                            "spawns": 0,
+                            "owned_spawns": 0,
+                        }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            kinds = [reason["kind"] for reason in result["reasons"]]
             self.assertFalse(result["ok"])
-            self.assertIn("postdeploy_no_owned_spawn", [reason["kind"] for reason in result["reasons"]])
+            self.assertIn("postdeploy_no_owned_spawn", kinds)
+            self.assertIn("postdeploy_room_dead", kinds)
 
         def test_tactical_response_classifies_hostile_alert(self) -> None:
             report = build_tactical_response_report(
@@ -3788,7 +3819,7 @@ def command_self_test(_args: argparse.Namespace) -> int:
                             "kind": "postdeploy_no_owned_spawn",
                             "room": "shardTest/E1N1",
                             "spawns": 0,
-                            "creeps": 1,
+                            "creeps": 0,
                             "message": "shardTest/E1N1: no owned spawn recovery path is visible after deploy",
                         }
                     ],
