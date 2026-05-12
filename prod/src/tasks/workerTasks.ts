@@ -32,6 +32,7 @@ import {
 } from '../construction/constructionPriority';
 import {
   checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForExtensionConstruction,
   checkEnergyBufferForSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
@@ -2892,6 +2893,10 @@ function canSpendCreepEnergyOnConstructionSite(
   return (
     checkEnergyBufferForSpending(creep.room, carriedEnergy) ||
     (carriedEnergy > 0 &&
+      isExtensionConstructionSite(site) &&
+      checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy)) ||
+    (carriedEnergy > 0 &&
+      !isExtensionConstructionSite(site) &&
       isCapacityEnablingConstructionSite(site, priorityContext) &&
       checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
     (carriedEnergy > 0 &&
