@@ -969,7 +969,10 @@ def _debug_worker_phase(worker_index: int, variant_id: str, phase: str, **detail
     for key, value in sorted(details.items()):
         if value is None:
             continue
-        detail_parts.append(f"{key}={json.dumps(_safe_text(value, 160), ensure_ascii=True)}")
+        try:
+            detail_parts.append(f"{key}={json.dumps(_safe_text(value, 160), ensure_ascii=True)}")
+        except Exception:
+            detail_parts.append(f"{key}=\"[unserializable]\"")
     detail_text = f" {' '.join(detail_parts)}" if detail_parts else ""
     print(
         f"{timestamp} rl-sim-worker[{worker_index}] variant={variant_id} "
