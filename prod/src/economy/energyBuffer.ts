@@ -118,7 +118,7 @@ export function checkEnergyBufferForExtensionConstruction(room: Room, amount: nu
     return true;
   }
 
-  return hasBootstrapExtensionConstructionEnergyReserve(room);
+  return hasBootstrapExtensionConstructionEnergyReserve(room, amount);
 }
 
 export function hasMinimumWorkerSpawnEnergyForConstruction(room: Room): boolean {
@@ -218,7 +218,7 @@ function isSurvivalBufferMode(room: Room): boolean {
   return mode === 'BOOTSTRAP' || mode === 'DEFENSE';
 }
 
-function hasBootstrapExtensionConstructionEnergyReserve(room: Room): boolean {
+function hasBootstrapExtensionConstructionEnergyReserve(room: Room, amount: number): boolean {
   if (getRecordedColonySurvivalAssessment(getRoomName(room))?.mode !== 'BOOTSTRAP') {
     return false;
   }
@@ -233,7 +233,12 @@ function hasBootstrapExtensionConstructionEnergyReserve(room: Room): boolean {
   }
 
   const observation = getRoomSpawnExtensionEnergyObservation(room);
-  return observation.known && observation.currentEnergy >= getBootstrapExtensionConstructionReserve(energyCapacityAvailable);
+  const requestedEnergy = normalizeEnergyAmount(amount);
+  return (
+    observation.known &&
+    observation.currentEnergy >= getBootstrapExtensionConstructionReserve(energyCapacityAvailable) &&
+    observation.currentEnergy - requestedEnergy >= MINIMUM_WORKER_SPAWN_ENERGY
+  );
 }
 
 function hasBuildableExtensionCapacity(room: Room, energyCapacityAvailable: number): boolean {

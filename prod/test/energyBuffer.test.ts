@@ -176,7 +176,7 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
   });
 
-  it('allows bootstrap extension construction at the capacity line with a reduced reserve', () => {
+  it('keeps bootstrap extension construction above the worker spawn recovery floor', () => {
     const room = makeRoom({
       level: 2,
       energyAvailable: 400,
@@ -185,9 +185,13 @@ describe('energyBuffer', () => {
     });
     recordSurvivalMode('BOOTSTRAP');
 
+    expect(checkEnergyBufferForSpending(room, 50)).toBe(false);
+    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
+    expect(checkEnergyBufferForExtensionConstruction(room, 50)).toBe(true);
+
     expect(checkEnergyBufferForSpending(room, 250)).toBe(false);
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 250)).toBe(false);
-    expect(checkEnergyBufferForExtensionConstruction(room, 250)).toBe(true);
+    expect(checkEnergyBufferForExtensionConstruction(room, 250)).toBe(false);
   });
 
   it('does not use the bootstrap extension reserve after extension capacity is complete', () => {

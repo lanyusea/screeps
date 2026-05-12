@@ -10144,7 +10144,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
-  it('builds bootstrap extension construction at the 400 capacity line with carried remote energy', () => {
+  it('builds bootstrap extension construction at the 400 capacity line without spending recovery energy', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const builtExtensions = [
       makeEnergySink('extension-built1', 'extension' as StructureConstant, 0),
@@ -10158,7 +10158,7 @@ describe('selectWorkerTask', () => {
     } as StructureController;
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
-      store: { getUsedCapacity: jest.fn().mockReturnValue(250) },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({
         constructionSites: [site],
         controller,

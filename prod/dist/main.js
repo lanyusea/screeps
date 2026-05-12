@@ -2799,7 +2799,7 @@ function checkEnergyBufferForExtensionConstruction(room, amount) {
   if (checkEnergyBufferForCapacityEnablingConstruction(room, amount)) {
     return true;
   }
-  return hasBootstrapExtensionConstructionEnergyReserve(room);
+  return hasBootstrapExtensionConstructionEnergyReserve(room, amount);
 }
 function hasMinimumWorkerSpawnEnergyForConstruction(room) {
   const observation = getRoomSpawnExtensionEnergyObservation(room);
@@ -2870,7 +2870,7 @@ function isSurvivalBufferMode(room) {
   const mode = (_a = getRecordedColonySurvivalAssessment(getRoomName3(room))) == null ? void 0 : _a.mode;
   return mode === "BOOTSTRAP" || mode === "DEFENSE";
 }
-function hasBootstrapExtensionConstructionEnergyReserve(room) {
+function hasBootstrapExtensionConstructionEnergyReserve(room, amount) {
   var _a;
   if (((_a = getRecordedColonySurvivalAssessment(getRoomName3(room))) == null ? void 0 : _a.mode) !== "BOOTSTRAP") {
     return false;
@@ -2883,7 +2883,8 @@ function hasBootstrapExtensionConstructionEnergyReserve(room) {
     return false;
   }
   const observation = getRoomSpawnExtensionEnergyObservation(room);
-  return observation.known && observation.currentEnergy >= getBootstrapExtensionConstructionReserve(energyCapacityAvailable);
+  const requestedEnergy = normalizeEnergyAmount2(amount);
+  return observation.known && observation.currentEnergy >= getBootstrapExtensionConstructionReserve(energyCapacityAvailable) && observation.currentEnergy - requestedEnergy >= MINIMUM_WORKER_SPAWN_ENERGY;
 }
 function hasBuildableExtensionCapacity(room, energyCapacityAvailable) {
   const rcl = getRoomRcl(room);
