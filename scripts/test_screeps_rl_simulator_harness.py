@@ -543,8 +543,28 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(writes[0][0], Path("mods") / harness.SIMULATOR_REPAIR_MOD_FILENAME)
         self.assertIn("env.keys.TERRAIN_DATA", writes[0][1])
         self.assertIn("env.keys.ACCESSIBLE_ROOMS", writes[0][1])
+        self.assertIn("storage._connect", writes[0][1])
+        self.assertIn("__rlSimulatorHarnessRepairInstalled", writes[0][1])
         self.assertIn("return '[]';", writes[0][1])
         self.assertIn("bodyParser.json({ limit: '8mb' })", writes[0][1])
+
+    def test_launcher_config_auto_map_import_is_removed_for_explicit_import_phase(self) -> None:
+        config = """serverConfig:
+  welcomeText: "Local"
+  tickRate: 200
+  shardName: shardX
+  mapFile: /screeps/maps/map-0b6758af.json
+cli:
+  host: 127.0.0.1
+"""
+
+        updated = harness._strip_launcher_auto_map_import(config)
+
+        self.assertIn("shardName: shardX", updated)
+        self.assertNotIn("mapFile:", updated)
+
+    def test_default_sim_room_matches_bundled_private_map(self) -> None:
+        self.assertEqual(harness.DEFAULT_SIM_ROOM, "E1S1")
 
     def test_run_id_rejects_dots_even_without_path_separators(self) -> None:
         with self.assertRaisesRegex(argparse.ArgumentTypeError, "letters, numbers"):
@@ -672,6 +692,56 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(tick_entry["tick"], 42)
         self.assertEqual(tick_entry["rooms"]["E1S1"]["creeps"], 1)
 
+    def test_run_one_tick_prefers_stats_gametime_over_stale_private_overview(self) -> None:
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.payload = payload
+                self.headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return token
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok", 1) == 1
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, kwargs
+                if path == "/api/user/overview":
+                    return Result({"ok": 1, "rooms": ["E1S1"], "gametime": 999})
+                if path == "/stats":
+                    return Result({"gametime": 42})
+                if path == "/api/game/room-terrain":
+                    return Result({"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]})
+                if path == "/api/game/room-overview":
+                    return Result({
+                        "ok": 1,
+                        "room": "E1S1",
+                        "roomData": {
+                            "controller": {"level": 1},
+                            "objects": [{"type": "spawn"}],
+                            "creeps": 1,
+                            "energy": 300,
+                        },
+                    })
+                raise AssertionError(path)
+
+        _token, observed_tick, tick_entry = harness._run_one_tick(
+            argparse.Namespace(server_url="http://127.0.0.1"),
+            FakeSmoke(),
+            "token",
+            "E1S1",
+            "shardX",
+            previous_tick=41,
+            timeout_seconds=0.1,
+        )
+
+        self.assertEqual(observed_tick, 42)
+        self.assertEqual(tick_entry["tick"], 42)
+
     def test_build_variant_metrics_reduces_territory_resources_and_combat(self) -> None:
         tick_log = [
             {
@@ -757,6 +827,55 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "stop before side effects")
         self.assertIsNone(result["launcherRepairMod"])
+
+    def test_run_variant_uses_private_smoke_map_url_when_default_map_file_is_missing(self) -> None:
+        captured_map_sources: list[object] = []
+        captured_map_urls: list[str] = []
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = "https://maps.example.invalid/map.json"
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                captured_map_sources.append(cfg.map_source_file)
+                captured_map_urls.append(str(cfg.map_url))
+                return ["stop before side effects"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            missing_default_map = root / "missing-map.json"
+
+            with mock.patch("screeps_rl_simulator_harness.DEFAULT_MAP_SOURCE_FILE", missing_default_map):
+                with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                    result = harness._run_variant(
+                        0,
+                        "baseline",
+                        run_id="missing-default-map",
+                        ticks=1,
+                        room="E1S1",
+                        shard="shardX",
+                        branch="activeWorld",
+                        code_path=root / "main.js",
+                        map_source_file=missing_default_map,
+                        out_dir=root / "out",
+                    )
+
+        self.assertIsNone(captured_map_sources[0])
+        self.assertEqual(captured_map_urls, ["https://maps.example.invalid/map.json"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "stop before side effects")
+
+    def test_resolve_smoke_map_source_rejects_nondefault_missing_map_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing = Path(temp_dir) / "explicit-missing-map.json"
+
+            with self.assertRaisesRegex(RuntimeError, "map source file is not a file"):
+                harness._resolve_smoke_map_source_file(missing)
 
     def test_select_run_ports_skips_occupied_default_pair(self) -> None:
         class FakeSmoke:
@@ -900,6 +1019,94 @@ class RlSimulatorHarnessTest(unittest.TestCase):
             ],
         )
         self.assertTrue(str(result["launcherRepairMod"]).endswith(harness.SIMULATOR_REPAIR_MOD_FILENAME))
+
+    def test_run_variant_rewrites_launcher_config_before_compose_start(self) -> None:
+        events: list[str] = []
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def config_path(self) -> Path:
+                return self.work_dir / "config.yml"
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                events.append("prepare_work_dir")
+
+            def build_launcher_config(self, cfg: FakeSmokeConfig) -> str:
+                _ = cfg
+                return "serverConfig:\n  shardName: shardX\n  mapFile: /screeps/maps/map-0b6758af.json\n"
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                _ = work_dir
+                if path.name == "config.yml":
+                    events.append(f"rewrite_config:{'mapFile:' in text}")
+                else:
+                    events.append(f"write_mod:{path.name}")
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                events.append("prepare_map")
+
+            def run_command(self, command: list[str], cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = cfg, timeout
+                events.append(f"run_command:{command[-2:]}")
+                raise RuntimeError("stop after config rewrite")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="config-rewrite",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "stop after config rewrite")
+        self.assertEqual(
+            events[:5],
+            [
+                "prepare_work_dir",
+                "rewrite_config:False",
+                f"write_mod:{harness.SIMULATOR_REPAIR_MOD_FILENAME}",
+                "prepare_map",
+                "run_command:['down', '-v']",
+            ],
+        )
+        self.assertTrue(result["launcherAutoMapImportDisabled"])
 
     def test_run_variants_passes_worker_index_and_records_elapsed_wall_clock(self) -> None:
         calls: list[tuple[int, str]] = []
