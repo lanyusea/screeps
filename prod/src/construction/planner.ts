@@ -1,6 +1,6 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import {
-  checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForExtensionConstruction,
   checkEnergyBufferForSpending
 } from '../economy/energyBuffer';
 import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
@@ -328,7 +328,7 @@ function canReserveBootstrapExtensionEnergy(
     return false;
   }
 
-  return checkEnergyBufferForCapacityEnablingConstruction(room, budgetState.energyReserved + reservation);
+  return checkEnergyBufferForExtensionConstruction(room, budgetState.energyReserved + reservation);
 }
 
 function planExtensions(
@@ -805,7 +805,7 @@ function checkEnergyBufferForConstructionPriority(
   amount: number
 ): boolean {
   if (priority === 'extension' && hasRemainingStructureCapacity(room, 'extension')) {
-    return checkEnergyBufferForCapacityEnablingConstruction(room, amount);
+    return checkEnergyBufferForExtensionConstruction(room, amount);
   }
 
   return checkEnergyBufferForSpending(room, amount);
