@@ -1808,11 +1808,17 @@ def room_summary_count(room_summary_payload: dict[str, Any], owned_key: str, fal
     return room_summary_payload.get(fallback_key)
 
 
+def tactical_payload_is_clean_no_alert(alert_payload: dict[str, Any]) -> bool:
+    raw_reasons = alert_payload.get("reasons")
+    return alert_payload.get("alert") is False and isinstance(raw_reasons, list) and not raw_reasons
+
+
 def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> list[dict[str, Any]]:
     raw_room_summaries = alert_payload.get("room_summaries")
     if not isinstance(raw_room_summaries, list):
         return []
 
+    clean_no_alert = tactical_payload_is_clean_no_alert(alert_payload)
     reasons: list[dict[str, Any]] = []
     for room in raw_room_summaries:
         if not isinstance(room, dict):
@@ -1820,6 +1826,7 @@ def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> lis
         room_name = room.get("room")
         owned_spawns = room_summary_count(room, "owned_spawns", "spawns")
         owned_creeps = room_summary_count(room, "owned_creeps", "creeps")
+        hostiles = room.get("hostiles")
         if isinstance(owned_spawns, (int, float)) and owned_spawns <= 0:
             if isinstance(owned_creeps, (int, float)) and owned_creeps <= 0:
                 reasons.append(
@@ -1832,6 +1839,14 @@ def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> lis
                     }
                 )
             else:
+                if (
+                    clean_no_alert
+                    and isinstance(owned_creeps, (int, float))
+                    and owned_creeps > 0
+                    and isinstance(hostiles, (int, float))
+                    and hostiles <= 0
+                ):
+                    continue
                 reasons.append(
                     {
                         "kind": "owned_spawns=0",

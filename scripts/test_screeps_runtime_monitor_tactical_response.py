@@ -81,6 +81,39 @@ HEALTHY_ALERT_FIXTURE = {
     "warnings": [],
 }
 
+EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE = {
+    "ok": True,
+    "mode": "alert",
+    "alert": False,
+    "reasons": [],
+    "rooms": ["shardX/E24S49", "shardX/E23S49"],
+    "room_summaries": [
+        {
+            "room": "shardX/E24S49",
+            "name": "E24S49",
+            "owned_creeps": 13,
+            "owned_spawns": 1,
+            "creeps": 13,
+            "spawns": 1,
+            "hostiles": 0,
+            "structures": 35,
+            "owner": "lanyusea",
+        },
+        {
+            "room": "shardX/E23S49",
+            "name": "E23S49",
+            "owned_creeps": 4,
+            "owned_spawns": 0,
+            "creeps": 4,
+            "spawns": 0,
+            "hostiles": 0,
+            "structures": 1,
+            "owner": "lanyusea",
+        },
+    ],
+    "warnings": [],
+}
+
 
 PRIVATE_SMOKE_PHASES = [
     "host-port-preflight",
@@ -223,6 +256,18 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertTrue(report["silent"])
         self.assertEqual(report["severity"], "none")
         self.assertIsNone(report["priority"])
+        self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
+
+    def test_clean_no_alert_expansion_bootstrap_without_spawn_stays_silent(self) -> None:
+        report = monitor.build_tactical_response_report(EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE)
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["severity"], "none")
+        self.assertIsNone(report["priority"])
+        self.assertNotIn("spawn_collapse", report["categories"])
+        self.assertEqual(report["triggers"], [])
+        self.assertEqual(report["source"]["reason_count"], 0)
         self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
 
     def test_suppressed_room_dead_still_escalates(self) -> None:
