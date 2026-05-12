@@ -9846,6 +9846,31 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('keeps RCL2 bootstrap spawn refill ahead of extension construction during recovery', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 250, 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 250,
+        energyCapacityAvailable: 350,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
   it('keeps extension refill active when urgent threshold has cleared before controller progress', () => {
     const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 100);
     const controller = {
