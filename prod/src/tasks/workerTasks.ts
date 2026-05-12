@@ -466,6 +466,8 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   );
   if (
     bootstrapExtensionConstructionSite &&
+    !bootstrapNonCriticalWorkSuppressed &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) &&
     !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)
   ) {
     return applyMinimumUsefulLoadPolicy(creep, {

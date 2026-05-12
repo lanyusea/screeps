@@ -9846,7 +9846,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('builds RCL2 bootstrap extension capacity before non-critical spawn refill', () => {
+  it('keeps RCL2 bootstrap spawn refill ahead of extension construction during recovery', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 250, 100);
     const controller = {
@@ -9868,7 +9868,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     recordSurvivalMode('BOOTSTRAP');
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('keeps extension refill active when urgent threshold has cleared before controller progress', () => {
