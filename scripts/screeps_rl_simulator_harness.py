@@ -625,6 +625,156 @@ def build_scenario_config(
     }
 
 
+def _safe_build_scenario_config(
+    run_id: str,
+    variant_id: str,
+    *,
+    room: str,
+    shard: str,
+    branch: str,
+    ticks: int,
+    code_path: Path,
+    map_source_file: Path,
+) -> JsonObject:
+    try:
+        if code_path.is_file() and map_source_file.is_file():
+            return build_scenario_config(
+                run_id,
+                variant_id,
+                room=room,
+                shard=shard,
+                branch=branch,
+                ticks=ticks,
+                code_path=code_path,
+                map_source_file=map_source_file,
+            )
+    except OSError as exc:
+        return {
+            "type": "screeps-rl-sim-run-scenario",
+            "runId": run_id,
+            "variantId": variant_id,
+            "activeWorldBranch": branch,
+            "room": room,
+            "shard": shard,
+            "tickPlan": {"ticks": ticks},
+            "error": f"scenario artifact read failed: {_safe_text(exc, 240)}",
+        }
+    return {
+        "type": "screeps-rl-sim-run-scenario",
+        "runId": run_id,
+        "variantId": variant_id,
+        "activeWorldBranch": branch,
+        "room": room,
+        "shard": shard,
+        "tickPlan": {"ticks": ticks},
+        "codeArtifact": {"path": str(code_path), "available": False},
+        "mapArtifact": {"sourcePath": str(map_source_file), "available": False},
+    }
+
+
+def _run_summary_fields(variant_results: Sequence[JsonObject]) -> JsonObject:
+    variant_rows = [item for item in variant_results if isinstance(item, dict)]
+    successful = sum(1 for item in variant_rows if item.get("ok") is True)
+    failed = len(variant_rows) - successful
+    total_ticks = sum(_extract_int(item.get("ticks_run")) or 0 for item in variant_rows)
+    errors: list[str] = []
+    for item in variant_rows:
+        if item.get("ok") is True:
+            continue
+        variant_id = item.get("variant_id") if isinstance(item.get("variant_id"), str) else "unknown"
+        error = item.get("error")
+        if isinstance(error, str) and error:
+            errors.append(error)
+        else:
+            errors.append(f"variant {variant_id} did not report success")
+    return {
+        "ok": bool(variant_rows) and failed == 0,
+        "total_environments": len(variant_rows),
+        "successful": successful,
+        "failed": failed,
+        "total_ticks": total_ticks,
+        "error": "; ".join(errors[:3]) if errors else None,
+        "errors": errors,
+    }
+
+
+def _apply_run_summary_fields(artifact: JsonObject, variant_results: Sequence[JsonObject]) -> JsonObject:
+    artifact.update(_run_summary_fields(variant_results))
+    return artifact
+
+
+def _server_ports_payload(http_port: int | None, cli_port: int | None) -> JsonObject:
+    ports: JsonObject = {}
+    if http_port is not None:
+        ports["http"] = http_port
+    if cli_port is not None:
+        ports["cli"] = cli_port
+    return ports
+
+
+def _build_variant_failure_result(
+    variant_id: str,
+    *,
+    worker_index: int,
+    run_id: str,
+    ticks: int,
+    room: str,
+    shard: str,
+    branch: str,
+    code_path: Path,
+    map_source_file: Path,
+    error: Any,
+    wall_clock_seconds: float = 0.0,
+    server_host: str = "127.0.0.1",
+    http_port: int | None = None,
+    cli_port: int | None = None,
+    terrain_ready: JsonObject | None = None,
+    repair_mod_path: Path | None = None,
+) -> JsonObject:
+    api_branch = normalize_private_server_code_branch(branch)
+    variant_slug = _safe_filename(variant_id)
+    worker_run_id = f"{run_id}-{variant_slug}"
+    wall_seconds = round(wall_clock_seconds, 3)
+    if wall_seconds < 0:
+        wall_seconds = 0.0
+    strategy_variant = strategy_variant_config_by_id(variant_id)
+    error_text = _safe_text(error, 480)
+    return {
+        "variant_id": variant_id,
+        "variant_run_id": worker_run_id,
+        "worker_id": worker_index,
+        "strategyVariant": strategy_variant,
+        "strategy_variant": strategy_variant,
+        "scenario": _safe_build_scenario_config(
+            worker_run_id,
+            variant_id,
+            room=room,
+            shard=shard,
+            branch=api_branch,
+            ticks=ticks,
+            code_path=code_path,
+            map_source_file=map_source_file,
+        ),
+        "ticks_requested": ticks,
+        "ticks_run": 0,
+        "wall_clock_seconds": wall_seconds,
+        "ticks_per_second": 0.0,
+        "tick_log": [],
+        "metrics": build_variant_metrics([]),
+        "live_effect": False,
+        "official_mmo_writes": False,
+        "ok": False,
+        "error": error_text,
+        "errors": [error_text],
+        "serverHost": server_host,
+        "serverPorts": _server_ports_payload(http_port, cli_port),
+        "branch": api_branch,
+        "requestedBranch": branch,
+        "terrainReady": terrain_ready,
+        "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,
+    }
+
+
 def build_run_artifact(
     run_id: str,
     *,
@@ -650,7 +800,7 @@ def build_run_artifact(
             config = strategy_variant_config_by_id(item["variant_id"])
         if config is not None:
             strategy_variant_configs.append(config)
-    return {
+    artifact = {
         "type": RUN_SUMMARY_TYPE,
         "harnessVersion": HARNESS_VERSION,
         "harness_version": HARNESS_VERSION,
@@ -679,6 +829,7 @@ def build_run_artifact(
         "safety": safety_metadata(),
         "variants": variant_results,
     }
+    return _apply_run_summary_fields(artifact, variant_results)
 
 
 def validate_run_artifact(artifact: JsonObject) -> bool:
@@ -1187,56 +1338,60 @@ def _run_variant(
     map_source_file: Path,
     out_dir: Path,
 ) -> JsonObject:
-    smoke = _load_private_smoke_module()
     api_branch = normalize_private_server_code_branch(branch)
     strategy_variant = strategy_variant_config_by_id(variant_id)
     variant_slug = _safe_filename(variant_id)
     worker_run_id = f"{run_id}-{variant_slug}"
     safe_run_root = _worker_output_dir(out_dir, run_id, worker_index)
     server_host = "127.0.0.1"
-    http_port, cli_port = _select_run_ports(
-        smoke,
-        server_host,
-        worker_index=worker_index,
-        worker_count=worker_count,
-        host_port_start=host_port_start,
-    )
-    compose_project = f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}"
-    password = secrets.token_urlsafe(20)
-    cfg = smoke.SmokeConfig(
-        work_dir=safe_run_root,
-        server_host=server_host,
-        http_port=http_port,
-        cli_port=cli_port,
-        server_url=f"http://{server_host}:{http_port}",
-        username=f"rl-sim-{variant_slug}",
-        email=f"{variant_slug}@sim.local",
-        password=password,
-        room=room,
-        shard=shard,
-        spawn_name="Spawn1",
-        spawn_x=DEFAULT_SPAWN_X,
-        spawn_y=DEFAULT_SPAWN_Y,
-        branch=api_branch,
-        code_path=code_path,
-        map_url="",
-        map_source_file=map_source_file,
-        stats_timeout=30,
-        poll_interval=1,
-        min_creeps=1,
-        reset_data=True,
-        dry_run=False,
-        compose_project=compose_project,
-        mongo_db="screeps",
-    )
+    http_port: int | None = None
+    cli_port: int | None = None
+    smoke: Any | None = None
+    cfg: Any | None = None
     errors: list[str] = []
     start = time.time()
     token: str | None = None
     variant_ticks: list[JsonObject] = []
     terrain_ready: JsonObject | None = None
     repair_mod_path: Path | None = None
-    compose = None
+    compose: list[str] | None = None
     try:
+        smoke = _load_private_smoke_module()
+        http_port, cli_port = _select_run_ports(
+            smoke,
+            server_host,
+            worker_index=worker_index,
+            worker_count=worker_count,
+            host_port_start=host_port_start,
+        )
+        compose_project = f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}-{worker_index:02d}"
+        password = secrets.token_urlsafe(20)
+        cfg = smoke.SmokeConfig(
+            work_dir=safe_run_root,
+            server_host=server_host,
+            http_port=http_port,
+            cli_port=cli_port,
+            server_url=f"http://{server_host}:{http_port}",
+            username=f"rl-sim-{variant_slug}",
+            email=f"{variant_slug}@sim.local",
+            password=password,
+            room=room,
+            shard=shard,
+            spawn_name="Spawn1",
+            spawn_x=DEFAULT_SPAWN_X,
+            spawn_y=DEFAULT_SPAWN_Y,
+            branch=api_branch,
+            code_path=code_path,
+            map_url="",
+            map_source_file=map_source_file,
+            stats_timeout=30,
+            poll_interval=1,
+            min_creeps=1,
+            reset_data=True,
+            dry_run=False,
+            compose_project=compose_project,
+            mongo_db="screeps",
+        )
         for error in smoke.required_env_errors(cfg):
             raise RuntimeError(error)
         smoke.assert_safe_work_dir(cfg.work_dir)
@@ -1349,8 +1504,11 @@ def _run_variant(
     except Exception as exc:  # noqa: BLE001 - collect the failure into a safe result
         errors.append(_safe_text(exc, 480))
     finally:
-        if compose is not None:
-            smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
+        if compose is not None and smoke is not None and cfg is not None:
+            try:
+                smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
+            except Exception as exc:  # noqa: BLE001 - preserve the original result and surface cleanup failure
+                errors.append(f"cleanup failed: {_safe_text(exc, 420)}")
 
     wall_seconds = round(time.time() - start, 3)
     if wall_seconds <= 0:
@@ -1363,7 +1521,7 @@ def _run_variant(
         "worker_id": worker_index,
         "strategyVariant": strategy_variant,
         "strategy_variant": strategy_variant,
-        "scenario": build_scenario_config(
+        "scenario": _safe_build_scenario_config(
             worker_run_id,
             variant_id,
             room=room,
@@ -1383,8 +1541,9 @@ def _run_variant(
         "official_mmo_writes": False,
         "ok": len(errors) == 0,
         "error": errors[0] if errors else None,
-        "serverHost": cfg.server_host,
-        "serverPorts": {"http": http_port, "cli": cli_port},
+        "errors": errors,
+        "serverHost": cfg.server_host if cfg is not None else server_host,
+        "serverPorts": _server_ports_payload(http_port, cli_port),
         "branch": api_branch,
         "requestedBranch": branch,
         "terrainReady": terrain_ready,
@@ -1431,26 +1590,48 @@ def run_variants(
     normalized_workers = max(1, min(workers, len(variants)))
     buckets = _run_worker_assignments(variants, normalized_workers)
     worker_variants: list[list[str]] = [[variants[index] for index in bucket] for bucket in buckets]
+    variant_worker: dict[str, int] = {}
+    for worker_id, assigned in enumerate(worker_variants):
+        for variant_id in assigned:
+            variant_worker[variant_id] = worker_id
 
     def worker_loop(worker_id: int, assigned_variants: list[str]) -> list[JsonObject]:
         results: list[JsonObject] = []
         for variant_id in assigned_variants:
-            results.append(
-                _run_variant(
-                    worker_index=worker_id,
-                    variant_id=variant_id,
-                    run_id=run_id,
-                    worker_count=normalized_workers,
-                    host_port_start=host_port_start,
-                    ticks=ticks,
-                    room=room,
-                    shard=shard,
-                    branch=branch,
-                    code_path=code_path,
-                    map_source_file=map_source_file,
-                    out_dir=out_dir,
+            variant_start = time.time()
+            try:
+                results.append(
+                    _run_variant(
+                        worker_index=worker_id,
+                        variant_id=variant_id,
+                        run_id=run_id,
+                        worker_count=normalized_workers,
+                        host_port_start=host_port_start,
+                        ticks=ticks,
+                        room=room,
+                        shard=shard,
+                        branch=branch,
+                        code_path=code_path,
+                        map_source_file=map_source_file,
+                        out_dir=out_dir,
+                    )
                 )
-            )
+            except Exception as exc:  # noqa: BLE001 - keep one result row per requested variant
+                results.append(
+                    _build_variant_failure_result(
+                        variant_id,
+                        worker_index=worker_id,
+                        run_id=run_id,
+                        ticks=ticks,
+                        room=room,
+                        shard=shard,
+                        branch=branch,
+                        code_path=code_path,
+                        map_source_file=map_source_file,
+                        error=f"worker {worker_id} failed while running variant: {_safe_text(exc, 420)}",
+                        wall_clock_seconds=time.time() - variant_start,
+                    )
+                )
         return results
 
     result_map: dict[str, JsonObject] = {}
@@ -1462,10 +1643,44 @@ def run_variants(
             futures[executor.submit(worker_loop, worker_id, assigned)] = assigned
         for future in concurrent.futures.as_completed(futures):
             assigned = futures[future]
-            worker_results = future.result()
+            try:
+                worker_results = future.result()
+            except Exception as exc:  # noqa: BLE001 - preserve assigned variants in the final summary
+                worker_results = [
+                    _build_variant_failure_result(
+                        variant_id,
+                        worker_index=variant_worker.get(variant_id, -1),
+                        run_id=run_id,
+                        ticks=ticks,
+                        room=room,
+                        shard=shard,
+                        branch=branch,
+                        code_path=code_path,
+                        map_source_file=map_source_file,
+                        error=f"worker failed before result collection: {_safe_text(exc, 420)}",
+                    )
+                    for variant_id in assigned
+                ]
             for item in worker_results:
-                result_map[item["variant_id"]] = item
-    ordered = [result_map[variant] for variant in variants if variant in result_map]
+                variant_id = item.get("variant_id") if isinstance(item, dict) else None
+                if isinstance(variant_id, str):
+                    result_map[variant_id] = item
+    for variant_id in variants:
+        if variant_id in result_map:
+            continue
+        result_map[variant_id] = _build_variant_failure_result(
+            variant_id,
+            worker_index=variant_worker.get(variant_id, -1),
+            run_id=run_id,
+            ticks=ticks,
+            room=room,
+            shard=shard,
+            branch=branch,
+            code_path=code_path,
+            map_source_file=map_source_file,
+            error="variant missing from worker result collection",
+        )
+    ordered = [result_map[variant] for variant in variants]
     artifact = build_run_artifact(
         run_id,
         ticks=ticks,
@@ -2392,11 +2607,12 @@ def run_simulator(
         bot_commit=resolved_bot_commit,
     )
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"
+    artifact["variants"] = variants_result
+    _apply_run_summary_fields(artifact, variants_result)
     validate_run_artifact(artifact)
     assert_no_secret_leak(artifact, dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")])
     write_json_atomic(run_artifact_path, artifact)
     artifact["run_artifact_path"] = str(run_artifact_path)
-    artifact["variants"] = variants_result
     return artifact
 
 
