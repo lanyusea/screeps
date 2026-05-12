@@ -3286,7 +3286,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-buffered' });
   });
 
-  it('skips depleted source containers when assigning dedicated harvesters', () => {
+  it('uses an empty source container for dedicated harvesting instead of bypassing it', () => {
     const emptyContainerSource = makeSource('source-empty-container', 10, 10);
     const chargedContainerSource = makeSource('source-charged-container', 30, 30);
     const openSource = makeSource('source-open', 20, 20);
@@ -3317,7 +3317,7 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({
       type: 'harvest',
-      targetId: 'source-charged-container',
+      targetId: 'source-empty-container',
       sourceContainerAssigned: true
     });
   });
@@ -3357,7 +3357,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-charged' });
   });
 
-  it('falls back to direct source harvesting when all source containers are empty', () => {
+  it('keeps using source containers for harvesting when all source containers are empty', () => {
     const closeSource = makeSource('source-close-empty-container', 10, 10);
     const farSource = makeSource('source-far-empty-container', 30, 30);
     const closeContainer = makeStoredEnergyStructure('container-close-empty', 'container' as StructureConstant, 0, {
@@ -3391,7 +3391,11 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-close-empty-container' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'harvest',
+      targetId: 'source-close-empty-container',
+      sourceContainerAssigned: true
+    });
   });
 
   it('does not assign a second harvester to a source container with a dedicated worker', () => {
@@ -9984,6 +9988,51 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ Repairer: repairer, Upgrader: upgrader });
 
     expect(selectWorkerTask(repairer)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('assigns minimum harvesters onto source containers when available', () => {
+    const source = makeSource('source1', 20, 10);
+    const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(20, 11)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 4,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 350,
+      sources: [source],
+      structures: [sourceContainer as AnyStructure]
+    });
+    const repairer = {
+      name: 'Repairer',
+      memory: { role: 'worker', task: { type: 'repair', targetId: 'road1' as Id<Structure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const upgrader = {
+      name: 'Upgrader',
+      memory: { role: 'worker', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, Upgrader: upgrader });
+
+    expect(selectWorkerTask(repairer)).toEqual({
+      type: 'harvest',
+      targetId: 'source1',
+      sourceContainerAssigned: true
+    });
   });
 
   it('assigns a minimum harvester before capacity construction when spawn energy is below capacity', () => {

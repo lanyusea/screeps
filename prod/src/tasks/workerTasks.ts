@@ -410,7 +410,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
     const source = selectHarvestSource(creep);
     if (source) {
-      return { type: 'harvest', targetId: source.id };
+      return createHarvestTaskForSource(creep, source);
     }
 
     if (getFreeEnergyCapacity(creep) > 0) {
@@ -3904,7 +3904,18 @@ function selectWorkerHarvestTask(
   options: HarvestSourceSelectionOptions = {}
 ): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
   const source = selectHarvestSource(creep, options);
-  return source ? { type: 'harvest', targetId: source.id } : null;
+  return source ? createHarvestTaskForSource(creep, source) : null;
+}
+
+function createHarvestTaskForSource(
+  creep: Creep,
+  source: Source
+): Extract<CreepTaskMemory, { type: 'harvest' }> {
+  return {
+    type: 'harvest',
+    targetId: source.id,
+    ...(findVisibleSourceContainer(creep, source) ? { sourceContainerAssigned: true as const } : {})
+  };
 }
 
 function selectNearbyWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -3966,7 +3977,7 @@ function createCompetitiveHarvestEnergyAcquisitionCandidate(
     range,
     score: score - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
-    task: { type: 'harvest', targetId: source.id }
+    task: createHarvestTaskForSource(creep, source)
   };
 }
 
@@ -4484,7 +4495,7 @@ function findLowLoadHarvestEnergyAcquisitionCandidates(creep: Creep): LowLoadWor
       creep,
       source,
       getHarvestCandidateEnergy(creep, source),
-      { type: 'harvest', targetId: source.id }
+      createHarvestTaskForSource(creep, source)
     )
   ];
 }
@@ -6658,14 +6669,13 @@ function selectSourceContainerHarvestSource(creep: Creep): Source | null {
 
   const source = selectBestHarvestSource(
     creep,
-    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
+    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasVisibleSourceContainer(creep, candidate))
   );
   return source;
 }
 
-function hasNonEmptyVisibleSourceContainer(creep: Creep, source: Source): boolean {
-  const sourceContainer = findVisibleSourceContainer(creep, source);
-  return sourceContainer !== null && getStoredEnergy(sourceContainer) > 0;
+function hasVisibleSourceContainer(creep: Creep, source: Source): boolean {
+  return findVisibleSourceContainer(creep, source) !== null;
 }
 
 function hasVisiblePositionedContainer(room: Room): boolean {

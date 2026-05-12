@@ -7886,7 +7886,7 @@ var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
 var EARLY_ENERGY_CAPACITY_TARGET = 550;
 var MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
 var MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
-var MIN_RCL_FOR_AUTOMATED_ROADS = 4;
+var MIN_RCL_FOR_AUTOMATED_ROADS = 2;
 var MIN_RCL_FOR_STORAGE = 4;
 var MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY = 4;
 var STORAGE_STRUCTURE_LIMIT = 1;
@@ -7934,8 +7934,8 @@ var CONSTRUCTION_SITE_IMPACT_PRIORITY = {
 var POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   spawn: 170,
   extension: 160,
-  road: 150,
-  container: 140,
+  container: 150,
+  road: 140,
   rampart: 130,
   tower: 120,
   storage: 110,
@@ -9764,8 +9764,8 @@ function getOptionalRangeBetweenPositions(left, right) {
 var POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER = [
   "spawn",
   "extension",
-  "road",
   "container",
+  "road",
   "tower",
   "rampart",
   "storage"
@@ -9859,11 +9859,11 @@ function planConstructionForColony(colony, options = {}) {
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
-    planRoads(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
-    planContainers(colony, result, budgetState, options);
+    planRoads(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -9895,11 +9895,11 @@ function planConstructionForColony(colony, options = {}) {
     return result;
   }
   if (!sourceLogisticsStarved) {
-    planRoads(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
-    planContainers(colony, result, budgetState, options);
+    planRoads(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -10569,7 +10569,7 @@ function createEmptyClaimedRoomConstructionResult(colony, reason) {
   };
 }
 function buildClaimedRoomConstructionOptions(colony, options) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e;
   const sourceCount = getSourceCount2(colony.room);
   const postClaimRoom = isPostClaimConstructionRoom(colony.room.name);
   return {
@@ -10578,6 +10578,7 @@ function buildClaimedRoomConstructionOptions(colony, options) {
     includeStorage: (_b = options.includeStorage) != null ? _b : postClaimRoom,
     postClaimPriorityOrder: (_c = options.postClaimPriorityOrder) != null ? _c : postClaimRoom,
     respectRoomEnergyBuffer: (_d = options.respectRoomEnergyBuffer) != null ? _d : true,
+    maxContainerSitesPerTick: (_e = options.maxContainerSitesPerTick) != null ? _e : Math.max(1, sourceCount),
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,
       maxTargetsPerTick: Math.max(1, sourceCount),
@@ -21930,7 +21931,7 @@ function selectHeuristicWorkerTask(creep) {
     }
     const source = selectHarvestSource(creep);
     if (source) {
-      return { type: "harvest", targetId: source.id };
+      return createHarvestTaskForSource(creep, source);
     }
     if (getFreeEnergyCapacity8(creep) > 0) {
       return selectWorkerLinkEnergyFallbackTask(creep);
@@ -24167,7 +24168,14 @@ function selectWorkerPreHarvestTask(creep) {
 }
 function selectWorkerHarvestTask(creep, options = {}) {
   const source = selectHarvestSource(creep, options);
-  return source ? { type: "harvest", targetId: source.id } : null;
+  return source ? createHarvestTaskForSource(creep, source) : null;
+}
+function createHarvestTaskForSource(creep, source) {
+  return {
+    type: "harvest",
+    targetId: source.id,
+    ...findVisibleSourceContainer(creep, source) ? { sourceContainerAssigned: true } : {}
+  };
 }
 function selectNearbyWorkerEnergyAcquisitionTask(creep) {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
@@ -24214,7 +24222,7 @@ function createCompetitiveHarvestEnergyAcquisitionCandidate(creep, source) {
     range,
     score: score - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
-    task: { type: "harvest", targetId: source.id }
+    task: createHarvestTaskForSource(creep, source)
   };
 }
 function isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(creep, candidate, harvestCandidate) {
@@ -24527,7 +24535,7 @@ function findLowLoadHarvestEnergyAcquisitionCandidates(creep) {
       creep,
       source,
       getHarvestCandidateEnergy(creep, source),
-      { type: "harvest", targetId: source.id }
+      createHarvestTaskForSource(creep, source)
     )
   ];
 }
@@ -25964,13 +25972,12 @@ function selectSourceContainerHarvestSource(creep) {
   }
   const source = selectBestHarvestSource(
     creep,
-    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
+    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasVisibleSourceContainer(creep, candidate))
   );
   return source;
 }
-function hasNonEmptyVisibleSourceContainer(creep, source) {
-  const sourceContainer = findVisibleSourceContainer(creep, source);
-  return sourceContainer !== null && getStoredEnergy14(sourceContainer) > 0;
+function hasVisibleSourceContainer(creep, source) {
+  return findVisibleSourceContainer(creep, source) !== null;
 }
 function hasVisiblePositionedContainer(room) {
   if (typeof FIND_STRUCTURES !== "number" || typeof room.find !== "function") {

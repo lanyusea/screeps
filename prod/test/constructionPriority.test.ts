@@ -342,8 +342,8 @@ describe('impact-weighted construction site selection', () => {
     expect(selectedOrder).toEqual([
       'spawn-site',
       'extension-site',
-      'road-site',
       'container-site',
+      'road-site',
       'rampart-site',
       'tower-site',
       'storage-site'
