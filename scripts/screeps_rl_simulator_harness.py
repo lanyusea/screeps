@@ -962,6 +962,24 @@ def _resolve_smoke_map_source_file(map_source_file: Path) -> Path | None:
     raise RuntimeError(f"map source file is not a file: {resolved}")
 
 
+def _debug_worker_phase(worker_index: int, variant_id: str, phase: str, **details: object) -> None:
+    """Emit bounded stderr phase logs for diagnosing worker startup hangs."""
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    detail_parts = []
+    for key, value in sorted(details.items()):
+        if value is None:
+            continue
+        try:
+            detail_parts.append(f"{key}={json.dumps(_safe_text(value, 160), ensure_ascii=True)}")
+        except Exception:
+            detail_parts.append(f"{key}=\"[unserializable]\"")
+    detail_text = f" {' '.join(detail_parts)}" if detail_parts else ""
+    print(
+        f"{timestamp} rl-sim-worker[{worker_index}] variant={variant_id} "
+        f"phase={json.dumps(phase, ensure_ascii=True)}{detail_text}",
+        file=sys.stderr,
+        flush=True,
+    )
 def _terrain_payload_has_data(payload: Any) -> bool:
     summary = _terrain_summary(payload)
     return bool(summary.get("bytes"))
@@ -1469,12 +1487,27 @@ def _run_variant(
         compose = smoke.find_compose_command()
         smoke.prepare_work_dir(cfg)
         launcher_auto_map_import_disabled = _disable_launcher_auto_map_import(smoke, cfg)
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after _disable_launcher_auto_map_import",
+            disabled=launcher_auto_map_import_disabled,
+        )
         repair_mod_path = _install_simulator_repair_mod(smoke, cfg)
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after _install_simulator_repair_mod",
+            mod_path=repair_mod_path,
+        )
         smoke.prepare_map(cfg)
         scenario_map_source_file = smoke_map_source_file or cfg.map_path
+        _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))
 
         # Reset server-owned state by removing any leftover stack and volumes first.
+        _debug_worker_phase(worker_index, variant_id, "before docker compose down", command="down -v")
         smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
+        _debug_worker_phase(worker_index, variant_id, "before docker compose up", command="up -d")
         smoke.run_command([*compose, "up", "-d"], cfg, timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         _require_launcher_cli_success(smoke, compose, cfg, "system.resetAllData()", "reset simulator data")
