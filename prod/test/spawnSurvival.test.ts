@@ -131,8 +131,9 @@ describe('spawn survival integration', () => {
     expect(harness.spawn.spawnCreep).toHaveBeenCalledTimes(5);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toEqual({
-      mode: 'TERRITORY_READY',
-      updatedAt: 109
+      mode: 'LOCAL_STABLE',
+      updatedAt: 109,
+      suppressionReasons: ['localWorkerRecovery']
     });
     expect(Memory.economy?.sourceWorkloads?.W1N1?.updatedAt).toBe(109);
     expect(

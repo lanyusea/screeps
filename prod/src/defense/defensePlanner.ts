@@ -9,8 +9,17 @@ export const SAFE_MODE_HOSTILE_COUNT_THRESHOLD = 2;
 export const CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 export const TOWER_CONTROLLER_THREAT_RANGE = 3;
 export const TOWER_STRUCTURE_THREAT_RANGE = 3;
+export const BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL = 2;
+export const BOOTSTRAP_DEFENSE_FLOOR_MAX_SITES_PER_TICK = 2;
+export const BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS = 1;
 
 export type DefenseTarget = Creep | Structure;
+export type BootstrapDefenseFloorAnchorKind =
+  | 'spawnRampart'
+  | 'spawnWall'
+  | 'controllerRampart'
+  | 'towerRampart'
+  | 'containerRampart';
 
 export interface DefensePressureSummary {
   hostileCreepCount: number;
@@ -45,12 +54,122 @@ export interface TowerAttackTargetOptions {
   protectedStructures?: Structure[];
 }
 
+export interface BootstrapDefenseFloorAnchor {
+  kind: BootstrapDefenseFloorAnchorKind;
+  priority: number;
+  roomName: string;
+  structureType: BuildableStructureConstant;
+  x: number;
+  y: number;
+}
+
+export interface BootstrapDefenseFloorAssessment {
+  anchors: BootstrapDefenseFloorAnchor[];
+  missingAnchors: BootstrapDefenseFloorAnchor[];
+  ready: boolean;
+  spawnRampartReady: boolean;
+  wallAnchorCount: number;
+}
+
+export interface BootstrapDefenseFloorOptions {
+  maxPlacements?: number;
+}
+
+interface CandidatePosition {
+  x: number;
+  y: number;
+  roomName?: string;
+}
+
+type FindConstantGlobal =
+  | 'FIND_STRUCTURES'
+  | 'FIND_CONSTRUCTION_SITES'
+  | 'FIND_MY_STRUCTURES'
+  | 'FIND_MY_CONSTRUCTION_SITES';
+type StructureConstantGlobal =
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_WALL'
+  | 'STRUCTURE_TOWER';
+
+const ROOM_EDGE_MIN = 1;
+const ROOM_EDGE_MAX = 48;
+const DEFAULT_TERRAIN_WALL_MASK = 1;
+const SPAWN_WALL_ANCHOR_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1]
+];
+const CONTROLLER_RAMPART_ANCHOR_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1]
+];
+const STRUCTURE_TYPE_FALLBACKS: Record<StructureConstantGlobal, string> = {
+  STRUCTURE_SPAWN: 'spawn',
+  STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_WALL: 'constructedWall',
+  STRUCTURE_TOWER: 'tower'
+};
+
 export function hasDefensePressure(summary: DefensePressureSummary): boolean {
   return (
     normalizeNonNegativeInteger(summary.hostileCreepCount) > 0 ||
     normalizeNonNegativeInteger(summary.hostileStructureCount) > 0 ||
     normalizeNonNegativeInteger(summary.damagedCriticalStructureCount) > 0
   );
+}
+
+export function assessBootstrapDefenseFloor(room: Room): BootstrapDefenseFloorAssessment {
+  const anchors = getBootstrapDefenseFloorAnchors(room);
+  const missingAnchors = anchors.filter((anchor) => !isDefenseAnchorCovered(room, anchor));
+  const spawnRampartReady = anchors
+    .filter((anchor) => anchor.kind === 'spawnRampart')
+    .some((anchor) => !missingAnchors.includes(anchor));
+  const wallAnchorCount = anchors
+    .filter((anchor) => anchor.kind === 'spawnWall')
+    .filter((anchor) => !missingAnchors.includes(anchor)).length;
+
+  return {
+    anchors,
+    missingAnchors,
+    ready:
+      spawnRampartReady &&
+      wallAnchorCount >= BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS,
+    spawnRampartReady,
+    wallAnchorCount
+  };
+}
+
+export function planBootstrapDefenseFloorPlacements(
+  room: Room,
+  options: BootstrapDefenseFloorOptions = {}
+): BootstrapDefenseFloorAnchor[] {
+  if (getOwnedRoomRcl(room) < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL) {
+    return [];
+  }
+
+  const maxPlacements = resolveNonNegativeInteger(
+    options.maxPlacements,
+    BOOTSTRAP_DEFENSE_FLOOR_MAX_SITES_PER_TICK
+  );
+  if (maxPlacements <= 0) {
+    return [];
+  }
+
+  return assessBootstrapDefenseFloor(room).missingAnchors.slice(0, maxPlacements);
+}
+
+export function isBootstrapDefenseFloorReady(room: Room): boolean {
+  return assessBootstrapDefenseFloor(room).ready;
 }
 
 export function buildDefenderBody(energyAvailable: number, hostileCount: number): BodyPartConstant[] {
@@ -231,7 +350,7 @@ function compareRange(
   return leftRange - rightRange;
 }
 
-function getRangeBetweenPositions(left: RoomPosition, right: RoomPosition): number {
+function getRangeBetweenPositions(left: { x: number; y: number }, right: { x: number; y: number }): number {
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }
 
@@ -258,6 +377,262 @@ function getObjectId(object: unknown): string {
 
 function appendNameSuffix(baseName: string, suffix: string | undefined): string {
   return suffix ? `${baseName}-${suffix}` : baseName;
+}
+
+function getBootstrapDefenseFloorAnchors(room: Room): BootstrapDefenseFloorAnchor[] {
+  if (getOwnedRoomRcl(room) < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL) {
+    return [];
+  }
+
+  const anchors: BootstrapDefenseFloorAnchor[] = [];
+  const spawn = selectPrimaryOwnedSpawn(room);
+  if (!spawn?.pos) {
+    return anchors;
+  }
+
+  const rampartStructureType = getStructureConstant('STRUCTURE_RAMPART');
+  const wallStructureType = getStructureConstant('STRUCTURE_WALL');
+  anchors.push({
+    kind: 'spawnRampart',
+    priority: 0,
+    roomName: room.name,
+    structureType: rampartStructureType,
+    x: spawn.pos.x,
+    y: spawn.pos.y
+  });
+
+  for (const position of selectSpawnWallAnchorPositions(room, spawn.pos)) {
+    anchors.push({
+      kind: 'spawnWall',
+      priority: 1,
+      roomName: room.name,
+      structureType: wallStructureType,
+      x: position.x,
+      y: position.y
+    });
+  }
+
+  for (const tower of getOwnedStructuresByType<StructureTower>(room, 'STRUCTURE_TOWER')) {
+    anchors.push({
+      kind: 'towerRampart',
+      priority: 2,
+      roomName: room.name,
+      structureType: rampartStructureType,
+      x: tower.pos.x,
+      y: tower.pos.y
+    });
+  }
+
+  const controllerAnchor = selectControllerRampartAnchorPosition(room, spawn.pos);
+  if (controllerAnchor) {
+    anchors.push({
+      kind: 'controllerRampart',
+      priority: 3,
+      roomName: room.name,
+      structureType: rampartStructureType,
+      x: controllerAnchor.x,
+      y: controllerAnchor.y
+    });
+  }
+
+  for (const container of getOwnedOrNeutralStructuresByType<StructureContainer>(room, 'STRUCTURE_CONTAINER')) {
+    anchors.push({
+      kind: 'containerRampart',
+      priority: 4,
+      roomName: room.name,
+      structureType: rampartStructureType,
+      x: container.pos.x,
+      y: container.pos.y
+    });
+  }
+
+  return dedupeDefenseAnchors(anchors).sort(
+    (left, right) =>
+      left.priority - right.priority ||
+      getRangeBetweenPositions(spawn.pos, left) - getRangeBetweenPositions(spawn.pos, right) ||
+      getPositionKey(left).localeCompare(getPositionKey(right))
+  );
+}
+
+function selectPrimaryOwnedSpawn(room: Room): StructureSpawn | null {
+  const spawns = getOwnedStructuresByType<StructureSpawn>(room, 'STRUCTURE_SPAWN')
+    .filter((spawn) => spawn.pos?.roomName === room.name)
+    .sort((left, right) => getObjectId(left).localeCompare(getObjectId(right)));
+
+  return spawns[0] ?? null;
+}
+
+function selectSpawnWallAnchorPositions(room: Room, spawnPosition: RoomPosition): CandidatePosition[] {
+  const positions: CandidatePosition[] = [];
+  for (const [dx, dy] of SPAWN_WALL_ANCHOR_OFFSETS) {
+    const position = {
+      x: spawnPosition.x + dx,
+      y: spawnPosition.y + dy,
+      roomName: room.name
+    };
+    if (canPlaceWallAnchor(room, position)) {
+      positions.push(position);
+    }
+  }
+
+  return positions.slice(0, BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS + 1);
+}
+
+function selectControllerRampartAnchorPosition(
+  room: Room,
+  spawnPosition: RoomPosition
+): CandidatePosition | null {
+  const controllerPosition = room.controller?.pos;
+  if (!controllerPosition || controllerPosition.roomName !== room.name) {
+    return null;
+  }
+
+  return CONTROLLER_RAMPART_ANCHOR_OFFSETS
+    .map(([dx, dy]) => ({
+      x: controllerPosition.x + dx,
+      y: controllerPosition.y + dy,
+      roomName: room.name
+    }))
+    .filter((position) => canPlaceRampartAnchor(room, position))
+    .sort(
+      (left, right) =>
+        getRangeBetweenPositions(spawnPosition, left) - getRangeBetweenPositions(spawnPosition, right) ||
+        getPositionKey(left).localeCompare(getPositionKey(right))
+    )[0] ?? null;
+}
+
+function canPlaceWallAnchor(room: Room, position: CandidatePosition): boolean {
+  return isBuildableAnchorPosition(room, position) && !hasBlockingObjectAtPosition(room, position);
+}
+
+function canPlaceRampartAnchor(room: Room, position: CandidatePosition): boolean {
+  return isBuildableAnchorPosition(room, position) && !hasBlockingObjectAtPosition(room, position);
+}
+
+function isBuildableAnchorPosition(room: Room, position: CandidatePosition): boolean {
+  return (
+    position.x >= ROOM_EDGE_MIN &&
+    position.x <= ROOM_EDGE_MAX &&
+    position.y >= ROOM_EDGE_MIN &&
+    position.y <= ROOM_EDGE_MAX &&
+    !isTerrainWall(room, position)
+  );
+}
+
+function hasBlockingObjectAtPosition(room: Room, position: CandidatePosition): boolean {
+  return [
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES')
+  ].some((object) => isSamePosition(object.pos, position));
+}
+
+function isDefenseAnchorCovered(room: Room, anchor: BootstrapDefenseFloorAnchor): boolean {
+  return [
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<Structure>(room, 'FIND_MY_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES')
+  ].some(
+    (object) =>
+      object.structureType === anchor.structureType &&
+      isSamePosition(object.pos, anchor)
+  );
+}
+
+function getOwnedStructuresByType<T extends Structure>(
+  room: Room,
+  structureGlobal: StructureConstantGlobal
+): T[] {
+  const structureType = getStructureConstant(structureGlobal);
+  return findRoomObjects<T>(room, 'FIND_MY_STRUCTURES')
+    .filter((structure) => structure.structureType === structureType && structure.pos?.roomName === room.name);
+}
+
+function getOwnedOrNeutralStructuresByType<T extends Structure>(
+  room: Room,
+  structureGlobal: StructureConstantGlobal
+): T[] {
+  const structureType = getStructureConstant(structureGlobal);
+  return findRoomObjects<T>(room, 'FIND_STRUCTURES')
+    .filter((structure) => structure.structureType === structureType && structure.pos?.roomName === room.name);
+}
+
+function findRoomObjects<T>(room: Room, globalName: FindConstantGlobal): T[] {
+  const findConstant = getGlobalNumber(globalName);
+  if (findConstant === null || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const found = room.find(findConstant as FindConstant);
+    return Array.isArray(found) ? (found as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function dedupeDefenseAnchors(anchors: BootstrapDefenseFloorAnchor[]): BootstrapDefenseFloorAnchor[] {
+  const seen = new Set<string>();
+  const deduped: BootstrapDefenseFloorAnchor[] = [];
+  for (const anchor of anchors) {
+    const key = `${anchor.structureType}:${getPositionKey(anchor)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(anchor);
+  }
+
+  return deduped;
+}
+
+function getOwnedRoomRcl(room: Room): number {
+  const level = room.controller?.my === true ? room.controller.level : 0;
+  return typeof level === 'number' && Number.isFinite(level) ? Math.max(0, Math.min(8, Math.floor(level))) : 0;
+}
+
+function getStructureConstant(globalName: StructureConstantGlobal): BuildableStructureConstant {
+  const value = (globalThis as unknown as Partial<Record<StructureConstantGlobal, BuildableStructureConstant>>)[globalName];
+  return (value ?? STRUCTURE_TYPE_FALLBACKS[globalName]) as BuildableStructureConstant;
+}
+
+function getGlobalNumber(globalName: FindConstantGlobal): number | null {
+  const value = (globalThis as Record<string, unknown>)[globalName];
+  return typeof value === 'number' ? value : null;
+}
+
+function isTerrainWall(room: Room, position: CandidatePosition): boolean {
+  const terrain = (globalThis as { Game?: Partial<Game> }).Game?.map?.getRoomTerrain?.(room.name);
+  return terrain !== undefined && (terrain.get(position.x, position.y) & getTerrainWallMask()) !== 0;
+}
+
+function getTerrainWallMask(): number {
+  const value = (globalThis as { TERRAIN_MASK_WALL?: unknown }).TERRAIN_MASK_WALL;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : DEFAULT_TERRAIN_WALL_MASK;
+}
+
+function isSamePosition(left: CandidatePosition | undefined, right: CandidatePosition): boolean {
+  return (
+    left !== undefined &&
+    left.x === right.x &&
+    left.y === right.y &&
+    (left.roomName === undefined || right.roomName === undefined || left.roomName === right.roomName)
+  );
+}
+
+function getPositionKey(position: CandidatePosition): string {
+  return `${position.roomName ?? ''}:${position.x},${position.y}`;
+}
+
+function resolveNonNegativeInteger(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(value));
 }
 
 function normalizeNonNegativeInteger(value: number): number {
