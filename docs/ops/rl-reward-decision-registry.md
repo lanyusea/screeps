@@ -3,9 +3,11 @@
 Canonical PDCA Act-loop registry for RL reward components, weights, penalties, validation criteria, and implementation tracking in the Screeps RL training pipeline.
 
 - **Container issue:** #963
+- **Replacement container issue:** #967 (#907 replacement — YAML schema + change-control gate)
 - **Previous registry issue:** #959
 - **Previous reward-decision issue:** #907, closed after PR #961 merged
 - **Umbrella:** #879 (ALL IN RL)
+- **Machine-readable schema:** `docs/ops/rl-reward-schema.yaml` (v1, #967)
 - **Last updated:** 2026-05-12
 
 ## Purpose
