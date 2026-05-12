@@ -208,6 +208,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             artifact = root / "runtime.log"
             dead_room = runtime_payload(100, stored_energy=0)
             room = dead_room["rooms"][0]
+            room["roomName"] = "E24S49"
             room["workerCount"] = 0
             room["spawnStatus"] = []
             room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
@@ -241,6 +242,88 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertIn("no_owned_creeps", report["quality_checks"]["rejection_reasons"])
         self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
         self.assertTrue(any(reason["gate"] == "quality_checks" for reason in report["blockingReasons"]))
+
+    def test_run_allows_non_home_room_without_owned_spawns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            remote_room = runtime_payload(100)
+            remote_room["rooms"][0]["roomName"] = "E26S49"
+            remote_room["rooms"][0]["spawnStatus"] = []
+            remote_room["rooms"][0]["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 4}
+            remote_room["rooms"][0]["energyAvailable"] = 0
+            remote_room["rooms"][0]["resources"]["workerCarriedEnergy"] = 300
+            artifact.write_text(runtime_line(remote_room), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-remote-no-spawn",
+                created_at="2026-05-04T08:00:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="d" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_accepted"], 1)
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+        self.assertNotIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
+
+    def test_run_accepts_home_room_with_owned_spawns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            home_room = runtime_payload(100)
+            home_room["rooms"][0]["roomName"] = "E24S49"
+            artifact.write_text(runtime_line(home_room), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-home-with-spawn",
+                created_at="2026-05-04T08:00:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="e" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_accepted"], 1)
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+
+    def test_home_room_env_var_controls_no_owned_spawns_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            configured_home_room = runtime_payload(100)
+            configured_home_room["rooms"][0]["roomName"] = "W1N1"
+            configured_home_room["rooms"][0]["spawnStatus"] = []
+            artifact.write_text(runtime_line(configured_home_room), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "W1N1"}):
+                report = gate.run_gate(
+                    [str(artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-configured-home-no-spawn",
+                    created_at="2026-05-04T08:00:00Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="f" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["quality_checks"]["home_room"], "W1N1")
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
+        self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
 
     def test_cli_returns_nonzero_when_predefined_metric_floor_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

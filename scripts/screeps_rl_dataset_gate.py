@@ -29,6 +29,8 @@ DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-dataset-gates")
 DEFAULT_MIN_SAMPLES = 1
 DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
 QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
+DEFAULT_HOME_ROOM = "E24S49"
+HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 JsonObject = dict[str, Any]
@@ -167,6 +169,11 @@ def build_contract() -> JsonObject:
                 "--min-resource-score",
                 "--min-kills-score",
             ],
+            "qualityHomeRoom": {
+                "env": HOME_ROOM_ENV_VAR,
+                "default": DEFAULT_HOME_ROOM,
+                "contract": "only the configured home room is expected to have owned spawns",
+            },
         },
         "outputs": {
             "directory": "runtime-artifacts/rl-dataset-gates/<gate-id>/",
@@ -184,7 +191,7 @@ def build_contract() -> JsonObject:
         },
         "gateChecks": {
             "dataset": "dataset run exists, has at least the configured sample count, has manifest/source/tick/KPI files, and preserves offline safety flags",
-            "qualityChecks": "dataset samples must show active harvest/upgrade work, room energy, owned creeps, and owned spawns",
+            "qualityChecks": "dataset samples must show active harvest/upgrade work, room energy, owned creeps, and home-room owned spawns; non-home rooms may have no owned spawns",
             "shadowEvaluation": "strategy-shadow report generation succeeds unless explicitly skipped",
             "historicalValidation": "candidate report must pass when --candidate-config is supplied",
             "predefinedMetrics": "current KPI window must satisfy configured metric floors",
@@ -289,6 +296,16 @@ def at_least_one(value: float | None) -> bool:
     return value is not None and value >= 1
 
 
+def configured_home_room() -> str:
+    return os.environ.get(HOME_ROOM_ENV_VAR, "").strip() or DEFAULT_HOME_ROOM
+
+
+def sample_room_name(sample: JsonObject) -> str | None:
+    observation = sample.get("observation") if isinstance(sample.get("observation"), dict) else {}
+    room_name = observation.get("roomName") if isinstance(observation, dict) else None
+    return room_name if isinstance(room_name, str) and room_name else None
+
+
 def quality_evidence(sample: JsonObject) -> JsonObject:
     observation = sample.get("observation") if isinstance(sample.get("observation"), dict) else {}
     harvest_tasks = number_at_path(observation, ("workers", "taskCounts", "harvest"))
@@ -339,16 +356,26 @@ def quality_evidence(sample: JsonObject) -> JsonObject:
     }
 
 
-def quality_rejection_reasons(sample: JsonObject) -> list[str]:
+def quality_rejection_reasons(sample: JsonObject, *, home_room: str | None = None) -> list[str]:
+    resolved_home_room = home_room or configured_home_room()
     evidence = quality_evidence(sample)
+    room_name = sample_room_name(sample)
     reasons: list[str] = []
+    room_energy_present = (
+        positive_value(evidence["workerCarriedEnergy"])
+        or positive_value(evidence["energyAvailable"])
+        or positive_value(evidence["storedEnergy"])
+    )
     # Console-capture data source cannot observe per-creep task assignments
     # (those are in bot Memory, not visible room objects).
-    # Accept rooms with valid energy + creeps + spawns even when task counts are unavailable.
+    # Accept rooms with valid energy + creeps + expected spawn telemetry even when task counts are unavailable.
+    spawn_requirement_satisfied = positive_value(evidence["ownedSpawns"]) or (
+        room_name is not None and room_name != resolved_home_room
+    )
     room_has_valid_telemetry = (
-        positive_value(evidence["energyAvailable"])
+        room_energy_present
         and positive_value(evidence["ownedCreeps"])
-        and positive_value(evidence["ownedSpawns"])
+        and spawn_requirement_satisfied
     )
     if not (
         at_least_one(evidence["harvestTasks"])
@@ -356,20 +383,17 @@ def quality_rejection_reasons(sample: JsonObject) -> list[str]:
         or room_has_valid_telemetry
     ):
         reasons.append("no_harvest_or_upgrade_task")
-    if not (
-        positive_value(evidence["workerCarriedEnergy"])
-        or positive_value(evidence["energyAvailable"])
-        or positive_value(evidence["storedEnergy"])
-    ):
+    if not room_energy_present:
         reasons.append("no_room_energy")
     if not positive_value(evidence["ownedCreeps"]):
         reasons.append("no_owned_creeps")
-    if not positive_value(evidence["ownedSpawns"]):
+    if room_name == resolved_home_room and not positive_value(evidence["ownedSpawns"]):
         reasons.append("no_owned_spawns")
     return reasons
 
 
-def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
+def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None) -> JsonObject:
+    resolved_home_room = home_room or configured_home_room()
     samples_accepted = 0
     samples_rejected = 0
     rejection_reasons: dict[str, int] = {}
@@ -398,7 +422,11 @@ def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
                 sample = {}
                 reasons = ["invalid_sample_json"]
             else:
-                reasons = quality_rejection_reasons(sample) if isinstance(sample, dict) else ["invalid_sample_json"]
+                reasons = (
+                    quality_rejection_reasons(sample, home_room=resolved_home_room)
+                    if isinstance(sample, dict)
+                    else ["invalid_sample_json"]
+                )
 
             if not reasons:
                 samples_accepted += 1
@@ -427,7 +455,7 @@ def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
             "productive_task_present",
             rejection_reasons.get("no_harvest_or_upgrade_task", 0) == 0,
             rejectedSamples=rejection_reasons.get("no_harvest_or_upgrade_task", 0),
-            requirement="harvestTasks >=1 OR upgradeTasks >=1 OR (energyAvailable>0 AND ownedCreeps>0 AND ownedSpawns>0)",
+            requirement="harvestTasks >=1 OR upgradeTasks >=1 OR ((workerCarriedEnergy>0 OR energyAvailable>0 OR storedEnergy>0) AND ownedCreeps>0 AND (ownedSpawns>0 OR non-home room))",
         ),
         pass_fail_check(
             "room_energy_present",
@@ -445,7 +473,8 @@ def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
             "owned_spawns_present",
             rejection_reasons.get("no_owned_spawns", 0) == 0,
             rejectedSamples=rejection_reasons.get("no_owned_spawns", 0),
-            requirement="ownedSpawns > 0",
+            requirement="ownedSpawns > 0 in home room; non-home rooms may have no owned spawns",
+            homeRoom=resolved_home_room,
         ),
     ]
     samples_total = samples_accepted + samples_rejected
@@ -458,6 +487,7 @@ def evaluate_quality_checks(ticks_path: Path) -> JsonObject:
         "rejected_samples": rejected_samples,
         "rejected_sample_log_limit": QUALITY_REJECTED_SAMPLE_LOG_LIMIT,
         "rejected_samples_truncated": max(0, samples_rejected - len(rejected_samples)),
+        "home_room": resolved_home_room,
         "checks": checks,
     }
 
