@@ -36,16 +36,16 @@ Each reward component record contains:
 
 ## Registered Components
 
-### 1. workerLoadEfficiency
+### 1. worker-load-efficiency
 
 | Field | Value |
 |-------|-------|
-| `id` | `workerLoadEfficiency` |
+| `id` | `worker-load-efficiency` |
 | `type` | `penalty` |
 | `weight` | `-0.1` |
 | `category` | `logistics` |
 | `trigger` | Per-trip: worker withdraws energy and carried amount < 10 when container/storage fill ≥ 100 |
-| `formula` | `if carried_energy < 10 AND source_fill >= 100: penalty = -0.1 * (1 - carried_energy/10)` |
+| `formula` | `if carried_energy < 10 AND container_fill >= 100: penalty = -0.1 * (1 - carried_energy/10)` |
 | `evidence_source` | Gameplay Evolution Review 2026-05-12: tick 854540, all 4 workers withdraw 1 energy; mean trip energy < 10 across window |
 | `validation` | Mean withdrawn-per-trip > 15 in ≥ 60% of shadow-eval captures |
 | `rollback_condition` | Disable if worker count < 3 or energy buffer unhealthy for 2+ consecutive captures |
@@ -53,11 +53,11 @@ Each reward component record contains:
 | `introduced` | 2026-05-12 (#959) |
 | `last_modified` | 2026-05-12 (#959) |
 
-### 2. buildAllocationMinimum
+### 2. build-allocation-minimum
 
 | Field | Value |
 |-------|-------|
-| `id` | `buildAllocationMinimum` |
+| `id` | `build-allocation-minimum` |
 | `type` | `reward` |
 | `weight` | `+0.05` |
 | `category` | `resources` |
@@ -70,16 +70,16 @@ Each reward component record contains:
 | `introduced` | 2026-05-12 (#959) |
 | `last_modified` | 2026-05-12 (#959) |
 
-### 3. stuckPenalty
+### 3. stuck-penalty
 
 | Field | Value |
 |-------|-------|
-| `id` | `stuckPenalty` |
+| `id` | `stuck-penalty` |
 | `type` | `penalty` |
 | `weight` | `-0.02` per stuck tick |
 | `category` | `reliability` |
-| `trigger` | Per-creep: creep has not moved or changed position for > 5 consecutive ticks |
-| `formula` | `penalty = -0.02 * (stuck_ticks - 5) for stuck_ticks > 5` |
+| `trigger` | Per-creep: creep has not moved or changed position for > 5 consecutive ticks AND not performing stationary action (upgrading, building adjacent, spawning) |
+| `formula` | `penalty = -0.02 * (stuck_ticks - 5) for stuck_ticks > 5 AND NOT (is_upgrading OR is_building_adjacent OR is_spawning)` |
 | `evidence_source` | Gameplay Evolution Review 2026-05-12: stuckTicks 5-12 across multiple captures (e.g. worker-E24S49-854124: 11 ticks) |
 | `validation` | maxStuckTicks ≤ 5 per capture in ≥ 80% of shadow-eval captures |
 | `rollback_condition` | Disable if false-positive stuck detection exceeds 10% of creep captures (e.g. creeps stationary during spawn/upgrade at controller) |
@@ -87,11 +87,11 @@ Each reward component record contains:
 | `introduced` | 2026-05-12 (#959) |
 | `last_modified` | 2026-05-12 (#959) |
 
-### 4. territoryExpansionReward (placeholder)
+### 4. territory-expansion-reward (placeholder)
 
 | Field | Value |
 |-------|-------|
-| `id` | `territoryExpansionReward` |
+| `id` | `territory-expansion-reward` |
 | `type` | `reward` |
 | `weight` | TBD |
 | `category` | `territory` |
