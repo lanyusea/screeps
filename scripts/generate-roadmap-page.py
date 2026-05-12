@@ -3597,8 +3597,6 @@ def summarize_automation_runs(
         timestamp = cron_output_timestamp(path)
         if timestamp is None:
             ambiguous_count += 1
-            paths.append(path)
-            counted_ids.append(automation_run_evidence_id(path, output_root, None))
             continue
         timestamped_count += 1
         if apply_window and not timestamp_in_window(timestamp, window_start, window_end):
@@ -3622,7 +3620,7 @@ def summarize_automation_runs(
         captured_end=max(captured_times) if captured_times else None,
         source_root=output_root,
         source_exists=True,
-        window_reliable=True,
+        window_reliable=ambiguous_count == 0,
         counted_ids=tuple(counted_ids),
     )
 
