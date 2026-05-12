@@ -556,7 +556,7 @@ RUNTIME_ROOM_METRIC_COLUMNS = {
 
 DEDUPE_TABLE_KEYS = {
     "metric_observations": ("metric_name", "tick", "room_name", "source_artifact", "evidence_json"),
-    "runtime_room_metrics": ("tick", "room_name", "source_artifact"),
+    "runtime_room_metrics": ("tick", "shard", "room_name", "source_artifact"),
     "gameplay_behavior_findings": ("finding_key", "source_artifact", "tick", "room_name"),
     "metric_coverage_gaps": ("metric_name", "source_artifact", "room_name", "tick", "gap_type"),
     "rl_dataset_gate_metrics": ("gate_id", "status", "metric_name", "source_artifact", "evidence_json"),
@@ -893,6 +893,7 @@ def record_runtime_room_metrics(
     dedupe_key = dedupe_key_for_values(
         "runtime_room_metrics",
         tick=tick,
+        shard=shard,
         room_name=room_name,
         source_artifact=source_artifact,
     )

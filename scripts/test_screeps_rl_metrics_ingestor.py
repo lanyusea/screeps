@@ -39,11 +39,11 @@ def table_counts(db_path: Path, tables: tuple[str, ...]) -> dict[str, int]:
     return {table: fetch_count(db_path, table) for table in tables}
 
 
-def runtime_payload(room: JsonObject) -> JsonObject:
+def runtime_payload(room: JsonObject, *, tick: int = 12345, shard: str = "shardX") -> JsonObject:
     return {
         "type": "runtime-summary",
-        "tick": 12345,
-        "shard": "shardX",
+        "tick": tick,
+        "shard": shard,
         "cpu": {"bucket": 9000, "used": 7.5},
         "reliability": {"loopExceptionCount": 0, "telemetrySilenceTicks": 0},
         "rooms": [room],
@@ -285,6 +285,42 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                     ("economy.energy_telemetry", "missing_energy_fields"),
                 ),
                 1,
+            )
+
+    def test_runtime_room_metric_dedupe_keeps_same_tick_room_across_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            artifact_dir = root / "runtime-summary-console"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            room = {
+                "roomName": "E26S49",
+                "controller": {"my": True, "level": 3},
+                "pendingBuildProgress": 700,
+            }
+            (artifact_dir / "runtime.log").write_text(
+                runtime_line(runtime_payload(room, tick=12345, shard="shardX"))
+                + runtime_line(runtime_payload(room, tick=12345, shard="shardY")),
+                encoding="utf-8",
+            )
+
+            ingestor.ingest_artifacts(db_path, [artifact_dir])
+
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute(
+                    """
+                    SELECT shard, room_name, tick, pending_build_progress
+                    FROM runtime_room_metrics
+                    ORDER BY shard
+                    """
+                ).fetchall()
+
+            self.assertEqual(
+                rows,
+                [
+                    ("shardX", "E26S49", 12345, 700.0),
+                    ("shardY", "E26S49", 12345, 700.0),
+                ],
             )
 
     def test_low_load_return_metric_creates_behavior_finding(self) -> None:
