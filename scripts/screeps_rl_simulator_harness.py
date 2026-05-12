@@ -2576,10 +2576,6 @@ def run_simulator(
     map_source_file: Path = DEFAULT_MAP_SOURCE_FILE,
     bot_commit: str | None = None,
 ) -> JsonObject:
-    if not code_path.is_file():
-        raise RuntimeError(f"code path is not a file: {code_path}")
-    if not map_source_file.is_file():
-        raise RuntimeError(f"map source file is not a file: {map_source_file}")
     if not os.environ.get("STEAM_KEY"):
         raise RuntimeError("STEAM_KEY environment variable is required for run mode")
 
