@@ -68,6 +68,9 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 metric_observation_columns = {
                     row[1] for row in conn.execute("PRAGMA table_info(metric_observations)").fetchall()
                 }
+                runtime_room_metric_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(runtime_room_metrics)").fetchall()
+                }
                 dedupe_indexes = {
                     table: {
                         row[1]
@@ -79,6 +82,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
 
         self.assertIn("metric_definitions", tables)
         self.assertIn("metric_observations", tables)
+        self.assertIn("runtime_room_metrics", tables)
         self.assertIn("gameplay_behavior_findings", tables)
         self.assertIn("metric_coverage_gaps", tables)
         self.assertIn("rl_dataset_gate_metrics", tables)
@@ -87,6 +91,16 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
         self.assertIn("metric_iteration_decisions", tables)
 
         self.assertIn("dedupe_key", metric_observation_columns)
+        for column_name in (
+            "pending_build_progress",
+            "build_carried_energy",
+            "construction_site_count",
+            "cpu_used",
+            "cpu_bucket",
+            "rcl_level",
+            "stored_energy",
+        ):
+            self.assertIn(column_name, runtime_room_metric_columns)
         for table in ingestor.DEDUPE_TABLE_KEYS:
             self.assertIn(f"idx_{table}_dedupe_key", dedupe_indexes[table])
 
@@ -165,10 +179,17 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                     {
                         "roomName": "E26S49",
                         "controller": {"my": True, "level": 3},
+                        "rclLevel": 3,
                         "workerCount": 4,
                         "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
                         "taskCounts": {"harvest": 1, "upgrade": 3, "build": 0},
                         "energyAvailable": 300,
+                        "pendingBuildProgress": 700,
+                        "buildCarriedEnergy": 0,
+                        "constructionSiteCount": 2,
+                        "cpuUsed": 6.25,
+                        "cpuBucket": 8123,
+                        "storedEnergy": 800,
                         "resources": {
                             "storedEnergy": 800,
                             "workerCarriedEnergy": 120,
@@ -199,6 +220,31 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                     "metric_observations",
                     "WHERE metric_name = ?",
                     ("construction.backlog_progress",),
+                ),
+                1,
+            )
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute(
+                    """
+                    SELECT pending_build_progress, build_carried_energy, construction_site_count,
+                           cpu_used, cpu_bucket, rcl_level, stored_energy
+                    FROM runtime_room_metrics
+                    WHERE room_name = ?
+                    """,
+                    ("E26S49",),
+                ).fetchone()
+            summary = json.loads(ingestor.summarize_database(db_path, output_format="json"))
+
+            self.assertEqual(row, (700.0, 0.0, 2.0, 6.25, 8123.0, 3.0, 800.0))
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["pendingBuildProgress"], 700.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["constructionSiteCount"], 2.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["minCpuBucket"], 8123.0)
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ?",
+                    ("construction.site_count",),
                 ),
                 1,
             )

@@ -25,6 +25,13 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rooms": [
                 {
                     "roomName": "W1N1",
+                    "pendingBuildProgress": 500,
+                    "buildCarriedEnergy": 20,
+                    "constructionSiteCount": 2,
+                    "cpuUsed": 5.0,
+                    "cpuBucket": 9000,
+                    "rclLevel": 2,
+                    "storedEnergy": 175,
                     "controller": {"level": 2, "progress": 1000, "progressTotal": 45000, "ticksToDowngrade": 15000},
                     "resources": {
                         "storedEnergy": 175,
@@ -53,6 +60,13 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rooms": [
                 {
                     "roomName": "W1N1",
+                    "pendingBuildProgress": 450,
+                    "buildCarriedEnergy": 15,
+                    "constructionSiteCount": 2,
+                    "cpuUsed": 6.0,
+                    "cpuBucket": 8990,
+                    "rclLevel": 2,
+                    "storedEnergy": 210,
                     "controller": {"level": 2, "progress": 1300, "progressTotal": 45000, "ticksToDowngrade": 14950},
                     "resources": {
                         "storedEnergy": 210,
@@ -129,6 +143,24 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "attackDamage": 30,
             "objectDestroyedCount": 1,
             "creepDestroyedCount": 1,
+        })
+        self.assertEqual(report["roomMetrics"]["totals"]["latest"], {
+            "pendingBuildProgress": 450,
+            "buildCarriedEnergy": 15,
+            "constructionSiteCount": 2,
+            "cpuUsed": 6.0,
+            "cpuBucket": 8990,
+            "rclLevel": 2,
+            "storedEnergy": 210,
+        })
+        self.assertEqual(report["roomMetrics"]["totals"]["delta"], {
+            "pendingBuildProgress": -50,
+            "buildCarriedEnergy": -5,
+            "constructionSiteCount": 0,
+            "cpuUsed": 1.0,
+            "cpuBucket": -10,
+            "rclLevel": 0,
+            "storedEnergy": 35,
         })
 
     def test_rejects_runtime_summary_lines_with_trailing_garbage(self) -> None:
@@ -320,6 +352,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         self.assertIn("territory: 1 owned room(s): W1N1", human)
         self.assertIn("controller W1N1: RCL 2 progress 10/45000", human)
         self.assertIn("resources:", human)
+        self.assertIn("roomMetrics:", human)
         self.assertIn("events not observed", human)
 
 

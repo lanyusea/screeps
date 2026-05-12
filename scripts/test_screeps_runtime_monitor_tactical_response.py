@@ -512,14 +512,33 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     "x": 26,
                     "y": 23,
                 },
+                "container-1": {
+                    "_id": "container-1",
+                    "type": "container",
+                    "store": {"energy": 40},
+                    "x": 26,
+                    "y": 24,
+                },
                 "worker-1": {
                     "_id": "worker-1",
                     "type": "creep",
                     "my": True,
                     "owner": {"username": "lanyusea"},
-                    "store": {"energy": 61},
+                    "carry": {"energy": 61},
+                    "memory": {"task": "build"},
                     "x": 27,
                     "y": 23,
+                },
+                "site-1": {
+                    "_id": "site-1",
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "structureType": "extension",
+                    "progress": 75,
+                    "progressTotal": 200,
+                    "x": 27,
+                    "y": 24,
                 },
                 "source-1": {"_id": "source-1", "type": "source", "energy": 2846, "x": 20, "y": 20},
                 "hostile-1": {
@@ -533,7 +552,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             },
             tick=265630,
             owner="lanyusea",
-            info={},
+            info={"cpu": {"used": 7.25, "bucket": 9123}},
         )
 
         payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
@@ -543,9 +562,20 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
         self.assertEqual(payload["rooms"][0]["controller"]["level"], 3)
         self.assertEqual(payload["rooms"][0]["controller"]["progress"], 1250)
-        self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 315)
+        self.assertEqual(payload["rooms"][0]["rclLevel"], 3)
+        self.assertEqual(payload["rooms"][0]["storedEnergy"], 355)
+        self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 355)
         self.assertEqual(payload["rooms"][0]["resources"]["workerCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["sourceCount"], 1)
+        self.assertEqual(payload["rooms"][0]["pendingBuildProgress"], 125)
+        self.assertEqual(payload["rooms"][0]["buildCarriedEnergy"], 61)
+        self.assertEqual(payload["rooms"][0]["constructionSiteCount"], 1)
+        self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["pendingBuildProgress"], 125)
+        self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["buildCarriedEnergy"], 61)
+        self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionSiteCount"], 1)
+        self.assertEqual(payload["rooms"][0]["cpuUsed"], 7.25)
+        self.assertEqual(payload["rooms"][0]["cpuBucket"], 9123)
+        self.assertEqual(payload["cpu"], {"used": 7.25, "bucket": 9123})
         self.assertEqual(payload["rooms"][0]["combat"]["hostileCreepCount"], 1)
 
     def test_runtime_summary_artifact_line_is_bridge_compatible(self) -> None:
