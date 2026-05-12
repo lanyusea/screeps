@@ -128,6 +128,8 @@ class OfficialDeployEvidenceSummary:
     latest: OfficialDeployEvidenceRecord | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
+    captured_start: datetime | None = None
+    captured_end: datetime | None = None
     evidence_ids: tuple[str, ...] = ()
     candidate_count: int = 0
 
@@ -145,6 +147,8 @@ class PrivateSmokeEvidenceSummary:
     latest: PrivateSmokeEvidenceRecord | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
+    captured_start: datetime | None = None
+    captured_end: datetime | None = None
     evidence_ids: tuple[str, ...] = ()
     candidate_count: int = 0
 
@@ -158,6 +162,19 @@ class CodexSessionMetrics:
     elapsed_seconds: int | None
     longest_elapsed_seconds: int | None
     unreadable_count: int
+    candidate_count: int = 0
+    readable_count: int = 0
+    attributed_count: int = 0
+    timestamped_count: int = 0
+    ambiguous_count: int = 0
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    captured_start: datetime | None = None
+    captured_end: datetime | None = None
+    source_root: Path | None = None
+    source_exists: bool = False
+    window_reliable: bool = True
+    counted_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -165,6 +182,19 @@ class AutomationRunMetrics:
     run_count: int
     job_count: int
     available: bool
+    candidate_count: int = 0
+    readable_count: int = 0
+    attributed_count: int = 0
+    timestamped_count: int = 0
+    ambiguous_count: int = 0
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    captured_start: datetime | None = None
+    captured_end: datetime | None = None
+    source_root: Path | None = None
+    source_exists: bool = False
+    window_reliable: bool = True
+    counted_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -709,6 +739,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project-number", type=int, default=DEFAULT_PROJECT_NUMBER, help="GitHub project number.")
     parser.add_argument("--project-owner", default=DEFAULT_OWNER, help="GitHub project owner.")
     parser.add_argument("--repo-full-name", default="", help="GitHub repository in owner/name form.")
+    parser.add_argument(
+        "--delivery-metrics-window-days",
+        type=int,
+        default=DELIVERY_METRICS_WINDOW_DAYS,
+        help="Window, in days, for delivery artifact metrics. Default: 7.",
+    )
     return parser.parse_args(argv)
 
 
@@ -717,6 +753,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = Path(args.repo).expanduser().resolve()
     docs_dir = (repo_root / args.docs_dir).resolve() if not Path(args.docs_dir).is_absolute() else Path(args.docs_dir)
     db_path = (repo_root / args.db).resolve() if not Path(args.db).is_absolute() else Path(args.db)
+    delivery_window_days = max(1, int(args.delivery_metrics_window_days))
 
     docs_dir.mkdir(parents=True, exist_ok=True)
     repo_full_name = args.repo_full_name or detect_repo_full_name(repo_root)
@@ -757,6 +794,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         docs_dir=docs_dir,
         repo_root=repo_root,
         cached_page_data=cached_page_data,
+        delivery_window_days=delivery_window_days,
     )
     data = sanitize_public_data(data)
 
@@ -2174,6 +2212,7 @@ def build_page_data(
     docs_dir: Path,
     repo_root: Path,
     cached_page_data: JsonObject | None = None,
+    delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> JsonObject:
     logo_path = docs_dir / "assets" / "screeps-community-logo.png"
     return {
@@ -2215,6 +2254,7 @@ def build_page_data(
             repo_root,
             repo,
             cached_page_data or {},
+            delivery_window_days,
         ),
     }
 
@@ -2240,6 +2280,7 @@ def build_approved_report_model(
     repo_root: Path,
     repo: JsonObject,
     cached_page_data: JsonObject,
+    delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> JsonObject:
     return {
         "id": APPROVED_REPORT_MODEL_ID,
@@ -2250,7 +2291,14 @@ def build_approved_report_model(
         "kpiCards": build_report_kpi_cards(history, generated_at, history_source),
         "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
         "domainKanban": build_report_domain_kanban(github_snapshot),
-        "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data, generated_at),
+        "processCards": build_report_process_cards(
+            repo_root,
+            repo,
+            github_snapshot,
+            cached_page_data,
+            generated_at,
+            delivery_window_days,
+        ),
     }
 
 
@@ -2780,6 +2828,7 @@ def build_report_process_cards(
     github_snapshot: JsonObject,
     cached_page_data: JsonObject,
     generated_at: str | None = None,
+    delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> list[JsonObject]:
     cached_process_cards = cached_report_process_cards(cached_page_data)
     commit_count = git_commit_count(repo_root)
@@ -2797,7 +2846,7 @@ def build_report_process_cards(
             "rawValue": commit_count,
             "label": "Commits",
             "detail": "git rev-list --count HEAD",
-            "delta": "+0",
+            "delta": process_card_delta(cached_process_cards, "Commits", commit_count),
             "source": "git rev-list --count HEAD",
         }
 
@@ -2809,7 +2858,7 @@ def build_report_process_cards(
             "rawValue": len(prs),
             "label": "PRs",
             "detail": f"{merged_prs} merged",
-            "delta": "+0",
+            "delta": process_card_delta(cached_process_cards, "PRs", len(prs)),
             "source": "github",
         }
     else:
@@ -2823,65 +2872,86 @@ def build_report_process_cards(
             "rawValue": len(issues),
             "label": "Issues",
             "detail": f"{open_issues} open",
-            "delta": "+0",
+            "delta": process_card_delta(cached_process_cards, "Issues", len(issues)),
             "source": "github",
         }
     else:
         issue_card = unavailable_process_card("Issues", format_fetch_error("gh issue list", issue_error))
 
-    official_deploy_summary = summarize_official_deploy_evidence(repo_root, generated_at)
+    official_deploy_summary = summarize_official_deploy_evidence(repo_root, generated_at, delivery_window_days)
     if official_deploy_summary.count > 0:
-        official_deploy_detail = official_deploy_process_detail(official_deploy_summary)
+        official_deploy_detail = official_deploy_process_detail(official_deploy_summary, delivery_window_days)
+        deploy_provenance = delivery_metric_provenance(
+            official_deploy_summary.window_start,
+            official_deploy_summary.window_end,
+            "runtime-artifacts/official-screeps-deploy JSON",
+            official_deploy_summary.evidence_ids,
+            official_deploy_summary.candidate_count,
+            source_roots=("runtime-artifacts/official-screeps-deploy",),
+            readable_count=official_deploy_summary.candidate_count,
+            total_count=official_deploy_summary.candidate_count,
+            counted_count=official_deploy_summary.count,
+            captured_start=official_deploy_summary.captured_start,
+            captured_end=official_deploy_summary.captured_end,
+        )
         deploy_card = {
             "value": official_deploy_summary.count,
             "rawValue": official_deploy_summary.count,
             "label": "Deploys",
             "detail": official_deploy_detail,
-            "delta": "+0",
+            "delta": process_card_delta(cached_process_cards, "Deploys", official_deploy_summary.count, deploy_provenance),
             "source": "accepted official deploy JSON",
-            "provenance": delivery_metric_provenance(
-                official_deploy_summary.window_start,
-                official_deploy_summary.window_end,
-                "runtime-artifacts/official-screeps-deploy JSON",
-                official_deploy_summary.evidence_ids,
-                official_deploy_summary.candidate_count,
-            ),
+            "provenance": deploy_provenance,
         }
     else:
         deploy_card = unavailable_delivery_metric_card(
             "Deploys",
-            "no accepted deploy evidence in last 7d",
+            f"no accepted deploy evidence in last {delivery_window_days}d",
             official_deploy_summary.window_start,
             official_deploy_summary.window_end,
             "runtime-artifacts/official-screeps-deploy JSON",
             official_deploy_summary.candidate_count,
+            source_roots=("runtime-artifacts/official-screeps-deploy",),
         )
 
-    private_smoke_summary = summarize_private_smoke_evidence(repo_root, generated_at)
+    private_smoke_summary = summarize_private_smoke_evidence(repo_root, generated_at, delivery_window_days)
     if private_smoke_summary.count > 0:
+        private_smoke_provenance = delivery_metric_provenance(
+            private_smoke_summary.window_start,
+            private_smoke_summary.window_end,
+            "runtime-artifacts private-smoke-report JSON",
+            private_smoke_summary.evidence_ids,
+            private_smoke_summary.candidate_count,
+            source_roots=("runtime-artifacts private-smoke-report JSON",),
+            readable_count=private_smoke_summary.candidate_count,
+            total_count=private_smoke_summary.candidate_count,
+            counted_count=private_smoke_summary.count,
+            captured_start=private_smoke_summary.captured_start,
+            captured_end=private_smoke_summary.captured_end,
+        )
         private_smoke_card = {
             "value": private_smoke_summary.count,
             "rawValue": private_smoke_summary.count,
             "label": "Private smoke",
-            "detail": private_smoke_process_detail(private_smoke_summary),
-            "delta": "+0",
-            "source": "accepted private smoke JSON",
-            "provenance": delivery_metric_provenance(
-                private_smoke_summary.window_start,
-                private_smoke_summary.window_end,
-                "runtime-artifacts private-smoke-report JSON",
-                private_smoke_summary.evidence_ids,
-                private_smoke_summary.candidate_count,
+            "detail": private_smoke_process_detail(private_smoke_summary, delivery_window_days),
+            "delta": process_card_delta(
+                cached_process_cards,
+                "Private smoke",
+                private_smoke_summary.count,
+                private_smoke_provenance,
             ),
+            "source": "accepted private smoke JSON",
+            "provenance": private_smoke_provenance,
         }
     else:
         private_smoke_card = unavailable_delivery_metric_card(
             "Private smoke",
-            "no accepted private smoke report in last 7d",
+            f"no accepted private smoke report in last {delivery_window_days}d",
             private_smoke_summary.window_start,
             private_smoke_summary.window_end,
             "runtime-artifacts private-smoke-report JSON",
             private_smoke_summary.candidate_count,
+            source_roots=("runtime-artifacts private-smoke-report JSON",),
         )
 
     return [
@@ -2890,7 +2960,7 @@ def build_report_process_cards(
         pr_card,
         deploy_card,
         private_smoke_card,
-        *build_agent_process_cards(repo_root, repo, cached_process_cards),
+        *build_agent_process_cards(repo_root, repo, cached_process_cards, generated_at, delivery_window_days),
     ]
 
 
@@ -2898,63 +2968,69 @@ def build_agent_process_cards(
     repo_root: Path,
     repo: JsonObject,
     cached_process_cards: Sequence[JsonObject],
+    generated_at: str | None = None,
+    delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> list[JsonObject]:
     attribution = build_repo_attribution(repo_root, repo)
-    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution)
-    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT, attribution)
+    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution, generated_at, delivery_window_days)
+    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT, attribution, generated_at, delivery_window_days)
+    codex_provenance = codex_session_metric_provenance(codex_metrics)
+    automation_provenance = automation_run_metric_provenance(automation_metrics)
 
-    if codex_metrics.session_count == 0:
-        token_card = cached_or_unavailable_process_card(
-            cached_process_cards,
+    if codex_metrics.session_count == 0 or not codex_metrics.window_reliable:
+        codex_unavailable_detail = local_codex_unavailable_detail(codex_metrics, delivery_window_days)
+        token_card = unavailable_local_cache_process_card(
             "Agent tokens",
-            "no repo-attributed local Codex rollout JSONL files found",
-            "unavailable",
+            codex_unavailable_detail,
+            codex_provenance,
         )
-        runtime_card = cached_or_unavailable_process_card(
-            cached_process_cards,
+        runtime_card = unavailable_local_cache_process_card(
             "Codex runtime",
-            "no repo-attributed local Codex rollout JSONL files found",
-            "unavailable",
+            codex_unavailable_detail,
+            codex_provenance,
         )
-        runs_card = cached_or_unavailable_process_card(
-            cached_process_cards,
+        runtime_card["provenance"] = codex_provenance
+        runs_card = unavailable_local_cache_process_card(
             "Codex runs",
-            "no repo-attributed local Codex rollout JSONL files found",
-            "unavailable",
+            codex_unavailable_detail,
+            codex_provenance,
         )
-        longest_card = cached_or_unavailable_process_card(
-            cached_process_cards,
+        runs_card["provenance"] = codex_provenance
+        longest_card = unavailable_local_cache_process_card(
             "Longest Codex run",
-            "no repo-attributed local Codex rollout JSONL files found",
-            "unavailable",
+            codex_unavailable_detail,
+            codex_provenance,
         )
     else:
         token_value: str = "unavailable"
-        token_detail = f"0/{codex_metrics.session_count:,} sessions exposed token_count totals"
+        token_detail = f"0/{codex_metrics.session_count:,} sessions exposed token_count totals in last {delivery_window_days}d"
         if codex_metrics.total_tokens is not None:
             token_value = format_compact_count(codex_metrics.total_tokens)
             token_detail = (
                 f"{format_integer(codex_metrics.total_tokens)} total; "
                 f"latest token_count in {codex_metrics.token_session_count:,}/{codex_metrics.session_count:,} sessions"
+                f" in last {delivery_window_days}d"
             )
         if codex_metrics.unreadable_count:
             token_detail = f"{token_detail}; {codex_metrics.unreadable_count:,} unreadable"
+        token_detail = append_local_cache_detail(token_detail)
 
         runtime_value: str = "unavailable"
-        runtime_detail = f"0/{codex_metrics.session_count:,} sessions exposed timestamps"
+        runtime_detail = f"0/{codex_metrics.session_count:,} sessions exposed timestamps in last {delivery_window_days}d"
         if codex_metrics.elapsed_seconds is not None:
             runtime_value = format_duration(codex_metrics.elapsed_seconds)
             runtime_detail = (
                 "summed first-to-last JSONL timestamps across "
                 f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
+                f" in last {delivery_window_days}d"
             )
+        runtime_detail = append_local_cache_detail(runtime_detail)
 
         if codex_metrics.longest_elapsed_seconds is None:
-            longest_card = cached_or_unavailable_process_card(
-                cached_process_cards,
+            longest_card = unavailable_local_cache_process_card(
                 "Longest Codex run",
-                f"0/{codex_metrics.session_count:,} sessions exposed timestamps",
-                "unavailable",
+                f"0/{codex_metrics.session_count:,} sessions exposed timestamps in last {delivery_window_days}d",
+                codex_provenance,
             )
         else:
             longest_card = {
@@ -2964,9 +3040,17 @@ def build_agent_process_cards(
                 "detail": (
                     "maximum first-to-last JSONL timestamp span across "
                     f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
+                    f" in last {delivery_window_days}d; local cache only"
                 ),
-                "delta": "+0",
-                "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+                "delta": process_card_delta(
+                    cached_process_cards,
+                    "Longest Codex run",
+                    codex_metrics.longest_elapsed_seconds,
+                    codex_provenance,
+                    raw_key="rawValueSeconds",
+                ),
+                "source": "repo-attributed local Codex session cache timestamps",
+                "provenance": codex_provenance,
             }
 
         token_card = {
@@ -2974,48 +3058,159 @@ def build_agent_process_cards(
             "rawValue": codex_metrics.total_tokens,
             "label": "Agent tokens",
             "detail": token_detail,
-            "delta": "+0",
+            "delta": process_card_delta(cached_process_cards, "Agent tokens", codex_metrics.total_tokens, codex_provenance),
             "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+            "provenance": codex_provenance,
         }
         runtime_card = {
             "value": runtime_value,
             "rawValueSeconds": codex_metrics.elapsed_seconds,
             "label": "Codex runtime",
             "detail": runtime_detail,
-            "delta": "+0",
-            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+            "delta": process_card_delta(
+                cached_process_cards,
+                "Codex runtime",
+                codex_metrics.elapsed_seconds,
+                codex_provenance,
+                raw_key="rawValueSeconds",
+            ),
+            "source": "repo-attributed local Codex session cache timestamps",
+            "provenance": codex_provenance,
         }
         runs_card = {
             "value": format_compact_count(codex_metrics.session_count),
             "rawValue": codex_metrics.session_count,
             "label": "Codex runs",
-            "detail": "rollout JSONL files counted as Codex runs",
-            "delta": "+0",
-            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+            "detail": f"rollout JSONL files counted as Codex runs in last {delivery_window_days}d; local cache only",
+            "delta": process_card_delta(cached_process_cards, "Codex runs", codex_metrics.session_count, codex_provenance),
+            "source": "repo-attributed local Codex session cache",
+            "provenance": codex_provenance,
         }
 
-    if automation_metrics.available:
+    if automation_metrics.available and automation_metrics.window_reliable:
         automation_card = {
             "value": format_compact_count(automation_metrics.run_count),
             "rawValue": automation_metrics.run_count,
             "label": "Cron runs",
             "detail": (
                 f"{automation_metrics.run_count:,} cron outputs across "
-                f"{automation_metrics.job_count:,} jobs"
+                f"{automation_metrics.job_count:,} jobs in last {delivery_window_days}d; local cache only"
             ),
-            "delta": "+0",
-            "source": "repo-attributed .hermes/cron/output/*/*.md",
+            "delta": process_card_delta(
+                cached_process_cards,
+                "Cron runs",
+                automation_metrics.run_count,
+                automation_provenance,
+            ),
+            "source": "repo-attributed local Hermes cron output cache",
+            "provenance": automation_provenance,
         }
     else:
-        automation_card = cached_or_unavailable_process_card(
-            cached_process_cards,
+        automation_card = unavailable_local_cache_process_card(
             "Cron runs",
-            "no repo-attributed local Hermes cron markdown outputs found",
-            "unavailable",
-            "Automation runs",
+            local_cron_unavailable_detail(automation_metrics, delivery_window_days),
+            automation_provenance,
         )
 
     return [token_card, runtime_card, runs_card, automation_card, longest_card]
+
+
+def codex_session_metric_provenance(metrics: CodexSessionMetrics) -> JsonObject:
+    return delivery_metric_provenance(
+        metrics.window_start,
+        metrics.window_end,
+        "repo-attributed local Codex session JSONL",
+        metrics.counted_ids,
+        metrics.candidate_count,
+        source_roots=(local_source_root_label(metrics.source_root, "Codex session cache"),),
+        local_cache_only=True,
+        readable_count=metrics.readable_count,
+        total_count=metrics.candidate_count,
+        attributed_count=metrics.attributed_count,
+        timestamped_count=metrics.timestamped_count,
+        counted_count=metrics.session_count,
+        ambiguous_count=metrics.ambiguous_count,
+        captured_start=metrics.captured_start,
+        captured_end=metrics.captured_end,
+    )
+
+
+def automation_run_metric_provenance(metrics: AutomationRunMetrics) -> JsonObject:
+    return delivery_metric_provenance(
+        metrics.window_start,
+        metrics.window_end,
+        "repo-attributed local Hermes cron markdown",
+        metrics.counted_ids,
+        metrics.candidate_count,
+        source_roots=(local_source_root_label(metrics.source_root, "Hermes cron output cache"),),
+        local_cache_only=True,
+        readable_count=metrics.readable_count,
+        total_count=metrics.candidate_count,
+        attributed_count=metrics.attributed_count,
+        timestamped_count=metrics.timestamped_count,
+        counted_count=metrics.run_count,
+        ambiguous_count=metrics.ambiguous_count,
+        captured_start=metrics.captured_start,
+        captured_end=metrics.captured_end,
+    )
+
+
+def local_source_root_label(path: Path | None, fallback: str) -> str:
+    if path is None:
+        return fallback
+    normalized = str(path).replace("\\", "/")
+    if normalized.endswith("/.codex/sessions"):
+        return ".codex/sessions"
+    if normalized.endswith("/.hermes/cron/output"):
+        return ".hermes/cron/output"
+    return path.name or fallback
+
+
+def unavailable_local_cache_process_card(
+    label: str,
+    detail: str,
+    provenance: JsonObject,
+) -> JsonObject:
+    return {
+        "value": "unavailable",
+        "label": label,
+        "detail": append_local_cache_detail(detail),
+        "delta": "n/a",
+        "source": "local cache",
+        "provenance": provenance,
+    }
+
+
+def append_local_cache_detail(detail: str) -> str:
+    if "local cache only" in detail:
+        return detail
+    return f"{detail}; local cache only"
+
+
+def local_codex_unavailable_detail(metrics: CodexSessionMetrics, window_days: int) -> str:
+    if not metrics.source_exists:
+        return "local Codex session cache unavailable"
+    if not metrics.window_reliable:
+        return (
+            "Codex session window unavailable: "
+            f"{metrics.ambiguous_count:,} repo-attributed artifacts lack timestamps"
+        )
+    if metrics.attributed_count:
+        return f"no repo-attributed local Codex rollout JSONL files found in last {window_days}d"
+    return "no repo-attributed local Codex rollout JSONL files found"
+
+
+def local_cron_unavailable_detail(metrics: AutomationRunMetrics, window_days: int) -> str:
+    if not metrics.source_exists:
+        return "local Hermes cron output cache unavailable"
+    if not metrics.window_reliable:
+        return (
+            "Hermes cron output window unavailable: "
+            f"{metrics.ambiguous_count:,} repo-attributed artifacts lack timestamped filenames"
+        )
+    if metrics.attributed_count:
+        return f"no repo-attributed local Hermes cron markdown outputs found in last {window_days}d"
+    return "no repo-attributed local Hermes cron markdown outputs found"
 
 
 def cached_or_unavailable_process_card(
@@ -3054,6 +3249,15 @@ def unavailable_delivery_metric_card(
     window_end: datetime | None,
     source_kind: str,
     candidate_count: int,
+    *,
+    source_roots: Sequence[str] = (),
+    local_cache_only: bool = False,
+    readable_count: int | None = None,
+    total_count: int | None = None,
+    attributed_count: int | None = None,
+    timestamped_count: int | None = None,
+    counted_count: int | None = None,
+    ambiguous_count: int | None = None,
 ) -> JsonObject:
     return {
         "value": "unavailable",
@@ -3067,6 +3271,14 @@ def unavailable_delivery_metric_card(
             source_kind,
             (),
             candidate_count,
+            source_roots=source_roots,
+            local_cache_only=local_cache_only,
+            readable_count=readable_count,
+            total_count=total_count,
+            attributed_count=attributed_count,
+            timestamped_count=timestamped_count,
+            counted_count=counted_count,
+            ambiguous_count=ambiguous_count,
         ),
     }
 
@@ -3077,17 +3289,51 @@ def delivery_metric_provenance(
     source_kind: str,
     evidence_ids: Sequence[str],
     candidate_count: int,
+    *,
+    source_roots: Sequence[str] = (),
+    local_cache_only: bool = False,
+    readable_count: int | None = None,
+    total_count: int | None = None,
+    attributed_count: int | None = None,
+    timestamped_count: int | None = None,
+    counted_count: int | None = None,
+    ambiguous_count: int | None = None,
+    captured_start: datetime | None = None,
+    captured_end: datetime | None = None,
 ) -> JsonObject:
+    total_artifacts = candidate_count if total_count is None else total_count
+    readable_artifacts = total_artifacts if readable_count is None else readable_count
     return {
         "window": {
-            "days": DELIVERY_METRICS_WINDOW_DAYS,
+            "days": delivery_window_day_count(window_start, window_end),
             "start": format_timestamp_z(window_start) if window_start is not None else "",
             "end": format_timestamp_z(window_end) if window_end is not None else "",
         },
         "sourceKind": source_kind,
+        "sourceRoots": list(source_roots),
+        "capturedRange": {
+            "start": format_timestamp_z(captured_start) if captured_start is not None else "",
+            "end": format_timestamp_z(captured_end) if captured_end is not None else "",
+        },
+        "completeness": {
+            "readableArtifacts": readable_artifacts,
+            "totalArtifacts": total_artifacts,
+            "attributedArtifacts": attributed_count,
+            "timestampedArtifacts": timestamped_count,
+            "countedArtifacts": counted_count if counted_count is not None else len(evidence_ids),
+            "ambiguousArtifacts": ambiguous_count,
+        },
+        "localCacheOnly": local_cache_only,
         "countedIds": list(evidence_ids),
         "candidateFiles": candidate_count,
     }
+
+
+def delivery_window_day_count(window_start: datetime | None, window_end: datetime | None) -> int:
+    if window_start is None or window_end is None:
+        return DELIVERY_METRICS_WINDOW_DAYS
+    seconds = max(0.0, (window_end - window_start).total_seconds())
+    return max(1, int(round(seconds / 86_400)))
 
 
 def process_cached_detail(cached_card: JsonObject, fallback: str) -> str:
@@ -3098,32 +3344,119 @@ def process_cached_detail(cached_card: JsonObject, fallback: str) -> str:
     return f"{cached_detail} · cached"
 
 
+def process_card_delta(
+    cached_process_cards: Sequence[JsonObject],
+    label: str,
+    current_raw_value: int | float | None,
+    current_provenance: Mapping[str, Any] | None = None,
+    *,
+    raw_key: str = "rawValue",
+) -> str:
+    if current_raw_value is None:
+        return "n/a"
+    cached_card = cached_process_card(cached_process_cards, label)
+    if not cached_card:
+        return "no prior snapshot"
+    if current_provenance is not None and not delivery_metric_provenance_comparable(
+        current_provenance,
+        cached_card.get("provenance"),
+    ):
+        return "no prior snapshot"
+    prior_raw_value = cached_card.get(raw_key)
+    if prior_raw_value is None and raw_key != "rawValue":
+        prior_raw_value = cached_card.get("rawValue")
+    prior_number = as_number(prior_raw_value)
+    current_number = as_number(current_raw_value)
+    if prior_number is None or current_number is None:
+        return "no prior snapshot"
+    return format_signed_delta(current_number - prior_number)
+
+
+def delivery_metric_provenance_comparable(
+    current: Mapping[str, Any],
+    prior: Any,
+) -> bool:
+    if not isinstance(prior, Mapping):
+        return False
+    current_window = current.get("window")
+    prior_window = prior.get("window")
+    if not isinstance(current_window, Mapping) or not isinstance(prior_window, Mapping):
+        return False
+    return (
+        current_window.get("days") == prior_window.get("days")
+        and current.get("sourceKind") == prior.get("sourceKind")
+        and current.get("localCacheOnly") == prior.get("localCacheOnly")
+    )
+
+
+def format_signed_delta(value: int | float) -> str:
+    if float(value).is_integer():
+        number = int(value)
+        return f"{number:+,}"
+    return f"{value:+,.1f}"
+
+
 def summarize_codex_sessions(
     session_root: Path,
     attribution: RepoAttribution | None = None,
+    generated_at: str | None = None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> CodexSessionMetrics:
+    window_start, window_end = delivery_metric_window(generated_at, window_days)
+    apply_window = generated_at is not None
     if not session_root.exists():
-        return CodexSessionMetrics(0, 0, 0, None, None, None, 0)
+        return CodexSessionMetrics(
+            0,
+            0,
+            0,
+            None,
+            None,
+            None,
+            0,
+            window_start=window_start,
+            window_end=window_end,
+            source_root=session_root,
+            source_exists=False,
+        )
 
     attribution = attribution or build_repo_attribution(None, None)
     session_count = 0
     token_session_count = 0
     timed_session_count = 0
     unreadable_count = 0
+    candidate_count = 0
+    readable_count = 0
+    attributed_count = 0
+    timestamped_count = 0
+    ambiguous_count = 0
     total_tokens = 0
     elapsed_seconds = 0
     longest_elapsed_seconds = 0
+    captured_times: list[datetime] = []
+    counted_ids: list[str] = []
     for path in sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}")):
         if not path.is_file():
             continue
+        candidate_count += 1
+        if path_is_readable(path):
+            readable_count += 1
         if not codex_session_is_repo_attributed(path, attribution):
             continue
-        session_count += 1
+        attributed_count += 1
         session = summarize_codex_session_file(path)
         if session is None:
             unreadable_count += 1
             continue
-        latest_tokens, elapsed = session
+        latest_tokens, elapsed, first_seen, last_seen = session
+        if first_seen is None or last_seen is None:
+            ambiguous_count += 1
+            continue
+        timestamped_count += 1
+        if apply_window and not timestamp_range_intersects_window(first_seen, last_seen, window_start, window_end):
+            continue
+        session_count += 1
+        captured_times.extend([first_seen, last_seen])
+        counted_ids.append(codex_session_evidence_id(path, session_root, last_seen))
         if latest_tokens is not None:
             token_session_count += 1
             total_tokens += latest_tokens
@@ -3140,10 +3473,23 @@ def summarize_codex_sessions(
         elapsed_seconds=elapsed_seconds if timed_session_count else None,
         longest_elapsed_seconds=longest_elapsed_seconds if timed_session_count else None,
         unreadable_count=unreadable_count,
+        candidate_count=candidate_count,
+        readable_count=readable_count,
+        attributed_count=attributed_count,
+        timestamped_count=timestamped_count,
+        ambiguous_count=ambiguous_count,
+        window_start=window_start,
+        window_end=window_end,
+        captured_start=min(captured_times) if captured_times else None,
+        captured_end=max(captured_times) if captured_times else None,
+        source_root=session_root,
+        source_exists=True,
+        window_reliable=ambiguous_count == 0,
+        counted_ids=tuple(counted_ids),
     )
 
 
-def summarize_codex_session_file(path: Path) -> tuple[int | None, int | None] | None:
+def summarize_codex_session_file(path: Path) -> tuple[int | None, int | None, datetime | None, datetime | None] | None:
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     latest_tokens: int | None = None
@@ -3169,7 +3515,7 @@ def summarize_codex_session_file(path: Path) -> tuple[int | None, int | None] | 
     elapsed: int | None = None
     if first_seen is not None and last_seen is not None:
         elapsed = max(0, int((last_seen - first_seen).total_seconds()))
-    return latest_tokens, elapsed
+    return latest_tokens, elapsed, first_seen, last_seen
 
 
 def codex_token_count_from_record(record: Mapping[str, Any]) -> int | None:
@@ -3185,22 +3531,155 @@ def codex_token_count_from_record(record: Mapping[str, Any]) -> int | None:
     return int(number)
 
 
+def path_is_readable(path: Path) -> bool:
+    try:
+        with path.open("rb"):
+            return True
+    except OSError:
+        return False
+
+
+def timestamp_range_intersects_window(
+    start: datetime,
+    end: datetime,
+    window_start: datetime,
+    window_end: datetime,
+) -> bool:
+    normalized_start = start.astimezone(timezone.utc)
+    normalized_end = end.astimezone(timezone.utc)
+    return normalized_start <= window_end and normalized_end >= window_start
+
+
+def codex_session_evidence_id(path: Path, root: Path, timestamp: datetime) -> str:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = Path(path.name)
+    return f"{relative.as_posix()}:{format_timestamp_z(timestamp)}"
+
+
 def summarize_automation_runs(
     output_root: Path,
     attribution: RepoAttribution | None = None,
+    generated_at: str | None = None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> AutomationRunMetrics:
+    window_start, window_end = delivery_metric_window(generated_at, window_days)
+    apply_window = generated_at is not None
     if not output_root.exists():
-        return AutomationRunMetrics(0, 0, False)
+        return AutomationRunMetrics(
+            0,
+            0,
+            False,
+            window_start=window_start,
+            window_end=window_end,
+            source_root=output_root,
+            source_exists=False,
+        )
     attribution = attribution or build_repo_attribution(None, None)
     paths = []
+    candidate_count = 0
+    readable_count = 0
+    attributed_count = 0
+    timestamped_count = 0
+    ambiguous_count = 0
+    captured_times: list[datetime] = []
+    counted_ids: list[str] = []
     for path in output_root.glob("*/*.md"):
         if not path.is_file():
             continue
+        candidate_count += 1
+        if path_is_readable(path):
+            readable_count += 1
         if not text_file_mentions_any(path, attribution.text_terms):
             continue
+        attributed_count += 1
+        timestamp = cron_output_timestamp(path)
+        if timestamp is None:
+            ambiguous_count += 1
+            continue
+        timestamped_count += 1
+        if apply_window and not timestamp_in_window(timestamp, window_start, window_end):
+            continue
         paths.append(path)
+        captured_times.append(timestamp)
+        counted_ids.append(automation_run_evidence_id(path, output_root, timestamp))
     job_count = len({path.parent for path in paths})
-    return AutomationRunMetrics(len(paths), job_count, bool(paths))
+    return AutomationRunMetrics(
+        len(paths),
+        job_count,
+        bool(paths),
+        candidate_count=candidate_count,
+        readable_count=readable_count,
+        attributed_count=attributed_count,
+        timestamped_count=timestamped_count,
+        ambiguous_count=ambiguous_count,
+        window_start=window_start,
+        window_end=window_end,
+        captured_start=min(captured_times) if captured_times else None,
+        captured_end=max(captured_times) if captured_times else None,
+        source_root=output_root,
+        source_exists=True,
+        window_reliable=ambiguous_count == 0,
+        counted_ids=tuple(counted_ids),
+    )
+
+
+def cron_output_timestamp(path: Path) -> datetime | None:
+    for candidate in cron_output_timestamp_candidates(path.name):
+        timestamp = parse_cron_output_timestamp(candidate)
+        if timestamp is not None:
+            return timestamp
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    for candidate in cron_output_timestamp_candidates(text):
+        timestamp = parse_cron_output_timestamp(candidate)
+        if timestamp is not None:
+            return timestamp
+    return None
+
+
+def cron_output_timestamp_candidates(text: str) -> Iterable[str]:
+    yield from re.findall(r"\b\d{4}-\d{2}-\d{2}[_T ]\d{2}[:-]\d{2}[:-]\d{2}(?:Z|[+-]\d{2}:?\d{2})?\b", text)
+    yield from re.findall(r"\b\d{8}T\d{6}Z?\b", text)
+
+
+def parse_cron_output_timestamp(value: str) -> datetime | None:
+    text = value.strip().replace("_", "T", 1).replace(" ", "T", 1)
+    compact_match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?", text)
+    if compact_match:
+        year, month, day, hour, minute, second = compact_match.groups()
+        text = f"{year}-{month}-{day}T{hour}:{minute}:{second}Z"
+    else:
+        text = normalize_cron_output_time_separators(text)
+    return parse_timestamp(text)
+
+
+def normalize_cron_output_time_separators(value: str) -> str:
+    match = re.fullmatch(
+        r"(\d{4}-\d{2}-\d{2})T(\d{2})[:-](\d{2})[:-](\d{2})((?:Z|[+-]\d{2}:?\d{2})?)",
+        value,
+    )
+    if not match:
+        return value
+    date_part, hour, minute, second, zone = match.groups()
+    if zone and re.fullmatch(r"[+-]\d{4}", zone):
+        zone = f"{zone[:3]}:{zone[3:]}"
+    return f"{date_part}T{hour}:{minute}:{second}{zone}"
+
+
+def automation_run_evidence_id(path: Path, root: Path, timestamp: datetime | None) -> str:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        relative = Path(path.name)
+    if timestamp is None:
+        return relative.as_posix()
+    return f"{relative.as_posix()}:{format_timestamp_z(timestamp)}"
 
 
 def build_repo_attribution(repo_root: Path | None, repo: Mapping[str, Any] | None) -> RepoAttribution:
@@ -3434,12 +3913,15 @@ def parse_optional_count(value: str) -> int | None:
         return None
 
 
-def delivery_metric_window(generated_at: str | None = None) -> tuple[datetime, datetime]:
+def delivery_metric_window(
+    generated_at: str | None = None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+) -> tuple[datetime, datetime]:
     end = parse_timestamp(generated_at or "") if generated_at else None
     if end is None:
         end = datetime.now(timezone.utc).replace(microsecond=0)
     end = end.astimezone(timezone.utc)
-    return end - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS), end
+    return end - timedelta(days=max(1, int(window_days))), end
 
 
 def timestamp_in_window(timestamp: datetime | None, window_start: datetime, window_end: datetime) -> bool:
@@ -3452,8 +3934,9 @@ def timestamp_in_window(timestamp: datetime | None, window_start: datetime, wind
 def summarize_official_deploy_evidence(
     repo_root: Path,
     generated_at: str | None = None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> OfficialDeployEvidenceSummary:
-    window_start, window_end = delivery_metric_window(generated_at)
+    window_start, window_end = delivery_metric_window(generated_at, window_days)
     records: list[OfficialDeployEvidenceRecord] = []
     seen_content: set[str] = set()
     seen_evidence: set[str] = set()
@@ -3486,11 +3969,14 @@ def summarize_official_deploy_evidence(
 
     latest = max(records, key=official_deploy_record_sort_key) if records else None
     evidence_ids = tuple(sorted(record.evidence_id for record in records))
+    captured_times = [record.timestamp for record in records if record.timestamp is not None]
     return OfficialDeployEvidenceSummary(
         count=len(records),
         latest=latest,
         window_start=window_start,
         window_end=window_end,
+        captured_start=min(captured_times) if captured_times else None,
+        captured_end=max(captured_times) if captured_times else None,
         evidence_ids=evidence_ids,
         candidate_count=len(candidate_paths),
     )
@@ -3682,8 +4168,11 @@ def official_deploy_record_sort_key(record: OfficialDeployEvidenceRecord) -> tup
     return timestamp, record.path.name
 
 
-def official_deploy_process_detail(summary: OfficialDeployEvidenceSummary) -> str:
-    detail = "accepted deploy evidence, last 7d"
+def official_deploy_process_detail(
+    summary: OfficialDeployEvidenceSummary,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+) -> str:
+    detail = f"accepted deploy evidence, last {window_days}d"
     if summary.latest is None:
         return detail
 
@@ -3705,8 +4194,9 @@ def short_commit(commit: str) -> str:
 def summarize_private_smoke_evidence(
     repo_root: Path,
     generated_at: str | None = None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
 ) -> PrivateSmokeEvidenceSummary:
-    window_start, window_end = delivery_metric_window(generated_at)
+    window_start, window_end = delivery_metric_window(generated_at, window_days)
     records: list[PrivateSmokeEvidenceRecord] = []
     seen_evidence: set[str] = set()
     candidate_paths = private_smoke_evidence_paths(repo_root)
@@ -3725,11 +4215,14 @@ def summarize_private_smoke_evidence(
 
     latest = max(records, key=private_smoke_record_sort_key) if records else None
     evidence_ids = tuple(sorted(record.evidence_id for record in records))
+    captured_times = [record.timestamp for record in records if record.timestamp is not None]
     return PrivateSmokeEvidenceSummary(
         count=len(records),
         latest=latest,
         window_start=window_start,
         window_end=window_end,
+        captured_start=min(captured_times) if captured_times else None,
+        captured_end=max(captured_times) if captured_times else None,
         evidence_ids=evidence_ids,
         candidate_count=len(candidate_paths),
     )
@@ -3779,8 +4272,11 @@ def private_smoke_record_sort_key(record: PrivateSmokeEvidenceRecord) -> tuple[d
     return timestamp, record.path.name
 
 
-def private_smoke_process_detail(summary: PrivateSmokeEvidenceSummary) -> str:
-    detail = "accepted private-smoke evidence, last 7d"
+def private_smoke_process_detail(
+    summary: PrivateSmokeEvidenceSummary,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+) -> str:
+    detail = f"accepted private-smoke evidence, last {window_days}d"
     if summary.latest is None or summary.latest.timestamp is None:
         return detail
     return f"{detail} · latest {format_timestamp_z(summary.latest.timestamp)}"
