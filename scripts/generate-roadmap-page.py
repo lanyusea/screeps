@@ -26,6 +26,7 @@ import screeps_runtime_kpi_reducer as runtime_kpi_reducer
 SCHEMA_VERSION = 1
 KPI_HISTORY_WINDOW_DAYS = 7
 DELIVERY_METRICS_WINDOW_DAYS = 7
+RUNTIME_ARTIFACT_SOURCE_KIND = "runtime-summary-artifact"
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
@@ -1182,14 +1183,26 @@ def metric_controller_downgrade_min_ticks(report: JsonObject) -> JsonObject:
 
 def metric_total(report: JsonObject, section_name: str, total_kind: str, field_name: str) -> JsonObject:
     section = get_path(report, (section_name,), {})
-    if section.get("status") != OBSERVED:
+    section_status = section.get("status")
+    if section_status == NOT_INSTRUMENTED:
+        return status_value(None, False, NOT_INSTRUMENTED)
+    if section_status == NOT_OBSERVED:
+        return status_value(None, True, NOT_OBSERVED)
+    if section_status != OBSERVED:
         return status_value(None, False)
-    return status_value(as_number(get_path(section, ("totals", total_kind, field_name))), True)
+
+    value = get_path(section, ("totals", total_kind, field_name))
+    return status_value(as_number(value), True)
 
 
 def metric_event(report: JsonObject, section_name: str, field_name: str) -> JsonObject:
     section = get_path(report, (section_name,), {})
-    if section.get("status") != OBSERVED:
+    section_status = section.get("status")
+    if section_status == NOT_INSTRUMENTED:
+        return status_value(None, False, NOT_INSTRUMENTED)
+    if section_status == NOT_OBSERVED:
+        return status_value(None, True, NOT_OBSERVED)
+    if section_status != OBSERVED:
         return status_value(None, False)
     events = section.get("eventDeltas")
     if not isinstance(events, dict):
@@ -1564,8 +1577,17 @@ def load_runtime_artifact_metric_history(
         if latest_record is None:
             continue
         sampled_at = format_utc_timestamp(latest_record)
+        provenance = daily_runtime_history_provenance(report)
         for metric in build_current_metrics(report):
-            history.setdefault(metric["key"], []).append(metric_history_point(metric, sampled_at))
+            history.setdefault(metric["key"], []).append(
+                metric_history_point(
+                    metric,
+                    sampled_at,
+                    source_kind=provenance["sourceKind"],
+                    reducer_schema_version=provenance["reducerSchemaVersion"],
+                    scope=provenance["scope"],
+                )
+            )
 
     day_count = len(records_by_day)
     status = "observed" if day_count else "unavailable"
@@ -1612,14 +1634,45 @@ def format_utc_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def metric_history_point(metric: JsonObject, sampled_at: str) -> JsonObject:
+def daily_runtime_history_provenance(report: JsonObject) -> JsonObject:
+    target = build_screeps_room_target()
+    latest_rooms = get_path(report, ("territory", "ownedRooms", "latest"), [])
+    if not isinstance(latest_rooms, list):
+        latest_rooms = []
     return {
+        "sourceKind": RUNTIME_ARTIFACT_SOURCE_KIND,
+        "reducerSchemaVersion": report.get("schemaVersion"),
+        "scope": {
+            "targetShard": target.get("shard"),
+            "targetRoom": target.get("room"),
+            "targetStatus": target.get("status"),
+            "observedRooms": sorted(str(room) for room in latest_rooms if isinstance(room, str)),
+        },
+    }
+
+
+def metric_history_point(
+    metric: JsonObject,
+    sampled_at: str,
+    *,
+    source_kind: str | None = None,
+    reducer_schema_version: Any | None = None,
+    scope: JsonObject | None = None,
+) -> JsonObject:
+    point = {
         "sampledAt": sampled_at,
         "value": metric["value"],
         "instrumented": bool(metric["instrumented"]),
         "observed": bool(metric["observed"]),
         "status": metric["status"],
     }
+    if source_kind is not None:
+        point["sourceKind"] = source_kind
+    if reducer_schema_version is not None:
+        point["reducerSchemaVersion"] = reducer_schema_version
+    if scope is not None:
+        point["scope"] = scope
+    return point
 
 
 def merge_metric_histories(*histories: JsonObject) -> JsonObject:

@@ -351,7 +351,13 @@ def build_numeric_section_report(
 
         room_reports[room_name] = report
 
-    status = OBSERVED if observed_room_count > 0 or has_section_values(rooms, first_rooms, state_attr) else NOT_INSTRUMENTED
+    has_historical_values = has_section_values(rooms, set(rooms), state_attr)
+    if observed_room_count > 0 and observed_room_count == len(latest_rooms):
+        status = OBSERVED
+    elif has_historical_values:
+        status = NOT_OBSERVED
+    else:
+        status = NOT_INSTRUMENTED
     report = {
         "status": status,
         "observedRoomCount": observed_room_count,
@@ -362,6 +368,8 @@ def build_numeric_section_report(
     if status == NOT_INSTRUMENTED:
         report["message"] = NOT_INSTRUMENTED
         return report
+    if status == NOT_OBSERVED:
+        report["message"] = NOT_OBSERVED
 
     report["totals"] = {
         "latest": sum_latest_values(rooms, latest_rooms, fields, state_attr),
@@ -396,8 +404,9 @@ def sum_latest_values(
     latest_rooms: set[str],
     fields: tuple[str, ...],
     state_attr: str,
-) -> dict[str, int | float]:
+) -> dict[str, int | float | None]:
     totals = zero_totals(fields)
+    observed_fields = {field_name: False for field_name in fields}
     for room_name in latest_rooms:
         room_state = rooms.get(room_name)
         section_state = getattr(room_state, state_attr) if room_state is not None else None
@@ -408,7 +417,8 @@ def sum_latest_values(
             value = latest.get(field_name)
             if is_number(value):
                 totals[field_name] += value
-    return totals
+                observed_fields[field_name] = True
+    return {field_name: totals[field_name] if observed_fields[field_name] else None for field_name in fields}
 
 
 def has_section_values(rooms: dict[str, RoomState], room_names: set[str], state_attr: str) -> bool:
@@ -426,8 +436,9 @@ def sum_window_delta(
     latest_rooms: set[str],
     fields: tuple[str, ...],
     state_attr: str,
-) -> dict[str, int | float]:
+) -> dict[str, int | float | None]:
     totals = zero_totals(fields)
+    observed_fields = {field_name: False for field_name in fields}
     for room_name in latest_rooms:
         room_state = rooms.get(room_name)
         section_state = getattr(room_state, state_attr) if room_state is not None else None
@@ -438,6 +449,7 @@ def sum_window_delta(
             value = latest.get(field_name)
             if is_number(value):
                 totals[field_name] += value
+                observed_fields[field_name] = True
 
     for room_name in first_rooms:
         room_state = rooms.get(room_name)
@@ -449,7 +461,8 @@ def sum_window_delta(
             value = first.get(field_name)
             if is_number(value):
                 totals[field_name] -= value
-    return totals
+                observed_fields[field_name] = True
+    return {field_name: totals[field_name] if observed_fields[field_name] else None for field_name in fields}
 
 
 def sum_events(
@@ -519,7 +532,7 @@ def render_human(report: JsonObject) -> str:
 
 def render_controller_human(controller_report: JsonObject) -> list[str]:
     if controller_report["status"] != OBSERVED:
-        return [f"controllers: {NOT_INSTRUMENTED}"]
+        return [f"controllers: {controller_report['status']}"]
 
     lines: list[str] = []
     for room_name, room_report in controller_report["rooms"].items():
@@ -546,7 +559,7 @@ def render_section_human(
     event_fields: tuple[str, ...],
 ) -> str:
     if section_report["status"] != OBSERVED:
-        return f"{label}: {NOT_INSTRUMENTED}"
+        return f"{label}: {section_report['status']}"
 
     latest = section_report["totals"]["latest"]
     delta = section_report["totals"]["delta"]

@@ -192,6 +192,75 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         self.assertEqual(report["resources"]["status"], "not instrumented")
         self.assertEqual(report["combat"]["status"], "not instrumented")
 
+    def test_newer_record_missing_resources_is_not_observed_not_zero(self) -> None:
+        first = {
+            "type": "runtime-summary",
+            "tick": 10,
+            "rooms": [
+                {
+                    "roomName": "W1N1",
+                    "resources": {
+                        "storedEnergy": 100,
+                        "workerCarriedEnergy": 7,
+                        "harvestedThisTick": 6,
+                        "droppedEnergy": 3,
+                        "sourceCount": 2,
+                    },
+                }
+            ],
+        }
+        latest = {
+            "type": "runtime-summary",
+            "tick": 20,
+            "rooms": [{"roomName": "W1N1", "controller": {"level": 2}}],
+        }
+
+        report = reducer.reduce_runtime_kpis([runtime_line(first), runtime_line(latest)])
+
+        self.assertEqual(report["resources"]["status"], "not observed")
+        self.assertEqual(report["resources"]["observedRoomCount"], 0)
+        self.assertEqual(report["resources"]["missingRooms"], ["W1N1"])
+        self.assertEqual(report["resources"]["rooms"]["W1N1"]["status"], "not instrumented")
+        self.assertEqual(report["resources"]["totals"]["latest"], {
+            "storedEnergy": None,
+            "workerCarriedEnergy": None,
+            "harvestedThisTick": None,
+            "droppedEnergy": None,
+            "sourceCount": None,
+        })
+
+    def test_missing_resource_fields_do_not_sum_to_observed_zero(self) -> None:
+        report = reducer.reduce_runtime_kpis(
+            [
+                runtime_line(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 10,
+                        "rooms": [
+                            {
+                                "roomName": "W1N1",
+                                "resources": {
+                                    "storedEnergy": 25,
+                                    "droppedEnergy": 0,
+                                    "sourceCount": 1,
+                                },
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        self.assertEqual(report["resources"]["status"], "observed")
+        self.assertEqual(report["resources"]["totals"]["latest"], {
+            "storedEnergy": 25,
+            "workerCarriedEnergy": None,
+            "harvestedThisTick": None,
+            "droppedEnergy": 0,
+            "sourceCount": 1,
+        })
+        self.assertEqual(report["resources"]["totals"]["delta"]["workerCarriedEnergy"], None)
+
     def test_event_deltas_include_rooms_seen_across_the_window(self) -> None:
         first = {
             "type": "runtime-summary",
@@ -286,13 +355,14 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         report = reducer.reduce_runtime_kpis([runtime_line(first), runtime_line(latest)])
 
         self.assertEqual(report["territory"]["ownedRooms"]["lost"], ["W2N2"])
-        self.assertEqual(report["resources"]["status"], "observed")
+        self.assertEqual(report["resources"]["status"], "not observed")
+        self.assertEqual(report["resources"]["observedRoomCount"], 0)
         self.assertEqual(report["resources"]["totals"]["latest"], {
-            "storedEnergy": 0,
-            "workerCarriedEnergy": 0,
-            "harvestedThisTick": 0,
-            "droppedEnergy": 0,
-            "sourceCount": 0,
+            "storedEnergy": None,
+            "workerCarriedEnergy": None,
+            "harvestedThisTick": None,
+            "droppedEnergy": None,
+            "sourceCount": None,
         })
         self.assertEqual(report["resources"]["totals"]["delta"], {
             "storedEnergy": -100,
