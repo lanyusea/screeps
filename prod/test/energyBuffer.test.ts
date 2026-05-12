@@ -194,6 +194,20 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForExtensionConstruction(room, 250)).toBe(false);
   });
 
+  it('allows RCL2 bootstrap extension construction at 350 capacity while preserving worker spawn energy', () => {
+    const room = makeRoom({
+      level: 2,
+      energyAvailable: 250,
+      energyCapacityAvailable: 350,
+      myStructures: [makeExtension('extension1')]
+    });
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(checkEnergyBufferForSpending(room, 50)).toBe(false);
+    expect(checkEnergyBufferForExtensionConstruction(room, 50)).toBe(true);
+    expect(checkEnergyBufferForExtensionConstruction(room, 51)).toBe(false);
+  });
+
   it('does not use the bootstrap extension reserve after extension capacity is complete', () => {
     const room = makeRoom({
       level: 2,
