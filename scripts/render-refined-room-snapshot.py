@@ -8,7 +8,7 @@ base_http = os.environ.get('SCREEPS_API_URL', 'https://screeps.com').rstrip('/')
 base_ws = base_http.replace('https://', 'wss://').replace('http://', 'ws://')
 tok = os.environ['SCREEPS_AUTH_TOKEN']
 shard = os.environ.get('SCREEPS_SHARD', 'shardX')
-room = os.environ.get('SCREEPS_ROOM', 'E24S49')
+room = os.environ.get('SCREEPS_ROOM', 'E17S59')
 owner = 'lanyusea'
 
 def get_json(path, params=None):

@@ -172,7 +172,7 @@ def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, h
         "source": "test",
         "rooms": [
             {
-                "roomName": "E24S49",
+                "roomName": "E17S59",
                 "shard": "shardX",
                 "controller": {
                     "level": level,
@@ -220,10 +220,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         target = roadmap.build_screeps_room_target({})
 
         self.assertEqual(target["status"], "official target")
-        self.assertEqual(target["label"], "shardX/E24S49")
+        self.assertEqual(target["label"], "shardX/E17S59")
         self.assertEqual(target["shard"], "shardX")
-        self.assertEqual(target["room"], "E24S49")
-        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E24S49")
+        self.assertEqual(target["room"], "E17S59")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E17S59")
 
     def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
         conn = sqlite3.connect(":memory:")

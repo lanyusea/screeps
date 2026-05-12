@@ -502,7 +502,7 @@ function compareExportRoomsForImporter(
 }
 
 function getCorridorExporterPriority(sourceRoom: string, targetRoom: string): number {
-  if (sourceRoom === 'E24S49' && targetRoom === 'E24S50') {
+  if (sourceRoom === 'E17S59' && targetRoom === 'E18S59') {
     return 0;
   }
 

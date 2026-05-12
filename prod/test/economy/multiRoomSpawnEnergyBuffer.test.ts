@@ -34,26 +34,26 @@ describe('multi-room spawn energy buffer coordination', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const targetStructures: AnyOwnedStructure[] = [];
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 2_000,
       storageCapacity: 2_000,
       energyAvailable: 800,
       myStructures: sourceStructures
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 100,
       myStructures: targetStructures
     });
-    sourceStructures.push(makeSpawn('SpawnE24S49', sourceRoom, 0) as unknown as AnyOwnedStructure);
-    targetStructures.push(makeSpawn('SpawnE26S47', targetRoom, 200) as unknown as AnyOwnedStructure);
+    sourceStructures.push(makeSpawn('SpawnE17S59', sourceRoom, 0) as unknown as AnyOwnedStructure);
+    targetStructures.push(makeSpawn('SpawnE17S60', targetRoom, 200) as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], sourceStructures.concat(targetStructures) as unknown as StructureSpawn[]);
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S60).toMatchObject({
       mode: 'import',
       importDemand: 400,
       spawnEnergyAvailable: 100,
@@ -61,7 +61,7 @@ describe('multi-room spawn energy buffer coordination', () => {
       spawnEnergyBufferDeficit: 400,
       criticalSpawnEnergyDeficit: 200
     });
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E17S60).toMatchObject({
       plannedImportEnergy: 400,
       spawnEnergyAvailable: 100,
       spawnEnergyBufferThreshold: 500,
@@ -75,32 +75,32 @@ describe('multi-room spawn energy buffer coordination', () => {
   it('imports for active spawn reservations in rooms without local spawns', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 2_000,
       storageCapacity: 2_000,
       energyAvailable: 800,
       myStructures: sourceStructures
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 200
     });
-    const sourceSpawn = makeSpawn('SpawnE24S49', sourceRoom, 0);
+    const sourceSpawn = makeSpawn('SpawnE17S59', sourceRoom, 0);
     sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [sourceSpawn]);
     Memory.economy = {
       spawnEnergyReservation: {
         updatedAt: 99,
         rooms: {
-          E26S47: {
+          E17S60: {
             bodyCost: 650,
-            creepName: 'worker-E26S47-100',
+            creepName: 'worker-E17S60-100',
             reservedAt: 99,
             reservedEnergy: 650,
             role: 'worker',
-            roomName: 'E26S47',
+            roomName: 'E17S60',
             updatedAt: 99
           }
         }
@@ -109,7 +109,7 @@ describe('multi-room spawn energy buffer coordination', () => {
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S60).toMatchObject({
       importDemand: 450,
       reservedSpawnEnergy: 650,
       spawnEnergyBufferThreshold: 650,
@@ -117,9 +117,9 @@ describe('multi-room spawn energy buffer coordination', () => {
       unmetSpawnEnergyReservation: 450
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S47', amount: 450, updatedAt: 100 }
+      { sourceRoom: 'E17S59', targetRoom: 'E17S60', amount: 450, updatedAt: 100 }
     ]);
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E17S60).toMatchObject({
       plannedImportEnergy: 450,
       spawnEnergyBufferThreshold: 650,
       spawnEnergyBufferDeficit: 450,
@@ -127,8 +127,8 @@ describe('multi-room spawn energy buffer coordination', () => {
       deficitEnergy: 0
     });
     expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
-      sourceRoom: 'E24S49',
-      targetRoom: 'E26S47',
+      sourceRoom: 'E17S59',
+      targetRoom: 'E17S60',
       amount: 450,
       status: 'planned',
       reason: 'spawn-energy-buffer',
@@ -139,67 +139,67 @@ describe('multi-room spawn energy buffer coordination', () => {
   it('routes cross-room energy for post-claim spawn construction without a local spawn', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 2_000,
       storageCapacity: 2_000,
       energyAvailable: 800,
       myStructures: sourceStructures
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E24S48',
+      roomName: 'E17S58',
       storageEnergy: 100,
       storageCapacity: 1_000,
       energyAvailable: 0
     });
-    const sourceSpawn = makeSpawn('SpawnE24S49', sourceRoom, 0);
+    const sourceSpawn = makeSpawn('SpawnE17S59', sourceRoom, 0);
     sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [sourceSpawn]);
     Memory.territory = {
       postClaimBootstraps: {
-        E24S48: {
-          colony: 'E24S49',
-          roomName: 'E24S48',
+        E17S58: {
+          colony: 'E17S59',
+          roomName: 'E17S58',
           status: 'spawnSitePending',
           claimedAt: 786700,
           updatedAt: 786805,
           workerTarget: 2,
-          spawnSite: { roomName: 'E24S48', x: 23, y: 23 }
+          spawnSite: { roomName: 'E17S58', x: 23, y: 23 }
         }
       }
     };
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E24S48).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S58).toMatchObject({
       mode: 'import',
       importDemand: 500
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E24S48', amount: 500, updatedAt: 100 }
+      { sourceRoom: 'E17S59', targetRoom: 'E17S58', amount: 500, updatedAt: 100 }
     ]);
     expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
-      sourceRoom: 'E24S49',
-      targetRoom: 'E24S48',
+      sourceRoom: 'E17S59',
+      targetRoom: 'E17S58',
       amount: 500,
       status: 'planned',
       reason: 'post-claim-spawn-construction',
       updatedAt: 100
     });
     expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
-      homeRoom: 'E24S49',
-      targetRoom: 'E24S48'
+      homeRoom: 'E17S59',
+      targetRoom: 'E17S58'
     });
   });
 
   it('keeps reservation-driven spawn buffer deficits from being subtracted twice from exports', () => {
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 1_000,
       storageCapacity: 1_000,
       energyAvailable: 700
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 200,
       storageCapacity: 1_000
     });
@@ -208,13 +208,13 @@ describe('multi-room spawn energy buffer coordination', () => {
       spawnEnergyReservation: {
         updatedAt: 99,
         rooms: {
-          E24S49: {
+          E17S59: {
             bodyCost: 800,
-            creepName: 'claimer-E24S49-E26S47-100',
+            creepName: 'claimer-E17S59-E17S60-100',
             reservedAt: 99,
             reservedEnergy: 800,
             role: 'claimer',
-            roomName: 'E24S49',
+            roomName: 'E17S59',
             updatedAt: 99
           }
         }
@@ -223,7 +223,7 @@ describe('multi-room spawn energy buffer coordination', () => {
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E24S49).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S59).toMatchObject({
       mode: 'export',
       exportableEnergy: 100,
       reservedSpawnEnergy: 800,
@@ -231,7 +231,7 @@ describe('multi-room spawn energy buffer coordination', () => {
       unmetSpawnEnergyReservation: 100
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S47', amount: 100, updatedAt: 100 }
+      { sourceRoom: 'E17S59', targetRoom: 'E17S60', amount: 100, updatedAt: 100 }
     ]);
   });
 
@@ -239,21 +239,21 @@ describe('multi-room spawn energy buffer coordination', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const targetStructures: AnyOwnedStructure[] = [];
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 2_000,
       storageCapacity: 2_000,
       energyAvailable: 800,
       myStructures: sourceStructures
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 100,
       myStructures: targetStructures
     });
-    const sourceSpawn = makeSpawn('SpawnE24S49', sourceRoom, 0);
-    const targetSpawn = makeSpawn('SpawnE26S47', targetRoom, 200);
+    const sourceSpawn = makeSpawn('SpawnE17S59', sourceRoom, 0);
+    const targetSpawn = makeSpawn('SpawnE17S60', targetRoom, 200);
     sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
     targetStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [sourceSpawn, targetSpawn]);
@@ -261,11 +261,11 @@ describe('multi-room spawn energy buffer coordination', () => {
     balanceStorage();
 
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S47', amount: 400, updatedAt: 100 }
+      { sourceRoom: 'E17S59', targetRoom: 'E17S60', amount: 400, updatedAt: 100 }
     ]);
     expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
-      sourceRoom: 'E24S49',
-      targetRoom: 'E26S47',
+      sourceRoom: 'E17S59',
+      targetRoom: 'E17S60',
       amount: 400,
       status: 'planned',
       reason: 'spawn-energy-buffer',
@@ -275,12 +275,12 @@ describe('multi-room spawn energy buffer coordination', () => {
       spawn: sourceSpawn,
       memory: {
         role: CROSS_ROOM_HAULER_ROLE,
-        colony: 'E24S49',
+        colony: 'E17S59',
         crossRoomHauler: {
-          homeRoom: 'E24S49',
-          targetRoom: 'E26S47',
-          sourceId: 'E24S49-storage',
-          route: ['E26S47']
+          homeRoom: 'E17S59',
+          targetRoom: 'E17S60',
+          sourceId: 'E17S59-storage',
+          route: ['E17S60']
         }
       }
     });
@@ -290,37 +290,37 @@ describe('multi-room spawn energy buffer coordination', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const targetStructures: AnyOwnedStructure[] = [];
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 700,
       storageCapacity: 1_000,
       energyAvailable: 800,
       myStructures: sourceStructures
     });
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 100,
       myStructures: targetStructures
     });
-    const sourceSpawn = makeSpawn('SpawnE24S49', sourceRoom, 0);
-    const targetSpawn = makeSpawn('SpawnE26S47', targetRoom, 200);
+    const sourceSpawn = makeSpawn('SpawnE17S59', sourceRoom, 0);
+    const targetSpawn = makeSpawn('SpawnE17S60', targetRoom, 200);
     sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
     targetStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [sourceSpawn, targetSpawn]);
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E24S49).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S59).toMatchObject({
       mode: 'balanced',
       exportableEnergy: 0
     });
-    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S60).toMatchObject({
       spawnEnergyBufferDeficit: 400,
       importDemand: 400
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E24S49', targetRoom: 'E26S47', amount: 400, updatedAt: 100 }
+      { sourceRoom: 'E17S59', targetRoom: 'E17S60', amount: 400, updatedAt: 100 }
     ]);
     expect(planCrossRoomHauler()).toMatchObject({
       spawn: sourceSpawn,
@@ -344,8 +344,8 @@ describe('multi-room spawn energy buffer coordination', () => {
       ],
       memory: {
         crossRoomHauler: {
-          homeRoom: 'E24S49',
-          targetRoom: 'E26S47'
+          homeRoom: 'E17S59',
+          targetRoom: 'E17S60'
         }
       }
     });
@@ -353,20 +353,20 @@ describe('multi-room spawn energy buffer coordination', () => {
 
   it('delivers imported energy to the empty room spawn before durable storage', () => {
     const sourceRoom = makeOwnedRoom({
-      roomName: 'E24S49',
+      roomName: 'E17S59',
       storageEnergy: 2_000,
       storageCapacity: 2_000,
       energyAvailable: 800
     });
     const targetStructures: AnyOwnedStructure[] = [];
     const targetRoom = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 0,
       myStructures: targetStructures
     });
-    const targetSpawn = makeSpawn('SpawnE26S47', targetRoom, 300);
+    const targetSpawn = makeSpawn('SpawnE17S60', targetRoom, 300);
     targetStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [targetSpawn]);
     const creep = makeCrossRoomHauler({
@@ -378,28 +378,28 @@ describe('multi-room spawn energy buffer coordination', () => {
     runCrossRoomHauler(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(targetSpawn, RESOURCE_ENERGY);
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'SpawnE26S47' });
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'SpawnE17S60' });
   });
 
   it('does not create cross-room spawn-buffer transfers for a single owned room', () => {
     const structures: AnyOwnedStructure[] = [];
     const room = makeOwnedRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       storageEnergy: 500,
       storageCapacity: 1_000,
       energyAvailable: 0,
       myStructures: structures
     });
-    const spawn = makeSpawn('SpawnE26S47', room, 300);
+    const spawn = makeSpawn('SpawnE17S60', room, 300);
     structures.push(spawn as unknown as AnyOwnedStructure);
     installGame([room], [spawn]);
 
     balanceStorage();
 
-    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.storageBalance?.rooms.E17S60).toMatchObject({
       spawnEnergyBufferDeficit: 500
     });
-    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E17S60).toMatchObject({
       spawnEnergyBufferDeficit: 500,
       storageDeficit: 500,
       deficitEnergy: 500
@@ -490,13 +490,13 @@ function makeCrossRoomHauler({
     room,
     memory: {
       role: CROSS_ROOM_HAULER_ROLE,
-      colony: 'E24S49',
+      colony: 'E17S59',
       crossRoomHauler: {
-        homeRoom: 'E24S49',
-        targetRoom: 'E26S47',
-        sourceId: 'E24S49-storage' as Id<AnyStoreStructure>,
+        homeRoom: 'E17S59',
+        targetRoom: 'E17S60',
+        sourceId: 'E17S59-storage' as Id<AnyStoreStructure>,
         state: 'delivering',
-        route: ['E26S47']
+        route: ['E17S60']
       }
     },
     store: {

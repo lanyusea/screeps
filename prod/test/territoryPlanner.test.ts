@@ -199,13 +199,13 @@ describe('planTerritoryIntent', () => {
   });
 
   it('plans configured expansion scouting per target when another target has a runnable lane', () => {
-    const colony = makeSafeColony({ roomName: 'E24S49' });
+    const colony = makeSafeColony({ roomName: 'E17S59' });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
-        E24S49: colony.room,
-        E24S50: {
-          name: 'E24S50',
-          controller: { id: 'controller50' as Id<StructureController>, my: false } as StructureController
+        E17S59: colony.room,
+        E17S60: {
+          name: 'E17S60',
+          controller: { id: 'controller-e17s60' as Id<StructureController>, my: false } as StructureController
         } as Room
       },
       map: {
@@ -216,16 +216,16 @@ describe('planTerritoryIntent', () => {
       territory: {
         intents: [
           {
-            colony: 'E24S49',
-            targetRoom: 'E24S50',
+            colony: 'E17S59',
+            targetRoom: 'E17S60',
             action: 'reserve',
             status: 'active',
             updatedAt: 840
           }
         ],
         routeDistances: {
-          'E24S49>E24S50': 1,
-          'E24S49>E26S47': 2
+          'E17S59>E17S60': 1,
+          'E17S59>E18S59': 1
         }
       }
     };
@@ -239,21 +239,21 @@ describe('planTerritoryIntent', () => {
         { scoutOnly: true }
       )
     ).toEqual({
-      colony: 'E24S49',
-      targetRoom: 'E26S47',
+      colony: 'E17S59',
+      targetRoom: 'E18S59',
       action: 'scout'
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E24S49',
-        targetRoom: 'E24S50',
+        colony: 'E17S59',
+        targetRoom: 'E17S60',
         action: 'reserve',
         status: 'active',
         updatedAt: 840
       },
       {
-        colony: 'E24S49',
-        targetRoom: 'E26S47',
+        colony: 'E17S59',
+        targetRoom: 'E18S59',
         action: 'scout',
         status: 'planned',
         updatedAt: 841

@@ -200,7 +200,7 @@ describe('runTerritoryControllerCreep', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
       rooms: {
-        E24S49: { name: 'E24S49' } as Room
+        E17S59: { name: 'E17S59' } as Room
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
@@ -208,8 +208,8 @@ describe('runTerritoryControllerCreep', () => {
       territory: {
         intents: [
           {
-            colony: 'E24S49',
-            targetRoom: 'E26S47',
+            colony: 'E17S59',
+            targetRoom: 'E17S60',
             action: 'scout',
             status: 'planned',
             updatedAt: 840
@@ -218,42 +218,42 @@ describe('runTerritoryControllerCreep', () => {
       }
     };
     const creep = {
-      name: 'ScoutE24S50',
-      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E24S50', action: 'scout' } },
-      room: makeScoutRoom('E24S50'),
+      name: 'ScoutE18S59',
+      memory: { role: 'scout', colony: 'E17S59', territory: { targetRoom: 'E18S59', action: 'scout' } },
+      room: makeScoutRoom('E18S59'),
       moveTo: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);
 
-    expect(Memory.territory?.scoutIntel?.['E24S49>E24S50']).toMatchObject({
-      colony: 'E24S49',
-      roomName: 'E24S50',
+    expect(Memory.territory?.scoutIntel?.['E17S59>E18S59']).toMatchObject({
+      colony: 'E17S59',
+      roomName: 'E18S59',
       updatedAt: 841,
-      scoutName: 'ScoutE24S50'
+      scoutName: 'ScoutE18S59'
     });
-    expect(creep.memory.territory).toEqual({ targetRoom: 'E26S47', action: 'scout' });
-    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
+    expect(creep.memory.territory).toEqual({ targetRoom: 'E17S60', action: 'scout' });
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E17S60' });
   });
 
   it('ignores malformed scout memory entries when retasking an idle scout', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 842,
       rooms: {
-        E24S49: { name: 'E24S49' } as Room
+        E17S59: { name: 'E17S59' } as Room
       },
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        intents: [null, 42, { colony: 'E24S49', action: 'scout', status: 'planned' }],
+        intents: [null, 42, { colony: 'E17S59', action: 'scout', status: 'planned' }],
         scoutAttempts: {
           badNull: null,
           badPrimitive: 42,
-          missingRoom: { colony: 'E24S49', status: 'requested' },
+          missingRoom: { colony: 'E17S59', status: 'requested' },
           valid: {
-            colony: 'E24S49',
-            roomName: 'E26S47',
+            colony: 'E17S59',
+            roomName: 'E17S60',
             status: 'requested',
             requestedAt: 841,
             updatedAt: 841,
@@ -263,15 +263,15 @@ describe('runTerritoryControllerCreep', () => {
       } as unknown as TerritoryMemory
     };
     const creep = {
-      name: 'ScoutE24S50',
-      memory: { role: 'scout', colony: 'E24S49', territory: { targetRoom: 'E24S50', action: 'scout' } },
-      room: makeScoutRoom('E24S50'),
+      name: 'ScoutE18S59',
+      memory: { role: 'scout', colony: 'E17S59', territory: { targetRoom: 'E18S59', action: 'scout' } },
+      room: makeScoutRoom('E18S59'),
       moveTo: jest.fn()
     } as unknown as Creep;
 
     expect(() => runTerritoryControllerCreep(creep)).not.toThrow();
-    expect(creep.memory.territory).toEqual({ targetRoom: 'E26S47', action: 'scout' });
-    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
+    expect(creep.memory.territory).toEqual({ targetRoom: 'E17S60', action: 'scout' });
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E17S60' });
   });
 
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {
