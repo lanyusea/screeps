@@ -13,8 +13,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-CURRENT_ROOM = "E24S49"
-OLD_ROOMS = ("E48S28", "E48S29", "E26S49")
+CURRENT_ROOM = "E17S59"
+OLD_ROOMS = ("E48S28", "E48S29", "E26S49", "E24S49", "E19S55", "E22S49")
 DOMAINS = {
     "Agent OS",
     "Change-control",

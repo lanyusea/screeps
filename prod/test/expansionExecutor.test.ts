@@ -255,47 +255,47 @@ describe('expansion executor', () => {
     ]);
   });
 
-  it('requests configured E24S49 expansion scout targets', () => {
-    const colony = makeColony({ roomName: 'E24S49' });
+  it('requests configured E17S59 expansion scout targets', () => {
+    const colony = makeColony({ roomName: 'E17S59' });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 821,
       rooms: {
-        E24S49: colony.room
+        E17S59: colony.room
       },
       map: {
         describeExits: jest.fn(() => ({})),
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
-    setSafeHomeThreat('E24S49', 821);
+    setSafeHomeThreat('E17S59', 821);
 
     expect(refreshExpansionExecutorIntent(colony, 821)).toEqual({
       status: 'skipped',
-      colony: 'E24S49',
+      colony: 'E17S59',
       reason: 'insufficientEvidence'
     });
     expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
-      colony: 'E24S49',
-      roomName: 'E24S50',
+      colony: 'E17S59',
+      roomName: 'E18S59',
       evidenceStatus: 'insufficient-evidence',
       recommendedAction: 'scout',
       visible: false,
       adjacentToOwnedRoom: true,
-      nearestOwnedRoom: 'E24S49',
+      nearestOwnedRoom: 'E17S59',
       nearestOwnedRoomDistance: 1,
       routeDistance: 1
     });
-    expect(Memory.territory?.scoutAttempts?.['E24S49>E24S50']).toMatchObject({
-      colony: 'E24S49',
-      roomName: 'E24S50',
+    expect(Memory.territory?.scoutAttempts?.['E17S59>E18S59']).toMatchObject({
+      colony: 'E17S59',
+      roomName: 'E18S59',
       status: 'requested',
       requestedAt: 821,
       updatedAt: 821,
       attemptCount: 1
     });
-    expect(Memory.territory?.scoutAttempts?.['E24S49>E26S47']).toMatchObject({
-      colony: 'E24S49',
-      roomName: 'E26S47',
+    expect(Memory.territory?.scoutAttempts?.['E17S59>E17S60']).toMatchObject({
+      colony: 'E17S59',
+      roomName: 'E17S60',
       status: 'requested',
       requestedAt: 821,
       updatedAt: 821,
@@ -303,15 +303,15 @@ describe('expansion executor', () => {
     });
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'E24S49',
-        targetRoom: 'E24S50',
+        colony: 'E17S59',
+        targetRoom: 'E18S59',
         action: 'scout',
         status: 'planned',
         updatedAt: 821
       },
       {
-        colony: 'E24S49',
-        targetRoom: 'E26S47',
+        colony: 'E17S59',
+        targetRoom: 'E17S60',
         action: 'scout',
         status: 'planned',
         updatedAt: 821

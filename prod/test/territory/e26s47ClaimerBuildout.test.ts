@@ -60,7 +60,7 @@ type MockRoom = Room & {
   __constructionSites: ConstructionSite[];
 };
 
-describe('E26S47 claimer dispatch and buildout', () => {
+describe('E17S60 claimer dispatch and buildout', () => {
   beforeEach(() => {
     const globals = globalThis as Record<string, unknown>;
     for (const [key, value] of Object.entries(TEST_GLOBALS)) {
@@ -94,42 +94,42 @@ describe('E26S47 claimer dispatch and buildout', () => {
     delete globals.PathFinder;
   });
 
-  it('dispatches a CLAIM/MOVE claimer for E26S47 after viable scout intel confirms the claim target', () => {
+  it('dispatches a CLAIM/MOVE claimer for E17S60 after viable scout intel confirms the claim target', () => {
     const home = makeHomeColony();
     installExpansionGame(home, 900);
     installSafeHomeThreat(900);
-    installE26S47ScoutIntel(899);
+    installE17S60ScoutIntel(899);
 
     expect(refreshExpansionExecutorIntent(home, 900)).toMatchObject({
       status: 'planned',
-      colony: 'E24S49',
-      targetRoom: 'E26S47',
-      controllerId: 'controller-e26s47'
+      colony: 'E17S59',
+      targetRoom: 'E17S60',
+      controllerId: 'controller-e17s60'
     });
 
     expect(planSpawn(home, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 901)).toEqual({
       spawn: home.spawns[0],
       body: ['claim', 'move'],
-      name: 'claimer-E24S49-E26S47-901',
+      name: 'claimer-E17S59-E17S60-901',
       memory: {
         role: 'claimer',
-        colony: 'E24S49',
+        colony: 'E17S59',
         territory: {
-          targetRoom: 'E26S47',
+          targetRoom: 'E17S60',
           action: 'claim',
-          controllerId: 'controller-e26s47'
+          controllerId: 'controller-e17s60'
         }
       }
     });
   });
 
-  it('keeps E26S47 claim assignments retryable until the controller claim succeeds', () => {
+  it('keeps E17S60 claim assignments retryable until the controller claim succeeds', () => {
     const home = makeHomeColony();
     const target = makeRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       controllerLevel: 1,
       owned: false,
-      sources: [makeSource('source-e26s47-a', 21, 21, 'E26S47')]
+      sources: [makeSource('source-e17s60-a', 21, 21, 'E17S60')]
     });
     installClaimGame(home, target, 910);
     installRecommendedClaimMemory(909);
@@ -144,13 +144,13 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
     expect(retryingClaimer.moveTo).toHaveBeenCalledWith(controller);
     expect(retryingClaimer.memory.territory).toMatchObject({
-      targetRoom: 'E26S47',
+      targetRoom: 'E17S60',
       action: 'claim',
       claimAttemptCount: 1,
       lastClaimAttemptAt: 910
     });
     expect(Memory.territory?.intents?.[0]).toMatchObject({
-      targetRoom: 'E26S47',
+      targetRoom: 'E17S60',
       action: 'claim',
       status: 'planned'
     });
@@ -170,57 +170,57 @@ describe('E26S47 claimer dispatch and buildout', () => {
     expect(successfulClaimer.memory.territory).toBeUndefined();
     expect(Memory.territory?.targets).toEqual([]);
     expect(Memory.territory?.intents).toEqual([]);
-    expect(Memory.territory?.postClaimBootstraps?.E26S47).toMatchObject({
-      colony: 'E24S49',
-      roomName: 'E26S47',
+    expect(Memory.territory?.postClaimBootstraps?.E17S60).toMatchObject({
+      colony: 'E17S59',
+      roomName: 'E17S60',
       status: 'spawnSitePending',
       claimedAt: 911,
       updatedAt: 911,
-      controllerId: 'controller-e26s47'
+      controllerId: 'controller-e17s60'
     });
     expect(successEvents).toContainEqual({
       type: 'territoryClaim',
-      roomName: 'E24S49',
-      colony: 'E24S49',
+      roomName: 'E17S59',
+      colony: 'E17S59',
       phase: 'claim',
-      targetRoom: 'E26S47',
-      controllerId: 'controller-e26s47',
-      creepName: 'claimer-E24S49-E26S47',
+      targetRoom: 'E17S60',
+      controllerId: 'controller-e17s60',
+      creepName: 'claimer-E17S59-E17S60',
       result: OK_CODE
     });
     expect(successEvents).toContainEqual(
       expect.objectContaining({
         type: 'postClaimBootstrap',
-        roomName: 'E26S47',
-        colony: 'E24S49',
+        roomName: 'E17S60',
+        colony: 'E17S59',
         phase: 'spawnSite',
         result: OK_CODE
       })
     );
   });
 
-  it('preserves active E26S47 post-claim buildout state across repeated claim-success refreshes', () => {
-    const spawn = makeStructure('spawn-e26s47', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, 'E26S47');
+  it('preserves active E17S60 post-claim buildout state across repeated claim-success refreshes', () => {
+    const spawn = makeStructure('spawn-e17s60', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, 'E17S60');
     const target = makeRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       controllerLevel: 1,
       owned: true,
-      sources: [makeSource('source-e26s47-a', 21, 21, 'E26S47')],
+      sources: [makeSource('source-e17s60-a', 21, 21, 'E17S60')],
       structures: [spawn],
       spawns: [spawn as StructureSpawn]
     });
     installClaimGame(makeHomeColony(), target, 920);
     Memory.territory = {
       postClaimBootstraps: {
-        E26S47: {
-          colony: 'E24S49',
-          roomName: 'E26S47',
+        E17S60: {
+          colony: 'E17S59',
+          roomName: 'E17S60',
           status: 'spawningWorkers',
           claimedAt: 910,
           updatedAt: 919,
           workerTarget: 3,
-          controllerId: 'controller-e26s47' as Id<StructureController>,
-          spawnSite: { roomName: 'E26S47', x: 23, y: 23 },
+          controllerId: 'controller-e17s60' as Id<StructureController>,
+          spawnSite: { roomName: 'E17S60', x: 23, y: 23 },
           lastResult: OK_CODE
         }
       }
@@ -228,51 +228,51 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
     const telemetryEvents: RuntimeTelemetryEvent[] = [];
     recordPostClaimBootstrapClaimSuccess({
-      colony: 'E24S49',
-      roomName: 'E26S47',
-      controllerId: 'controller-e26s47' as Id<StructureController>
+      colony: 'E17S59',
+      roomName: 'E17S60',
+      controllerId: 'controller-e17s60' as Id<StructureController>
     }, telemetryEvents);
 
-    expect(Memory.territory.postClaimBootstraps?.E26S47).toEqual({
-      colony: 'E24S49',
-      roomName: 'E26S47',
+    expect(Memory.territory.postClaimBootstraps?.E17S60).toEqual({
+      colony: 'E17S59',
+      roomName: 'E17S60',
       status: 'spawningWorkers',
       claimedAt: 910,
       updatedAt: 920,
       workerTarget: 3,
-      controllerId: 'controller-e26s47',
-      spawnSite: { roomName: 'E26S47', x: 23, y: 23 },
+      controllerId: 'controller-e17s60',
+      spawnSite: { roomName: 'E17S60', x: 23, y: 23 },
       lastResult: OK_CODE
     });
     expect(telemetryEvents).toContainEqual({
       type: 'postClaimBootstrap',
-      roomName: 'E26S47',
-      colony: 'E24S49',
+      roomName: 'E17S60',
+      colony: 'E17S59',
       phase: 'spawningWorkers',
-      controllerId: 'controller-e26s47',
+      controllerId: 'controller-e17s60',
       workerTarget: 3
     });
   });
 
-  it('starts E26S47 claimed-room buildout with spawn, extension, and road construction phases', () => {
+  it('starts E17S60 claimed-room buildout with spawn, extension, and road construction phases', () => {
     const spawnlessRoom = makeRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       controllerLevel: 1,
-      sources: [makeSource('source-e26s47-a', 21, 21, 'E26S47')]
+      sources: [makeSource('source-e17s60-a', 21, 21, 'E17S60')]
     });
     installGameRooms([spawnlessRoom], 930);
     installActiveBuildoutMemory(930);
 
     expect(runClaimedRoomBootstrapper([makeColonySnapshot(spawnlessRoom)]).planned).toEqual([
-      { roomName: 'E26S47', phase: 'spawn', result: OK_CODE }
+      { roomName: 'E17S60', phase: 'spawn', result: OK_CODE }
     ]);
     expect(spawnlessRoom.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);
 
-    const spawn = makeStructure('spawn-e26s47', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, 'E26S47');
+    const spawn = makeStructure('spawn-e17s60', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25, 'E17S60');
     const extensionRoom = makeRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       controllerLevel: 2,
-      sources: [makeSource('source-e26s47-a', 21, 21, 'E26S47')],
+      sources: [makeSource('source-e17s60-a', 21, 21, 'E17S60')],
       structures: [spawn],
       spawns: [spawn as StructureSpawn]
     });
@@ -280,21 +280,21 @@ describe('E26S47 claimer dispatch and buildout', () => {
     installActiveBuildoutMemory(930);
 
     expect(runClaimedRoomBootstrapper([makeColonySnapshot(extensionRoom, [spawn as StructureSpawn])]).planned).toEqual([
-      { roomName: 'E26S47', phase: 'extension', result: OK_CODE }
+      { roomName: 'E17S60', phase: 'extension', result: OK_CODE }
     ]);
     expect(extensionRoom.createConstructionSite).toHaveBeenCalledWith(24, 24, TEST_GLOBALS.STRUCTURE_EXTENSION);
 
-    const roadSpawn = makeStructure('spawn-e26s47', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10, 'E26S47');
-    const source = makeSource('source-e26s47-a', 20, 10, 'E26S47');
+    const roadSpawn = makeStructure('spawn-e17s60', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10, 'E17S60');
+    const source = makeSource('source-e17s60-a', 20, 10, 'E17S60');
     const roadRoom = makeRoom({
-      roomName: 'E26S47',
+      roomName: 'E17S60',
       controllerLevel: 2,
       controllerPosition: { x: 10, y: 20 },
       sources: [source],
       structures: [
         roadSpawn,
-        makeStructure('container-e26s47', TEST_GLOBALS.STRUCTURE_CONTAINER, 20, 11, 'E26S47'),
-        ...makeExtensions(5, 'E26S47')
+        makeStructure('container-e17s60', TEST_GLOBALS.STRUCTURE_CONTAINER, 20, 11, 'E17S60'),
+        ...makeExtensions(5, 'E17S60')
       ],
       spawns: [roadSpawn as StructureSpawn],
       pathsByTarget: {
@@ -307,7 +307,7 @@ describe('E26S47 claimer dispatch and buildout', () => {
     installActiveBuildoutMemory(930);
 
     expect(runClaimedRoomBootstrapper([makeColonySnapshot(roadRoom, [roadSpawn as StructureSpawn])]).planned).toEqual([
-      { roomName: 'E26S47', phase: 'road', results: [OK_CODE] }
+      { roomName: 'E17S60', phase: 'road', results: [OK_CODE] }
     ]);
     expect(roadRoom.createConstructionSite).toHaveBeenCalledWith(11, 10, TEST_GLOBALS.STRUCTURE_ROAD);
   });
@@ -315,11 +315,11 @@ describe('E26S47 claimer dispatch and buildout', () => {
 
 function makeHomeColony(): ColonySnapshot {
   const room = makeRoom({
-    roomName: 'E24S49',
+    roomName: 'E17S59',
     controllerLevel: 4,
     sources: [
-      makeSource('source-e24s49-a', 10, 10, 'E24S49'),
-      makeSource('source-e24s49-b', 40, 40, 'E24S49')
+      makeSource('source-e17s59-a', 10, 10, 'E17S59'),
+      makeSource('source-e17s59-b', 40, 40, 'E17S59')
     ]
   });
   const spawn = makeSpawn('Spawn1', room, 25, 25);
@@ -416,30 +416,30 @@ function makeRoom(options: TestRoomOptions): MockRoom {
 }
 
 function installExpansionGame(home: ColonySnapshot, gameTime: number): void {
-  const e24s48 = makeRoom({
-    roomName: 'E24S48',
+  const e17s58 = makeRoom({
+    roomName: 'E17S58',
     controllerLevel: 3,
-    sources: [makeSource('source-e24s48-a', 20, 20, 'E24S48')]
+    sources: [makeSource('source-e17s58-a', 20, 20, 'E17S58')]
   });
-  installGameRooms([home.room as MockRoom, e24s48], gameTime);
+  installGameRooms([home.room as MockRoom, e17s58], gameTime);
   (Game as Partial<Game>).map = {
     ...Game.map,
     describeExits: jest.fn((roomName: string) => {
-      if (roomName === 'E24S49') {
-        return { '5': 'E24S50', '7': 'E24S48' };
+      if (roomName === 'E17S59') {
+        return { '5': 'E18S59', '7': 'E17S58' };
       }
 
-      if (roomName === 'E24S48') {
-        return { '3': 'E24S49', '7': 'E26S47' };
+      if (roomName === 'E17S58') {
+        return { '3': 'E17S59', '7': 'E17S60' };
       }
 
       return {};
     }),
     findRoute: jest.fn((fromRoom: string, toRoom: string) => {
-      if (fromRoom === 'E24S49' && toRoom === 'E26S47') {
+      if (fromRoom === 'E17S59' && toRoom === 'E17S60') {
         return [
-          { exit: 7, room: 'E24S48' },
-          { exit: 7, room: 'E26S47' }
+          { exit: 7, room: 'E17S58' },
+          { exit: 7, room: 'E17S60' }
         ];
       }
 
@@ -475,17 +475,17 @@ function installGameRooms(rooms: MockRoom[], gameTime: number): void {
   };
 }
 
-function installE26S47ScoutIntel(updatedAt: number): void {
+function installE17S60ScoutIntel(updatedAt: number): void {
   Memory.territory = {
     ...(Memory.territory ?? {}),
     scoutIntel: {
       ...(Memory.territory?.scoutIntel ?? {}),
-      'E24S49>E26S47': {
-        colony: 'E24S49',
-        roomName: 'E26S47',
+      'E17S59>E17S60': {
+        colony: 'E17S59',
+        roomName: 'E17S60',
         updatedAt,
-        controller: { id: 'controller-e26s47' as Id<StructureController>, my: false },
-        sourceIds: ['source-e26s47-a', 'source-e26s47-b'],
+        controller: { id: 'controller-e17s60' as Id<StructureController>, my: false },
+        sourceIds: ['source-e17s60-a', 'source-e17s60-b'],
         sourceCount: 2,
         sourceAccessPoints: 7,
         controllerSourceRange: 9,
@@ -501,9 +501,9 @@ function installE26S47ScoutIntel(updatedAt: number): void {
 function installRecommendedClaimMemory(updatedAt: number): void {
   Memory.territory = {
     expansionPipelines: {
-      E24S49: {
-        colony: 'E24S49',
-        targetRoom: 'E26S47',
+      E17S59: {
+        colony: 'E17S59',
+        targetRoom: 'E17S60',
         status: 'active',
         stage: 'claiming',
         claimState: 'scouted',
@@ -511,27 +511,27 @@ function installRecommendedClaimMemory(updatedAt: number): void {
         threshold: 700,
         startedAt: updatedAt,
         updatedAt,
-        controllerId: 'controller-e26s47' as Id<StructureController>
+        controllerId: 'controller-e17s60' as Id<StructureController>
       }
     },
     targets: [
       {
-        colony: 'E24S49',
-        roomName: 'E26S47',
+        colony: 'E17S59',
+        roomName: 'E17S60',
         action: 'claim',
         createdBy: 'nextExpansionScoring',
-        controllerId: 'controller-e26s47' as Id<StructureController>
+        controllerId: 'controller-e17s60' as Id<StructureController>
       }
     ],
     intents: [
       {
-        colony: 'E24S49',
-        targetRoom: 'E26S47',
+        colony: 'E17S59',
+        targetRoom: 'E17S60',
         action: 'claim',
         status: 'planned',
         updatedAt,
         createdBy: 'nextExpansionScoring',
-        controllerId: 'controller-e26s47' as Id<StructureController>
+        controllerId: 'controller-e17s60' as Id<StructureController>
       }
     ]
   };
@@ -541,8 +541,8 @@ function installActiveBuildoutMemory(claimedAt: number): void {
   Memory.territory = {
     claimedRoomBootstrapper: {
       rooms: {
-        E26S47: {
-          roomName: 'E26S47',
+        E17S60: {
+          roomName: 'E17S60',
           owned: true,
           claimedAt,
           updatedAt: claimedAt
@@ -557,8 +557,8 @@ function installSafeHomeThreat(updatedAt: number): void {
     colonyThreats: {
       updatedAt,
       rooms: {
-        E24S49: {
-          roomName: 'E24S49',
+        E17S59: {
+          roomName: 'E17S59',
           level: 'none',
           updatedAt,
           hostileCreepCount: 0,
@@ -601,14 +601,14 @@ function makeClaimCreep(
   claimController: jest.Mock<ScreepsReturnCode, [StructureController]>
 ): Creep & { moveTo: jest.Mock } {
   return {
-    name: 'claimer-E24S49-E26S47',
+    name: 'claimer-E17S59-E17S60',
     memory: {
       role: 'claimer',
-      colony: 'E24S49',
+      colony: 'E17S59',
       territory: {
-        targetRoom: 'E26S47',
+        targetRoom: 'E17S60',
         action: 'claim',
-        controllerId: 'controller-e26s47' as Id<StructureController>
+        controllerId: 'controller-e17s60' as Id<StructureController>
       }
     },
     room,

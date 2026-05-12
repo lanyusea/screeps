@@ -503,72 +503,72 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
-  it('reports E24S50 post-claim construction, energy, and defense progress after worker readiness', () => {
+  it('reports E18S59 post-claim construction, energy, and defense progress after worker readiness', () => {
     const remoteHarvester = makeWorker({
       role: 'remoteHarvester',
-      colony: 'E24S49',
+      colony: 'E17S59',
       remoteHarvester: {
-        homeRoom: 'E24S49',
-        targetRoom: 'E24S50',
-        sourceId: 'e24s50-source-a' as Id<Source>
+        homeRoom: 'E17S59',
+        targetRoom: 'E18S59',
+        sourceId: 'e18s59-source-a' as Id<Source>
       }
     });
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
-      roomName: 'E24S50',
+      roomName: 'E18S59',
       includeEventLog: false,
       sources: [
         {
-          id: 'e24s50-source-a',
-          pos: { x: 10, y: 10, roomName: 'E24S50' }
+          id: 'e18s59-source-a',
+          pos: { x: 10, y: 10, roomName: 'E18S59' }
         }
       ],
       structures: [
         {
-          id: 'spawn-e24s50',
+          id: 'spawn-e18s59',
           structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
           store: makeEnergyStore(50, 300)
         },
         {
-          id: 'container-e24s50-a',
+          id: 'container-e18s59-a',
           structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
-          pos: { x: 10, y: 11, roomName: 'E24S50' },
+          pos: { x: 10, y: 11, roomName: 'E18S59' },
           store: makeEnergyStore(400, 2000)
         }
       ],
       constructionSites: [
         {
-          id: 'tower-site-e24s50',
+          id: 'tower-site-e18s59',
           structureType: TEST_GLOBALS.STRUCTURE_TOWER,
-          pos: { x: 24, y: 24, roomName: 'E24S50' }
+          pos: { x: 24, y: 24, roomName: 'E18S59' }
         },
         {
-          id: 'rampart-site-e24s50',
+          id: 'rampart-site-e18s59',
           structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
-          pos: { x: 25, y: 1, roomName: 'E24S50' }
+          pos: { x: 25, y: 1, roomName: 'E18S59' }
         }
       ],
       creeps: [remoteHarvester]
     });
     (colony.room.controller as StructureController).level = 3;
-    (colony.room.controller as StructureController).pos = { x: 25, y: 25, roomName: 'E24S50' } as RoomPosition;
+    (colony.room.controller as StructureController).pos = { x: 25, y: 25, roomName: 'E18S59' } as RoomPosition;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
-          E24S50: {
-            colony: 'E24S49',
-            roomName: 'E24S50',
+          E18S59: {
+            colony: 'E17S59',
+            roomName: 'E18S59',
             status: 'ready',
             claimedAt: 837,
             updatedAt: 838,
             workerTarget: 2,
-            controllerId: 'controller-e24s50' as Id<StructureController>
+            controllerId: 'controller-e18s59' as Id<StructureController>
           }
         },
         claimedRoomBootstrapper: {
           rooms: {
-            E24S50: {
-              roomName: 'E24S50',
+            E18S59: {
+              roomName: 'E18S59',
               owned: true,
               claimedAt: 837,
               updatedAt: 838
@@ -578,7 +578,7 @@ describe('runtime telemetry summaries', () => {
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
-      describeExits: jest.fn(() => ({ '5': 'E24S49' }))
+      describeExits: jest.fn(() => ({ '5': 'E17S59' }))
     } as unknown as GameMap;
     (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
       RemoteHarvester: remoteHarvester
@@ -589,9 +589,9 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.postClaimBootstrap).toMatchObject({
-      colony: 'E24S49',
+      colony: 'E17S59',
       status: 'ready',
-      controllerId: 'controller-e24s50',
+      controllerId: 'controller-e18s59',
       progress: {
         construction: {
           priorityOrder: ['spawn', 'extension', 'road', 'container', 'tower', 'rampart', 'storage'],

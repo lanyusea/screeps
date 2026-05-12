@@ -9,9 +9,10 @@ This registry is the canonical compact rules standard for the two-person Screeps
 
 - Official branch: `main`
 - Official shard: `shardX`
-- Official room: `E24S49`
+- Official room: `E17S59`
+- Official spawn: `Spawn1` at `(9,42)`
 
-References to `E48S28`, `E48S29`, or `E26S49` are historical/superseded unless a future owner decision explicitly retargets the project.
+References to `E24S49`, `E19S55`, `E22S49`, `E48S28`, `E48S29`, or `E26S49` are historical incident/fallback or superseded rooms unless a future owner decision explicitly retargets the project.
 
 ## Authority order
 
@@ -104,10 +105,10 @@ Done/closed items should not carry active `Blocked by`; historical blockers belo
 
 ## Autonomous recovery authorization
 
-When the official target room (E24S49 on shardX) enters a dead-end state — defined as **owned_spawns=0 AND owned_creeps=0** — the autonomous system is authorized to:
+When the official target room (E17S59 on shardX) enters a dead-end state — defined as **owned_spawns=0 AND owned_creeps=0** — the autonomous system is authorized to:
 
 1. Execute destructive respawn: `POST /api/user/respawn`
-2. Place spawn at the last-known good position (32,19 for E24S49) or auto-discover valid positions
+2. Place spawn at the last-known good position (`Spawn1` at `(9,42)` for E17S59) or auto-discover valid positions
 3. Deploy the last-known-healthy commit (from deploy evidence history, not HEAD)
 4. Verify recovery: spawn ≥ 1, creeps ≥ 1, alert=false
 5. Resume normal autonomous operation

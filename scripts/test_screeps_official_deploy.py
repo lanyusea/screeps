@@ -49,7 +49,7 @@ class OfficialDeployTest(unittest.TestCase):
             api_url=api_url,
             branch="main",
             shard="shardX",
-            room="E24S49",
+            room="E17S59",
             artifact_path=artifact,
             deploy=deploy_mode,
             activate_world=activate_world,
@@ -64,7 +64,7 @@ class OfficialDeployTest(unittest.TestCase):
             "apiUrl": "https://screeps.com",
             "branch": "main",
             "shard": "shardX",
-            "room": "E24S49",
+            "room": "E17S59",
         }
         target.update(overrides)
         return target
@@ -181,7 +181,7 @@ class OfficialDeployTest(unittest.TestCase):
                 artifact,
                 api_url="http://localhost:21025",
                 deploy_mode=True,
-                confirm="deploy main to shardX/E24S49",
+                confirm="deploy main to shardX/E17S59",
             )
 
             with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
@@ -219,7 +219,7 @@ class OfficialDeployTest(unittest.TestCase):
                 artifact,
                 deploy_mode=True,
                 activate_world=True,
-                confirm="deploy main to shardX/E24S49",
+                confirm="deploy main to shardX/E17S59",
             )
 
             evidence = deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -260,7 +260,7 @@ class OfficialDeployTest(unittest.TestCase):
                     )
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E24S49")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E17S59")
 
             with self.assertRaisesRegex(deploy.DeployError, "list branches failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -278,7 +278,7 @@ class OfficialDeployTest(unittest.TestCase):
                     deploy.HttpResult(500, {"ok": 0, "message": "upload rejected for fixture-value"}, {}),
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E24S49")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E17S59")
 
             with self.assertRaisesRegex(deploy.DeployError, "upload code failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -293,7 +293,7 @@ class OfficialDeployTest(unittest.TestCase):
             def failing_transport(**_kwargs: Any) -> deploy.HttpResult:
                 raise deploy.DeployError("request failed after echoing fixture-value")
 
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E24S49")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E17S59")
 
             with self.assertRaisesRegex(deploy.DeployError, "request failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=failing_transport)
@@ -312,7 +312,7 @@ class OfficialDeployTest(unittest.TestCase):
                     deploy.HttpResult(200, {"ok": 1, "modules": {"main": "module.exports.loop = function () { return 2; };\n"}}, {}),
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E24S49")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E17S59")
 
             with self.assertRaisesRegex(deploy.DeployError, "hash verification failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -465,28 +465,28 @@ class OfficialDeployTest(unittest.TestCase):
                 "ok": True,
                 "room_summaries": [
                     {
-                        "room": "shardX/E24S49",
+                        "room": "shardX/E17S59",
                         "owned_spawns": 1,
                         "owned_creeps": 1,
                     }
                 ],
             },
             "shardX",
-            "E24S49",
+            "E17S59",
         )
         missing = deploy.recovery_status_from_payload(
             {
                 "ok": True,
                 "room_summaries": [
                     {
-                        "room": "shardX/E24S49",
+                        "room": "shardX/E17S59",
                         "owned_spawns": 1,
                         "owned_creeps": 0,
                     }
                 ],
             },
             "shardX",
-            "E24S49",
+            "E17S59",
         )
 
         self.assertTrue(recovered["ok"])
@@ -518,7 +518,7 @@ class OfficialDeployTest(unittest.TestCase):
                 artifact,
                 deploy_mode=True,
                 activate_world=False,
-                confirm="deploy main to shardX/E24S49",
+                confirm="deploy main to shardX/E17S59",
                 evidence_dir=evidence_dir,
                 repo_root=repo_root,
             )
@@ -552,7 +552,7 @@ class OfficialDeployTest(unittest.TestCase):
                 command_runner=command_runner,
                 recovery_reader=lambda: {
                     "ok": True,
-                    "room_summaries": [{"room": "shardX/E24S49", "owned_spawns": 1, "owned_creeps": 1}],
+                    "room_summaries": [{"room": "shardX/E17S59", "owned_spawns": 1, "owned_creeps": 1}],
                 },
                 issue_creator=issue_creator,
                 sleeper=lambda _seconds: None,
@@ -573,7 +573,7 @@ class OfficialDeployTest(unittest.TestCase):
             cfg = self.config(
                 artifact,
                 deploy_mode=True,
-                confirm="deploy main to shardX/E24S49",
+                confirm="deploy main to shardX/E17S59",
                 evidence_dir=Path(tmp) / "evidence",
             )
 

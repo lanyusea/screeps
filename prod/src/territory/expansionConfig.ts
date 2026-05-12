@@ -7,20 +7,20 @@ export interface TerritoryExpansionScoutTargetConfig {
   adjacentToOwnedRoom: boolean;
 }
 
-// Official deployment is retargeted to E24S49, so configured targets keep E24S49 as the colony key.
+// Official deployment is retargeted to E17S59, so configured targets keep E17S59 as the colony key.
 export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScoutTargetConfig[] = [
   {
-    colony: 'E24S49',
-    roomName: 'E24S50',
-    nearestOwnedRoom: 'E24S49',
+    colony: 'E17S59',
+    roomName: 'E18S59',
+    nearestOwnedRoom: 'E17S59',
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true
   },
   {
-    colony: 'E24S49',
-    roomName: 'E26S47',
-    nearestOwnedRoom: 'E24S48',
+    colony: 'E17S59',
+    roomName: 'E17S60',
+    nearestOwnedRoom: 'E17S58',
     nearestOwnedRoomDistance: 1,
     routeDistance: 2,
     adjacentToOwnedRoom: true

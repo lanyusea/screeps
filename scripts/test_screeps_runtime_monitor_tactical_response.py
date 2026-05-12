@@ -86,11 +86,11 @@ EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE = {
     "mode": "alert",
     "alert": False,
     "reasons": [],
-    "rooms": ["shardX/E24S49", "shardX/E23S49"],
+    "rooms": ["shardX/E17S59", "shardX/E23S49"],
     "room_summaries": [
         {
-            "room": "shardX/E24S49",
-            "name": "E24S49",
+            "room": "shardX/E17S59",
+            "name": "E17S59",
             "owned_creeps": 13,
             "owned_spawns": 1,
             "creeps": 13,
