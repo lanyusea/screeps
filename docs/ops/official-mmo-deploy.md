@@ -135,6 +135,18 @@ Evidence JSON must not include:
 - `prod/dist/main.js` contents
 - remote module contents
 
+## Release Cadence
+
+Refs: #63.
+
+Normal gameplay releases follow the 8h Gameplay Evolution Review cycle (cron `c7b3dda8f1ac`):
+
+1. **Review recommends**: The review output includes a `Release recommendation` section (Hold / Observe / Release candidate / Emergency hotfix) with required deploy action, hold reason, and post-release observation checklist.
+2. **Continuation worker decides**: The scheduler (`f66ed36d7be0`) reads the review and either triggers deploy, holds with a documented blocker, or escalates emergency hotfix.
+3. **Max cadence**: At most one meaningful gameplay deploy per 12h window under normal conditions. Emergency hotfixes are exempt but still require minimum safety gates.
+4. **Post-deploy acceptance**: The next Gameplay Evolution Review (or explicit post-deploy observation within 30 min) must verify expected KPI movement or record regression against the prior review's `Expected KPI movement` column.
+5. **Hold conditions**: Deploy is HELD when private-smoke is unavailable, the room is in a survival emergency, a deploy is already in-flight, or the review recommends Hold/Observe.
+
 ## Post-Deploy Monitoring
 
 After a successful live deploy, capture runtime evidence for `shardX/E17S59`:
