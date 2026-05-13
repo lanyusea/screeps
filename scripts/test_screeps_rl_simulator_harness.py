@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import math
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -595,6 +597,243 @@ cli:
             harness._WORKER_PHASE_DEBUG_DISABLED = False
 
         self.assertEqual(broken_stderr.write_attempts, 1)
+
+    def test_run_variants_completes_scale_runs_when_worker_phase_stderr_pipe_breaks(self) -> None:
+        class BrokenPipeStderr:
+            def __init__(self) -> None:
+                self.write_attempts = 0
+
+            def write(self, text: str) -> int:
+                self.write_attempts += 1
+                raise BrokenPipeError(32, "Broken pipe")
+
+            def flush(self) -> None:
+                return None
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def config_path(self) -> Path:
+                return self.work_dir / "config.yml"
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class Result:
+            def __init__(self, status: int, payload: object) -> None:
+                self.status = status
+                self.payload = payload
+                self.headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = ""
+
+            def __init__(self) -> None:
+                self._lock = threading.Lock()
+                self._state_by_url: dict[str, dict[str, object]] = {}
+
+            def _state(self, base_url: str) -> dict[str, object]:
+                with self._lock:
+                    return self._state_by_url.setdefault(
+                        base_url,
+                        {"gametime": 0, "room": "E1S1", "username": "rl-sim"},
+                    )
+
+            def host_port_unavailable_reason(self, host: str, port: int) -> str | None:
+                _ = host, port
+                return None
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                with self._lock:
+                    self._state_by_url[str(cfg.server_url)] = {
+                        "gametime": 0,
+                        "room": cfg.room,
+                        "username": cfg.username,
+                    }
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                _ = work_dir
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                _ = cfg
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+                return None
+
+            def build_launcher_config(self, cfg: FakeSmokeConfig) -> str:
+                _ = cfg
+                return "serverConfig:\n  shardName: shardX\n  mapFile: /screeps/maps/map-0b6758af.json\n"
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                _ = work_dir, path, text
+                return None
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+                return None
+
+            def run_command(self, command: list[str], cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = command, cfg, timeout
+                return {"returncode": 0, "elapsed_seconds": 0.0}
+
+            def wait_for_http(self, cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = cfg, timeout
+                return {"ok": True}
+
+            def run_launcher_cli(self, compose: list[str], cfg: FakeSmokeConfig, expression: str) -> dict[str, object]:
+                _ = compose, cfg, expression
+                return {"status": 200, "response_excerpt": "undefined\n"}
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                _ = headers
+                return token
+
+            def build_register_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"username": cfg.username, "email": cfg.email, "password": cfg.password}
+
+            def build_signin_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"email": cfg.email, "password": cfg.password}
+
+            def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
+                return {"branch": cfg.branch, "modules": {"main": code}}
+
+            def build_spawn_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"room": cfg.room, "name": cfg.spawn_name, "x": cfg.spawn_x, "y": cfg.spawn_y}
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok") in (1, True)
+
+            def upload_code_succeeded(self, result: Result) -> bool:
+                return self.api_dict_succeeded(result)
+
+            def collect_mongo_summary(self, compose: list[str], cfg: FakeSmokeConfig) -> dict[str, object]:
+                _ = compose
+                return {
+                    "ok": True,
+                    "summary": {
+                        "room": cfg.room,
+                        "user": {"id": "user-1", "username": cfg.username},
+                        "controller": {"level": 1, "my": True, "owner": {"username": cfg.username}},
+                        "spawns": [{"name": cfg.spawn_name, "user": "user-1", "store": {"energy": 300}}],
+                        "creeps": [{"name": "worker-1", "user": "user-1", "memory": {"role": "worker"}}],
+                        "ownStructureCounts": {"spawn": 1},
+                        "creepCounts": {"worker": 1},
+                        "ownCreeps": 1,
+                        "ownStructures": 1,
+                        "storedEnergy": 300,
+                        "energyCapacity": 300,
+                    },
+                }
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, args
+                state = self._state(base_url)
+                room = str(state["room"])
+                username = str(state["username"])
+                if path == "/api/game/room-terrain":
+                    return Result(200, {"terrain": [{"room": room, "terrain": "0" * 2500}]})
+                if path == "/api/register/submit":
+                    return Result(200, {"ok": 1})
+                if path == "/api/auth/signin":
+                    return Result(200, {"ok": 1, "token": f"token-{base_url.rsplit(':', 1)[-1]}"})
+                if path == "/api/user/code":
+                    return Result(200, {"ok": 1})
+                if path == "/api/game/place-spawn":
+                    return Result(200, {"ok": 1})
+                if path == "/api/user/overview":
+                    return Result(200, {"ok": 1, "rooms": [room], "gametime": state["gametime"]})
+                if path == "/stats":
+                    with self._lock:
+                        state["gametime"] = int(state["gametime"]) + 1
+                        gametime = state["gametime"]
+                    return Result(200, {"gametime": gametime})
+                if path == "/api/game/room-overview":
+                    requested_room = room
+                    params = kwargs.get("params")
+                    if isinstance(params, dict) and isinstance(params.get("room"), str):
+                        requested_room = params["room"]
+                    return Result(
+                        200,
+                        {
+                            "ok": 1,
+                            "room": requested_room,
+                            "roomData": {
+                                "room": requested_room,
+                                "user": {"id": "user-1", "username": username},
+                                "controller": {
+                                    "level": 1,
+                                    "my": True,
+                                    "owner": {"username": username},
+                                },
+                                "objects": [
+                                    {"type": "spawn", "user": "user-1", "store": {"energy": 300}},
+                                    {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                                ],
+                                "creeps": 1,
+                                "energy": 300,
+                            },
+                        },
+                    )
+                raise AssertionError(path)
+
+        def run_scale_case(environment_count: int) -> tuple[dict[str, object], list[dict[str, object]], BrokenPipeStderr]:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                code_path = root / "main.js"
+                map_path = root / "map.json"
+                code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+                map_path.write_text("{\"ok\": true}", encoding="utf-8")
+                fake_smoke = FakeSmoke()
+                broken_stderr = BrokenPipeStderr()
+                harness._WORKER_PHASE_DEBUG_DISABLED = False
+                try:
+                    with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=fake_smoke):
+                        with mock.patch("sys.stderr", broken_stderr):
+                            artifact, results = harness.run_variants(
+                                variants=[f"scale-env-{index}" for index in range(environment_count)],
+                                ticks=200,
+                                workers=environment_count,
+                                host_port_start=24125,
+                                room="E1S1",
+                                shard="shardX",
+                                branch="activeWorld",
+                                code_path=code_path,
+                                map_source_file=map_path,
+                                out_dir=root / "out",
+                                run_id=f"scale-{environment_count}",
+                                bot_commit="0" * 40,
+                            )
+                finally:
+                    harness._WORKER_PHASE_DEBUG_DISABLED = False
+            return artifact, results, broken_stderr
+
+        for environment_count in (5, 10):
+            with self.subTest(environment_count=environment_count):
+                artifact, results, broken_stderr = run_scale_case(environment_count)
+                successful = [result for result in results if result.get("ok") is True]
+                self.assertGreaterEqual(len(successful), math.ceil(environment_count * 0.8))
+                self.assertEqual(len(successful), environment_count)
+                self.assertTrue(all(result.get("ticks_run") == 200 for result in successful))
+                self.assertEqual(artifact["total_environments"], environment_count)
+                self.assertEqual(artifact["successful"], environment_count)
+                self.assertEqual(artifact["failed"], 0)
+                self.assertEqual(artifact["total_ticks"], environment_count * 200)
+                self.assertGreaterEqual(broken_stderr.write_attempts, 1)
 
     def test_default_sim_room_matches_bundled_private_map(self) -> None:
         self.assertEqual(harness.DEFAULT_SIM_ROOM, "E1S1")
