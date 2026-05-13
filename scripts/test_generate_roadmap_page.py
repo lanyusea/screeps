@@ -995,6 +995,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         }
         github_snapshot = {
             "sourceMode": "live",
+            "projectItemsSource": "live",
             "projectItems": [
                 {
                     "type": "Issue",
@@ -1095,18 +1096,30 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in bot_column["items"]], [165])
         self.assertEqual([item["number"] for item in territory_column["items"]], [223])
 
-    def test_project_data_live_gate_requires_live_fetched_project_source(self) -> None:
+    def test_project_data_live_gate_uses_project_specific_signals(self) -> None:
         self.assertTrue(
             roadmap.github_project_data_is_live(
                 {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "live"}
             )
         )
+        self.assertTrue(
+            roadmap.github_project_data_is_live(
+                {
+                    "sourceMode": "cached",
+                    "fetched": False,
+                    "fetchErrors": [{"source": "issues"}, {"source": "pullRequests"}],
+                    "projectItemsSource": "live",
+                }
+            )
+        )
 
         stale_snapshots = [
             {"sourceMode": "cached", "fetched": False, "fetchErrors": [], "projectItemsSource": "cached"},
-            {"sourceMode": "live", "fetched": False, "fetchErrors": [], "projectItemsSource": "live"},
             {"sourceMode": "live", "fetched": True, "fetchErrors": [{"source": "project"}], "projectItemsSource": "live"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": ["project"], "projectItemsSource": "live"},
             {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "cached"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "unavailable"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": []},
         ]
         for snapshot in stale_snapshots:
             with self.subTest(snapshot=snapshot):

@@ -2581,16 +2581,9 @@ def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) ->
 
 
 def github_project_data_is_live(github_snapshot: JsonObject) -> bool:
-    if github_snapshot.get("sourceMode") != "live":
-        return False
-    if github_snapshot.get("fetched") is False:
-        return False
     if github_fetch_errors_include(github_snapshot, "project"):
         return False
-    project_items_source = github_snapshot.get("projectItemsSource")
-    if project_items_source and project_items_source != "live":
-        return False
-    return True
+    return github_snapshot.get("projectItemsSource") == "live"
 
 
 def github_fetch_errors_include(github_snapshot: JsonObject, source: str) -> bool:
