@@ -47,6 +47,29 @@ EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
+WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
+    "name",
+    "task",
+    "buildBlockedReason",
+    "repairBlockedReason",
+    "dispatchAssignedTargetId",
+    "dispatchAssignedTask",
+    "dispatchBaseSelectedTargetId",
+    "dispatchBaseSelectedTask",
+    "dispatchCurrentTargetId",
+    "dispatchEnergyCriticalTargetId",
+    "dispatchEnergyCriticalTask",
+    "dispatchReason",
+    "dispatchSelectedTargetId",
+    "dispatchSelectedTask",
+    "dispatchSpawnReservationTargetId",
+    "dispatchSpawnReservationTask",
+)
+WORKER_ASSIGNMENT_BLOCKED_WORKER_NUMBER_FIELDS = (
+    "carriedEnergy",
+    "dispatchTick",
+    "freeCapacity",
+)
 ENERGY_BUFFER_UNHEALTHY_KIND = "energy_buffer_unhealthy"
 ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE = 2
 ENERGY_BUFFER_UNHEALTHY_ROUTES = [
@@ -2791,6 +2814,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
     metrics = compute_room_summary_metrics(snapshot)
     owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
     behavior_totals = behavior_pathing_totals(info)
+    assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
     summary = {
         "room": snapshot.ref.key,
         "shard": snapshot.ref.shard,
@@ -2809,6 +2833,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "buildBlockedReason": metrics.build_blocked_reason,
+        **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
@@ -3115,6 +3140,264 @@ def worker_load_efficiency(owned_creeps: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
+def string_value(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def explicit_worker_assignment_blocked_detail(source: dict[str, Any]) -> str | None:
+    for path in (
+        ("workerAssignmentBlockedDetail",),
+        ("resources", "productiveEnergy", "workerAssignmentBlockedDetail"),
+        ("productiveEnergy", "workerAssignmentBlockedDetail"),
+        ("construction", "workerAssignmentBlockedDetail"),
+    ):
+        value = string_value(nested_value(source, *path))
+        if value is not None:
+            return value
+    return None
+
+
+def sanitized_worker_assignment_blocked_worker(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    result: dict[str, Any] = {}
+    for key in WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS:
+        field_value = string_value(value.get(key))
+        if field_value is not None:
+            result[key] = field_value
+    for key in WORKER_ASSIGNMENT_BLOCKED_WORKER_NUMBER_FIELDS:
+        field_value = number_value(value.get(key))
+        if field_value is not None:
+            result[key] = field_value
+    return result or None
+
+
+def explicit_worker_assignment_blocked_workers(source: dict[str, Any]) -> list[dict[str, Any]] | None:
+    for path in (
+        ("workerAssignmentBlockedWorkers",),
+        ("resources", "productiveEnergy", "workerAssignmentBlockedWorkers"),
+        ("productiveEnergy", "workerAssignmentBlockedWorkers"),
+        ("construction", "workerAssignmentBlockedWorkers"),
+    ):
+        value = nested_value(source, *path)
+        if not isinstance(value, list):
+            continue
+        workers = [
+            worker
+            for worker in (sanitized_worker_assignment_blocked_worker(item) for item in value)
+            if worker is not None
+        ]
+        return workers
+    return None
+
+
+def creep_memory(creep: dict[str, Any]) -> dict[str, Any]:
+    return as_dict(creep.get("memory"))
+
+
+def creep_name(creep: dict[str, Any]) -> str | None:
+    return string_value(creep.get("name")) or string_value(creep_memory(creep).get("name"))
+
+
+def creep_task_type(creep: dict[str, Any]) -> str | None:
+    memory = creep_memory(creep)
+    for candidate in (memory.get("task"), creep.get("task"), creep.get("runtimeTask"), creep.get("assignment")):
+        if isinstance(candidate, dict):
+            task_type = string_value(candidate.get("type"))
+            if task_type is not None:
+                return task_type
+        task_type = string_value(candidate)
+        if task_type is not None:
+            return task_type
+    return None
+
+
+def creep_free_energy_capacity(creep: dict[str, Any]) -> int | float:
+    return max(0, store_capacity(creep) - carried_energy(creep))
+
+
+def creep_has_active_body_part(creep: dict[str, Any], part_type: str) -> bool:
+    body = creep.get("body")
+    if not isinstance(body, list):
+        return False
+    for part in body:
+        if not isinstance(part, dict):
+            continue
+        hits = number_value(part.get("hits"))
+        if part.get("type") == part_type and (1 if hits is None else hits) > 0:
+            return True
+    return False
+
+
+def creep_is_construction_capable(creep: dict[str, Any]) -> bool:
+    return creep_has_active_body_part(creep, "work") and store_capacity(creep) > 0
+
+
+def worker_assignment_blocked_detail_from_snapshot(
+    snapshot: RoomSnapshot,
+    workers: list[dict[str, Any]],
+) -> str:
+    if not any(creep_is_construction_capable(worker) for worker in workers):
+        return "no_valid_body"
+
+    buffer_health = as_dict(snapshot.info.get("energyBufferHealth"))
+    buffer_current = number_value(buffer_health.get("currentEnergy"))
+    buffer_threshold = number_value(buffer_health.get("threshold"))
+    if buffer_health.get("healthy") is False or (
+        buffer_current is not None and buffer_threshold is not None and buffer_current < buffer_threshold
+    ):
+        return "energy_buffer_below_threshold"
+
+    if workers and all(creep_free_energy_capacity(worker) <= 0 for worker in workers):
+        return "room_capacity_full"
+
+    reservation = as_dict(snapshot.info.get("spawnEnergyReservation"))
+    if (number_value(reservation.get("unmetReservedEnergy")) or 0) > 0:
+        return "spawn_reserving_energy"
+
+    return "unknown"
+
+
+def worker_build_assignment_blocked_reason(
+    snapshot: RoomSnapshot,
+    worker: dict[str, Any],
+    metrics: RoomSummaryMetrics,
+) -> str:
+    task_type = creep_task_type(worker)
+    if task_type == "build":
+        return "build_assigned"
+    if not creep_is_construction_capable(worker):
+        return "build_blocked_no_valid_body"
+    if len(metrics.construction_sites) <= 0 or metrics.pending_build_progress <= 0:
+        return "build_blocked_no_construction_sites"
+    if carried_energy(worker) <= 0:
+        return "build_blocked_no_carried_energy"
+
+    buffer_health = as_dict(snapshot.info.get("energyBufferHealth"))
+    buffer_current = number_value(buffer_health.get("currentEnergy"))
+    buffer_threshold = number_value(buffer_health.get("threshold"))
+    if buffer_health.get("healthy") is False or (
+        buffer_current is not None and buffer_threshold is not None and buffer_current < buffer_threshold
+    ):
+        return "build_blocked_energy_buffer"
+    if task_type == "upgrade":
+        return "build_blocked_controller_progress_preferred"
+    if task_type:
+        return "build_blocked_other_task"
+    return "build_blocked_unknown"
+
+
+def worker_repair_assignment_blocked_reason(worker: dict[str, Any], metrics: RoomSummaryMetrics) -> str:
+    task_type = creep_task_type(worker)
+    if task_type == "repair":
+        return "repair_assigned"
+    if not creep_is_construction_capable(worker):
+        return "repair_blocked_no_valid_body"
+    if carried_energy(worker) <= 0:
+        return "repair_blocked_no_carried_energy"
+    if metrics.pending_build_progress > 0:
+        return "repair_blocked_build_backlog_first"
+    if task_type == "upgrade":
+        return "repair_blocked_controller_progress_preferred"
+    if task_type:
+        return "repair_blocked_other_task"
+    return "repair_blocked_unknown"
+
+
+def worker_dispatch_diagnostic_fields(
+    creep: dict[str, Any],
+    snapshot_tick: int | str | None,
+) -> dict[str, Any]:
+    diagnostic = as_dict(creep_memory(creep).get("workerDispatchDiagnostic"))
+    if not diagnostic:
+        return {}
+
+    diagnostic_tick = number_value(diagnostic.get("tick"))
+    normalized_snapshot_tick: int | None
+    if isinstance(snapshot_tick, int):
+        normalized_snapshot_tick = snapshot_tick
+    elif isinstance(snapshot_tick, str) and snapshot_tick.isdigit():
+        normalized_snapshot_tick = int(snapshot_tick)
+    else:
+        normalized_snapshot_tick = None
+
+    if (
+        normalized_snapshot_tick is not None
+        and diagnostic_tick is not None
+        and diagnostic_tick != normalized_snapshot_tick
+    ):
+        return {}
+
+    return {
+        **({"dispatchReason": diagnostic.get("reason")} if string_value(diagnostic.get("reason")) else {}),
+        **({"dispatchTick": diagnostic_tick} if diagnostic_tick is not None else {}),
+        **({"dispatchCurrentTargetId": diagnostic.get("currentTargetId")} if string_value(diagnostic.get("currentTargetId")) else {}),
+        **({"dispatchSelectedTask": diagnostic.get("selectedTask")} if string_value(diagnostic.get("selectedTask")) else {}),
+        **({"dispatchSelectedTargetId": diagnostic.get("selectedTargetId")} if string_value(diagnostic.get("selectedTargetId")) else {}),
+        **({"dispatchBaseSelectedTask": diagnostic.get("baseSelectedTask")} if string_value(diagnostic.get("baseSelectedTask")) else {}),
+        **({"dispatchBaseSelectedTargetId": diagnostic.get("baseSelectedTargetId")} if string_value(diagnostic.get("baseSelectedTargetId")) else {}),
+        **({"dispatchEnergyCriticalTask": diagnostic.get("energyCriticalTask")} if string_value(diagnostic.get("energyCriticalTask")) else {}),
+        **({"dispatchEnergyCriticalTargetId": diagnostic.get("energyCriticalTargetId")} if string_value(diagnostic.get("energyCriticalTargetId")) else {}),
+        **({"dispatchSpawnReservationTask": diagnostic.get("spawnReservationTask")} if string_value(diagnostic.get("spawnReservationTask")) else {}),
+        **({"dispatchSpawnReservationTargetId": diagnostic.get("spawnReservationTargetId")} if string_value(diagnostic.get("spawnReservationTargetId")) else {}),
+        **({"dispatchAssignedTask": diagnostic.get("assignedTask")} if string_value(diagnostic.get("assignedTask")) else {}),
+        **({"dispatchAssignedTargetId": diagnostic.get("assignedTargetId")} if string_value(diagnostic.get("assignedTargetId")) else {}),
+    }
+
+
+def worker_assignment_blocked_workers_from_creeps(
+    snapshot: RoomSnapshot,
+    metrics: RoomSummaryMetrics,
+) -> list[dict[str, Any]]:
+    workers = [creep for creep in metrics.owned_creep_objects if is_worker_creep(creep)]
+    result: list[dict[str, Any]] = []
+    for worker in sorted(workers, key=lambda creep: (creep_task_type(creep) or "", creep_name(creep) or "")):
+        worker_summary: dict[str, Any] = {
+            **({"name": creep_name(worker)} if creep_name(worker) else {}),
+            **({"task": creep_task_type(worker)} if creep_task_type(worker) else {}),
+            "carriedEnergy": carried_energy(worker),
+            "freeCapacity": creep_free_energy_capacity(worker),
+            "buildBlockedReason": worker_build_assignment_blocked_reason(snapshot, worker, metrics),
+            "repairBlockedReason": worker_repair_assignment_blocked_reason(worker, metrics),
+            **worker_dispatch_diagnostic_fields(worker, snapshot.tick),
+        }
+        result.append(worker_summary)
+    return result
+
+
+def worker_assignment_blocked_fields(snapshot: RoomSnapshot, metrics: RoomSummaryMetrics) -> dict[str, Any]:
+    info = snapshot.info if isinstance(snapshot.info, dict) else {}
+    detail = explicit_worker_assignment_blocked_detail(info)
+    workers = explicit_worker_assignment_blocked_workers(info)
+    visible_worker_creeps = [creep for creep in metrics.owned_creep_objects if is_worker_creep(creep)]
+
+    if (
+        detail is None
+        and visible_worker_creeps
+        and metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    ):
+        detail = worker_assignment_blocked_detail_from_snapshot(
+            snapshot,
+            visible_worker_creeps,
+        )
+    if (
+        workers is None
+        and visible_worker_creeps
+        and metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    ):
+        workers = worker_assignment_blocked_workers_from_creeps(snapshot, metrics)
+
+    result: dict[str, Any] = {}
+    if detail is not None:
+        result["workerAssignmentBlockedDetail"] = detail
+    if workers is not None:
+        result["workerAssignmentBlockedWorkers"] = workers
+    return result
+
+
 def build_blocked_reason(
     snapshot: RoomSnapshot,
     pending_build_progress: int | float,
@@ -3232,6 +3515,14 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         if confirmed_foreign_owner(obj, snapshot.owner)
     ]
     behavior_totals = behavior_pathing_totals(snapshot.info)
+    assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
+    productive_energy = {
+        "pendingBuildProgress": metrics.pending_build_progress,
+        "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionSiteCount": len(metrics.construction_sites),
+        "buildBlockedReason": metrics.build_blocked_reason,
+        **assignment_blocked_fields,
+    }
 
     summary = {
         "roomName": snapshot.ref.room,
@@ -3239,6 +3530,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "buildBlockedReason": metrics.build_blocked_reason,
+        **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
@@ -3256,12 +3548,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
             "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
             "droppedEnergy": sum(number_value(obj.get("amount")) or 0 for obj in dropped_energy),
             "sourceCount": len(sources),
-            "productiveEnergy": {
-                "pendingBuildProgress": metrics.pending_build_progress,
-                "buildCarriedEnergy": metrics.build_carried_energy,
-                "constructionSiteCount": len(metrics.construction_sites),
-                "buildBlockedReason": metrics.build_blocked_reason,
-            },
+            "productiveEnergy": productive_energy,
         },
         "workerLoadEfficiency": worker_load_efficiency(owned_creeps),
         "combat": {

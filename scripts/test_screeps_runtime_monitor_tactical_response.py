@@ -881,6 +881,83 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             "worker_assignment_gap",
         )
 
+    def test_runtime_summary_payload_includes_worker_dispatch_diagnostics(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "worker-1": {
+                        "_id": "worker-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "Upgrader",
+                        "body": [
+                            {"type": "work", "hits": 100},
+                            {"type": "carry", "hits": 100},
+                        ],
+                        "store": {"energy": 50, "capacity": 100},
+                        "memory": {
+                            "role": "worker",
+                            "task": {"type": "upgrade", "targetId": "controller1"},
+                            "workerDispatchDiagnostic": {
+                                "tick": 265633,
+                                "reason": "retained_upgrade_task",
+                                "selectedTask": "build",
+                                "selectedTargetId": "extension-site",
+                                "assignedTask": "upgrade",
+                                "assignedTargetId": "controller1",
+                            },
+                        },
+                    },
+                }
+            ),
+            tick=265633,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertEqual(room["buildBlockedReason"], "worker_assignment_gap")
+        self.assertEqual(room["workerAssignmentBlockedDetail"], "unknown")
+        self.assertEqual(productive_energy["workerAssignmentBlockedDetail"], "unknown")
+        self.assertEqual(
+            room["workerAssignmentBlockedWorkers"],
+            [
+                {
+                    "name": "Upgrader",
+                    "task": "upgrade",
+                    "carriedEnergy": 50,
+                    "freeCapacity": 50,
+                    "buildBlockedReason": "build_blocked_controller_progress_preferred",
+                    "repairBlockedReason": "repair_blocked_build_backlog_first",
+                    "dispatchReason": "retained_upgrade_task",
+                    "dispatchTick": 265633,
+                    "dispatchSelectedTask": "build",
+                    "dispatchSelectedTargetId": "extension-site",
+                    "dispatchAssignedTask": "upgrade",
+                    "dispatchAssignedTargetId": "controller1",
+                }
+            ],
+        )
+        self.assertEqual(
+            productive_energy["workerAssignmentBlockedWorkers"],
+            room["workerAssignmentBlockedWorkers"],
+        )
+
     def test_runtime_summary_does_not_label_unknown_structures_as_hostile(self) -> None:
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E26S49"),

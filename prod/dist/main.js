@@ -33431,12 +33431,14 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime30());
   }
+  const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   return {
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
     energyBufferHealth: getRoomEnergyBufferHealth(colony.room),
     workerCount: colonyWorkers.length,
+    ...summarizeWorkerAssignmentBlockedRoomFields(resources.productiveEnergy),
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
     ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, getGameTime30()),
@@ -33445,7 +33447,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime30()),
     ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime30()),
     ...buildControllerSummary(colony.room),
-    resources: summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources),
+    resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
     survival: summarizeSurvival(colony, roleCounts),
@@ -33455,6 +33457,12 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildTerritoryExecutionHintSummary(colony.room.name),
     ...buildTerritoryScoutSummary(colony.room.name),
     ...buildPostClaimBootstrapSummary(colony.room.name)
+  };
+}
+function summarizeWorkerAssignmentBlockedRoomFields(productiveEnergy) {
+  return {
+    ...productiveEnergy.workerAssignmentBlockedDetail ? { workerAssignmentBlockedDetail: productiveEnergy.workerAssignmentBlockedDetail } : {},
+    ...productiveEnergy.workerAssignmentBlockedWorkers ? { workerAssignmentBlockedWorkers: productiveEnergy.workerAssignmentBlockedWorkers } : {}
   };
 }
 function buildPostClaimBootstrapSummary(roomName) {
