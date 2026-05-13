@@ -43,6 +43,10 @@ RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
 WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
+EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
+WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
+WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
+WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 ENERGY_BUFFER_UNHEALTHY_KIND = "energy_buffer_unhealthy"
 ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE = 2
 ENERGY_BUFFER_UNHEALTHY_ROUTES = [
@@ -168,8 +172,18 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
     },
     "room_dead": {
         "severity": "critical",
-        "decision": "autonomous_recovery_or_owner_escalation",
+        "decision": "autonomous_recovery_authorized",
         "actions": ["capture_runtime_context", "start_autonomous_recovery", "start_hotfix_gate"],
+    },
+    EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: {
+        "severity": "critical",
+        "decision": "codex_hotfix_or_rollback",
+        "actions": ["capture_runtime_context", "compare_baseline", "start_hotfix_gate"],
+    },
+    WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: {
+        "severity": "critical",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
     },
     "downgrade_risk": {
         "severity": "high",
@@ -238,6 +252,8 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "no_workers_no_recovery": ["spawn_collapse"],
     "no_spawn_recovery": ["spawn_collapse"],
     "postdeploy_room_dead": ["room_dead", "spawn_collapse"],
+    EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
+    WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND],
     "postdeploy_no_owned_spawn": ["spawn_collapse"],
     "owned_spawns=0": ["spawn_collapse"],
     "controller_downgrade_risk": ["downgrade_risk"],
@@ -298,8 +314,8 @@ TACTICAL_ACTION_CATALOG: dict[str, dict[str, Any]] = {
     },
     "start_autonomous_recovery": {
         "owner": "scheduler-wrapper",
-        "action": "For room_dead with owned_spawns=0 and owned_creeps=0, trigger the authorized autonomous room recovery path or escalate if recovery is blocked.",
-        "decision": "autonomous_recovery",
+        "action": "For room_dead with owned_spawns=0 and owned_creeps=0, trigger authorized recovery: POST /api/game/respawn with body {room: \"shardX/{roomName}\"}, then deploy the last-known-healthy commit; escalate only if recovery is blocked.",
+        "decision": "autonomous_recovery_authorized",
     },
     "inspect_controller": {
         "owner": "main-agent",
@@ -1230,6 +1246,149 @@ def detect_worker_idle_collapse_reason(
     )
 
 
+def tick_number(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def runtime_build_blocked_reason(room: dict[str, Any] | None) -> str | None:
+    if not isinstance(room, dict):
+        return None
+    for path in (
+        ("buildBlockedReason",),
+        ("resources", "productiveEnergy", "buildBlockedReason"),
+        ("construction", "buildBlockedReason"),
+    ):
+        value = nested_value(room, *path)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def runtime_construction_site_count(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    for path in (
+        ("constructionSiteCount",),
+        ("resources", "productiveEnergy", "constructionSiteCount"),
+        ("construction", "constructionSiteCount"),
+    ):
+        value = number_value(nested_value(room, *path))
+        if value is not None:
+            return value
+    return None
+
+
+def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
+    return {
+        "kind": EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "critical",
+        "priority": "P0",
+        "extensionCount": metrics.extension_count,
+        "rclLevel": metrics.rcl_level,
+        "message": (
+            f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND} in {ref.key}: "
+            f"extensionCount={metrics.extension_count} at RCL {format_energy_value(metrics.rcl_level)}"
+        ),
+        "signature": f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND}:{ref.key}",
+    }
+
+
+def detect_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any] | None:
+    if metrics.extension_count == 0 and metrics.rcl_level is not None and metrics.rcl_level >= 2:
+        return build_extension_count_zero_at_rcl_ge_2_reason(ref, metrics)
+    return None
+
+
+def worker_assignment_gap_active(
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+) -> tuple[bool, str | None, int | float]:
+    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
+    site_count = runtime_construction_site_count(runtime_room)
+    if site_count is None:
+        site_count = len(metrics.construction_sites)
+    return blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON and site_count > 0, blocked_reason, site_count
+
+
+def worker_assignment_gap_previous_state(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for key in ("start_tick", "last_tick", "consecutive_ticks"):
+        tick = tick_number(value.get(key))
+        if tick is not None:
+            result[key] = tick
+    return result
+
+
+def worker_assignment_gap_next_state(previous_state: dict[str, int], current_tick: int) -> dict[str, int]:
+    previous_start_tick = previous_state.get("start_tick")
+    previous_last_tick = previous_state.get("last_tick")
+    if previous_start_tick is None or previous_last_tick is None or current_tick < previous_last_tick:
+        start_tick = current_tick
+    else:
+        start_tick = previous_start_tick
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "consecutive_ticks": max(0, current_tick - start_tick),
+    }
+
+
+def build_worker_assignment_gap_sustained_reason(
+    ref: RoomRef,
+    blocked_reason: str | None,
+    construction_site_count: int | float,
+    state: dict[str, int],
+) -> dict[str, Any]:
+    return {
+        "kind": WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "critical",
+        "priority": "P0",
+        "buildBlockedReason": blocked_reason,
+        "constructionSiteCount": construction_site_count,
+        "start_tick": state["start_tick"],
+        "current_tick": state["last_tick"],
+        "consecutive_ticks": state["consecutive_ticks"],
+        "message": (
+            f"{WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND} in {ref.key}: "
+            f"buildBlockedReason={blocked_reason} with constructionSiteCount={format_energy_value(construction_site_count)} "
+            f"for {state['consecutive_ticks']} ticks."
+        ),
+        "signature": f"{WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND}:{ref.key}",
+    }
+
+
+def detect_worker_assignment_gap_sustained_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
+    active, blocked_reason, construction_site_count = worker_assignment_gap_active(runtime_room, metrics)
+    current_tick = tick_number(current_tick_value)
+    if not active or current_tick is None:
+        return None, 0
+
+    state = worker_assignment_gap_next_state(worker_assignment_gap_previous_state(previous_rule_state), current_tick)
+    if state["consecutive_ticks"] > WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS:
+        return build_worker_assignment_gap_sustained_reason(ref, blocked_reason, construction_site_count, state), state
+    return None, state
+
+
 def alert_reason_kind(reason: dict[str, Any]) -> str:
     value = reason.get("kind")
     return value.lower() if isinstance(value, str) else ""
@@ -1300,6 +1459,7 @@ def evaluate_room_alert(
     current_structures = structure_snapshot(snapshot.objects, snapshot.owner, snapshot.expected_owner_id)
     current_owned_spawns = count_owned_spawns(current_structures)
     current_owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
+    current_metrics = compute_room_summary_metrics(snapshot)
     baseline_established = bool(previous_room_state.get("baseline_established"))
     previous_owner = previous_room_state.get("owner")
     expected_owner = snapshot.expected_owner if snapshot.expected_owner else previous_owner
@@ -1361,12 +1521,32 @@ def evaluate_room_alert(
                 current_owned_creeps=current_owned_creeps,
                 previous_owned_spawns=previous_owned_spawns,
                 previous_owned_creeps=previous_owned_creeps,
+                current_owner=snapshot.owner,
+                expected_owner=expected_owner,
+                controller_claimed=bool(snapshot.owner and (expected_owner is None or snapshot.owner == expected_owner)),
+                rclLevel=current_metrics.rcl_level,
                 severity="critical",
                 priority="P0",
             )
         )
 
     rule_counts = dict(previous_rule_counts)
+    extension_count_zero_candidate = detect_extension_count_zero_at_rcl_ge_2_reason(snapshot.ref, current_metrics)
+    if extension_count_zero_candidate is not None:
+        detected.append(extension_count_zero_candidate)
+
+    previous_worker_assignment_gap_state = rule_counts.get(WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+    worker_assignment_gap_candidate, worker_assignment_gap_state = detect_worker_assignment_gap_sustained_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        current_metrics,
+        previous_worker_assignment_gap_state,
+        snapshot.tick,
+    )
+    rule_counts[WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND] = worker_assignment_gap_state
+    if worker_assignment_gap_candidate is not None:
+        detected.append(worker_assignment_gap_candidate)
+
     previous_energy_buffer_unhealthy_count = number_value(rule_counts.get(ENERGY_BUFFER_UNHEALTHY_KIND)) or 0
     energy_buffer_unhealthy_candidate = detect_energy_buffer_unhealthy_reason(
         snapshot.ref,
@@ -1508,6 +1688,27 @@ def is_room_dead_reason(reason: dict[str, Any]) -> bool:
     owned_spawns = reason_owned_spawns(reason)
     owned_creeps = reason_owned_creeps(reason)
     return owned_spawns == 0 and owned_creeps == 0
+
+
+def room_dead_autonomous_recovery_authorized(reason: dict[str, Any]) -> bool:
+    if not is_room_dead_reason(reason):
+        return False
+    owned_spawns = reason_owned_spawns(reason)
+    owned_creeps = reason_owned_creeps(reason)
+    if owned_spawns is not None and owned_spawns != 0:
+        return False
+    if owned_creeps is not None and owned_creeps != 0:
+        return False
+    controller_claimed = reason.get("controller_claimed")
+    if controller_claimed is False:
+        return False
+    return True
+
+
+def tactical_decision(category: str, rule: dict[str, Any], reason: dict[str, Any]) -> str:
+    if category in {"room_dead", "spawn_collapse"} and room_dead_autonomous_recovery_authorized(reason):
+        return "autonomous_recovery_authorized"
+    return str(rule["decision"])
 
 
 def is_no_owned_spawn_reason(reason: dict[str, Any]) -> bool:
@@ -1970,6 +2171,8 @@ def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> lis
         owned_spawns = room_summary_count(room, "owned_spawns", "spawns")
         owned_creeps = room_summary_count(room, "owned_creeps", "creeps")
         hostiles = room.get("hostiles")
+        owner = room.get("owner")
+        expected_owner = room.get("expected_owner") or room.get("expectedOwner")
         if isinstance(owned_spawns, (int, float)) and owned_spawns <= 0:
             if isinstance(owned_creeps, (int, float)) and owned_creeps <= 0:
                 reasons.append(
@@ -1978,6 +2181,9 @@ def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> lis
                         "room": room_name,
                         "current_owned_spawns": owned_spawns,
                         "current_owned_creeps": owned_creeps,
+                        "current_owner": owner,
+                        "expected_owner": expected_owner,
+                        "controller_claimed": bool(owner and (not expected_owner or owner == expected_owner)),
                         "message": f"{room_name}: owned_spawns=0 and owned_creeps=0",
                     }
                 )
@@ -2080,7 +2286,7 @@ def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, A
                 "category": category,
                 "severity": category_sev,
                 "priority": tactical_priority(category_sev),
-                "decision": rule["decision"],
+                "decision": tactical_decision(category, rule, reason),
                 "reason_kind": tactical_reason_kind(reason),
                 "room": reason.get("room"),
                 "object_id": reason.get("object_id"),
@@ -3780,6 +3986,142 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(emitted, [])
             self.assertEqual(len(suppressed), 1)
 
+        def test_extension_count_zero_at_rcl_ge_2_alerts_as_p0(self) -> None:
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(
+                    {
+                        "spawn1": {
+                            "type": "spawn",
+                            "my": True,
+                            "owner": {"username": "owner"},
+                            "x": 25,
+                            "y": 25,
+                            "hits": 5000,
+                            "hitsMax": 5000,
+                        },
+                        "ctrl": {
+                            "type": "controller",
+                            "my": True,
+                            "owner": {"username": "owner"},
+                            "level": 2,
+                            "x": 5,
+                            "y": 36,
+                        },
+                    }
+                ),
+                tick=10,
+                owner="owner",
+                info={},
+            )
+
+            emitted, _suppressed, _next_state = evaluate_room_alert(
+                snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+            )
+
+            extension_reason = next(reason for reason in emitted if reason["kind"] == EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND)
+            self.assertEqual(extension_reason["severity"], "critical")
+            self.assertEqual(extension_reason["priority"], "P0")
+            report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [extension_reason]})
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["priority"], "P0")
+            self.assertEqual(report["categories"], [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND])
+
+        def test_worker_assignment_gap_sustained_alerts_after_100_ticks(self) -> None:
+            base_objects = {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "ctrl": {
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "level": 2,
+                    "x": 5,
+                    "y": 36,
+                },
+                "extension1": {
+                    "type": "extension",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 26,
+                    "y": 25,
+                    "hits": 1000,
+                    "hitsMax": 1000,
+                },
+                "worker1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker1",
+                    "x": 23,
+                    "y": 25,
+                    "carry": {"energy": 0},
+                    "memory": {"role": "worker"},
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 0,
+                    "progressTotal": 50,
+                    "x": 27,
+                    "y": 25,
+                },
+            }
+            first_snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(base_objects),
+                tick=1000,
+                owner="owner",
+                info={"energyAvailable": 300},
+            )
+            second_snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(base_objects),
+                tick=1101,
+                owner="owner",
+                info={"energyAvailable": 300},
+            )
+
+            first_emitted, first_suppressed, first_state = evaluate_room_alert(
+                first_snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+            )
+            self.assertEqual(first_emitted, [])
+            self.assertEqual(first_suppressed, [])
+            self.assertEqual(first_state["rule_counts"][WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND]["consecutive_ticks"], 0)
+
+            second_emitted, second_suppressed, second_state = evaluate_room_alert(
+                second_snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+            )
+            self.assertEqual(second_suppressed, [])
+            gap_reason = next(reason for reason in second_emitted if reason["kind"] == WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+            self.assertEqual(gap_reason["priority"], "P0")
+            self.assertEqual(gap_reason["consecutive_ticks"], 101)
+            self.assertEqual(second_state["rule_counts"][WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND]["consecutive_ticks"], 101)
+            report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [gap_reason]})
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["categories"], [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND])
+
         def test_worker_idle_collapse_alerts_on_second_consecutive_detection(self) -> None:
             snapshot = self.make_snapshot(
                 {
@@ -4390,6 +4732,8 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(report["priority"], "P0")
             self.assertIn("room_dead", report["categories"])
             self.assertEqual(report["scheduler"]["priority"], "P0")
+            self.assertEqual(report["triggers"][0]["decision"], "autonomous_recovery_authorized")
+            self.assertIn("start_autonomous_recovery", {action["id"] for action in report["next_actions"]})
 
         def test_tactical_response_promotes_missing_spawn_to_critical(self) -> None:
             report = build_tactical_response_report(
