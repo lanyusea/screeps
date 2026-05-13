@@ -102,6 +102,141 @@ describe('adjacent room scout reports', () => {
     expect(Memory.intel?.scoutReports?.E18S59?.observerRequested).toBeUndefined();
   });
 
+  it('reuses cached terrain instead of recalculating unchanged adjacent rooms', () => {
+    const getRoomTerrain = jest.fn(() => makeTerrain(20));
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      intel: {
+        scoutReports: {
+          E17S58: {
+            roomName: 'E17S58',
+            terrain: { plains: 1800, swamp: 200, wall: 116 },
+            timestamp: 100,
+            visible: false
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 101,
+      rooms: {},
+      map: {
+        describeExits: jest.fn((roomName: string) =>
+          roomName === 'E17S59' ? { '1': 'E17S58' } : {}
+        ),
+        getRoomTerrain
+      } as unknown as GameMap
+    };
+
+    const reports = refreshAdjacentRoomScoutReports('E17S59', 101);
+
+    expect(getRoomTerrain).not.toHaveBeenCalled();
+    expect(reports).toEqual([
+      {
+        roomName: 'E17S58',
+        terrain: { plains: 1800, swamp: 200, wall: 116 },
+        timestamp: 100,
+        visible: false
+      }
+    ]);
+  });
+
+  it('uses only the origin room local structure lookup when requesting observer scans', () => {
+    const originFind = jest.fn(() => []);
+    const nonOriginFind = jest.fn(() => []);
+    const globalObserveRoom = jest.fn(() => 0 as ScreepsReturnCode);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 310,
+      rooms: {
+        E17S59: {
+          name: 'E17S59',
+          find: originFind
+        } as unknown as Room,
+        E20S20: {
+          name: 'E20S20',
+          find: nonOriginFind
+        } as unknown as Room
+      },
+      structures: {
+        globalObserver: {
+          structureType: STRUCTURE_OBSERVER,
+          observeRoom: globalObserveRoom
+        } as unknown as Structure
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) =>
+          roomName === 'E17S59' ? { '1': 'E17S58' } : {}
+        ),
+        getRoomTerrain: jest.fn(() => makeTerrain())
+      } as unknown as GameMap
+    };
+
+    refreshAdjacentRoomScoutReports('E17S59', 310);
+
+    expect(originFind).toHaveBeenCalledTimes(1);
+    expect(originFind).toHaveBeenCalledWith(FIND_MY_STRUCTURES);
+    expect(nonOriginFind).not.toHaveBeenCalled();
+    expect(globalObserveRoom).not.toHaveBeenCalled();
+    expect(Memory.intel?.scoutReports?.E17S58?.observerRequested).toBeUndefined();
+  });
+
+  it('preserves previously visible evidence when an adjacent room goes unseen', () => {
+    const getRoomTerrain = jest.fn(() => makeTerrain(20));
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      intel: {
+        scoutReports: {
+          E17S60: {
+            roomName: 'E17S60',
+            terrain: { plains: 1900, swamp: 100, wall: 116 },
+            timestamp: 700,
+            visible: true,
+            observerRequested: true,
+            owner: 'enemy',
+            controller: {
+              present: true,
+              state: 'owned',
+              id: 'controller-E17S60' as Id<StructureController>,
+              ownerUsername: 'enemy',
+              level: 3
+            },
+            sourceCount: 2,
+            mineralType: 'O'
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 725,
+      rooms: {},
+      map: {
+        describeExits: jest.fn((roomName: string) =>
+          roomName === 'E17S59' ? { '5': 'E17S60' } : {}
+        ),
+        getRoomTerrain
+      } as unknown as GameMap
+    };
+
+    refreshAdjacentRoomScoutReports('E17S59', 725);
+
+    expect(getRoomTerrain).not.toHaveBeenCalled();
+    expect(Memory.intel?.scoutReports?.E17S60).toMatchObject({
+      roomName: 'E17S60',
+      terrain: { plains: 1900, swamp: 100, wall: 116 },
+      timestamp: 700,
+      visible: false,
+      owner: 'enemy',
+      controller: {
+        present: true,
+        state: 'owned',
+        id: 'controller-E17S60',
+        ownerUsername: 'enemy',
+        level: 3
+      },
+      sourceCount: 2,
+      mineralType: 'O'
+    });
+    expect(Memory.intel?.scoutReports?.E17S60?.observerRequested).toBeUndefined();
+  });
+
   it('ranks adjacent reports by plains, sources, unowned controller presence, and ownership risk', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 500,

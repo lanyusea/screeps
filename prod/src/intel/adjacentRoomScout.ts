@@ -39,13 +39,19 @@ export function refreshAdjacentRoomScoutReports(
 
   const reports: RoomScoutReport[] = [];
   let observerRequested = false;
+  const originRoom = getVisibleRoom(originRoomName);
   for (const roomName of getAdjacentRoomNames(originRoomName)) {
-    const report = buildRoomScoutReport(roomName, gameTime);
+    const cachedReport = scoutReports[roomName];
+    const report = buildRoomScoutReport(
+      roomName,
+      gameTime,
+      isReusableRoomScoutReport(roomName, cachedReport) ? cachedReport : null
+    );
     if (!report) {
       continue;
     }
 
-    if (report.visible !== true && !observerRequested && requestObserverScan(roomName)) {
+    if (report.visible !== true && !observerRequested && requestObserverScan(originRoom, roomName)) {
       report.observerRequested = true;
       observerRequested = true;
     }
@@ -147,20 +153,21 @@ export function getAdjacentRoomNames(roomName: string): string[] {
   });
 }
 
-function buildRoomScoutReport(roomName: string, gameTime: number): RoomScoutReport | null {
-  const terrain = summarizeRoomTerrain(roomName);
-  if (!terrain) {
-    return null;
-  }
-
+function buildRoomScoutReport(
+  roomName: string,
+  gameTime: number,
+  cachedReport: RoomScoutReport | null
+): RoomScoutReport | null {
   const visibleRoom = getVisibleRoom(roomName);
   if (!visibleRoom) {
-    return {
-      roomName,
-      terrain,
-      timestamp: gameTime,
-      visible: false
-    };
+    return cachedReport
+      ? buildUnseenCachedRoomScoutReport(roomName, cachedReport)
+      : buildTerrainOnlyRoomScoutReport(roomName, gameTime);
+  }
+
+  const terrain = cachedReport?.terrain ?? summarizeRoomTerrain(roomName);
+  if (!terrain) {
+    return null;
   }
 
   return {
@@ -169,6 +176,33 @@ function buildRoomScoutReport(roomName: string, gameTime: number): RoomScoutRepo
     timestamp: gameTime,
     visible: true,
     ...buildVisibleRoomScoutEvidence(visibleRoom)
+  };
+}
+
+function buildTerrainOnlyRoomScoutReport(roomName: string, gameTime: number): RoomScoutReport | null {
+  const terrain = summarizeRoomTerrain(roomName);
+  if (!terrain) {
+    return null;
+  }
+
+  return {
+    roomName,
+    terrain,
+    timestamp: gameTime,
+    visible: false
+  };
+}
+
+function buildUnseenCachedRoomScoutReport(
+  roomName: string,
+  cachedReport: RoomScoutReport
+): RoomScoutReport {
+  const persistentReport: RoomScoutReport = { ...cachedReport };
+  delete persistentReport.observerRequested;
+  return {
+    ...persistentReport,
+    roomName,
+    visible: false
   };
 }
 
@@ -242,8 +276,8 @@ function summarizeRoomTerrain(roomName: string): RoomScoutTerrain | null {
   return counts;
 }
 
-function requestObserverScan(roomName: string): boolean {
-  const observer = selectObserver();
+function requestObserverScan(originRoom: Room | undefined, roomName: string): boolean {
+  const observer = selectObserver(originRoom);
   if (!observer || typeof observer.observeRoom !== 'function') {
     return false;
   }
@@ -251,24 +285,8 @@ function requestObserverScan(roomName: string): boolean {
   return observer.observeRoom(roomName) === getOkCode();
 }
 
-function selectObserver(): ObserverStructure | null {
-  const findMyStructures = getFindConstant('FIND_MY_STRUCTURES');
-  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
-  if (rooms && typeof findMyStructures === 'number') {
-    for (const room of Object.values(rooms)) {
-      const observer = findRoomObjects<ObserverStructure>(room, 'FIND_MY_STRUCTURES').find(isObserverStructure);
-      if (observer) {
-        return observer;
-      }
-    }
-  }
-
-  const structures = (globalThis as { Game?: Partial<Game> }).Game?.structures;
-  if (!structures) {
-    return null;
-  }
-
-  return Object.values(structures).find(isObserverStructure) ?? null;
+function selectObserver(originRoom: Room | undefined): ObserverStructure | null {
+  return findRoomObjects<ObserverStructure>(originRoom, 'FIND_MY_STRUCTURES').find(isObserverStructure) ?? null;
 }
 
 function isObserverStructure(structure: ObserverStructure | undefined): structure is ObserverStructure {
@@ -328,6 +346,13 @@ function isRoomScoutReport(value: unknown): value is RoomScoutReport {
     typeof terrain.swamp === 'number' &&
     typeof terrain.wall === 'number'
   );
+}
+
+function isReusableRoomScoutReport(
+  roomName: string,
+  value: unknown
+): value is RoomScoutReport {
+  return isRoomScoutReport(value) && value.roomName === roomName;
 }
 
 function compareRoomScoutScores(left: RoomScoutScore, right: RoomScoutScore): number {

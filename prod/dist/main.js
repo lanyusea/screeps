@@ -4840,12 +4840,18 @@ function refreshAdjacentRoomScoutReports(originRoomName, gameTime = getGameTime1
   pruneStaleScoutReports(scoutReports, gameTime);
   const reports = [];
   let observerRequested = false;
+  const originRoom = getVisibleRoom2(originRoomName);
   for (const roomName of getAdjacentRoomNames2(originRoomName)) {
-    const report = buildRoomScoutReport(roomName, gameTime);
+    const cachedReport = scoutReports[roomName];
+    const report = buildRoomScoutReport(
+      roomName,
+      gameTime,
+      isReusableRoomScoutReport(roomName, cachedReport) ? cachedReport : null
+    );
     if (!report) {
       continue;
     }
-    if (report.visible !== true && !observerRequested && requestObserverScan(roomName)) {
+    if (report.visible !== true && !observerRequested && requestObserverScan(originRoom, roomName)) {
       report.observerRequested = true;
       observerRequested = true;
     }
@@ -4882,19 +4888,15 @@ function getAdjacentRoomNames2(roomName) {
     return isNonEmptyString7(adjacentRoomName) ? [adjacentRoomName] : [];
   });
 }
-function buildRoomScoutReport(roomName, gameTime) {
-  const terrain = summarizeRoomTerrain(roomName);
-  if (!terrain) {
-    return null;
-  }
+function buildRoomScoutReport(roomName, gameTime, cachedReport) {
+  var _a;
   const visibleRoom = getVisibleRoom2(roomName);
   if (!visibleRoom) {
-    return {
-      roomName,
-      terrain,
-      timestamp: gameTime,
-      visible: false
-    };
+    return cachedReport ? buildUnseenCachedRoomScoutReport(roomName, cachedReport) : buildTerrainOnlyRoomScoutReport(roomName, gameTime);
+  }
+  const terrain = (_a = cachedReport == null ? void 0 : cachedReport.terrain) != null ? _a : summarizeRoomTerrain(roomName);
+  if (!terrain) {
+    return null;
   }
   return {
     roomName,
@@ -4902,6 +4904,27 @@ function buildRoomScoutReport(roomName, gameTime) {
     timestamp: gameTime,
     visible: true,
     ...buildVisibleRoomScoutEvidence(visibleRoom)
+  };
+}
+function buildTerrainOnlyRoomScoutReport(roomName, gameTime) {
+  const terrain = summarizeRoomTerrain(roomName);
+  if (!terrain) {
+    return null;
+  }
+  return {
+    roomName,
+    terrain,
+    timestamp: gameTime,
+    visible: false
+  };
+}
+function buildUnseenCachedRoomScoutReport(roomName, cachedReport) {
+  const persistentReport = { ...cachedReport };
+  delete persistentReport.observerRequested;
+  return {
+    ...persistentReport,
+    roomName,
+    visible: false
   };
 }
 function buildVisibleRoomScoutEvidence(room) {
@@ -4960,30 +4983,16 @@ function summarizeRoomTerrain(roomName) {
   }
   return counts;
 }
-function requestObserverScan(roomName) {
-  const observer = selectObserver();
+function requestObserverScan(originRoom, roomName) {
+  const observer = selectObserver(originRoom);
   if (!observer || typeof observer.observeRoom !== "function") {
     return false;
   }
   return observer.observeRoom(roomName) === getOkCode();
 }
-function selectObserver() {
-  var _a, _b, _c;
-  const findMyStructures = getFindConstant2("FIND_MY_STRUCTURES");
-  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
-  if (rooms && typeof findMyStructures === "number") {
-    for (const room of Object.values(rooms)) {
-      const observer = findRoomObjects8(room, "FIND_MY_STRUCTURES").find(isObserverStructure);
-      if (observer) {
-        return observer;
-      }
-    }
-  }
-  const structures = (_b = globalThis.Game) == null ? void 0 : _b.structures;
-  if (!structures) {
-    return null;
-  }
-  return (_c = Object.values(structures).find(isObserverStructure)) != null ? _c : null;
+function selectObserver(originRoom) {
+  var _a;
+  return (_a = findRoomObjects8(originRoom, "FIND_MY_STRUCTURES").find(isObserverStructure)) != null ? _a : null;
 }
 function isObserverStructure(structure) {
   return structure !== void 0 && structure.structureType === getObserverStructureConstant() && typeof structure.observeRoom === "function";
@@ -5022,6 +5031,9 @@ function isRoomScoutReport(value) {
   }
   const terrain = value.terrain;
   return isRecord8(terrain) && typeof terrain.plains === "number" && typeof terrain.swamp === "number" && typeof terrain.wall === "number";
+}
+function isReusableRoomScoutReport(roomName, value) {
+  return isRoomScoutReport(value) && value.roomName === roomName;
 }
 function getVisibleRoom2(roomName) {
   var _a, _b;
