@@ -84,6 +84,7 @@ RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
 OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
+_WORKER_PHASE_DEBUG_DISABLED = False
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
 HARNESS_BINARY_FILE_EXTENSIONS = (
     ".bmp",
@@ -1338,6 +1339,9 @@ def _resolve_smoke_map_source_file(map_source_file: Path) -> Path | None:
 
 def _debug_worker_phase(worker_index: int, variant_id: str, phase: str, **details: object) -> None:
     """Emit bounded stderr phase logs for diagnosing worker startup hangs."""
+    global _WORKER_PHASE_DEBUG_DISABLED
+    if _WORKER_PHASE_DEBUG_DISABLED:
+        return
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     detail_parts = []
     for key, value in sorted(details.items()):
@@ -1348,12 +1352,17 @@ def _debug_worker_phase(worker_index: int, variant_id: str, phase: str, **detail
         except Exception:
             detail_parts.append(f"{key}=\"[unserializable]\"")
     detail_text = f" {' '.join(detail_parts)}" if detail_parts else ""
-    print(
-        f"{timestamp} rl-sim-worker[{worker_index}] variant={variant_id} "
-        f"phase={json.dumps(phase, ensure_ascii=True)}{detail_text}",
-        file=sys.stderr,
-        flush=True,
-    )
+    try:
+        print(
+            f"{timestamp} rl-sim-worker[{worker_index}] variant={variant_id} "
+            f"phase={json.dumps(phase, ensure_ascii=True)}{detail_text}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except (BrokenPipeError, OSError, ValueError):
+        _WORKER_PHASE_DEBUG_DISABLED = True
+
+
 def _terrain_payload_has_data(payload: Any) -> bool:
     summary = _terrain_summary(payload)
     return bool(summary.get("bytes"))

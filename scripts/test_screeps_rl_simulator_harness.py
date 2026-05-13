@@ -573,6 +573,29 @@ cli:
         self.assertIn("shardName: shardX", updated)
         self.assertNotIn("mapFile:", updated)
 
+    def test_debug_worker_phase_broken_stderr_pipe_is_nonfatal(self) -> None:
+        class BrokenPipeStderr:
+            def __init__(self) -> None:
+                self.write_attempts = 0
+
+            def write(self, text: str) -> int:
+                self.write_attempts += 1
+                raise BrokenPipeError(32, "Broken pipe")
+
+            def flush(self) -> None:
+                return None
+
+        broken_stderr = BrokenPipeStderr()
+        harness._WORKER_PHASE_DEBUG_DISABLED = False
+        try:
+            with mock.patch("sys.stderr", broken_stderr):
+                harness._debug_worker_phase(2, "variant-a", "before startup", port=21125)
+                harness._debug_worker_phase(2, "variant-a", "after startup", port=21125)
+        finally:
+            harness._WORKER_PHASE_DEBUG_DISABLED = False
+
+        self.assertEqual(broken_stderr.write_attempts, 1)
+
     def test_default_sim_room_matches_bundled_private_map(self) -> None:
         self.assertEqual(harness.DEFAULT_SIM_ROOM, "E1S1")
 
