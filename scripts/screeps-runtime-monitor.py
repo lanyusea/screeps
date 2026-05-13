@@ -3316,23 +3316,35 @@ def worker_dispatch_diagnostic_fields(
         return {}
 
     diagnostic_tick = number_value(diagnostic.get("tick"))
-    if isinstance(snapshot_tick, int) and diagnostic_tick is not None and diagnostic_tick != snapshot_tick:
+    normalized_snapshot_tick: int | None
+    if isinstance(snapshot_tick, int):
+        normalized_snapshot_tick = snapshot_tick
+    elif isinstance(snapshot_tick, str) and snapshot_tick.isdigit():
+        normalized_snapshot_tick = int(snapshot_tick)
+    else:
+        normalized_snapshot_tick = None
+
+    if (
+        normalized_snapshot_tick is not None
+        and diagnostic_tick is not None
+        and diagnostic_tick != normalized_snapshot_tick
+    ):
         return {}
 
     return {
-        **({"dispatchReason": diagnostic["reason"]} if string_value(diagnostic.get("reason")) else {}),
+        **({"dispatchReason": diagnostic.get("reason")} if string_value(diagnostic.get("reason")) else {}),
         **({"dispatchTick": diagnostic_tick} if diagnostic_tick is not None else {}),
-        **({"dispatchCurrentTargetId": diagnostic["currentTargetId"]} if string_value(diagnostic.get("currentTargetId")) else {}),
-        **({"dispatchSelectedTask": diagnostic["selectedTask"]} if string_value(diagnostic.get("selectedTask")) else {}),
-        **({"dispatchSelectedTargetId": diagnostic["selectedTargetId"]} if string_value(diagnostic.get("selectedTargetId")) else {}),
-        **({"dispatchBaseSelectedTask": diagnostic["baseSelectedTask"]} if string_value(diagnostic.get("baseSelectedTask")) else {}),
-        **({"dispatchBaseSelectedTargetId": diagnostic["baseSelectedTargetId"]} if string_value(diagnostic.get("baseSelectedTargetId")) else {}),
-        **({"dispatchEnergyCriticalTask": diagnostic["energyCriticalTask"]} if string_value(diagnostic.get("energyCriticalTask")) else {}),
-        **({"dispatchEnergyCriticalTargetId": diagnostic["energyCriticalTargetId"]} if string_value(diagnostic.get("energyCriticalTargetId")) else {}),
-        **({"dispatchSpawnReservationTask": diagnostic["spawnReservationTask"]} if string_value(diagnostic.get("spawnReservationTask")) else {}),
-        **({"dispatchSpawnReservationTargetId": diagnostic["spawnReservationTargetId"]} if string_value(diagnostic.get("spawnReservationTargetId")) else {}),
-        **({"dispatchAssignedTask": diagnostic["assignedTask"]} if string_value(diagnostic.get("assignedTask")) else {}),
-        **({"dispatchAssignedTargetId": diagnostic["assignedTargetId"]} if string_value(diagnostic.get("assignedTargetId")) else {}),
+        **({"dispatchCurrentTargetId": diagnostic.get("currentTargetId")} if string_value(diagnostic.get("currentTargetId")) else {}),
+        **({"dispatchSelectedTask": diagnostic.get("selectedTask")} if string_value(diagnostic.get("selectedTask")) else {}),
+        **({"dispatchSelectedTargetId": diagnostic.get("selectedTargetId")} if string_value(diagnostic.get("selectedTargetId")) else {}),
+        **({"dispatchBaseSelectedTask": diagnostic.get("baseSelectedTask")} if string_value(diagnostic.get("baseSelectedTask")) else {}),
+        **({"dispatchBaseSelectedTargetId": diagnostic.get("baseSelectedTargetId")} if string_value(diagnostic.get("baseSelectedTargetId")) else {}),
+        **({"dispatchEnergyCriticalTask": diagnostic.get("energyCriticalTask")} if string_value(diagnostic.get("energyCriticalTask")) else {}),
+        **({"dispatchEnergyCriticalTargetId": diagnostic.get("energyCriticalTargetId")} if string_value(diagnostic.get("energyCriticalTargetId")) else {}),
+        **({"dispatchSpawnReservationTask": diagnostic.get("spawnReservationTask")} if string_value(diagnostic.get("spawnReservationTask")) else {}),
+        **({"dispatchSpawnReservationTargetId": diagnostic.get("spawnReservationTargetId")} if string_value(diagnostic.get("spawnReservationTargetId")) else {}),
+        **({"dispatchAssignedTask": diagnostic.get("assignedTask")} if string_value(diagnostic.get("assignedTask")) else {}),
+        **({"dispatchAssignedTargetId": diagnostic.get("assignedTargetId")} if string_value(diagnostic.get("assignedTargetId")) else {}),
     }
 
 
