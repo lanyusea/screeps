@@ -352,7 +352,7 @@ def build_numeric_section_report(
         room_reports[room_name] = report
 
     has_historical_values = has_section_values(rooms, set(rooms), state_attr)
-    if observed_room_count > 0 and observed_room_count == len(latest_rooms):
+    if observed_room_count == len(latest_rooms) and (observed_room_count > 0 or has_historical_values):
         status = OBSERVED
     elif has_historical_values:
         status = NOT_OBSERVED

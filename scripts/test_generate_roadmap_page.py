@@ -424,7 +424,69 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertIsNone(stored_series["values"][-1])
         self.assertEqual(stored_series["statuses"][-1], "not observed")
 
-    def test_mixed_room_artifacts_carry_scope_and_do_not_look_complete(self) -> None:
+    def test_not_observed_sections_still_emit_valid_delta_and_event_metrics(self) -> None:
+        report = {
+            "territory": {
+                "ownedRooms": {
+                    "status": "observed",
+                    "latest": [],
+                    "latestCount": 0,
+                    "deltaCount": -1,
+                    "gained": [],
+                    "lost": ["E17S59"],
+                },
+                "controllers": {"status": "not instrumented"},
+            },
+            "resources": {
+                "status": "not observed",
+                "totals": {
+                    "latest": {"storedEnergy": None},
+                    "delta": {"storedEnergy": -100},
+                },
+                "eventDeltas": {
+                    "status": "observed",
+                    "harvestedEnergy": 6,
+                    "transferredEnergy": 4,
+                },
+            },
+            "combat": {
+                "status": "not observed",
+                "totals": {
+                    "latest": {
+                        "hostileCreepCount": None,
+                        "hostileStructureCount": None,
+                    },
+                    "delta": {
+                        "hostileCreepCount": -3,
+                        "hostileStructureCount": -1,
+                    },
+                },
+                "eventDeltas": {
+                    "status": "observed",
+                    "attackCount": 2,
+                    "attackDamage": 9,
+                    "objectDestroyedCount": 1,
+                    "creepDestroyedCount": 0,
+                },
+            },
+            "source": {"matchedFiles": 1, "runtimeSummaryLines": 2},
+            "input": {"runtimeSummaryCount": 2},
+        }
+
+        metrics = {metric["key"]: metric for metric in roadmap.build_current_metrics(report)}
+
+        self.assertEqual(metrics["stored_energy"]["status"], "not observed")
+        self.assertIsNone(metrics["stored_energy"]["value"])
+        self.assertEqual(metrics["stored_energy_delta"]["status"], "observed")
+        self.assertEqual(metrics["stored_energy_delta"]["value"], -100)
+        self.assertEqual(metrics["harvested_energy"]["status"], "observed")
+        self.assertEqual(metrics["harvested_energy"]["value"], 6)
+        self.assertEqual(metrics["hostile_creeps"]["status"], "not observed")
+        self.assertIsNone(metrics["hostile_creeps"]["value"])
+        self.assertEqual(metrics["attack_damage"]["status"], "observed")
+        self.assertEqual(metrics["attack_damage"]["value"], 9)
+
+    def test_mixed_room_artifacts_keep_observed_values_and_carry_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             artifact_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
@@ -459,9 +521,9 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             )
 
         stored_energy = artifact_history["stored_energy"][0]
-        self.assertIsNone(stored_energy["value"])
-        self.assertFalse(stored_energy["observed"])
-        self.assertEqual(stored_energy["status"], "not observed")
+        self.assertEqual(stored_energy["value"], 75)
+        self.assertTrue(stored_energy["observed"])
+        self.assertEqual(stored_energy["status"], "observed")
         self.assertEqual(stored_energy["sourceKind"], "runtime-summary-artifact")
         self.assertEqual(stored_energy["reducerSchemaVersion"], roadmap.runtime_kpi_reducer.SCHEMA_VERSION)
         self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")

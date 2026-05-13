@@ -329,7 +329,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "creepDestroyedCount": 0,
         })
 
-    def test_resource_total_delta_includes_lost_room_values(self) -> None:
+    def test_lost_room_delta_and_events_remain_observed_when_no_rooms_remain(self) -> None:
         first = {
             "type": "runtime-summary",
             "tick": 10,
@@ -342,6 +342,12 @@ class RuntimeKpiReducerTest(unittest.TestCase):
                         "harvestedThisTick": 6,
                         "droppedEnergy": 3,
                         "sourceCount": 2,
+                        "events": {"harvestedEnergy": 6, "transferredEnergy": 4},
+                    },
+                    "combat": {
+                        "hostileCreepCount": 3,
+                        "hostileStructureCount": 1,
+                        "events": {"attackCount": 2, "attackDamage": 9, "objectDestroyedCount": 1, "creepDestroyedCount": 0},
                     },
                 },
             ],
@@ -355,7 +361,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         report = reducer.reduce_runtime_kpis([runtime_line(first), runtime_line(latest)])
 
         self.assertEqual(report["territory"]["ownedRooms"]["lost"], ["W2N2"])
-        self.assertEqual(report["resources"]["status"], "not observed")
+        self.assertEqual(report["resources"]["status"], "observed")
         self.assertEqual(report["resources"]["observedRoomCount"], 0)
         self.assertEqual(report["resources"]["totals"]["latest"], {
             "storedEnergy": None,
@@ -370,6 +376,28 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "harvestedThisTick": -6,
             "droppedEnergy": -3,
             "sourceCount": -2,
+        })
+        self.assertEqual(report["resources"]["eventDeltas"], {
+            "status": "observed",
+            "harvestedEnergy": 6,
+            "transferredEnergy": 4,
+        })
+        self.assertEqual(report["combat"]["status"], "observed")
+        self.assertEqual(report["combat"]["observedRoomCount"], 0)
+        self.assertEqual(report["combat"]["totals"]["latest"], {
+            "hostileCreepCount": None,
+            "hostileStructureCount": None,
+        })
+        self.assertEqual(report["combat"]["totals"]["delta"], {
+            "hostileCreepCount": -3,
+            "hostileStructureCount": -1,
+        })
+        self.assertEqual(report["combat"]["eventDeltas"], {
+            "status": "observed",
+            "attackCount": 2,
+            "attackDamage": 9,
+            "objectDestroyedCount": 1,
+            "creepDestroyedCount": 0,
         })
 
     def test_reads_files_and_stdin_marker_and_renders_deterministic_json(self) -> None:

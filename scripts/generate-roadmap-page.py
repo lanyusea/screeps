@@ -1186,9 +1186,7 @@ def metric_total(report: JsonObject, section_name: str, total_kind: str, field_n
     section_status = section.get("status")
     if section_status == NOT_INSTRUMENTED:
         return status_value(None, False, NOT_INSTRUMENTED)
-    if section_status == NOT_OBSERVED:
-        return status_value(None, True, NOT_OBSERVED)
-    if section_status != OBSERVED:
+    if section_status not in (OBSERVED, NOT_OBSERVED):
         return status_value(None, False)
 
     value = get_path(section, ("totals", total_kind, field_name))
@@ -1200,9 +1198,7 @@ def metric_event(report: JsonObject, section_name: str, field_name: str) -> Json
     section_status = section.get("status")
     if section_status == NOT_INSTRUMENTED:
         return status_value(None, False, NOT_INSTRUMENTED)
-    if section_status == NOT_OBSERVED:
-        return status_value(None, True, NOT_OBSERVED)
-    if section_status != OBSERVED:
+    if section_status not in (OBSERVED, NOT_OBSERVED):
         return status_value(None, False)
     events = section.get("eventDeltas")
     if not isinstance(events, dict):
