@@ -43,6 +43,12 @@ RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
 WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
+ENERGY_BUFFER_UNHEALTHY_KIND = "energy_buffer_unhealthy"
+ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE = 2
+ENERGY_BUFFER_UNHEALTHY_ROUTES = [
+    {"issue": "#906", "topic": "metric_taxonomy"},
+    {"issue": "#907", "topic": "reward_decisions"},
+]
 
 ROOM_SIZE = 50
 TERRAIN_CELLS = ROOM_SIZE * ROOM_SIZE
@@ -190,6 +196,15 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "decision": "owner_action_or_codex_hotfix",
         "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
     },
+    "energy_buffer_unhealthy": {
+        "severity": "high",
+        "decision": "metric_taxonomy_and_reward_decision_followup",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "open_incident_issue"],
+        "metadata": {
+            "related_issues": ["#906", "#907"],
+            "routes_to": ENERGY_BUFFER_UNHEALTHY_ROUTES,
+        },
+    },
     "worker_idle_collapse": {
         "severity": "high",
         "decision": "codex_hotfix_or_owner_action",
@@ -233,6 +248,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "runtime_exception": ["runtime_exception"],
     "runtime_deadlock": ["runtime_deadlock"],
     "resource_crisis": ["resource_crisis"],
+    "energy_buffer_unhealthy": ["energy_buffer_unhealthy"],
     "worker_idle_collapse": ["worker_idle_collapse"],
     "private_smoke_failed_phase": ["private_smoke_failure"],
     "private_smoke_runtime_failure": ["private_smoke_failure"],
@@ -1065,12 +1081,81 @@ def runtime_energy_at_risk(room: dict[str, Any]) -> tuple[bool, int | float | No
     return below_capacity or unhealthy_buffer, current_energy, capacity_energy, buffer_health
 
 
+def energy_buffer_route_metadata() -> dict[str, Any]:
+    return {
+        "related_issues": [str(route["issue"]) for route in ENERGY_BUFFER_UNHEALTHY_ROUTES],
+        "routes_to": [dict(route) for route in ENERGY_BUFFER_UNHEALTHY_ROUTES],
+    }
+
+
 def format_energy_value(value: int | float | None) -> str:
     if value is None:
         return "unknown"
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def build_energy_buffer_unhealthy_reason(
+    ref: RoomRef,
+    room: dict[str, Any],
+    consecutive: int,
+    build_count: int | float,
+    upgrade_count: int | float,
+    buffer_health: dict[str, Any],
+) -> dict[str, Any]:
+    current_energy = number_value(buffer_health.get("currentEnergy"))
+    threshold = number_value(buffer_health.get("threshold"))
+    return {
+        "kind": ENERGY_BUFFER_UNHEALTHY_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": "high",
+        "priority": "P1",
+        "build": build_count,
+        "upgrade": upgrade_count,
+        "task_counts": dict(as_dict(room.get("taskCounts"))),
+        "energy_buffer_health": dict(buffer_health),
+        "current_energy": current_energy,
+        "threshold": threshold,
+        "energy_buffer_threshold": threshold,
+        "consecutive": consecutive,
+        "metadata": energy_buffer_route_metadata(),
+        "message": (
+            f"energy_buffer_unhealthy in {ref.key}: energyBufferHealth.healthy=false, "
+            f"build={format_energy_value(build_count)} upgrade={format_energy_value(upgrade_count)}, "
+            f"buffer {format_energy_value(current_energy)}/{format_energy_value(threshold)} for "
+            f"{consecutive} consecutive console captures."
+        ),
+        "signature": f"{ENERGY_BUFFER_UNHEALTHY_KIND}:{ref.key}",
+    }
+
+
+def detect_energy_buffer_unhealthy_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    consecutive: int,
+) -> dict[str, Any] | None:
+    if not isinstance(runtime_room, dict):
+        return None
+
+    buffer_health = as_dict(runtime_room.get("energyBufferHealth"))
+    if buffer_health.get("healthy") is not False:
+        return None
+
+    build_count = runtime_task_count(runtime_room, "build")
+    upgrade_count = runtime_task_count(runtime_room, "upgrade")
+    if build_count != 0 or upgrade_count != 0:
+        return None
+
+    return build_energy_buffer_unhealthy_reason(
+        ref,
+        runtime_room,
+        consecutive,
+        build_count,
+        upgrade_count,
+        buffer_health,
+    )
 
 
 def build_worker_idle_collapse_reason(
@@ -1282,6 +1367,19 @@ def evaluate_room_alert(
         )
 
     rule_counts = dict(previous_rule_counts)
+    previous_energy_buffer_unhealthy_count = number_value(rule_counts.get(ENERGY_BUFFER_UNHEALTHY_KIND)) or 0
+    energy_buffer_unhealthy_candidate = detect_energy_buffer_unhealthy_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        int(previous_energy_buffer_unhealthy_count) + 1,
+    )
+    if energy_buffer_unhealthy_candidate is None:
+        rule_counts[ENERGY_BUFFER_UNHEALTHY_KIND] = 0
+    else:
+        rule_counts[ENERGY_BUFFER_UNHEALTHY_KIND] = energy_buffer_unhealthy_candidate["consecutive"]
+        if energy_buffer_unhealthy_candidate["consecutive"] >= ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE:
+            detected.append(energy_buffer_unhealthy_candidate)
+
     previous_worker_idle_count = number_value(rule_counts.get(WORKER_IDLE_COLLAPSE_KIND)) or 0
     worker_idle_candidate = detect_worker_idle_collapse_reason(
         snapshot.ref,
@@ -1349,6 +1447,45 @@ def number_from_reason(reason: dict[str, Any], *keys: str) -> float | None:
         if isinstance(value, (int, float)):
             return float(value)
     return None
+
+
+def energy_buffer_unhealthy_reason_is_actionable(reason: dict[str, Any]) -> bool:
+    if tactical_reason_kind(reason).lower() != ENERGY_BUFFER_UNHEALTHY_KIND:
+        return True
+    consecutive = number_from_reason(reason, "consecutive", "consecutive_captures", "consecutiveCaptures") or 0
+    buffer_health = as_dict(reason.get("energy_buffer_health")) or as_dict(reason.get("energyBufferHealth"))
+    task_counts = as_dict(reason.get("task_counts")) or as_dict(reason.get("taskCounts"))
+    build_count = number_value(reason.get("build"))
+    if build_count is None:
+        build_count = number_value(task_counts.get("build"))
+    upgrade_count = number_value(reason.get("upgrade"))
+    if upgrade_count is None:
+        upgrade_count = number_value(task_counts.get("upgrade"))
+    return (
+        consecutive >= ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE
+        and buffer_health.get("healthy") is False
+        and build_count == 0
+        and upgrade_count == 0
+    )
+
+
+def copy_tactical_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): copy_tactical_metadata(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [copy_tactical_metadata(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def tactical_trigger_metadata(rule: dict[str, Any], reason: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for source in (rule.get("metadata"), reason.get("metadata")):
+        copied = copy_tactical_metadata(source)
+        if isinstance(copied, dict):
+            metadata.update(copied)
+    return metadata
 
 
 def tactical_priority(severity: str) -> str | None:
@@ -1697,6 +1834,9 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
     structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
     categories: list[str] = []
 
+    if lowered_kind == ENERGY_BUFFER_UNHEALTHY_KIND and not energy_buffer_unhealthy_reason_is_actionable(reason):
+        return []
+
     categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(kind, []))
     categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(lowered_kind, []))
 
@@ -1936,20 +2076,22 @@ def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, A
             severity = severity_max(severity, category_sev)
             for action_id in rule["actions"]:
                 append_unique_action(action_ids, action_id)
-            triggers.append(
-                {
-                    "category": category,
-                    "severity": category_sev,
-                    "priority": tactical_priority(category_sev),
-                    "decision": rule["decision"],
-                    "reason_kind": tactical_reason_kind(reason),
-                    "room": reason.get("room"),
-                    "object_id": reason.get("object_id"),
-                    "structure_type": reason.get("structure_type") or reason.get("structureType"),
-                    "suppressed": bool(reason.get("suppressed")),
-                    "message": short_text(redact_secrets(str(reason.get("message") or tactical_reason_kind(reason)), [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 180),
-                }
-            )
+            trigger = {
+                "category": category,
+                "severity": category_sev,
+                "priority": tactical_priority(category_sev),
+                "decision": rule["decision"],
+                "reason_kind": tactical_reason_kind(reason),
+                "room": reason.get("room"),
+                "object_id": reason.get("object_id"),
+                "structure_type": reason.get("structure_type") or reason.get("structureType"),
+                "suppressed": bool(reason.get("suppressed")),
+                "message": short_text(redact_secrets(str(reason.get("message") or tactical_reason_kind(reason)), [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 180),
+            }
+            metadata = tactical_trigger_metadata(rule, reason)
+            if metadata:
+                trigger["metadata"] = metadata
+            triggers.append(trigger)
 
     emergency = bool(triggers)
     if not emergency:
@@ -3675,7 +3817,7 @@ def command_self_test(_args: argparse.Namespace) -> int:
                 "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
                 "workerCount": 2,
                 "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
-                "taskCounts": {"harvest": 0, "upgrade": 0, "transfer": 0, "build": 0, "repair": 0, "none": 2},
+                "taskCounts": {"harvest": 0, "upgrade": 0, "transfer": 0, "build": 1, "repair": 0, "none": 2},
                 "behavior": {
                     "creeps": [
                         {"creepName": "worker-1", "idleTicks": 25, "stuckTicks": 0},
@@ -3737,6 +3879,112 @@ def command_self_test(_args: argparse.Namespace) -> int:
             )
             self.assertEqual(cleared_emitted, [])
             self.assertEqual(cleared_state["rule_counts"][WORKER_IDLE_COLLAPSE_KIND], 0)
+
+        def test_energy_buffer_unhealthy_alerts_on_second_consecutive_detection(self) -> None:
+            snapshot = self.make_snapshot(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "worker-1": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "name": "worker-1",
+                        "x": 23,
+                        "y": 25,
+                    },
+                }
+            )
+            runtime_room = {
+                "roomName": "E1N1",
+                "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+            }
+            previous = {"baseline_established": True, "owner": "owner"}
+
+            first_emitted, first_suppressed, first_state = evaluate_room_alert(
+                snapshot,
+                previous,
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+            self.assertEqual(first_emitted, [])
+            self.assertEqual(first_suppressed, [])
+            self.assertEqual(first_state["rule_counts"][ENERGY_BUFFER_UNHEALTHY_KIND], 1)
+
+            second_emitted, second_suppressed, second_state = evaluate_room_alert(
+                snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+            self.assertEqual([reason["kind"] for reason in second_emitted], [ENERGY_BUFFER_UNHEALTHY_KIND])
+            self.assertEqual(second_suppressed, [])
+            self.assertEqual(second_state["rule_counts"][ENERGY_BUFFER_UNHEALTHY_KIND], 2)
+            self.assertEqual(second_emitted[0]["priority"], "P1")
+            self.assertEqual(second_emitted[0]["metadata"]["related_issues"], ["#906", "#907"])
+
+        def test_energy_buffer_unhealthy_transient_resets_without_alert(self) -> None:
+            snapshot = self.make_snapshot(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "worker-1": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "name": "worker-1",
+                        "x": 23,
+                        "y": 25,
+                    },
+                }
+            )
+            unhealthy_room = {
+                "roomName": "E1N1",
+                "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+            }
+            recovered_room = {
+                "roomName": "E1N1",
+                "energyBufferHealth": {"currentEnergy": 300, "threshold": 300, "healthy": True},
+                "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+            }
+
+            first_emitted, _first_suppressed, first_state = evaluate_room_alert(
+                snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=unhealthy_room,
+            )
+            self.assertEqual(first_emitted, [])
+
+            second_emitted, second_suppressed, second_state = evaluate_room_alert(
+                snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+                runtime_room_summary=recovered_room,
+            )
+            self.assertEqual(second_emitted, [])
+            self.assertEqual(second_suppressed, [])
+            self.assertEqual(second_state["rule_counts"][ENERGY_BUFFER_UNHEALTHY_KIND], 0)
 
     class RenderTests(unittest.TestCase):
         def test_room_svg_legend_covers_rendered_marker_families(self) -> None:
@@ -3816,6 +4064,54 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(report["severity"], "none")
             self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
             self.assertEqual(report["next_actions"][0]["id"], "return_silent")
+
+        def test_tactical_response_classifies_energy_buffer_unhealthy_as_p1(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": True,
+                    "reasons": [
+                        {
+                            "kind": ENERGY_BUFFER_UNHEALTHY_KIND,
+                            "room": "shardTest/E1N1",
+                            "consecutive": 2,
+                            "energy_buffer_health": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                            "task_counts": {"build": 0, "upgrade": 0},
+                            "metadata": energy_buffer_route_metadata(),
+                            "message": "energy_buffer_unhealthy in shardTest/E1N1",
+                        }
+                    ],
+                }
+            )
+
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "high")
+            self.assertEqual(report["priority"], "P1")
+            self.assertEqual(report["categories"], [ENERGY_BUFFER_UNHEALTHY_KIND])
+            self.assertEqual(report["triggers"][0]["metadata"]["related_issues"], ["#906", "#907"])
+
+        def test_tactical_response_ignores_single_capture_energy_buffer_unhealthy(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": True,
+                    "reasons": [
+                        {
+                            "kind": ENERGY_BUFFER_UNHEALTHY_KIND,
+                            "room": "shardTest/E1N1",
+                            "consecutive": 1,
+                            "energy_buffer_health": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                            "task_counts": {"build": 0, "upgrade": 0},
+                        }
+                    ],
+                }
+            )
+
+            self.assertFalse(report["emergency"])
+            self.assertTrue(report["silent"])
+            self.assertEqual(report["triggers"], [])
 
         def test_postdeploy_health_gate_rejects_dead_room_even_when_alert_is_silent(self) -> None:
             result = evaluate_postdeploy_health_gate(

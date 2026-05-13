@@ -258,6 +258,158 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertIsNone(report["priority"])
         self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
 
+    def test_energy_buffer_unhealthy_alerts_on_second_consecutive_capture(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "roomName": "E26S49",
+            "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+            "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+        }
+        previous = {"baseline_established": True, "owner": "owner"}
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+        self.assertEqual(first_emitted, [])
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual(first_state["rule_counts"][monitor.ENERGY_BUFFER_UNHEALTHY_KIND], 1)
+
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+        self.assertEqual([reason["kind"] for reason in second_emitted], [monitor.ENERGY_BUFFER_UNHEALTHY_KIND])
+        self.assertEqual(second_suppressed, [])
+        self.assertEqual(second_state["rule_counts"][monitor.ENERGY_BUFFER_UNHEALTHY_KIND], 2)
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": second_emitted,
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertFalse(report["silent"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], ["energy_buffer_unhealthy"])
+        self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
+        trigger = report["triggers"][0]
+        self.assertEqual(trigger["priority"], "P1")
+        self.assertEqual(trigger["metadata"]["related_issues"], ["#906", "#907"])
+        self.assertEqual({route["issue"] for route in trigger["metadata"]["routes_to"]}, {"#906", "#907"})
+
+    def test_energy_buffer_unhealthy_transient_stays_silent(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        unhealthy_room = {
+            "roomName": "E26S49",
+            "energyBufferHealth": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+            "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+        }
+        recovered_room = {
+            "roomName": "E26S49",
+            "energyBufferHealth": {"currentEnergy": 300, "threshold": 300, "healthy": True},
+            "taskCounts": {"harvest": 1, "upgrade": 0, "build": 0, "transfer": 1},
+        }
+
+        first_emitted, _first_suppressed, first_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=unhealthy_room,
+        )
+        self.assertEqual(first_emitted, [])
+
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=recovered_room,
+        )
+        self.assertEqual(second_emitted, [])
+        self.assertEqual(second_suppressed, [])
+        self.assertEqual(second_state["rule_counts"][monitor.ENERGY_BUFFER_UNHEALTHY_KIND], 0)
+
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": False, "reasons": second_emitted, "rooms": ["shardX/E26S49"]}
+        )
+        self.assertTrue(report["silent"])
+
+    def test_energy_buffer_unhealthy_single_capture_reason_is_non_actionable(self) -> None:
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": [
+                    {
+                        "kind": monitor.ENERGY_BUFFER_UNHEALTHY_KIND,
+                        "room": "shardX/E26S49",
+                        "consecutive": 1,
+                        "energy_buffer_health": {"currentEnergy": 250, "threshold": 300, "healthy": False},
+                        "task_counts": {"build": 0, "upgrade": 0},
+                    }
+                ],
+            }
+        )
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["triggers"], [])
+
     def test_clean_no_alert_expansion_bootstrap_without_spawn_stays_silent(self) -> None:
         report = monitor.build_tactical_response_report(EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE)
 
