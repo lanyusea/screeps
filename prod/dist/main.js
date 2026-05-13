@@ -24967,7 +24967,7 @@ function selectBuilderEnergyAcquisitionTask(creep) {
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
 }
 function selectConstructionBacklogEnergyAcquisitionTask(creep) {
-  var _a, _b, _c;
+  var _a;
   if (getFreeEnergyCapacity8(creep) <= 0 || getActiveWorkParts2(creep) <= 0) {
     return null;
   }
@@ -24977,22 +24977,12 @@ function selectConstructionBacklogEnergyAcquisitionTask(creep) {
   }
   const constructionReservationContext = createConstructionReservationContext(creep.room);
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
-  const capacityConstructionSite = selectCapacityEnablingConstructionSite(
+  const constructionSite = selectUnreservedConstructionBacklogEnergyTarget(
     creep,
     constructionSites,
-    creep.room.controller,
     constructionReservationContext,
     constructionPriorityContext
   );
-  const constructionSite = (_c = (_b = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
-    creep,
-    capacityConstructionSite,
-    constructionSites,
-    constructionReservationContext,
-    constructionPriorityContext
-  )) != null ? _b : capacityConstructionSite) != null ? _c : selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, () => true, {
-    priorityContext: constructionPriorityContext
-  });
   if (!constructionSite) {
     return null;
   }
@@ -25043,6 +25033,17 @@ function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
     return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate)] : [];
   }).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
   return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+}
+function selectUnreservedConstructionBacklogEnergyTarget(creep, constructionSites, constructionReservationContext, priorityContext) {
+  const candidates = constructionSites.filter(
+    (site) => hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+  return [...candidates].sort(
+    (left, right) => compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
+  )[0];
 }
 function toBuilderEnergyAcquisitionCandidate(candidate) {
   return {
@@ -25098,11 +25099,23 @@ function getSpawnConstructionEnergyAvailableForWithdrawal(creep, source, energy,
   }
   const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
   const projectedSourceEnergy = Math.max(0, energy - reservedEnergy);
+  const spawnReservationBudget = getConstructionEnergyAvailableAfterSpawnReservation(
+    creep.room,
+    roomEnergyAvailable,
+    reservationContext.constructionEnergyWithdrawn
+  );
   const constructionBudget = Math.max(
     0,
-    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservedEnergy
+    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
   );
-  return Math.min(projectedSourceEnergy, constructionBudget);
+  return Math.min(projectedSourceEnergy, constructionBudget, spawnReservationBudget);
+}
+function getConstructionEnergyAvailableAfterSpawnReservation(room, roomEnergyAvailable, constructionEnergyWithdrawn) {
+  const reservation = getRoomSpawnEnergyReservationState(room);
+  if (!reservation.active) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
 }
 function createBuilderEnergyAcquisitionCandidate(creep, source, energy, task) {
   const range = getRangeBetweenRoomObjects3(creep, source);
@@ -25924,13 +25937,12 @@ function scoreWorkerEnergyAcquisitionAmount(energy, freeCapacity) {
   return immediateTripEnergy + surplusEnergy * WORKER_ENERGY_SURPLUS_SCORE_RATIO;
 }
 function createWorkerEnergyAcquisitionReservationContext(creep) {
-  return {
-    reservedEnergyBySourceId: getReservedWorkerEnergyAcquisitionsBySourceId(creep)
-  };
+  return getReservedWorkerEnergyAcquisitions(creep);
 }
-function getReservedWorkerEnergyAcquisitionsBySourceId(creep) {
+function getReservedWorkerEnergyAcquisitions(creep) {
   var _a, _b;
   const reservedEnergyBySourceId = /* @__PURE__ */ new Map();
+  let constructionEnergyWithdrawn = 0;
   for (const worker of getGameCreeps()) {
     if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
       continue;
@@ -25945,11 +25957,17 @@ function getReservedWorkerEnergyAcquisitionsBySourceId(creep) {
     }
     const sourceId = String(task.targetId);
     reservedEnergyBySourceId.set(sourceId, ((_b = reservedEnergyBySourceId.get(sourceId)) != null ? _b : 0) + freeCapacity);
+    if (isWorkerConstructionEnergyAcquisitionReservationTask(task)) {
+      constructionEnergyWithdrawn += freeCapacity;
+    }
   }
-  return reservedEnergyBySourceId;
+  return { constructionEnergyWithdrawn, reservedEnergyBySourceId };
 }
 function isWorkerEnergyAcquisitionReservationTask(task) {
   return ((task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw") && typeof task.targetId === "string" && task.targetId.length > 0;
+}
+function isWorkerConstructionEnergyAcquisitionReservationTask(task) {
+  return task.type === "withdraw" && typeof task.constructionSiteId === "string" && task.constructionSiteId.length > 0;
 }
 function getUnreservedWorkerEnergyAcquisitionAmount(source, energy, reservationContext, creep) {
   const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
@@ -28901,12 +28919,87 @@ function getSafeWithdrawEnergyAmount(creep, target, requestedAmount, task) {
   if (!task.constructionSiteId || !isSpawnEnergySource(target)) {
     return getSpawnEnergyWithdrawalAmount(creep.room, target, requestedAmount);
   }
+  const availableEnergy = getConstructionSpawnWithdrawEnergyAvailable(creep, target);
+  return Math.min(Math.max(0, requestedAmount), availableEnergy);
+}
+function getConstructionSpawnWithdrawEnergyAvailable(creep, target) {
   const roomEnergyAvailable = getRoomEnergyAvailable11(creep.room);
   if (roomEnergyAvailable === null) {
     return 0;
   }
-  const constructionBudget = Math.max(0, roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room));
-  return Math.min(Math.max(0, requestedAmount), getStoredEnergy17(target), constructionBudget);
+  const reservationContext = createConstructionWithdrawReservationContext(creep);
+  const sourceEnergy = Math.max(
+    0,
+    getStoredEnergy17(target) - getReservedConstructionWithdrawEnergy(target, reservationContext)
+  );
+  const spawnReservationBudget = getConstructionEnergyAvailableAfterSpawnReservation2(
+    creep.room,
+    roomEnergyAvailable,
+    reservationContext.constructionEnergyWithdrawn
+  );
+  const constructionBudget = Math.max(
+    0,
+    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
+  );
+  return Math.min(sourceEnergy, constructionBudget, spawnReservationBudget);
+}
+function getConstructionEnergyAvailableAfterSpawnReservation2(room, roomEnergyAvailable, constructionEnergyWithdrawn) {
+  const reservation = getRoomSpawnEnergyReservationState(room);
+  if (!reservation.active) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
+}
+function createConstructionWithdrawReservationContext(creep) {
+  var _a, _b;
+  const context = {
+    constructionEnergyWithdrawn: 0,
+    reservedEnergyBySourceId: /* @__PURE__ */ new Map()
+  };
+  for (const worker of getRoomOwnedCreeps2(creep.room)) {
+    if (isSameCreep2(worker, creep) || !isInRoom2(worker, creep.room)) {
+      continue;
+    }
+    const task = (_a = worker.memory) == null ? void 0 : _a.task;
+    if (!isConstructionWithdrawReservationTask(task)) {
+      continue;
+    }
+    const freeCapacity = getFreeTransferEnergyCapacity(worker);
+    if (freeCapacity <= 0) {
+      continue;
+    }
+    const sourceId = String(task.targetId);
+    context.reservedEnergyBySourceId.set(
+      sourceId,
+      ((_b = context.reservedEnergyBySourceId.get(sourceId)) != null ? _b : 0) + freeCapacity
+    );
+    context.constructionEnergyWithdrawn += freeCapacity;
+  }
+  return context;
+}
+function getRoomOwnedCreeps2(room) {
+  var _a;
+  const findMyCreeps4 = globalThis.FIND_MY_CREEPS;
+  const roomFind = room.find;
+  if (typeof findMyCreeps4 === "number" && typeof roomFind === "function") {
+    try {
+      const creeps = roomFind.call(room, findMyCreeps4);
+      if (Array.isArray(creeps)) {
+        return creeps;
+      }
+    } catch {
+      return [];
+    }
+  }
+  const gameCreeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  return gameCreeps ? Object.values(gameCreeps) : [];
+}
+function isConstructionWithdrawReservationTask(task) {
+  return (task == null ? void 0 : task.type) === "withdraw" && typeof task.targetId === "string" && task.targetId.length > 0 && typeof task.constructionSiteId === "string" && task.constructionSiteId.length > 0;
+}
+function getReservedConstructionWithdrawEnergy(source, reservationContext) {
+  var _a;
+  return (_a = reservationContext.reservedEnergyBySourceId.get(String(source.id))) != null ? _a : 0;
 }
 function executeHarvestTask(creep, task, source) {
   const sourceContainer = isSourceContainerAssignedHarvestTask(task) ? findVisibleHarvestSourceContainer(creep, source) : null;
@@ -33889,7 +33982,7 @@ function hasActiveBodyPart(creep, globalName, fallback) {
   }
   const body = creep.body;
   if (!Array.isArray(body)) {
-    return true;
+    return false;
   }
   return body.some((part) => {
     var _a2;

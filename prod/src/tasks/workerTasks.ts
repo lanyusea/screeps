@@ -48,7 +48,10 @@ import {
   getReservableContainerEnergy,
   hasSubstantialContainerEnergy
 } from '../economy/containerEnergy';
-import { getUnmetSpawnEnergyReservation } from '../economy/spawnEnergyReservation';
+import {
+  getRoomSpawnEnergyReservationState,
+  getUnmetSpawnEnergyReservation
+} from '../economy/spawnEnergyReservation';
 import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { getStorageBalanceState } from '../economy/storageBalancer';
@@ -3704,6 +3707,7 @@ interface ProductiveEnergySinkCandidate {
 }
 
 interface WorkerEnergyAcquisitionReservationContext {
+  constructionEnergyWithdrawn: number;
   reservedEnergyBySourceId: Map<string, number>;
 }
 
@@ -3756,25 +3760,12 @@ function selectConstructionBacklogEnergyAcquisitionTask(creep: Creep): BuilderEn
 
   const constructionReservationContext = createConstructionReservationContext(creep.room);
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
-  const capacityConstructionSite = selectCapacityEnablingConstructionSite(
+  const constructionSite = selectUnreservedConstructionBacklogEnergyTarget(
     creep,
     constructionSites,
-    creep.room.controller,
     constructionReservationContext,
     constructionPriorityContext
   );
-  const constructionSite =
-    selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
-      creep,
-      capacityConstructionSite,
-      constructionSites,
-      constructionReservationContext,
-      constructionPriorityContext
-    ) ??
-    capacityConstructionSite ??
-    selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, () => true, {
-      priorityContext: constructionPriorityContext
-    });
   if (!constructionSite) {
     return null;
   }
@@ -3848,6 +3839,24 @@ export function findBuilderEnergyAcquisitionCandidates(
     .filter((candidate) => isReachable(creep, candidate.source));
 
   return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+}
+
+function selectUnreservedConstructionBacklogEnergyTarget(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): ConstructionSite | null {
+  const candidates = constructionSites.filter((site) =>
+    hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return [...candidates].sort((left, right) =>
+    compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
+  )[0];
 }
 
 function toBuilderEnergyAcquisitionCandidate(
@@ -3936,11 +3945,31 @@ function getSpawnConstructionEnergyAvailableForWithdrawal(
 
   const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
   const projectedSourceEnergy = Math.max(0, energy - reservedEnergy);
+  const spawnReservationBudget = getConstructionEnergyAvailableAfterSpawnReservation(
+    creep.room,
+    roomEnergyAvailable,
+    reservationContext.constructionEnergyWithdrawn
+  );
   const constructionBudget = Math.max(
     0,
-    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservedEnergy
+    roomEnergyAvailable -
+      getEffectiveRoomEnergyBufferThreshold(creep.room) -
+      reservationContext.constructionEnergyWithdrawn
   );
-  return Math.min(projectedSourceEnergy, constructionBudget);
+  return Math.min(projectedSourceEnergy, constructionBudget, spawnReservationBudget);
+}
+
+function getConstructionEnergyAvailableAfterSpawnReservation(
+  room: Room,
+  roomEnergyAvailable: number,
+  constructionEnergyWithdrawn: number
+): number {
+  const reservation = getRoomSpawnEnergyReservationState(room);
+  if (!reservation.active) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(0, roomEnergyAvailable - reservation.reservedEnergy - constructionEnergyWithdrawn);
 }
 
 function createBuilderEnergyAcquisitionCandidate(
@@ -5248,13 +5277,12 @@ function scoreWorkerEnergyAcquisitionAmount(energy: number, freeCapacity: number
 }
 
 function createWorkerEnergyAcquisitionReservationContext(creep: Creep): WorkerEnergyAcquisitionReservationContext {
-  return {
-    reservedEnergyBySourceId: getReservedWorkerEnergyAcquisitionsBySourceId(creep)
-  };
+  return getReservedWorkerEnergyAcquisitions(creep);
 }
 
-function getReservedWorkerEnergyAcquisitionsBySourceId(creep: Creep): Map<string, number> {
+function getReservedWorkerEnergyAcquisitions(creep: Creep): WorkerEnergyAcquisitionReservationContext {
   const reservedEnergyBySourceId = new Map<string, number>();
+  let constructionEnergyWithdrawn = 0;
   for (const worker of getGameCreeps()) {
     if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
       continue;
@@ -5272,9 +5300,12 @@ function getReservedWorkerEnergyAcquisitionsBySourceId(creep: Creep): Map<string
 
     const sourceId = String(task.targetId);
     reservedEnergyBySourceId.set(sourceId, (reservedEnergyBySourceId.get(sourceId) ?? 0) + freeCapacity);
+    if (isWorkerConstructionEnergyAcquisitionReservationTask(task)) {
+      constructionEnergyWithdrawn += freeCapacity;
+    }
   }
 
-  return reservedEnergyBySourceId;
+  return { constructionEnergyWithdrawn, reservedEnergyBySourceId };
 }
 
 function isWorkerEnergyAcquisitionReservationTask(
@@ -5285,6 +5316,12 @@ function isWorkerEnergyAcquisitionReservationTask(
     typeof task.targetId === 'string' &&
     task.targetId.length > 0
   );
+}
+
+function isWorkerConstructionEnergyAcquisitionReservationTask(
+  task: WorkerEnergyAcquisitionTask
+): task is Extract<WorkerEnergyAcquisitionTask, { type: 'withdraw' }> {
+  return task.type === 'withdraw' && typeof task.constructionSiteId === 'string' && task.constructionSiteId.length > 0;
 }
 
 function getUnreservedWorkerEnergyAcquisitionAmount(

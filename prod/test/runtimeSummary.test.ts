@@ -945,7 +945,8 @@ describe('runtime telemetry summaries', () => {
     const worker = {
       name: 'IdleBuilder',
       memory: { role: 'worker', colony: 'W1N1' },
-      store: makeEnergyStore(0, 50)
+      store: makeEnergyStore(0, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
     } as unknown as Creep;
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,

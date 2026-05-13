@@ -1890,7 +1890,7 @@ function hasActiveBodyPart(
 
   const body = (creep as Creep & { body?: Array<{ type?: BodyPartConstant; hits?: number }> }).body;
   if (!Array.isArray(body)) {
-    return true;
+    return false;
   }
 
   return body.some((part) => part.type === bodyPart && (part.hits ?? 1) > 0);
