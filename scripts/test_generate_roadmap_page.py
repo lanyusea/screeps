@@ -995,6 +995,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         }
         github_snapshot = {
             "sourceMode": "live",
+            "projectItemsSource": "live",
             "projectItems": [
                 {
                     "type": "Issue",
@@ -1094,6 +1095,126 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in release_column["items"]], [63])
         self.assertEqual([item["number"] for item in bot_column["items"]], [165])
         self.assertEqual([item["number"] for item in territory_column["items"]], [223])
+
+    def test_project_data_live_gate_uses_project_specific_signals(self) -> None:
+        self.assertTrue(
+            roadmap.github_project_data_is_live(
+                {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "live"}
+            )
+        )
+        self.assertTrue(
+            roadmap.github_project_data_is_live(
+                {
+                    "sourceMode": "cached",
+                    "fetched": False,
+                    "fetchErrors": [{"source": "issues"}, {"source": "pullRequests"}],
+                    "projectItemsSource": "live",
+                }
+            )
+        )
+
+        stale_snapshots = [
+            {"sourceMode": "cached", "fetched": False, "fetchErrors": [], "projectItemsSource": "cached"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [{"source": "project"}], "projectItemsSource": "live"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": ["project"], "projectItemsSource": "live"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "cached"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "unavailable"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": []},
+        ]
+        for snapshot in stale_snapshots:
+            with self.subTest(snapshot=snapshot):
+                self.assertFalse(roadmap.github_project_data_is_live(snapshot))
+
+    def test_report_domain_sections_hide_cached_project_items_when_github_stale(self) -> None:
+        repo = {
+            "fullName": "lanyusea/screeps",
+            "url": "https://github.com/lanyusea/screeps",
+            "projectUrl": "https://github.com/users/lanyusea/projects/3",
+        }
+        github_snapshot = {
+            "sourceMode": "cached",
+            "fetched": False,
+            "fetchErrors": [{"source": "project", "message": "command failed"}],
+            "projectItemsSource": "cached",
+            "projectItems": [
+                {
+                    "type": "Issue",
+                    "number": 29,
+                    "title": "Cached runtime monitor item",
+                    "url": "https://github.com/lanyusea/screeps/issues/29",
+                    "status": "Done",
+                    "priority": "P1",
+                    "domain": "Runtime monitor",
+                    "nextAction": "This cached current-looking action must not render.",
+                }
+            ],
+            "issues": [],
+            "pullRequests": [],
+            "roadmapCards": [],
+        }
+
+        roadmap_cards = roadmap.build_report_roadmap_cards(github_snapshot, repo)
+        domain_board = roadmap.build_report_domain_kanban(github_snapshot)
+
+        self.assertEqual([card["title"] for card in roadmap_cards], list(roadmap.REPORT_ROADMAP_DOMAIN_ORDER))
+        runtime_card = next(card for card in roadmap_cards if card["title"] == "Runtime monitor")
+        self.assertIsNone(runtime_card["progress"])
+        self.assertIsNone(runtime_card["totalItems"])
+        self.assertIn("Stale - Project data unavailable", runtime_card["status"])
+        self.assertIn("Source: cached", runtime_card["status"])
+        self.assertIn("cached Project state is hidden", runtime_card["next"])
+        self.assertNotIn("current-looking", runtime_card["next"])
+
+        runtime_column = next(column for column in domain_board if column["title"] == "Runtime monitor")
+        self.assertEqual(len(runtime_column["items"]), 1)
+        self.assertEqual(runtime_column["items"][0]["title"], "Stale - Project data unavailable")
+        self.assertIn("Source: cached", runtime_column["items"][0]["description"])
+        self.assertNotEqual(runtime_column["items"][0].get("number"), 29)
+
+    def test_fetch_github_snapshot_marks_cached_project_items_when_project_fetch_fails(self) -> None:
+        cached_snapshot = {
+            "projectItems": [
+                {
+                    "type": "Issue",
+                    "number": 935,
+                    "title": "Cached Project item",
+                    "labels": ["roadmap"],
+                    "status": "In progress",
+                    "domain": "Change-control",
+                }
+            ]
+        }
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            del cwd, timeout
+            if command[:3] == ["gh", "issue", "list"]:
+                return [], None
+            if command[:3] == ["gh", "pr", "list"]:
+                return [], None
+            if command[:3] == ["gh", "project", "item-list"]:
+                return None, {"command": command[:4], "exitCode": 1, "message": "command failed"}
+            raise AssertionError(f"unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(roadmap, "run_json", side_effect=fake_run_json):
+                snapshot = roadmap.fetch_github_snapshot(
+                    Path(tmp),
+                    "lanyusea/screeps",
+                    "lanyusea",
+                    3,
+                    cached_snapshot,
+                )
+
+        self.assertFalse(snapshot["fetched"])
+        self.assertEqual(snapshot["sourceMode"], "cached")
+        self.assertEqual(snapshot["projectItemsSource"], "cached")
+        self.assertEqual(snapshot["fetchErrors"][0]["source"], "project")
+        self.assertEqual(snapshot["projectItems"][0]["number"], 935)
+        self.assertTrue(snapshot["projectItems"][0]["staleSource"])
+        self.assertEqual(snapshot["projectItems"][0]["sourceMode"], "cached")
+        self.assertEqual(snapshot["projectItems"][0]["sourceCollection"], "projectItems")
+        self.assertNotIn(935, [card.get("number") for card in snapshot["roadmapCards"]])
+        self.assertNotIn(935, [card.get("number") for card in snapshot["kanban"]["cards"]])
 
     def test_project_domain_requires_explicit_recognized_value(self) -> None:
         self.assertEqual(roadmap.project_domain({"domain": "runtime monitor"}), "Runtime monitor")

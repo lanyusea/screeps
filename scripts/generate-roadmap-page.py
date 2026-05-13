@@ -1769,15 +1769,18 @@ def fetch_github_snapshot(
         if cached_prs:
             pull_requests = cached_prs
             used_cache = True
+    project_items_source = "live" if project_error is None else "unavailable"
     project_items = normalize_project_items(project_json)
     if project_error and cached_snapshot is not None:
         cached_project_items = cached_github_collection(cached_snapshot, "projectItems")
         if cached_project_items:
-            project_items = cached_project_items
+            project_items = mark_cached_github_collection(cached_project_items, "projectItems")
+            project_items_source = "cached"
             used_cache = True
 
-    roadmap_cards = build_roadmap_cards(project_items, issues, pull_requests)
-    kanban_cards = build_kanban_cards(project_items, issues, pull_requests)
+    current_project_items = project_items if project_items_source == "live" else []
+    roadmap_cards = build_roadmap_cards(current_project_items, issues, pull_requests)
+    kanban_cards = build_kanban_cards(current_project_items, issues, pull_requests)
     return {
         "fetched": not errors,
         "sourceMode": github_source_mode(errors, seeded_issue_count, used_cache),
@@ -1787,12 +1790,13 @@ def fetch_github_snapshot(
         "issues": issues,
         "pullRequests": pull_requests,
         "projectItems": project_items,
+        "projectItemsSource": project_items_source,
         "roadmapCards": roadmap_cards,
         "kanban": {
             "columns": build_kanban_columns(kanban_cards),
             "cards": kanban_cards,
         },
-        "processMetrics": build_process_metrics(issues, pull_requests, project_items, errors),
+        "processMetrics": build_process_metrics(issues, pull_requests, current_project_items, errors),
     }
 
 
@@ -1801,6 +1805,17 @@ def cached_github_collection(cached_snapshot: JsonObject, key: str) -> list[Json
     if not isinstance(value, list):
         return []
     return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def mark_cached_github_collection(items: Sequence[JsonObject], collection_name: str) -> list[JsonObject]:
+    marked_items: list[JsonObject] = []
+    for item in items:
+        marked = dict(item)
+        marked["sourceMode"] = "cached"
+        marked["sourceCollection"] = collection_name
+        marked["staleSource"] = True
+        marked_items.append(marked)
+    return marked_items
 
 
 def merge_static_support_issues(issues: Sequence[JsonObject], repo_full_name: str) -> tuple[list[JsonObject], int]:
@@ -2545,6 +2560,12 @@ def report_kpi_footer(card: JsonObject) -> str:
 
 
 def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) -> list[JsonObject]:
+    if not github_project_data_is_live(github_snapshot):
+        return [
+            build_stale_report_domain_card(domain, repo, github_snapshot)
+            for domain in REPORT_ROADMAP_DOMAIN_ORDER
+        ]
+
     items = report_domain_source_items(github_snapshot)
     items_by_domain = {
         domain: sorted(
@@ -2557,6 +2578,55 @@ def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) ->
         build_report_domain_card(domain, items_by_domain[domain], repo, github_snapshot)
         for domain in REPORT_ROADMAP_DOMAIN_ORDER
     ]
+
+
+def github_project_data_is_live(github_snapshot: JsonObject) -> bool:
+    if github_fetch_errors_include(github_snapshot, "project"):
+        return False
+    return github_snapshot.get("projectItemsSource") == "live"
+
+
+def github_fetch_errors_include(github_snapshot: JsonObject, source: str) -> bool:
+    errors = github_snapshot.get("fetchErrors")
+    if not isinstance(errors, list):
+        return False
+    for error in errors:
+        if isinstance(error, dict) and str(error.get("source") or "") == source:
+            return True
+        if isinstance(error, str) and error == source:
+            return True
+    return False
+
+
+def github_project_source_label(github_snapshot: JsonObject) -> str:
+    mode = str(github_snapshot.get("sourceMode") or "").strip()
+    if github_snapshot.get("fetched") is False and mode == "live":
+        return "unavailable"
+    if mode and mode != "live":
+        return mode
+    project_items_source = str(github_snapshot.get("projectItemsSource") or "").strip()
+    if project_items_source:
+        return project_items_source
+    return mode or "unavailable"
+
+
+def github_project_stale_text(github_snapshot: JsonObject) -> str:
+    return f"Stale - Project data unavailable; Source: {github_project_source_label(github_snapshot)}"
+
+
+def build_stale_report_domain_card(domain: str, repo: JsonObject, github_snapshot: JsonObject) -> JsonObject:
+    return {
+        "title": domain,
+        "domain": domain,
+        "goal": PROJECT_DOMAIN_GOALS[domain],
+        "next": "Project data unavailable; cached Project state is hidden.",
+        "progress": None,
+        "status": github_project_stale_text(github_snapshot),
+        "url": repo.get("projectUrl") or repo.get("url") or "",
+        "totalItems": None,
+        "activeItems": None,
+        "doneItems": None,
+    }
 
 
 def report_domain_source_items(github_snapshot: JsonObject) -> list[JsonObject]:
@@ -2748,6 +2818,9 @@ def github_unavailable_text(github_snapshot: JsonObject) -> str:
 
 
 def build_report_domain_kanban(github_snapshot: JsonObject) -> list[JsonObject]:
+    if not github_project_data_is_live(github_snapshot):
+        return build_stale_report_domain_kanban(github_snapshot)
+
     source_items = report_domain_source_items(github_snapshot)
     columns: list[JsonObject] = []
     for domain in PROJECT_DOMAIN_ORDER:
@@ -2762,6 +2835,31 @@ def build_report_domain_kanban(github_snapshot: JsonObject) -> list[JsonObject]:
             }
         )
     return columns
+
+
+def build_stale_report_domain_kanban(github_snapshot: JsonObject) -> list[JsonObject]:
+    return [
+        {
+            "title": domain,
+            "items": [stale_report_domain_kanban_item(domain, github_snapshot)],
+        }
+        for domain in PROJECT_DOMAIN_ORDER
+    ]
+
+
+def stale_report_domain_kanban_item(domain: str, github_snapshot: JsonObject) -> JsonObject:
+    return {
+        "number": None,
+        "priority": "n/a",
+        "status": "Stale",
+        "domain": domain,
+        "title": "Stale - Project data unavailable",
+        "description": shorten_text(
+            f"{github_project_stale_text(github_snapshot)}; cached Project cards hidden.",
+            112,
+        ),
+        "url": "",
+    }
 
 
 def report_domain_kanban_item(card: JsonObject) -> JsonObject:
