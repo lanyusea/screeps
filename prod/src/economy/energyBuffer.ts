@@ -106,10 +106,11 @@ export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amo
     return false;
   }
 
+  // Keep capacity-enabling construction live until the room reaches the worker-throughput target,
+  // while still preserving enough spawn energy for recovery workers.
   return (
     hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) &&
-    energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY &&
-    getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable
+    energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY
   );
 }
 
