@@ -1,0 +1,492 @@
+schema:
+  name: "screeps-rl-reward-decision-registry"
+  schema_version: 3
+  entry_schema_version: 1
+  registry_version: "v3"
+  owning_issue: "https://github.com/lanyusea/screeps/issues/982"
+  replaces:
+    - "https://github.com/lanyusea/screeps/issues/907"
+  created_date: "2026-05-13"
+  updated_date: "2026-05-13"
+  status: "active"
+  canonical_path: "docs/ops/rl-reward-registry.yaml"
+
+purpose: >
+  Formal change-control registry for Screeps RL reward components, weights,
+  penalties, validation gates, and rollback conditions. Every reward-shaping
+  change must be represented by a versioned registry entry before it can enter
+  shadow evaluation, offline training, deployment, or rollback.
+
+allowed_statuses:
+  - "proposed"
+  - "approved"
+  - "shadow-eval"
+  - "deployed"
+  - "reverted"
+
+allowed_change_types:
+  - "add"
+  - "modify"
+  - "remove"
+
+required_entry_fields:
+  - "component_name"
+  - "version"
+  - "change_type"
+  - "evidence"
+  - "hypothesis"
+  - "validation_criteria"
+  - "rollback_condition"
+  - "linked_github_issue"
+  - "proposed_by"
+  - "created_date"
+  - "status"
+
+versioning_policy:
+  component_version_format: "vN"
+  rule: >
+    The tuple of component_name and version identifies one formal reward
+    decision. Any change to component direction, predicate, weight, penalty,
+    validation criteria, rollback condition, or deployment scope must create a
+    new versioned registry entry with change_type set to add, modify, or remove.
+  bootstrap_rule: >
+    Existing identifiable reward code is registered as version v1 with
+    bootstrap_existing_code set to true. Bootstrap entries document current
+    behavior; they do not authorize unregistered future tuning.
+
+governance_rules:
+  - id: "github-issue-required"
+    rule: >
+      Every reward component, weight, or penalty change must have a linked
+      GitHub issue that records evidence, hypothesis, validation criteria, and
+      rollback condition.
+  - id: "registry-entry-required"
+    rule: >
+      Every reward component, weight, penalty, predicate, or rollback change
+      must be a versioned entry in this registry before implementation,
+      shadow-eval, deployment, or rollback.
+  - id: "rl-steward-act-loop"
+    rule: >
+      The RL Steward consumes this registry during the PDCA Act loop and may
+      route proposed entries to issue creation, approval, offline training,
+      shadow evaluation, deployment, rejection, or rollback.
+  - id: "shadow-eval-gate"
+    rule: >
+      No reward change deploys to shadow evaluation without a registry entry
+      whose status is proposed or approved and whose linked issue contains the
+      required evidence, hypothesis, validation criteria, and rollback
+      condition.
+  - id: "deployment-gate"
+    rule: >
+      No reward change becomes deployed unless its registry entry has advanced
+      through the approved and shadow-eval evidence path, or is explicitly
+      marked as a bootstrap of existing code.
+  - id: "revert-required"
+    rule: >
+      A rollback must create or update a registry entry with status reverted,
+      evidence for the rollback trigger, and a link to the issue or PR that
+      disabled the component.
+
+source_reviews:
+  - id: "gameplay-evolution-review-2026-05-13"
+    type: "Gameplay Evolution Review"
+    created_date: "2026-05-13"
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/982"
+    summary: >
+      Review identified construction allocation, stuck creep, and tiny harvest
+      trip reward gaps that require formal registry-controlled Act decisions.
+
+codebase_bootstrap_scope:
+  included: >
+    Identifiable RL reward and validation-gate code paths in prod/src/rl,
+    scripts/screeps_rl_training_runner.py, scripts/screeps_rl_experiment_card.py,
+    and scripts/screeps_rl_mmo_validator.py.
+  excluded: >
+    Non-RL heuristic scoring formulas in construction, territory, market,
+    spawn, and worker task modules remain outside this reward registry unless
+    a future issue proposes them as RL reward components.
+
+entries:
+  - id: "RRD-2026-05-13-001"
+    component_name: "buildAllocationMinimum"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "P0"
+    status: "proposed"
+    candidate_weight: null
+    candidate_predicate:
+      build_task_count_eq: 0
+      construction_backlog_gt: 0
+      energy_buffer_healthy: true
+    evidence:
+      - "2026-05-13 Gameplay Evolution Review: 4/7 captures had build=0 with 6 construction sites."
+    hypothesis: >
+      Penalizing build=0 while construction backlog exists and energy is
+      healthy will prevent upgrade-only drift during buildable windows and keep
+      at least one worker assigned to useful construction without weakening
+      emergency recovery.
+    validation_criteria:
+      - "In shadow-eval captures with construction backlog > 0 and healthy energy, taskCounts.build is > 0 in at least 60% of captures."
+      - "Build-carried energy, build work ticks, or construction progress is positive in the same qualifying window."
+      - "Worker count, spawn refill health, controller downgrade risk, and energy buffer health do not regress versus baseline."
+    rollback_condition:
+      - "Revert or reject if worker count drops below 3."
+      - "Revert or reject if energy buffer is unhealthy for 2 consecutive captures."
+      - "Revert or reject if spawn/refill deficits, controller downgrade pressure, emergency repairs, or survival work regress versus baseline."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/982"
+    proposed_by: "2026-05-13 Gameplay Evolution Review; RL Steward intake"
+    created_date: "2026-05-13"
+    scope: "offline/shadow only until approved"
+    current_code_reference: null
+    notes: "No implementation or weight is approved by this proposed registry entry."
+
+  - id: "RRD-2026-05-13-002"
+    component_name: "stuckPenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "P1"
+    status: "proposed"
+    candidate_weight: null
+    candidate_predicate:
+      stuck_ticks_gt: 5
+      window_ticks: 20
+      productive_stationary_action: false
+    evidence:
+      - "2026-05-13 Gameplay Evolution Review: stuckTicks ranged from 0 to 12, with workTicks=0 in some captures."
+      - "Existing telemetry records stuckTicks, but no exact stuckPenalty reward component was found in prod/src/rl."
+    hypothesis: >
+      Penalizing stuckTicks > 5 per 20-tick window will reduce repeated pathing
+      stalls and actionless creep windows while preserving valid stationary
+      work such as adjacent harvesting, building, repairing, and upgrading.
+    validation_criteria:
+      - "maxStuckTicks <= 5 in at least 80% of qualifying shadow-eval captures."
+      - "Stuck creep count and stuckTicks per worker decrease versus baseline."
+      - "False-positive penalties on productive stationary work remain below 10% of reviewed creep windows."
+      - "Work ticks, energy delivery, CPU bucket, and spawn/refill health do not regress versus baseline."
+    rollback_condition:
+      - "Revert or reject if productive stationary workers are penalized."
+      - "Revert or reject if false-positive stuck penalties exceed 10% of reviewed creep windows."
+      - "Revert or reject if pathing becomes overly conservative, CPU use increases materially, or work/energy metrics regress."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/982"
+    proposed_by: "2026-05-13 Gameplay Evolution Review; RL Steward intake"
+    created_date: "2026-05-13"
+    scope: "offline/shadow only until approved"
+    current_code_reference: "prod/src/telemetry/behaviorTelemetry.ts records stuckTicks; no reward component found"
+    notes: "This replaces the prior verify-stuck-penalty proposal with an explicit new proposed penalty."
+
+  - id: "RRD-2026-05-13-003"
+    component_name: "lowLoadHarvestPenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "P2"
+    status: "proposed"
+    candidate_weight: null
+    candidate_predicate:
+      harvest_trip_energy_lt: 10
+      source_energy_gte: 100
+      emergency_recovery: false
+    evidence:
+      - "2026-05-13 Gameplay Evolution Review: mean trip energy was <10 in several captures."
+    hypothesis: >
+      Penalizing sub-10-energy harvest trips when the source has at least 100
+      energy will reduce wasted harvest travel and improve useful energy per
+      trip without blocking emergency spawn recovery or short-haul survival
+      exceptions.
+    validation_criteria:
+      - "Mean harvested or withdrawn energy per qualifying harvest trip is >= 15 in at least 60% of shadow-eval captures with source energy >= 100."
+      - "Avoidable low-load harvest trips decrease versus baseline."
+      - "Spawn/extension refill latency, worker survival, source utilization, CPU bucket, and energy buffer health do not regress versus baseline."
+    rollback_condition:
+      - "Revert or reject if emergency recovery trips are penalized."
+      - "Revert or reject if spawn or extension refill latency regresses."
+      - "Revert or reject if source utilization, worker count, CPU bucket, or energy buffer health regresses versus baseline."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/982"
+    proposed_by: "2026-05-13 Gameplay Evolution Review; RL Steward intake"
+    created_date: "2026-05-13"
+    scope: "offline/shadow only until approved"
+    current_code_reference: null
+    notes: "Distinguished from the older worker-load-efficiency proposal by keying the predicate to harvest trips and source energy."
+
+  - id: "RRD-BOOTSTRAP-509-001"
+    component_name: "workerEfficiencyWorkTicksRatio"
+    version: "v1"
+    change_type: "add"
+    component_kind: "reward"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: 1.0
+    implemented_formula: "clamp(workTicks / totalTicks, 0, 1)"
+    evidence:
+      - "prod/src/rl/workerEfficiency.ts:462 computes the primary worker-efficiency reward term from workTicks / totalTicks."
+      - "WorkerEfficiencyTrainingSummary records primary reward as work_ticks/total_ticks."
+    hypothesis: >
+      Favoring higher productive work-tick ratio should select worker task and
+      target decisions that spend less time idle and more time doing useful
+      Screeps work in the offline worker-efficiency policy.
+    validation_criteria:
+      - "prod/test/workerEfficiencyRl.test.ts covers worker-efficiency RL behavior."
+      - "Worker-efficiency evaluation pass requires held-out scenario improvementRatio >= 0.1."
+      - "Artifact safety remains liveEffect=false and officialMmoWrites=false."
+    rollback_condition:
+      - "Revert or disable the worker-efficiency policy if held-out improvement fails, safety flags become unsafe, or deterministic production validators reject the candidate."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/509"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; original worker-efficiency RL slice"
+    created_date: "2026-05-13"
+    scope: "offline/shadow worker-efficiency artifact"
+
+  - id: "RRD-BOOTSTRAP-509-002"
+    component_name: "workerEfficiencyEnergyDeliveredWeight"
+    version: "v1"
+    change_type: "add"
+    component_kind: "weight"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: 0.24
+    implemented_formula: "clamp(energyDelivered / 100, 0, 1) * 0.24"
+    evidence:
+      - "prod/src/rl/workerEfficiency.ts:462 adds a delivered-energy reward term weighted by 0.24."
+      - "WorkerEfficiencyTrainingSummary records secondary reward as energy_delivered."
+    hypothesis: >
+      Adding a bounded delivered-energy bonus should prefer worker choices that
+      convert actions into useful delivered energy when higher-priority safety
+      floors do not force the heuristic fallback.
+    validation_criteria:
+      - "Worker-efficiency evaluation reports energyDeliveredDelta for each held-out scenario."
+      - "EnergyDeliveredDelta should not show material regression in refill_distribution or capacity_build scenarios when the policy advances."
+      - "Artifact safety remains liveEffect=false and officialMmoWrites=false."
+    rollback_condition:
+      - "Revert or disable if delivered-energy deltas materially regress, spawn refill health regresses, or safety validators reject the candidate."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/509"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; original worker-efficiency RL slice"
+    created_date: "2026-05-13"
+    scope: "offline/shadow worker-efficiency artifact"
+
+  - id: "RRD-BOOTSTRAP-509-003"
+    component_name: "workerEfficiencyIdlePenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: -0.36
+    implemented_formula: "-clamp(idleTicks / totalTicks, 0, 1) * 0.36"
+    evidence:
+      - "prod/src/rl/workerEfficiency.ts:462 subtracts an idle-tick penalty weighted by 0.36."
+      - "WorkerEfficiencyTrainingSummary records penalty as idle_ticks+risk."
+    hypothesis: >
+      Penalizing idle ticks should discourage worker task selections that create
+      actionless windows after safety floors and heuristic fallbacks are applied.
+    validation_criteria:
+      - "Held-out scenario workTicks ratio improves without reducing worker count or energy delivery health."
+      - "Offline artifact remains shadow-only with no creep, spawn, construction, Memory, RawMemory, market, or official MMO authority."
+    rollback_condition:
+      - "Revert or disable if the penalty suppresses valid waiting behavior, lowers useful work ratio, or causes CPU/reliability regressions."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/509"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; original worker-efficiency RL slice"
+    created_date: "2026-05-13"
+    scope: "offline/shadow worker-efficiency artifact"
+
+  - id: "RRD-BOOTSTRAP-509-004"
+    component_name: "workerEfficiencyRangePenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: -0.08
+    implemented_formula: "-clamp(range / 50, 0, 1) * 0.08"
+    evidence:
+      - "prod/src/rl/workerEfficiency.ts:462 subtracts a range penalty weighted by 0.08."
+    hypothesis: >
+      Penalizing long-range targets should prefer nearby useful work when
+      expected action value is otherwise comparable, reducing travel waste.
+    validation_criteria:
+      - "Worker-efficiency held-out evaluation improves workTicks ratio without causing energy-delivery or task-priority regression."
+      - "Shadow artifact remains bounded to worker task and target selection analysis."
+    rollback_condition:
+      - "Revert or disable if the penalty prevents necessary distant target selection, harms expansion/bootstrap support, or increases stuck/pathing metrics."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/509"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; original worker-efficiency RL slice"
+    created_date: "2026-05-13"
+    scope: "offline/shadow worker-efficiency artifact"
+
+  - id: "RRD-BOOTSTRAP-509-005"
+    component_name: "workerEfficiencyRiskPenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: -1.0
+    implemented_formula: "-clamp(riskPenalty ?? 0, 0, 1)"
+    evidence:
+      - "prod/src/rl/workerEfficiency.ts:462 subtracts a bounded riskPenalty term."
+      - "WorkerEfficiencyTrainingSummary records penalty as idle_ticks+risk."
+    hypothesis: >
+      Penalizing candidate risk should keep worker-efficiency policy selection
+      conservative when a candidate carries explicit risk evidence.
+    validation_criteria:
+      - "Risky candidates do not advance when the heuristic safety floor applies."
+      - "Artifact forbiddenControlSurfaces continue to block movement, spawn, construction, territory, Memory, RawMemory, market, and official MMO writes."
+    rollback_condition:
+      - "Revert or disable if risky actions are selected despite safety floors or if conservative fallback behavior regresses."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/509"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; original worker-efficiency RL slice"
+    created_date: "2026-05-13"
+    scope: "offline/shadow worker-efficiency artifact"
+
+  - id: "RRD-BOOTSTRAP-549-001"
+    component_name: "lexicographicTerritoryReward"
+    version: "v1"
+    change_type: "add"
+    component_kind: "reward"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: "lexicographic tier 1"
+    implemented_formula: "territory_delta = rooms_gained - rooms_lost"
+    evidence:
+      - "scripts/screeps_rl_training_runner.py computes rewardTuple[0] from territory_delta."
+      - "docs/ops/rl-training-reward-workflow.md documents T = rooms_gained - rooms_lost."
+    hypothesis: >
+      Comparing territory first aligns offline RL training with the project
+      vision: hold and expand territory before optimizing resources or kills.
+    validation_criteria:
+      - "Training reports rank variants lexicographically by territory before resources and kills."
+      - "Claimed rooms count as held only if they retain at least one spawn and one owned creep at the final observation."
+      - "Candidates that lose territory cannot advance because of resource or kill improvements."
+    rollback_condition:
+      - "Revert or reject if a candidate with worse territory delta is allowed to outrank a territory-preserving incumbent."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/549"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; RL training reward workflow"
+    created_date: "2026-05-13"
+    scope: "offline/private-simulator training report"
+
+  - id: "RRD-BOOTSTRAP-549-002"
+    component_name: "lexicographicResourceReward"
+    version: "v1"
+    change_type: "add"
+    component_kind: "reward"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: "lexicographic tier 2; resourceNormalizer default 1000"
+    implemented_formula: "resources_delta = (stored_energy_delta + collected_energy) / resource_normalizer"
+    evidence:
+      - "scripts/screeps_rl_training_runner.py computes rewardTuple[1] from storedEnergyDelta plus collectedEnergy divided by resourceNormalizer."
+      - "docs/ops/rl-training-reward-workflow.md documents E = (stored_energy_delta + collected_energy) / resource_normalizer."
+    hypothesis: >
+      Comparing resources second rewards sustainable economy growth only after
+      territory ties, preserving the competition-map priority ordering.
+    validation_criteria:
+      - "Resource reward comparison is used only when territory ties."
+      - "Default resourceNormalizer is 1000 unless an approved card overrides it."
+      - "Stored energy and collected energy evidence is present in the training or validation artifact."
+    rollback_condition:
+      - "Revert or reject if resource improvements compensate for territory loss, if resourceNormalizer is changed without a registry entry, or if required resource evidence is missing."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/549"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; RL training reward workflow"
+    created_date: "2026-05-13"
+    scope: "offline/private-simulator training report"
+
+  - id: "RRD-BOOTSTRAP-549-003"
+    component_name: "lexicographicKillsReward"
+    version: "v1"
+    change_type: "add"
+    component_kind: "reward"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: "lexicographic tier 3"
+    implemented_formula: "combat_delta = hostile_kills - own_losses"
+    evidence:
+      - "scripts/screeps_rl_training_runner.py computes rewardTuple[2] from hostileKills minus ownLosses."
+      - "docs/ops/rl-training-reward-workflow.md documents K = hostile_kills - own_losses."
+    hypothesis: >
+      Comparing kills third rewards useful combat outcomes only after territory
+      and resource outcomes tie, avoiding combat optimization that sacrifices
+      room survival or economy.
+    validation_criteria:
+      - "Kill reward comparison is used only when territory and resources tie."
+      - "Hostile kill and own-loss evidence is present or defaults to zero in the training artifact."
+    rollback_condition:
+      - "Revert or reject if kill gains compensate for territory or resource regression, or if own losses are not counted."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/549"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; RL training reward workflow"
+    created_date: "2026-05-13"
+    scope: "offline/private-simulator training report"
+
+  - id: "RRD-BOOTSTRAP-549-004"
+    component_name: "historicalReliabilityGate"
+    version: "v1"
+    change_type: "add"
+    component_kind: "gate"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight: "hard gate before territory/resources/kills comparison"
+    implemented_formula: "candidate reliability must not be lower than baseline reliability"
+    evidence:
+      - "scripts/screeps_rl_mmo_validator.py compare_reward_tuple rejects candidates with reliability below baseline before comparing territory, resources, and kills."
+      - "scripts/screeps_rl_mmo_validator.py derives reliability from runtime summary integrity and malformed runtime summary counts."
+    hypothesis: >
+      Reliability non-regression must remain a gate so a candidate cannot
+      improve gameplay metrics by breaking telemetry, validation, or runtime
+      safety.
+    validation_criteria:
+      - "Historical MMO validation rejects any candidate with reliability below baseline."
+      - "Validation artifacts retain liveEffect=false, officialMmoWrites=false, and no unsafe control surfaces."
+    rollback_condition:
+      - "Revert or reject if reliability regression is ignored or if unsafe candidate flags can advance."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/549"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; RL training reward workflow"
+    created_date: "2026-05-13"
+    scope: "historical MMO validation gate"
+
+  - id: "RRD-BOOTSTRAP-549-005"
+    component_name: "lexicographicPriorityWeights"
+    version: "v1"
+    change_type: "add"
+    component_kind: "weight-policy"
+    priority: "bootstrap"
+    status: "deployed"
+    bootstrap_existing_code: true
+    candidate_weight:
+      alpha_reliability: 1000000000
+      beta_territory: 1000000
+      gamma_resources: 1000
+      delta_kills: 1
+    implemented_formula: >
+      Experiment cards expose alpha >> beta >> gamma >> delta priority weights,
+      while scalar_weighted_sum_authorized remains false and the training
+      runner uses lexicographic comparison.
+    evidence:
+      - "scripts/screeps_rl_experiment_card.py emits component_weights alpha_reliability=1000000000, beta_territory=1000000, gamma_resources=1000, delta_kills=1."
+      - "scripts/screeps_rl_training_runner.py validates scalar_weighted_sum_authorized is false."
+      - "scripts/screeps_rl_training_runner.py compares reward tuples lexicographically, not as a scalar weighted sum."
+    hypothesis: >
+      Publishing dominance weights in experiment cards documents the intended
+      priority order while the lexicographic comparator prevents lower-priority
+      components from compensating for reliability or territory failures.
+    validation_criteria:
+      - "Experiment cards keep scalar_weighted_sum_authorized=false."
+      - "Training runner accepts only component_order preserving territory, resources, and kills, with optional reliability first."
+      - "Any future change to these weights or to scalar weighted-sum authorization has its own registry entry."
+    rollback_condition:
+      - "Revert or reject if scalar weighted-sum authorization becomes true without an approved registry entry, or if component order stops preserving the project vision priority."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/549"
+    proposed_by: "Bootstrap from existing code during #982 registry creation; RL training reward workflow"
+    created_date: "2026-05-13"
+    scope: "offline experiment-card helper and training-card validation"
+
+validation:
+  yaml_syntax_command: "python3 -c \"import yaml; yaml.safe_load(open('docs/ops/rl-reward-registry.yaml'))\""
+  docs_only_full_suite_required: false
