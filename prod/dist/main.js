@@ -23047,6 +23047,15 @@ function selectHeuristicWorkerTask(creep) {
   if (highImpactConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: highImpactConstructionSite.id });
   }
+  const uncoveredProductiveBacklogTask = selectUncoveredProductiveBacklogTaskBeforeControllerProgress(
+    creep,
+    controller,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (uncoveredProductiveBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, uncoveredProductiveBacklogTask);
+  }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
@@ -24622,6 +24631,81 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
     return null;
   }
   return candidates.sort(compareProductiveEnergySinkCandidates)[0].task;
+}
+function selectUncoveredProductiveBacklogTaskBeforeControllerProgress(creep, controller, constructionSites, constructionReservationContext) {
+  if (!controller || !shouldReserveWorkerForUncoveredProductiveBacklog(creep, controller)) {
+    return null;
+  }
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, "build")) {
+    const constructionSite = selectUnreservedConstructionSite(
+      creep,
+      constructionSites,
+      constructionReservationContext,
+      () => true,
+      { priorityContext: constructionPriorityContext }
+    );
+    if (constructionSite) {
+      return { type: "build", targetId: constructionSite.id };
+    }
+  }
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, "repair")) {
+    const repairTarget = selectRepairTarget(creep);
+    if (repairTarget) {
+      return { type: "repair", targetId: repairTarget.id };
+    }
+  }
+  return null;
+}
+function shouldReserveWorkerForUncoveredProductiveBacklog(creep, controller) {
+  if (!hasControllerProgressDemand(creep, controller)) {
+    return false;
+  }
+  if (hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller)) {
+    return false;
+  }
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const controllerProgressWorkerLimit = Math.max(
+    1,
+    getControllerProgressWorkerLimit(
+      creep,
+      loadedWorkers.length,
+      hasActiveTerritoryExpansionPressure(creep)
+    )
+  );
+  const controllerProgressReserveLimit = Math.max(1, controllerProgressWorkerLimit - 1);
+  const controllerUpgraders = loadedWorkers.filter((worker) => isUpgradingController(worker, controller)).length;
+  return controllerUpgraders >= controllerProgressReserveLimit;
+}
+function hasControllerProgressDemand(creep, controller) {
+  var _a, _b;
+  if (shouldApplyControllerPressureLane(creep, controller)) {
+    return true;
+  }
+  const upgradePriority = getControllerUpgradePriority(controller, {
+    energyAvailable: (_a = getRoomEnergyAvailable9(creep.room)) != null ? _a : void 0,
+    energyCapacityAvailable: (_b = getRoomEnergyCapacityAvailable7(creep.room)) != null ? _b : void 0,
+    hasEnergySurplus: hasRecoverableSurplusEnergy(creep)
+  });
+  return upgradePriority === "rclProgress" || upgradePriority === "energySurplus";
+}
+function hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller) {
+  return getSameRoomLoadedWorkers(creep).some((worker) => {
+    var _a, _b;
+    if (isSameCreep(worker, creep) || isUpgradingController(worker, controller) || getActiveWorkParts2(worker) <= 0) {
+      return false;
+    }
+    const taskType = (_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type;
+    return taskType === void 0 || taskType === null;
+  });
+}
+function hasSameRoomWorkerAssignedToTask(room, taskType) {
+  return getGameCreeps().some(
+    (worker) => {
+      var _a, _b;
+      return isSameRoomWorker(worker, room) && ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === taskType;
+    }
+  );
 }
 function createProductiveEnergySinkCandidate(creep, target, task, taskPriority, canCompleteConstruction = false) {
   const range = getRangeBetweenRoomObjects3(creep, target);
@@ -33105,6 +33189,7 @@ var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
 var MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 var MAX_REFILL_DELIVERY_SAMPLES = 5;
 var MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
+var MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 5;
 var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
@@ -33910,6 +33995,7 @@ function getEnergySurplusSinkIds(state) {
 function summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roomStructures, roomEnergyStructures, events) {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
   const pendingBuildProgress = sumPendingBuildProgress(constructionSites);
+  const repairBacklogHits = sumRepairBacklogHits(roomStructures);
   const buildBlockedReason = selectBuildBlockedReason(
     colony,
     colonyWorkers,
@@ -33921,13 +34007,20 @@ function summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roo
   return {
     ...productiveAssignments,
     pendingBuildProgress,
-    repairBacklogHits: sumRepairBacklogHits(roomStructures),
+    repairBacklogHits,
     ...buildBlockedReason ? { buildBlockedReason } : {},
     ...buildBlockedReason === "worker_assignment_gap" ? {
       workerAssignmentBlockedDetail: selectWorkerAssignmentBlockedDetail(
         colony,
         colonyWorkers,
         roomEnergyStructures
+      ),
+      workerAssignmentBlockedWorkers: selectWorkerAssignmentBlockedWorkers(
+        colony,
+        colonyWorkers,
+        constructionSites,
+        pendingBuildProgress,
+        repairBacklogHits
       )
     } : {},
     ...buildControllerProgressRemaining(colony.room)
@@ -33964,6 +34057,107 @@ function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergySt
     return "spawn_reserving_energy";
   }
   return "unknown";
+}
+function selectWorkerAssignmentBlockedWorkers(colony, colonyWorkers, constructionSites, pendingBuildProgress, repairBacklogHits) {
+  return [...colonyWorkers].sort(compareWorkerAssignmentBlockedDiagnosticPriority).slice(0, MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS).map((worker) => {
+    const taskType = getWorkerTaskType(worker);
+    return {
+      ...getWorkerName(worker) ? { name: getWorkerName(worker) } : {},
+      ...taskType ? { task: taskType } : {},
+      carriedEnergy: getEnergyInStore(worker),
+      freeCapacity: getFreeEnergyCapacityInStore(worker),
+      buildBlockedReason: selectWorkerBuildAssignmentBlockedReason(
+        colony,
+        worker,
+        constructionSites,
+        pendingBuildProgress
+      ),
+      repairBlockedReason: selectWorkerRepairAssignmentBlockedReason(
+        worker,
+        pendingBuildProgress,
+        repairBacklogHits
+      )
+    };
+  });
+}
+function compareWorkerAssignmentBlockedDiagnosticPriority(left, right) {
+  return getWorkerAssignmentBlockedDiagnosticTaskPriority(left) - getWorkerAssignmentBlockedDiagnosticTaskPriority(right) || getEnergyInStore(right) - getEnergyInStore(left) || getWorkerStableLabel(left).localeCompare(getWorkerStableLabel(right));
+}
+function getWorkerAssignmentBlockedDiagnosticTaskPriority(worker) {
+  const taskType = getWorkerTaskType(worker);
+  if (!taskType) {
+    return 0;
+  }
+  if (taskType === "upgrade") {
+    return 1;
+  }
+  if (taskType === "build" || taskType === "repair") {
+    return 3;
+  }
+  return 2;
+}
+function selectWorkerBuildAssignmentBlockedReason(colony, worker, constructionSites, pendingBuildProgress) {
+  const taskType = getWorkerTaskType(worker);
+  if (taskType === "build") {
+    return "build_assigned";
+  }
+  if (!isConstructionCapableWorker(worker)) {
+    return "build_blocked_no_valid_body";
+  }
+  if (constructionSites.length <= 0 || pendingBuildProgress <= 0) {
+    return "build_blocked_no_construction_sites";
+  }
+  if (getEnergyInStore(worker) <= 0) {
+    return "build_blocked_no_carried_energy";
+  }
+  if (isBuildBlockedByEnergyBuffer(colony, getEnergyInStore(worker))) {
+    return "build_blocked_energy_buffer";
+  }
+  if (taskType === "upgrade") {
+    return "build_blocked_controller_progress_preferred";
+  }
+  if (taskType) {
+    return "build_blocked_other_task";
+  }
+  return "build_blocked_unknown";
+}
+function selectWorkerRepairAssignmentBlockedReason(worker, pendingBuildProgress, repairBacklogHits) {
+  const taskType = getWorkerTaskType(worker);
+  if (taskType === "repair") {
+    return "repair_assigned";
+  }
+  if (!isConstructionCapableWorker(worker)) {
+    return "repair_blocked_no_valid_body";
+  }
+  if (repairBacklogHits <= 0) {
+    return "repair_blocked_no_repair_targets";
+  }
+  if (getEnergyInStore(worker) <= 0) {
+    return "repair_blocked_no_carried_energy";
+  }
+  if (pendingBuildProgress > 0) {
+    return "repair_blocked_build_backlog_first";
+  }
+  if (taskType === "upgrade") {
+    return "repair_blocked_controller_progress_preferred";
+  }
+  if (taskType) {
+    return "repair_blocked_other_task";
+  }
+  return "repair_blocked_unknown";
+}
+function getWorkerTaskType(worker) {
+  var _a, _b;
+  const taskType = (_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type;
+  return typeof taskType === "string" && taskType.length > 0 ? taskType : void 0;
+}
+function getWorkerName(worker) {
+  const name = worker.name;
+  return typeof name === "string" && name.length > 0 ? name : void 0;
+}
+function getWorkerStableLabel(worker) {
+  var _a, _b;
+  return (_b = getWorkerName(worker)) != null ? _b : String((_a = worker.id) != null ? _a : "");
 }
 function hasConstructionEnergyAcquisitionTask(creep) {
   var _a;

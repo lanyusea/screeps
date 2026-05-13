@@ -683,6 +683,16 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: highImpactConstructionSite.id });
   }
 
+  const uncoveredProductiveBacklogTask = selectUncoveredProductiveBacklogTaskBeforeControllerProgress(
+    creep,
+    controller,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (uncoveredProductiveBacklogTask) {
+    return applyMinimumUsefulLoadPolicy(creep, uncoveredProductiveBacklogTask);
+  }
+
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
@@ -3115,6 +3125,99 @@ function selectNearbyProductiveEnergySinkTask(
   }
 
   return candidates.sort(compareProductiveEnergySinkCandidates)[0].task;
+}
+
+function selectUncoveredProductiveBacklogTaskBeforeControllerProgress(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): ProductiveEnergySinkTask | null {
+  if (!controller || !shouldReserveWorkerForUncoveredProductiveBacklog(creep, controller)) {
+    return null;
+  }
+
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, 'build')) {
+    const constructionSite = selectUnreservedConstructionSite(
+      creep,
+      constructionSites,
+      constructionReservationContext,
+      () => true,
+      { priorityContext: constructionPriorityContext }
+    );
+    if (constructionSite) {
+      return { type: 'build', targetId: constructionSite.id };
+    }
+  }
+
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, 'repair')) {
+    const repairTarget = selectRepairTarget(creep);
+    if (repairTarget) {
+      return { type: 'repair', targetId: repairTarget.id as Id<Structure> };
+    }
+  }
+
+  return null;
+}
+
+function shouldReserveWorkerForUncoveredProductiveBacklog(
+  creep: Creep,
+  controller: StructureController
+): boolean {
+  if (!hasControllerProgressDemand(creep, controller)) {
+    return false;
+  }
+
+  if (hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller)) {
+    return false;
+  }
+
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const controllerProgressWorkerLimit = Math.max(
+    1,
+    getControllerProgressWorkerLimit(
+      creep,
+      loadedWorkers.length,
+      hasActiveTerritoryExpansionPressure(creep)
+    )
+  );
+  const controllerProgressReserveLimit = Math.max(1, controllerProgressWorkerLimit - 1);
+  const controllerUpgraders = loadedWorkers.filter((worker) => isUpgradingController(worker, controller)).length;
+  return controllerUpgraders >= controllerProgressReserveLimit;
+}
+
+function hasControllerProgressDemand(creep: Creep, controller: StructureController): boolean {
+  if (shouldApplyControllerPressureLane(creep, controller)) {
+    return true;
+  }
+
+  const upgradePriority = getControllerUpgradePriority(controller, {
+    energyAvailable: getRoomEnergyAvailable(creep.room) ?? undefined,
+    energyCapacityAvailable: getRoomEnergyCapacityAvailable(creep.room) ?? undefined,
+    hasEnergySurplus: hasRecoverableSurplusEnergy(creep)
+  });
+  return upgradePriority === 'rclProgress' || upgradePriority === 'energySurplus';
+}
+
+function hasLoadedWorkerAvailableForUncoveredProductiveBacklog(
+  creep: Creep,
+  controller: StructureController
+): boolean {
+  return getSameRoomLoadedWorkers(creep).some((worker) => {
+    if (isSameCreep(worker, creep) || isUpgradingController(worker, controller) || getActiveWorkParts(worker) <= 0) {
+      return false;
+    }
+
+    const taskType = worker.memory?.task?.type;
+    return taskType === undefined || taskType === null;
+  });
+}
+
+function hasSameRoomWorkerAssignedToTask(room: Room, taskType: 'build' | 'repair'): boolean {
+  return getGameCreeps().some(
+    (worker) => isSameRoomWorker(worker, room) && worker.memory?.task?.type === taskType
+  );
 }
 
 function createProductiveEnergySinkCandidate(

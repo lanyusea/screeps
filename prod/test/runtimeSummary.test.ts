@@ -970,6 +970,57 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports per-worker build and repair rejection reasons for construction assignment gaps', () => {
+    const idleWorker = {
+      name: 'IdleBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: makeEnergyStore(0, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+    const upgrader = {
+      name: 'Upgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: makeEnergyStore(50, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      creeps: [idleWorker, upgrader],
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 317;
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 400;
+    colony.energyAvailable = 317;
+    colony.energyCapacityAvailable = 400;
+
+    emitRuntimeSummary([colony], [idleWorker, upgrader]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy.workerAssignmentBlockedWorkers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'IdleBuilder',
+          buildBlockedReason: 'build_blocked_no_carried_energy',
+          repairBlockedReason: 'repair_blocked_no_repair_targets'
+        }),
+        expect.objectContaining({
+          name: 'Upgrader',
+          buildBlockedReason: 'build_blocked_controller_progress_preferred',
+          repairBlockedReason: 'repair_blocked_no_repair_targets'
+        })
+      ])
+    );
+  });
+
   it('does not report a construction gap while a worker is acquiring energy for a construction site', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
