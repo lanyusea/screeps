@@ -1119,32 +1119,152 @@ const smokeDb = db.getSiblingDB({json.dumps(cfg.mongo_db)});
 const counts = {{}};
 const objects = smokeDb.getCollection('rooms.objects');
 const user = smokeDb.getCollection('users').findOne({{username: {json.dumps(cfg.username)}}}, {{_id: 1, username: 1}});
-for (const item of objects.aggregate([
-  {{$match: {{room: {json.dumps(cfg.room)}, type: {{$in: ['spawn', 'creep', 'controller', 'source', 'mineral']}}}}}},
-  {{$group: {{_id: '$type', count: {{$sum: 1}}}}}},
-])) {{
-  counts[item._id] = item.count;
+const userId = user ? String(user._id) : null;
+const roomObjects = objects
+  .find(
+    {{room: {json.dumps(cfg.room)}}},
+    {{
+      _id: 1, type: 1, structureType: 1, name: 1, x: 1, y: 1, hits: 1, hitsMax: 1,
+      user: 1, level: 1, progress: 1, progressTotal: 1, ticksToDowngrade: 1,
+      store: 1, carry: 1, energy: 1, energyCapacity: 1, storeCapacity: 1, capacity: 1,
+      body: 1, memory: 1, ticksToLive: 1
+    }}
+  )
+  .limit(1000)
+  .toArray();
+const nonStructureTypes = new Set(['creep', 'controller', 'source', 'mineral', 'deposit', 'resource', 'tombstone', 'ruin', 'flag']);
+const energyStoreTypes = new Set(['spawn', 'extension', 'tower', 'link', 'storage', 'terminal', 'container', 'factory', 'lab', 'nuker', 'powerSpawn']);
+const roomEnergyCapacityFallback = {{spawn: 300, extension: 50}};
+const isOwned = object => Boolean(userId && object.user != null && String(object.user) === userId);
+const isForeign = object => Boolean(userId && object.user != null && String(object.user) !== userId);
+const asNumber = value => typeof value === 'number' && Number.isFinite(value) ? value : 0;
+const storeEnergy = object => {{
+  if (object.store && typeof object.store === 'object') return asNumber(object.store.energy);
+  if (object.carry && typeof object.carry === 'object') return asNumber(object.carry.energy);
+  return asNumber(object.energy);
+}};
+const storeCapacity = object => {{
+  if (object.store && typeof object.store === 'object') {{
+    for (const key of ['energyCapacity', 'storeCapacity', 'capacity']) {{
+      if (typeof object.store[key] === 'number') return object.store[key];
+    }}
+  }}
+  for (const key of ['energyCapacity', 'storeCapacity', 'capacity']) {{
+    if (typeof object[key] === 'number') return object[key];
+  }}
+  return roomEnergyCapacityFallback[object.type] || 0;
+}};
+const structureType = object => {{
+  if (!object.type || nonStructureTypes.has(object.type)) return null;
+  if (object.type === 'constructionSite' && object.structureType) return `constructionSite:${{object.structureType}}`;
+  return object.type;
+}};
+const roleFromMemory = memory => {{
+  if (memory && typeof memory === 'object' && typeof memory.role === 'string' && memory.role) return memory.role;
+  if (typeof memory === 'string' && memory.trim().startsWith('{{')) {{
+    try {{
+      const parsed = JSON.parse(memory);
+      if (parsed && typeof parsed.role === 'string' && parsed.role) return parsed.role;
+    }} catch (err) {{}}
+  }}
+  return null;
+}};
+const creepRole = object => roleFromMemory(object.memory) || (typeof object.name === 'string' && object.name.includes('-') ? object.name.split('-', 1)[0] : 'unknown');
+const bodyTypes = object => Array.isArray(object.body) ? object.body.map(part => typeof part === 'string' ? part : part && part.type).filter(Boolean) : [];
+const cleanObject = object => {{
+  const role = object.type === 'creep' ? creepRole(object) : null;
+  const clean = {{
+    _id: object._id == null ? null : String(object._id),
+    type: object.type,
+    structureType: object.structureType,
+    name: object.name,
+    x: object.x,
+    y: object.y,
+    hits: object.hits,
+    hitsMax: object.hitsMax,
+    user: object.user == null ? null : String(object.user),
+    my: isOwned(object),
+    level: object.level,
+    progress: object.progress,
+    progressTotal: object.progressTotal,
+    ticksToDowngrade: object.ticksToDowngrade,
+    store: object.store,
+    carry: object.carry,
+    energy: object.energy,
+    energyCapacity: object.energyCapacity,
+    storeCapacity: object.storeCapacity,
+    capacity: object.capacity,
+    body: bodyTypes(object),
+    ticksToLive: object.ticksToLive,
+    role,
+    memory: role ? {{role}} : undefined,
+  }};
+  if (isOwned(object) && user) clean.owner = {{username: user.username}};
+  return clean;
+}};
+const serializedObjects = roomObjects.map(cleanObject);
+const structureCounts = {{}};
+const ownStructureCounts = {{}};
+const creepCounts = {{}};
+let storedEnergy = 0;
+let energyCapacityAvailable = 0;
+for (const object of roomObjects) {{
+  counts[object.type || 'unknown'] = (counts[object.type || 'unknown'] || 0) + 1;
+  const kind = structureType(object);
+  if (kind) {{
+    structureCounts[kind] = (structureCounts[kind] || 0) + 1;
+    if (isOwned(object)) ownStructureCounts[kind] = (ownStructureCounts[kind] || 0) + 1;
+  }}
+  if (object.type === 'creep' && isOwned(object)) {{
+    const role = creepRole(object);
+    creepCounts[role] = (creepCounts[role] || 0) + 1;
+  }}
+  if (!isForeign(object) && object.type !== 'creep' && ((object.store && typeof object.store === 'object') || energyStoreTypes.has(object.type))) {{
+    storedEnergy += storeEnergy(object);
+  }}
+  if (isOwned(object) && (object.type === 'spawn' || object.type === 'extension')) {{
+    energyCapacityAvailable += storeCapacity(object);
+  }}
 }}
-const spawns = objects
-  .find({{room: {json.dumps(cfg.room)}, type: 'spawn'}}, {{_id: 0, name: 1, x: 1, y: 1, hits: 1, hitsMax: 1, user: 1}})
-  .sort({{name: 1}})
-  .limit(20)
-  .toArray()
-  .map(object => ({{name: object.name, x: object.x, y: object.y, hits: object.hits, hitsMax: object.hitsMax, user: object.user == null ? null : String(object.user)}}));
-const creeps = objects
-  .find({{room: {json.dumps(cfg.room)}, type: 'creep'}}, {{_id: 0, name: 1, x: 1, y: 1, body: 1, ticksToLive: 1, user: 1}})
-  .sort({{name: 1}})
-  .limit(10)
-  .toArray()
-  .map(object => ({{name: object.name, x: object.x, y: object.y, body: (object.body || []).map(part => part.type), ticksToLive: object.ticksToLive, user: object.user == null ? null : String(object.user)}}));
-const controllerObject = objects.findOne(
-  {{room: {json.dumps(cfg.room)}, type: 'controller'}},
-  {{_id: 0, x: 1, y: 1, level: 1, progress: 1, progressTotal: 1, user: 1}},
-);
+const spawns = serializedObjects
+  .filter(object => object.type === 'spawn')
+  .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')))
+  .slice(0, 20);
+const creeps = serializedObjects
+  .filter(object => object.type === 'creep')
+  .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')))
+  .slice(0, 50);
+const controllerObject = serializedObjects.find(object => object.type === 'controller');
 const controller = controllerObject
-  ? {{x: controllerObject.x, y: controllerObject.y, level: controllerObject.level, progress: controllerObject.progress, progressTotal: controllerObject.progressTotal, user: controllerObject.user == null ? null : String(controllerObject.user)}}
+  ? {{
+      x: controllerObject.x,
+      y: controllerObject.y,
+      level: controllerObject.level,
+      progress: controllerObject.progress,
+      progressTotal: controllerObject.progressTotal,
+      ticksToDowngrade: controllerObject.ticksToDowngrade,
+      user: controllerObject.user,
+      my: controllerObject.user == null ? false : controllerObject.user === userId,
+      owner: controllerObject.user === userId && user ? {{username: user.username}} : controllerObject.user,
+    }}
   : null;
-print(JSON.stringify({{room: {json.dumps(cfg.room)}, user: user ? {{username: user.username, id: String(user._id)}} : null, counts, spawns, creeps, controller}}));
+print(JSON.stringify({{
+  room: {json.dumps(cfg.room)},
+  user: user ? {{username: user.username, id: String(user._id)}} : null,
+  counts,
+  structureCounts,
+  ownStructureCounts,
+  ownStructures: Object.values(ownStructureCounts).reduce((sum, value) => sum + value, 0),
+  creepCounts,
+  ownCreeps: Object.values(creepCounts).reduce((sum, value) => sum + value, 0),
+  storedEnergy,
+  energyCapacityAvailable,
+  energyCapacity: energyCapacityAvailable,
+  objects: serializedObjects,
+  spawns,
+  creeps,
+  controller
+}}));
 """
     command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
     result = run_command(command, cfg, timeout=60, output_limit=12000)

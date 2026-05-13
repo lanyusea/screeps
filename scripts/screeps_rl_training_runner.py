@@ -752,8 +752,18 @@ def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObje
     explicit_metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else {}
     tick_log = run.get("tick_log", run.get("tickLog"))
     ticks = tick_log if isinstance(tick_log, list) else []
-    initial_rooms = normalize_room_map(explicit_metrics.get("initialRooms", explicit_metrics.get("initial_rooms")))
-    final_rooms = normalize_room_map(explicit_metrics.get("finalRooms", explicit_metrics.get("final_rooms")))
+    initial_rooms = normalize_room_map(
+        explicit_metrics.get(
+            "initialRoomStates",
+            explicit_metrics.get("initial_room_states", explicit_metrics.get("initialRooms", explicit_metrics.get("initial_rooms"))),
+        )
+    )
+    final_rooms = normalize_room_map(
+        explicit_metrics.get(
+            "finalRoomStates",
+            explicit_metrics.get("final_room_states", explicit_metrics.get("finalRooms", explicit_metrics.get("final_rooms"))),
+        )
+    )
     if ticks:
         if not initial_rooms:
             initial_rooms = rooms_from_tick(ticks[0])
