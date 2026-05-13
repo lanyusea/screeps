@@ -2442,6 +2442,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
     metrics = compute_room_summary_metrics(snapshot)
     owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
+    behavior_totals = behavior_pathing_totals(info)
     summary = {
         "room": snapshot.ref.key,
         "shard": snapshot.ref.shard,
@@ -2463,8 +2464,6 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "constructionSiteCount": len(metrics.construction_sites),
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
-        "pathFindingFailures": 0,
-        "destinationBlocked": 0,
         "workerLoadEfficiency": worker_load_efficiency(metrics.owned_creep_objects),
         "cpuUsed": metrics.cpu_used,
         "cpuBucket": metrics.cpu_bucket,
@@ -2476,6 +2475,8 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
     }
     if metrics.build_blocked_reason is None:
         summary.pop("buildBlockedReason", None)
+    if behavior_totals:
+        summary["behavior"] = {"totals": behavior_totals}
     if image:
         summary["image"] = image
     return summary
@@ -2544,7 +2545,6 @@ def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
             "energyCapacity",
             "energyBufferHealth",
             "workerCount",
-            "behavior",
         )
     )
 
@@ -2653,6 +2653,30 @@ def carried_energy(obj: dict[str, Any]) -> int | float:
     return store_energy(obj)
 
 
+def creep_role(creep: dict[str, Any]) -> str | None:
+    for candidate in (creep.get("role"), as_dict(creep.get("memory")).get("role")):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def is_worker_creep(creep: dict[str, Any]) -> bool:
+    role = creep_role(creep)
+    return role is not None and role.lower() == "worker"
+
+
+def behavior_pathing_totals(source: dict[str, Any]) -> dict[str, int | float]:
+    totals = as_dict(as_dict(source.get("behavior")).get("totals"))
+    result: dict[str, int | float] = {}
+    for key in ("pathFindingFailures", "destinationBlocked"):
+        if key not in totals:
+            continue
+        value = number_value(totals.get(key))
+        if value is not None:
+            result[key] = value
+    return result
+
+
 def first_number_value(value: Any, *paths: tuple[str, ...]) -> int | float | None:
     for path in paths:
         found = number_value(nested_value(value, *path))
@@ -2733,7 +2757,7 @@ def room_extension_metrics(structures: list[dict[str, Any]], owner_username: str
 
 
 def worker_load_efficiency(owned_creeps: list[dict[str, Any]]) -> dict[str, Any]:
-    trip_energies = [carried_energy(creep) for creep in owned_creeps]
+    trip_energies = [carried_energy(creep) for creep in owned_creeps if is_worker_creep(creep)]
     if not trip_energies:
         return {"sampleCount": 0, "tripEnergyMean": None, "tripEnergyMin": None}
     return {
@@ -2859,6 +2883,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         for obj in metrics.structures
         if confirmed_foreign_owner(obj, snapshot.owner)
     ]
+    behavior_totals = behavior_pathing_totals(snapshot.info)
 
     summary = {
         "roomName": snapshot.ref.room,
@@ -2890,12 +2915,6 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
                 "buildBlockedReason": metrics.build_blocked_reason,
             },
         },
-        "behavior": {
-            "totals": {
-                "pathFindingFailures": 0,
-                "destinationBlocked": 0,
-            },
-        },
         "workerLoadEfficiency": worker_load_efficiency(owned_creeps),
         "combat": {
             "hostileCreepCount": len(hostiles),
@@ -2905,6 +2924,8 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     if metrics.build_blocked_reason is None:
         summary.pop("buildBlockedReason", None)
         as_dict(as_dict(summary.get("resources")).get("productiveEnergy")).pop("buildBlockedReason", None)
+    if behavior_totals:
+        summary["behavior"] = {"totals": behavior_totals}
     return summary
 
 
