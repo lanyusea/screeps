@@ -1428,6 +1428,67 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('records why a loaded worker keeps harvesting instead of taking a build task', () => {
+    const source = { id: 'source1' } as Source;
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'PartialHarvester',
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 123,
+      creeps: { PartialHarvester: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : id === 'road-site1' ? site : null))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerDispatchDiagnostic).toMatchObject({
+      tick: 123,
+      reason: 'retained_energy_acquisition_until_full',
+      currentTask: 'harvest',
+      currentTargetId: 'source1',
+      selectedTask: 'build',
+      selectedTargetId: 'road-site1',
+      assignedTask: 'harvest',
+      assignedTargetId: 'source1',
+      carriedEnergy: 25,
+      freeCapacity: 25
+    });
+  });
+
   it.each([
     ['spawn', 'spawn1'],
     ['extension', 'extension1']

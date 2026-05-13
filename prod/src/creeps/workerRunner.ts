@@ -137,7 +137,183 @@ export function runWorker(creep: Creep): void {
   if (taskAssignedThisTick || isAssignedEnergyDropoffOptimizationTask(creep, creep.memory.task)) {
     optimizeAssignedEnergyDropoffTask(creep);
   }
+  recordWorkerDispatchDiagnostic(creep, {
+    baseSelectedTask,
+    currentTask,
+    energyCriticalTask,
+    selectedTask,
+    spawnReservationRefillTask,
+    taskAssignedThisTick
+  });
   executeAssignedTask(creep, selectedTask);
+}
+
+interface WorkerDispatchDiagnosticContext {
+  baseSelectedTask: CreepTaskMemory | null;
+  currentTask: CreepTaskMemory | null | undefined;
+  energyCriticalTask: CreepTaskMemory | null;
+  selectedTask: CreepTaskMemory | null;
+  spawnReservationRefillTask: CreepTaskMemory | null;
+  taskAssignedThisTick: boolean;
+}
+
+function recordWorkerDispatchDiagnostic(
+  creep: Creep,
+  context: WorkerDispatchDiagnosticContext
+): void {
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+
+  const assignedTask = memory.task;
+  const diagnostic: WorkerDispatchDiagnosticMemory = {
+    tick: getGameTick(),
+    reason: selectWorkerDispatchDiagnosticReason(creep, context, assignedTask),
+    carriedEnergy: getUsedTransferEnergy(creep),
+    freeCapacity: getFreeTransferEnergyCapacity(creep),
+    ...formatDiagnosticTask('current', context.currentTask),
+    ...formatDiagnosticTask('selected', context.selectedTask),
+    ...formatDiagnosticTask('baseSelected', context.baseSelectedTask),
+    ...formatDiagnosticTask('energyCritical', context.energyCriticalTask),
+    ...formatDiagnosticTask('spawnReservation', context.spawnReservationRefillTask),
+    ...formatDiagnosticTask('assigned', assignedTask)
+  };
+
+  memory.workerDispatchDiagnostic = diagnostic;
+}
+
+function selectWorkerDispatchDiagnosticReason(
+  creep: Creep,
+  context: WorkerDispatchDiagnosticContext,
+  assignedTask: CreepTaskMemory | undefined
+): WorkerDispatchDiagnosticReason {
+  const currentTask = context.currentTask ?? null;
+  const selectedTask = context.selectedTask;
+
+  if (context.taskAssignedThisTick) {
+    if (!currentTask) {
+      return 'assigned_selected_task';
+    }
+
+    if (isSameOptionalTask(selectedTask, context.spawnReservationRefillTask)) {
+      return 'preempted_for_spawn_reservation_refill';
+    }
+
+    if (isSameOptionalTask(selectedTask, context.energyCriticalTask)) {
+      return 'preempted_for_energy_critical';
+    }
+
+    if (isTerritoryControlTask(selectedTask)) {
+      return 'preempted_for_territory';
+    }
+
+    if (selectedTask?.type === 'signController') {
+      return 'preempted_for_controller_signing';
+    }
+
+    if (currentTask.type === 'upgrade' && (selectedTask?.type === 'build' || selectedTask?.type === 'repair')) {
+      return 'preempted_for_productive_backlog';
+    }
+
+    if (isEnergyAcquisitionTask(currentTask) && selectedTask?.type === 'transfer') {
+      return 'preempted_for_spawn_recovery';
+    }
+
+    if (isEnergyAcquisitionTask(currentTask) && selectedTask && isEnergySpendingTask(selectedTask)) {
+      return 'preempted_for_urgent_spending';
+    }
+
+    if (isEnergyAcquisitionTask(currentTask) && selectedTask && isEnergyAcquisitionTask(selectedTask)) {
+      return 'preempted_for_nearby_energy';
+    }
+
+    if (currentTask.type === 'transfer' && selectedTask?.type === 'upgrade') {
+      return 'preempted_for_controller_progress';
+    }
+
+    if (selectedTask?.type === 'upgrade') {
+      return 'preempted_for_upgrader_boost';
+    }
+
+    return 'assigned_selected_task';
+  }
+
+  if (!selectedTask) {
+    return currentTask ? 'selected_null_retained_current_task' : 'no_selected_task_idle';
+  }
+
+  if (!currentTask) {
+    return assignedTask ? 'assigned_selected_task' : 'selected_task_not_assigned';
+  }
+
+  if (isSameTask(currentTask, selectedTask)) {
+    return 'selected_same_as_current';
+  }
+
+  if (isEnergyAcquisitionTask(currentTask)) {
+    if (isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+      return 'retained_dedicated_source_container_harvest';
+    }
+
+    return hasLowWorkerEnergyLoad(creep)
+      ? 'retained_low_load_energy_acquisition'
+      : 'retained_energy_acquisition_until_full';
+  }
+
+  if (currentTask.type === 'transfer') {
+    return 'retained_transfer_task';
+  }
+
+  if (currentTask.type === 'build') {
+    return 'retained_build_task';
+  }
+
+  if (currentTask.type === 'repair') {
+    return 'retained_repair_task';
+  }
+
+  if (currentTask.type === 'upgrade') {
+    return 'retained_upgrade_task';
+  }
+
+  return 'retained_current_task';
+}
+
+function isSameOptionalTask(
+  left: CreepTaskMemory | null,
+  right: CreepTaskMemory | null
+): boolean {
+  return left !== null && right !== null && isSameTask(left, right);
+}
+
+function formatDiagnosticTask(
+  prefix: 'assigned' | 'baseSelected' | 'current' | 'energyCritical' | 'selected' | 'spawnReservation',
+  task: CreepTaskMemory | null | undefined
+): Partial<WorkerDispatchDiagnosticMemory> {
+  if (!task) {
+    return {};
+  }
+
+  switch (prefix) {
+    case 'assigned':
+      return { assignedTask: task.type, assignedTargetId: String(task.targetId) };
+    case 'baseSelected':
+      return { baseSelectedTask: task.type, baseSelectedTargetId: String(task.targetId) };
+    case 'current':
+      return { currentTask: task.type, currentTargetId: String(task.targetId) };
+    case 'energyCritical':
+      return { energyCriticalTask: task.type, energyCriticalTargetId: String(task.targetId) };
+    case 'selected':
+      return { selectedTask: task.type, selectedTargetId: String(task.targetId) };
+    case 'spawnReservation':
+      return { spawnReservationTask: task.type, spawnReservationTargetId: String(task.targetId) };
+  }
+}
+
+function getGameTick(): number {
+  const gameTime = (globalThis as unknown as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' && Number.isFinite(gameTime) ? Math.max(0, Math.floor(gameTime)) : 0;
 }
 
 function selectWorkerTaskForRunner(creep: Creep): CreepTaskMemory | null {

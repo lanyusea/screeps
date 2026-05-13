@@ -982,7 +982,19 @@ describe('runtime telemetry summaries', () => {
       memory: {
         role: 'worker',
         colony: 'W1N1',
-        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> },
+        workerDispatchDiagnostic: {
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          reason: 'retained_upgrade_task',
+          carriedEnergy: 50,
+          freeCapacity: 0,
+          currentTask: 'upgrade',
+          currentTargetId: 'controller1',
+          selectedTask: 'build',
+          selectedTargetId: 'extension-site',
+          assignedTask: 'upgrade',
+          assignedTargetId: 'controller1'
+        }
       },
       store: makeEnergyStore(50, 50),
       getActiveBodyparts: jest.fn().mockReturnValue(1)
@@ -1015,7 +1027,12 @@ describe('runtime telemetry summaries', () => {
         expect.objectContaining({
           name: 'Upgrader',
           buildBlockedReason: 'build_blocked_controller_progress_preferred',
-          repairBlockedReason: 'repair_blocked_no_repair_targets'
+          repairBlockedReason: 'repair_blocked_no_repair_targets',
+          dispatchReason: 'retained_upgrade_task',
+          dispatchSelectedTask: 'build',
+          dispatchSelectedTargetId: 'extension-site',
+          dispatchAssignedTask: 'upgrade',
+          dispatchAssignedTargetId: 'controller1'
         })
       ])
     );

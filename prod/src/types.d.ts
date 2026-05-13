@@ -57,6 +57,7 @@ declare global {
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     workerEnergyCriticalPolicy?: WorkerEnergyCriticalPolicyMemory;
+    workerDispatchDiagnostic?: WorkerDispatchDiagnosticMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
@@ -1097,6 +1098,50 @@ declare global {
     nullSelectionCount: number;
     fallbackAttempts: number;
     idleStartTick: number;
+  }
+
+  type WorkerDispatchDiagnosticReason =
+    | 'assigned_selected_task'
+    | 'no_selected_task_idle'
+    | 'selected_same_as_current'
+    | 'selected_task_not_assigned'
+    | 'selected_null_retained_current_task'
+    | 'retained_current_task'
+    | 'retained_energy_acquisition_until_full'
+    | 'retained_dedicated_source_container_harvest'
+    | 'retained_low_load_energy_acquisition'
+    | 'retained_transfer_task'
+    | 'retained_build_task'
+    | 'retained_repair_task'
+    | 'retained_upgrade_task'
+    | 'preempted_for_controller_progress'
+    | 'preempted_for_controller_signing'
+    | 'preempted_for_energy_critical'
+    | 'preempted_for_nearby_energy'
+    | 'preempted_for_productive_backlog'
+    | 'preempted_for_spawn_recovery'
+    | 'preempted_for_spawn_reservation_refill'
+    | 'preempted_for_territory'
+    | 'preempted_for_upgrader_boost'
+    | 'preempted_for_urgent_spending';
+
+  interface WorkerDispatchDiagnosticMemory {
+    tick: number;
+    reason: WorkerDispatchDiagnosticReason;
+    carriedEnergy: number;
+    freeCapacity: number;
+    currentTask?: CreepTaskMemory['type'];
+    currentTargetId?: string;
+    selectedTask?: CreepTaskMemory['type'];
+    selectedTargetId?: string;
+    baseSelectedTask?: CreepTaskMemory['type'];
+    baseSelectedTargetId?: string;
+    energyCriticalTask?: CreepTaskMemory['type'];
+    energyCriticalTargetId?: string;
+    spawnReservationTask?: CreepTaskMemory['type'];
+    spawnReservationTargetId?: string;
+    assignedTask?: CreepTaskMemory['type'];
+    assignedTargetId?: string;
   }
 
   type WorkerTaskBehaviorActionType = 'harvest' | 'transfer' | 'build' | 'repair' | 'upgrade';

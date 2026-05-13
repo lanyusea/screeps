@@ -52,7 +52,7 @@ const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
 const MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 const MAX_REFILL_DELIVERY_SAMPLES = 5;
 const MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
-const MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 5;
+const MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 12;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
@@ -377,6 +377,19 @@ interface RuntimeProductiveEnergySummary {
 interface RuntimeWorkerAssignmentBlockedWorkerDetail {
   buildBlockedReason: RuntimeWorkerBuildAssignmentBlockedReason;
   carriedEnergy: number;
+  dispatchAssignedTargetId?: string;
+  dispatchAssignedTask?: string;
+  dispatchBaseSelectedTargetId?: string;
+  dispatchBaseSelectedTask?: string;
+  dispatchCurrentTargetId?: string;
+  dispatchEnergyCriticalTargetId?: string;
+  dispatchEnergyCriticalTask?: string;
+  dispatchReason?: WorkerDispatchDiagnosticReason;
+  dispatchSelectedTargetId?: string;
+  dispatchSelectedTask?: string;
+  dispatchSpawnReservationTargetId?: string;
+  dispatchSpawnReservationTask?: string;
+  dispatchTick?: number;
   freeCapacity: number;
   repairBlockedReason: RuntimeWorkerRepairAssignmentBlockedReason;
   name?: string;
@@ -1916,6 +1929,7 @@ function selectWorkerAssignmentBlockedWorkers(
     .slice(0, MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS)
     .map((worker) => {
       const taskType = getWorkerTaskType(worker);
+      const dispatchDiagnostic = getCurrentWorkerDispatchDiagnostic(worker);
       return {
         ...(getWorkerName(worker) ? { name: getWorkerName(worker) } : {}),
         ...(taskType ? { task: taskType } : {}),
@@ -1931,7 +1945,8 @@ function selectWorkerAssignmentBlockedWorkers(
           worker,
           pendingBuildProgress,
           repairBacklogHits
-        )
+        ),
+        ...formatWorkerDispatchDiagnostic(dispatchDiagnostic)
       };
     });
 }
@@ -2049,6 +2064,43 @@ function getWorkerName(worker: Creep): string | undefined {
 
 function getWorkerStableLabel(worker: Creep): string {
   return getWorkerName(worker) ?? String((worker as Creep & { id?: unknown }).id ?? '');
+}
+
+function getCurrentWorkerDispatchDiagnostic(worker: Creep): WorkerDispatchDiagnosticMemory | null {
+  const diagnostic = worker.memory?.workerDispatchDiagnostic;
+  if (!diagnostic || typeof diagnostic.tick !== 'number' || !Number.isFinite(diagnostic.tick)) {
+    return null;
+  }
+
+  return diagnostic.tick === getGameTime() ? diagnostic : null;
+}
+
+function formatWorkerDispatchDiagnostic(
+  diagnostic: WorkerDispatchDiagnosticMemory | null
+): Partial<RuntimeWorkerAssignmentBlockedWorkerDetail> {
+  if (!diagnostic) {
+    return {};
+  }
+
+  return {
+    dispatchReason: diagnostic.reason,
+    dispatchTick: diagnostic.tick,
+    ...(diagnostic.currentTargetId ? { dispatchCurrentTargetId: diagnostic.currentTargetId } : {}),
+    ...(diagnostic.selectedTask ? { dispatchSelectedTask: diagnostic.selectedTask } : {}),
+    ...(diagnostic.selectedTargetId ? { dispatchSelectedTargetId: diagnostic.selectedTargetId } : {}),
+    ...(diagnostic.baseSelectedTask ? { dispatchBaseSelectedTask: diagnostic.baseSelectedTask } : {}),
+    ...(diagnostic.baseSelectedTargetId ? { dispatchBaseSelectedTargetId: diagnostic.baseSelectedTargetId } : {}),
+    ...(diagnostic.energyCriticalTask ? { dispatchEnergyCriticalTask: diagnostic.energyCriticalTask } : {}),
+    ...(diagnostic.energyCriticalTargetId
+      ? { dispatchEnergyCriticalTargetId: diagnostic.energyCriticalTargetId }
+      : {}),
+    ...(diagnostic.spawnReservationTask ? { dispatchSpawnReservationTask: diagnostic.spawnReservationTask } : {}),
+    ...(diagnostic.spawnReservationTargetId
+      ? { dispatchSpawnReservationTargetId: diagnostic.spawnReservationTargetId }
+      : {}),
+    ...(diagnostic.assignedTask ? { dispatchAssignedTask: diagnostic.assignedTask } : {}),
+    ...(diagnostic.assignedTargetId ? { dispatchAssignedTargetId: diagnostic.assignedTargetId } : {})
+  };
 }
 
 function hasConstructionEnergyAcquisitionTask(creep: Creep): boolean {

@@ -28155,7 +28155,131 @@ function runWorker(creep) {
   if (taskAssignedThisTick || isAssignedEnergyDropoffOptimizationTask(creep, creep.memory.task)) {
     optimizeAssignedEnergyDropoffTask(creep);
   }
+  recordWorkerDispatchDiagnostic(creep, {
+    baseSelectedTask,
+    currentTask,
+    energyCriticalTask,
+    selectedTask,
+    spawnReservationRefillTask,
+    taskAssignedThisTick
+  });
   executeAssignedTask(creep, selectedTask);
+}
+function recordWorkerDispatchDiagnostic(creep, context) {
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+  const assignedTask = memory.task;
+  const diagnostic = {
+    tick: getGameTick4(),
+    reason: selectWorkerDispatchDiagnosticReason(creep, context, assignedTask),
+    carriedEnergy: getUsedTransferEnergy(creep),
+    freeCapacity: getFreeTransferEnergyCapacity(creep),
+    ...formatDiagnosticTask("current", context.currentTask),
+    ...formatDiagnosticTask("selected", context.selectedTask),
+    ...formatDiagnosticTask("baseSelected", context.baseSelectedTask),
+    ...formatDiagnosticTask("energyCritical", context.energyCriticalTask),
+    ...formatDiagnosticTask("spawnReservation", context.spawnReservationRefillTask),
+    ...formatDiagnosticTask("assigned", assignedTask)
+  };
+  memory.workerDispatchDiagnostic = diagnostic;
+}
+function selectWorkerDispatchDiagnosticReason(creep, context, assignedTask) {
+  var _a;
+  const currentTask = (_a = context.currentTask) != null ? _a : null;
+  const selectedTask = context.selectedTask;
+  if (context.taskAssignedThisTick) {
+    if (!currentTask) {
+      return "assigned_selected_task";
+    }
+    if (isSameOptionalTask(selectedTask, context.spawnReservationRefillTask)) {
+      return "preempted_for_spawn_reservation_refill";
+    }
+    if (isSameOptionalTask(selectedTask, context.energyCriticalTask)) {
+      return "preempted_for_energy_critical";
+    }
+    if (isTerritoryControlTask2(selectedTask)) {
+      return "preempted_for_territory";
+    }
+    if ((selectedTask == null ? void 0 : selectedTask.type) === "signController") {
+      return "preempted_for_controller_signing";
+    }
+    if (currentTask.type === "upgrade" && ((selectedTask == null ? void 0 : selectedTask.type) === "build" || (selectedTask == null ? void 0 : selectedTask.type) === "repair")) {
+      return "preempted_for_productive_backlog";
+    }
+    if (isEnergyAcquisitionTask2(currentTask) && (selectedTask == null ? void 0 : selectedTask.type) === "transfer") {
+      return "preempted_for_spawn_recovery";
+    }
+    if (isEnergyAcquisitionTask2(currentTask) && selectedTask && isEnergySpendingTask(selectedTask)) {
+      return "preempted_for_urgent_spending";
+    }
+    if (isEnergyAcquisitionTask2(currentTask) && selectedTask && isEnergyAcquisitionTask2(selectedTask)) {
+      return "preempted_for_nearby_energy";
+    }
+    if (currentTask.type === "transfer" && (selectedTask == null ? void 0 : selectedTask.type) === "upgrade") {
+      return "preempted_for_controller_progress";
+    }
+    if ((selectedTask == null ? void 0 : selectedTask.type) === "upgrade") {
+      return "preempted_for_upgrader_boost";
+    }
+    return "assigned_selected_task";
+  }
+  if (!selectedTask) {
+    return currentTask ? "selected_null_retained_current_task" : "no_selected_task_idle";
+  }
+  if (!currentTask) {
+    return assignedTask ? "assigned_selected_task" : "selected_task_not_assigned";
+  }
+  if (isSameTask2(currentTask, selectedTask)) {
+    return "selected_same_as_current";
+  }
+  if (isEnergyAcquisitionTask2(currentTask)) {
+    if (isDedicatedSourceContainerHarvestTask(creep, currentTask)) {
+      return "retained_dedicated_source_container_harvest";
+    }
+    return hasLowWorkerEnergyLoad(creep) ? "retained_low_load_energy_acquisition" : "retained_energy_acquisition_until_full";
+  }
+  if (currentTask.type === "transfer") {
+    return "retained_transfer_task";
+  }
+  if (currentTask.type === "build") {
+    return "retained_build_task";
+  }
+  if (currentTask.type === "repair") {
+    return "retained_repair_task";
+  }
+  if (currentTask.type === "upgrade") {
+    return "retained_upgrade_task";
+  }
+  return "retained_current_task";
+}
+function isSameOptionalTask(left, right) {
+  return left !== null && right !== null && isSameTask2(left, right);
+}
+function formatDiagnosticTask(prefix, task) {
+  if (!task) {
+    return {};
+  }
+  switch (prefix) {
+    case "assigned":
+      return { assignedTask: task.type, assignedTargetId: String(task.targetId) };
+    case "baseSelected":
+      return { baseSelectedTask: task.type, baseSelectedTargetId: String(task.targetId) };
+    case "current":
+      return { currentTask: task.type, currentTargetId: String(task.targetId) };
+    case "energyCritical":
+      return { energyCriticalTask: task.type, energyCriticalTargetId: String(task.targetId) };
+    case "selected":
+      return { selectedTask: task.type, selectedTargetId: String(task.targetId) };
+    case "spawnReservation":
+      return { spawnReservationTask: task.type, spawnReservationTargetId: String(task.targetId) };
+  }
+}
+function getGameTick4() {
+  var _a;
+  const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  return typeof gameTime === "number" && Number.isFinite(gameTime) ? Math.max(0, Math.floor(gameTime)) : 0;
 }
 function selectWorkerTaskForRunner(creep) {
   const selectedTask = selectWorkerTask(creep);
@@ -33189,7 +33313,7 @@ var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
 var MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 var MAX_REFILL_DELIVERY_SAMPLES = 5;
 var MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
-var MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 5;
+var MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS = 12;
 var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
@@ -34061,6 +34185,7 @@ function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergySt
 function selectWorkerAssignmentBlockedWorkers(colony, colonyWorkers, constructionSites, pendingBuildProgress, repairBacklogHits) {
   return [...colonyWorkers].sort(compareWorkerAssignmentBlockedDiagnosticPriority).slice(0, MAX_WORKER_ASSIGNMENT_BLOCKED_WORKERS).map((worker) => {
     const taskType = getWorkerTaskType(worker);
+    const dispatchDiagnostic = getCurrentWorkerDispatchDiagnostic(worker);
     return {
       ...getWorkerName(worker) ? { name: getWorkerName(worker) } : {},
       ...taskType ? { task: taskType } : {},
@@ -34076,7 +34201,8 @@ function selectWorkerAssignmentBlockedWorkers(colony, colonyWorkers, constructio
         worker,
         pendingBuildProgress,
         repairBacklogHits
-      )
+      ),
+      ...formatWorkerDispatchDiagnostic(dispatchDiagnostic)
     };
   });
 }
@@ -34158,6 +34284,34 @@ function getWorkerName(worker) {
 function getWorkerStableLabel(worker) {
   var _a, _b;
   return (_b = getWorkerName(worker)) != null ? _b : String((_a = worker.id) != null ? _a : "");
+}
+function getCurrentWorkerDispatchDiagnostic(worker) {
+  var _a;
+  const diagnostic = (_a = worker.memory) == null ? void 0 : _a.workerDispatchDiagnostic;
+  if (!diagnostic || typeof diagnostic.tick !== "number" || !Number.isFinite(diagnostic.tick)) {
+    return null;
+  }
+  return diagnostic.tick === getGameTime30() ? diagnostic : null;
+}
+function formatWorkerDispatchDiagnostic(diagnostic) {
+  if (!diagnostic) {
+    return {};
+  }
+  return {
+    dispatchReason: diagnostic.reason,
+    dispatchTick: diagnostic.tick,
+    ...diagnostic.currentTargetId ? { dispatchCurrentTargetId: diagnostic.currentTargetId } : {},
+    ...diagnostic.selectedTask ? { dispatchSelectedTask: diagnostic.selectedTask } : {},
+    ...diagnostic.selectedTargetId ? { dispatchSelectedTargetId: diagnostic.selectedTargetId } : {},
+    ...diagnostic.baseSelectedTask ? { dispatchBaseSelectedTask: diagnostic.baseSelectedTask } : {},
+    ...diagnostic.baseSelectedTargetId ? { dispatchBaseSelectedTargetId: diagnostic.baseSelectedTargetId } : {},
+    ...diagnostic.energyCriticalTask ? { dispatchEnergyCriticalTask: diagnostic.energyCriticalTask } : {},
+    ...diagnostic.energyCriticalTargetId ? { dispatchEnergyCriticalTargetId: diagnostic.energyCriticalTargetId } : {},
+    ...diagnostic.spawnReservationTask ? { dispatchSpawnReservationTask: diagnostic.spawnReservationTask } : {},
+    ...diagnostic.spawnReservationTargetId ? { dispatchSpawnReservationTargetId: diagnostic.spawnReservationTargetId } : {},
+    ...diagnostic.assignedTask ? { dispatchAssignedTask: diagnostic.assignedTask } : {},
+    ...diagnostic.assignedTargetId ? { dispatchAssignedTargetId: diagnostic.assignedTargetId } : {}
+  };
 }
 function hasConstructionEnergyAcquisitionTask(creep) {
   var _a;
