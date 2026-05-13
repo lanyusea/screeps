@@ -79,7 +79,7 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
   });
 
-  it('plans source-to-spawn roads before source containers in claimed rooms', () => {
+  it('plans source containers before source-to-spawn roads in claimed rooms', () => {
     const { room, colony } = makeColony({
       controllerLevel: 2,
       energyAvailable: 1_000,
@@ -96,13 +96,42 @@ describe('claimed room construction planner', () => {
     const result = planClaimedRoomConstruction(colony);
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
-      'road',
       'container',
+      'road',
       'rampart',
       'wall'
     ]);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 11, 10, STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 19, 11, STRUCTURE_CONTAINER);
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 11, STRUCTURE_ROAD);
+  });
+
+  it('places both E17S59 RCL2 source containers before roads while preserving the energy buffer', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E17S59',
+      controllerLevel: 2,
+      energyAvailable: 350,
+      energyCapacityAvailable: 350,
+      controllerPosition: { x: 25, y: 25 },
+      sources: [
+        makeSource('e17s59-source-a', 20, 10, 'E17S59'),
+        makeSource('e17s59-source-b', 30, 30, 'E17S59')
+      ],
+      structures: makeExtensions(5, 'E17S59'),
+      pathsByTarget: {
+        '20,10': [{ x: 24, y: 24 }],
+        '30,30': [{ x: 26, y: 26 }]
+      }
+    });
+    installPathFinder(room);
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['container', 'container']);
+    expect(result.energyReserved).toBe(100);
+    expect(result.energyAvailable - result.energyReserved).toBeGreaterThanOrEqual(200);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 19, 11, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 29, 29, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(24, 24, STRUCTURE_ROAD);
   });
 
   it('plans post-claim spawn construction before follow-up sites when the room has no spawn', () => {
@@ -194,16 +223,16 @@ describe('claimed room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
       'extension',
-      'road',
       'container',
+      'road',
       'tower',
       'rampart',
       'storage'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
       STRUCTURE_EXTENSION,
-      STRUCTURE_ROAD,
       STRUCTURE_CONTAINER,
+      STRUCTURE_ROAD,
       STRUCTURE_TOWER,
       STRUCTURE_RAMPART,
       STRUCTURE_STORAGE
