@@ -1267,7 +1267,7 @@ print(JSON.stringify({{
 }}));
 """
     command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
-    result = run_command(command, cfg, timeout=60, output_limit=12000)
+    result = run_command(command, cfg, timeout=60, output_limit=1000000)
     if result["returncode"] != 0:
         return {"ok": False, "error": result["output_excerpt"]}
     try:

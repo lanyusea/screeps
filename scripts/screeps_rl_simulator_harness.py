@@ -561,7 +561,7 @@ def _object_user_id(item: JsonObject) -> str | None:
     return None
 
 
-def _room_owner_id(payload: dict[str, Any], objects: Sequence[JsonObject]) -> str | None:
+def _room_owner_id(payload: dict[str, Any]) -> str | None:
     user = payload.get("user")
     if isinstance(user, dict):
         user_id = user.get("id") or user.get("_id")
@@ -571,28 +571,15 @@ def _room_owner_id(payload: dict[str, Any], objects: Sequence[JsonObject]) -> st
         value = payload.get(key)
         if isinstance(value, str) and value:
             return value
-    for item in objects:
-        if item.get("type") in {"controller", "spawn"}:
-            user_id = _object_user_id(item)
-            if user_id:
-                return user_id
     return None
 
 
-def _room_owner_username(payload: dict[str, Any], objects: Sequence[JsonObject]) -> str | None:
+def _room_owner_username(payload: dict[str, Any]) -> str | None:
     user = payload.get("user")
     if isinstance(user, dict):
         username = user.get("username")
         if isinstance(username, str) and username:
             return username
-    owner = _owner_text(payload.get("owner"))
-    if owner:
-        return owner
-    for item in objects:
-        if item.get("type") in {"controller", "spawn"}:
-            owner_text = _object_owner_text(item)
-            if owner_text:
-                return owner_text
     return None
 
 
@@ -625,7 +612,7 @@ def _object_is_owned(
     item_owner = _owner_text(item.get("owner"))
     if owner_username and item_owner == owner_username:
         return True
-    return bool((not owner_id and item_owner_id) or (not owner_username and item_owner))
+    return False
 
 
 def _object_type(item: JsonObject) -> str | None:
@@ -652,7 +639,12 @@ def _collect_structure_counts(
 ) -> dict[str, int]:
     explicit_counts: dict[str, int] = {}
     if isinstance(payload, dict):
-        for key in ("ownStructureCounts", "structureCounts", "structures", "structuresByType", "objectsByType"):
+        explicit_keys = (
+            ("ownStructureCounts",)
+            if owned_only
+            else ("ownStructureCounts", "structureCounts", "structures", "structuresByType", "objectsByType")
+        )
+        for key in explicit_keys:
             section = payload.get(key)
             if isinstance(section, dict):
                 for kind, value in section.items():
@@ -662,10 +654,11 @@ def _collect_structure_counts(
                         parsed = _extract_int(value)
                         if parsed is not None:
                             explicit_counts[str(kind)] = parsed
-        for key in ("constructionSites", "construction_sites"):
-            sites = payload.get(key)
-            if isinstance(sites, list):
-                explicit_counts["constructionSite"] = len(sites)
+        if not owned_only:
+            for key in ("constructionSites", "construction_sites"):
+                sites = payload.get(key)
+                if isinstance(sites, list):
+                    explicit_counts["constructionSite"] = len(sites)
 
     object_counts: dict[str, int] = {}
     for item in _payload_objects(payload):
@@ -736,7 +729,8 @@ def _collect_creep_counts(
             explicit = _extract_int(payload.get("ownedCreepCount"))
         if explicit is not None and explicit > total:
             total = explicit
-        for key in ("ownCreepRoles", "creepCounts", "creepRoles", "roles"):
+        role_keys = ("ownCreepRoles", "ownedCreepRoles") if owned_only else ("creepCounts", "creepRoles", "roles")
+        for key in role_keys:
             section = payload.get(key)
             if isinstance(section, dict):
                 for role, value in section.items():
@@ -798,7 +792,7 @@ def _sum_owned_stored_energy(
             continue
         if not isinstance(item.get("store"), dict) and _object_type(item) not in ENERGY_STORAGE_OBJECT_TYPES:
             continue
-        if _object_is_hostile(item, owner_id, owner_username):
+        if not _object_is_owned(item, owner_id, owner_username):
             continue
         total += _store_value(item)
     return total
@@ -818,7 +812,7 @@ def _sum_room_energy_capacity(
     for item in _payload_objects(payload):
         if _object_type(item) not in ROOM_ENERGY_CAPACITY_FALLBACKS:
             continue
-        if _object_is_hostile(item, owner_id, owner_username):
+        if not _object_is_owned(item, owner_id, owner_username):
             continue
         capacity += _store_capacity(item)
     return capacity or None
@@ -870,8 +864,8 @@ def _collect_combat_counts(
 def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
     normalized = _extract_room_payload(payload, room)
     objects = _payload_objects(normalized)
-    owner_id = _room_owner_id(normalized, objects)
-    owner_username = _room_owner_username(normalized, objects)
+    owner_id = _room_owner_id(normalized)
+    owner_username = _room_owner_username(normalized)
     controller = normalized.get("controller")
     if not isinstance(controller, dict):
         controller = next((item for item in objects if _object_type(item) == "controller"), None)
@@ -915,12 +909,7 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
     )
     stored_energy = _sum_owned_stored_energy(normalized, owner_id=owner_id, owner_username=owner_username)
     energy_capacity = _sum_room_energy_capacity(normalized, owner_id=owner_id, owner_username=owner_username)
-    owned = (
-        bool(controller_summary.get("my"))
-        or bool(controller_summary.get("owner"))
-        or sum(own_structure_counts.values()) > 0
-        or own_creeps > 0
-    )
+    owned = bool(controller_summary.get("my")) or sum(own_structure_counts.values()) > 0 or own_creeps > 0
     resources_summary = normalized.get("resources") if isinstance(normalized.get("resources"), dict) else {}
     resources_summary = {
         **resources_summary,
@@ -1481,12 +1470,12 @@ def _mongo_summary_room_payload(mongo_summary: Any) -> tuple[str, JsonObject] | 
         spawn_rows = spawns if isinstance(spawns, list) else []
         for spawn in spawn_rows:
             if isinstance(spawn, dict):
-                objects.append({"type": "spawn", "my": True, **spawn})
+                objects.append({"type": "spawn", **spawn})
         creeps = summary.get("creeps")
         creep_rows = creeps if isinstance(creeps, list) else []
         for creep in creep_rows:
             if isinstance(creep, dict):
-                objects.append({"type": "creep", "my": True, **creep})
+                objects.append({"type": "creep", **creep})
         controller = summary.get("controller")
         if isinstance(controller, dict):
             objects.append({"type": "controller", **controller})
@@ -1498,7 +1487,7 @@ def _mongo_summary_room_payload(mongo_summary: Any) -> tuple[str, JsonObject] | 
         "owner": owner_username or owner_id,
         "objects": objects,
         "controller": summary.get("controller"),
-        "ownStructureCounts": summary.get("ownStructureCounts", summary.get("structureCounts")),
+        "ownStructureCounts": summary.get("ownStructureCounts"),
         "structureCounts": summary.get("structureCounts", summary.get("counts")),
         "creepCounts": summary.get("creepCounts"),
         "ownCreepRoles": summary.get("creepCounts"),
@@ -1525,6 +1514,22 @@ def _merge_mongo_room_summary_into_tick(tick_entry: JsonObject, mongo_summary: A
     if isinstance(sources, list) and "mongo-room-objects" not in sources:
         sources.append("mongo-room-objects")
     return True
+
+
+def _mongo_room_summary_error(mongo_summary: Any) -> str:
+    if not isinstance(mongo_summary, dict):
+        return "collector returned no room summary"
+    error = mongo_summary.get("error")
+    if error:
+        return _safe_text(error, 360)
+    if mongo_summary.get("ok") is not True:
+        return f"collector returned ok={mongo_summary.get('ok')!r}"
+    summary = mongo_summary.get("summary")
+    if not isinstance(summary, dict):
+        return "collector returned no summary object"
+    if not text_or_none(summary.get("room")):
+        return "collector returned a summary without a room name"
+    return "collector summary could not be converted"
 
 
 def _collect_mongo_room_evidence(smoke: Any, compose: list[str] | None, cfg: Any | None) -> JsonObject | None:
@@ -1568,17 +1573,12 @@ def _room_metric_snapshot(tick_entry: JsonObject) -> JsonObject:
             energy_capacity_total += energy_capacity
         controller = summary.get("controller")
         level = None
-        controller_owned = False
         if isinstance(controller, dict):
             level = _extract_int(controller.get("level"))
-            controller_owned = (
-                controller.get("my") is True
-                or bool(controller.get("owner"))
-            )
         if level is not None:
             controller_levels[room_name] = level
             controller_level_total += level
-            if summary.get("owned") is True or controller_owned or level > 0:
+            if summary.get("owned") is True or (isinstance(controller, dict) and controller.get("my") is True):
                 owned_rooms.append(room_name)
         structures = summary.get("ownStructureCounts")
         if not isinstance(structures, dict) or not structures:
@@ -1736,23 +1736,19 @@ def _room_summary_owned(summary: JsonObject) -> bool:
     if summary.get("owned") is True or summary.get("my") is True:
         return True
     controller = summary.get("controller")
-    if isinstance(controller, dict):
-        if controller.get("my") is True or bool(controller.get("owner")):
-            return True
-        level = _extract_int(controller.get("level"))
-        if level is not None and level > 0:
-            return True
+    if isinstance(controller, dict) and controller.get("my") is True:
+        return True
     if (_extract_int(summary.get("ownStructures")) or 0) > 0:
         return True
     if (_extract_int(summary.get("ownedCreeps")) or 0) > 0:
         return True
     structures = summary.get("ownStructureCounts")
-    if not isinstance(structures, dict) or not structures:
-        structures = summary.get("structureCounts")
-    if not isinstance(structures, dict) or not structures:
-        structures = summary.get("structures")
     if isinstance(structures, dict):
         if any((_extract_int(value) or 0) > 0 for value in structures.values()):
+            return True
+    roles = summary.get("ownCreepRoles")
+    if isinstance(roles, dict):
+        if any((_extract_int(value) or 0) > 0 for value in roles.values()):
             return True
     return False
 
@@ -1773,16 +1769,10 @@ def _room_scorecard_from_summary(room_name: str, summary: JsonObject) -> JsonObj
         return None
     controller = summary.get("controller") if isinstance(summary.get("controller"), dict) else {}
     structure_counts = _count_values(summary.get("ownStructureCounts"))
-    if not structure_counts:
-        structure_counts = _count_values(summary.get("structureCounts"))
-    if not structure_counts:
-        structure_counts = _count_values(summary.get("structures"))
     creep_counts = _count_values(summary.get("ownCreepRoles"))
-    if not creep_counts:
-        creep_counts = _count_values(summary.get("creepCounts"))
     own_creeps = _extract_int(summary.get("ownedCreeps"))
     if own_creeps is None:
-        own_creeps = sum(creep_counts.values()) if creep_counts else (_extract_int(summary.get("creeps")) or 0)
+        own_creeps = sum(creep_counts.values()) if creep_counts else 0
     stored_energy = _extract_int(summary.get("storedEnergy"))
     if stored_energy is None:
         resources = summary.get("resources")
@@ -2283,7 +2273,10 @@ def _run_variant(
             try:
                 mongo_room_evidence = _collect_mongo_room_evidence(smoke, compose, cfg)
                 if mongo_room_evidence is not None:
-                    _merge_mongo_room_summary_into_tick(variant_ticks[-1], mongo_room_evidence)
+                    if not _merge_mongo_room_summary_into_tick(variant_ticks[-1], mongo_room_evidence):
+                        evidence_errors.append(
+                            f"mongo room evidence failed: {_mongo_room_summary_error(mongo_room_evidence)}"
+                        )
             except Exception as exc:  # noqa: BLE001 - HTTP evidence may still be sufficient
                 evidence_errors.append(f"mongo room evidence failed: {_safe_text(exc, 360)}")
     except Exception as exc:  # noqa: BLE001 - collect the failure into a safe result
