@@ -10355,6 +10355,28 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
+  it('builds RCL2 extension construction at 450 capacity with a healthy narrow energy buffer', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 310,
+        energyCapacityAvailable: 450
+      })
+    } as unknown as Creep;
+    recordSurvivalMode('LOCAL_STABLE');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
   it('blocks capacity-enabling construction below worker spawn energy reserve', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {

@@ -3143,7 +3143,7 @@ function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (energyCapacityAvailable === null) {
     return false;
   }
-  return hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY && getEffectiveConfiguredRoomEnergyBufferThreshold(room) >= energyCapacityAvailable;
+  return hasMinimumWorkerSpawnEnergyReserveForConstruction(room, amount) && energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY;
 }
 function checkEnergyBufferForExtensionConstruction(room, amount) {
   if (checkEnergyBufferForCapacityEnablingConstruction(room, amount)) {
@@ -34145,7 +34145,8 @@ function summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roo
       workerAssignmentBlockedDetail: selectWorkerAssignmentBlockedDetail(
         colony,
         colonyWorkers,
-        roomEnergyStructures
+        roomEnergyStructures,
+        constructionSites
       ),
       workerAssignmentBlockedWorkers: selectWorkerAssignmentBlockedWorkers(
         colony,
@@ -34174,13 +34175,16 @@ function selectBuildBlockedReason(colony, colonyWorkers, productiveAssignments, 
 function hasConstructionEnergyAcquisitionAssignment(colonyWorkers) {
   return colonyWorkers.some(hasConstructionEnergyAcquisitionTask);
 }
-function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergyStructures) {
+function selectWorkerAssignmentBlockedDetail(colony, colonyWorkers, roomEnergyStructures, constructionSites) {
   if (!colonyWorkers.some(isConstructionCapableWorker)) {
     return "no_valid_body";
   }
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
   if (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) {
     return "energy_buffer_below_threshold";
+  }
+  if (hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(colony.room, colonyWorkers, constructionSites)) {
+    return "energy_buffer_spend_margin";
   }
   if (colonyWorkers.every((worker) => getFreeEnergyCapacityInStore(worker) <= 0)) {
     return "room_capacity_full";
@@ -34210,6 +34214,7 @@ function selectWorkerAssignmentBlockedWorkers(colony, colonyWorkers, constructio
         pendingBuildProgress,
         repairBacklogHits
       ),
+      ...formatWorkerConstructionEnergyGateDiagnostic(colony.room, worker, constructionSites),
       ...formatWorkerDispatchDiagnostic(dispatchDiagnostic)
     };
   });
@@ -34244,7 +34249,11 @@ function selectWorkerBuildAssignmentBlockedReason(colony, worker, constructionSi
   if (getEnergyInStore(worker) <= 0) {
     return "build_blocked_no_carried_energy";
   }
-  if (isBuildBlockedByEnergyBuffer(colony, getEnergyInStore(worker))) {
+  if (!canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(
+    colony.room,
+    getEnergyInStore(worker),
+    constructionSites
+  )) {
     return "build_blocked_energy_buffer";
   }
   if (taskType === "upgrade") {
@@ -34254,6 +34263,43 @@ function selectWorkerBuildAssignmentBlockedReason(colony, worker, constructionSi
     return "build_blocked_other_task";
   }
   return "build_blocked_unknown";
+}
+function hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(room, colonyWorkers, constructionSites) {
+  return colonyWorkers.some(
+    (worker) => isConstructionCapableWorker(worker) && getEnergyInStore(worker) > 0 && !canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, getEnergyInStore(worker), constructionSites)
+  );
+}
+function canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, carriedEnergy, constructionSites) {
+  if (carriedEnergy <= 0 || constructionSites.length <= 0) {
+    return false;
+  }
+  return constructionSites.some((site) => canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, site));
+}
+function canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, constructionSite) {
+  if (!isRecord28(constructionSite)) {
+    return checkEnergyBufferForSpending(room, carriedEnergy);
+  }
+  if (matchesStructureType25(constructionSite.structureType, "STRUCTURE_EXTENSION", "extension")) {
+    return checkEnergyBufferForExtensionConstruction(room, carriedEnergy);
+  }
+  if (matchesStructureType25(constructionSite.structureType, "STRUCTURE_CONTAINER", "container")) {
+    return checkEnergyBufferForCapacityEnablingConstruction(room, carriedEnergy);
+  }
+  return checkEnergyBufferForSpending(room, carriedEnergy);
+}
+function formatWorkerConstructionEnergyGateDiagnostic(room, worker, constructionSites) {
+  const carriedEnergy = getEnergyInStore(worker);
+  if (carriedEnergy <= 0 || canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, carriedEnergy, constructionSites)) {
+    return {};
+  }
+  const energyBuffer = getRoomEnergyBufferHealth(room);
+  return {
+    constructionEnergyGate: "blocked_by_buffer_margin",
+    energyBufferAfterSpend: energyBuffer.currentEnergy - carriedEnergy,
+    energyBufferCurrent: energyBuffer.currentEnergy,
+    energyBufferSpend: carriedEnergy,
+    energyBufferThreshold: energyBuffer.threshold
+  };
 }
 function selectWorkerRepairAssignmentBlockedReason(worker, pendingBuildProgress, repairBacklogHits) {
   const taskType = getWorkerTaskType(worker);

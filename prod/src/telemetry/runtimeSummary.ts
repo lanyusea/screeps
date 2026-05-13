@@ -29,7 +29,13 @@ import {
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
-import { getRoomEnergyBufferHealth, type EnergyBufferHealth } from '../economy/energyBuffer';
+import {
+  checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForExtensionConstruction,
+  checkEnergyBufferForSpending,
+  getRoomEnergyBufferHealth,
+  type EnergyBufferHealth
+} from '../economy/energyBuffer';
 import { getMultiRoomEnergyRoomState } from '../economy/multiRoomEnergy';
 import { getRoomEnergySurplusState, type RoomEnergySurplusState } from '../economy/energySurplus';
 import {
@@ -72,6 +78,7 @@ type RuntimeBuildBlockedReason =
   | 'worker_assignment_gap';
 type RuntimeWorkerAssignmentBlockedDetail =
   | 'energy_buffer_below_threshold'
+  | 'energy_buffer_spend_margin'
   | 'spawn_reserving_energy'
   | 'no_valid_body'
   | 'room_capacity_full'
@@ -379,6 +386,7 @@ interface RuntimeProductiveEnergySummary {
 interface RuntimeWorkerAssignmentBlockedWorkerDetail {
   buildBlockedReason: RuntimeWorkerBuildAssignmentBlockedReason;
   carriedEnergy: number;
+  constructionEnergyGate?: 'blocked_by_buffer_margin';
   dispatchAssignedTargetId?: string;
   dispatchAssignedTask?: string;
   dispatchBaseSelectedTargetId?: string;
@@ -392,6 +400,10 @@ interface RuntimeWorkerAssignmentBlockedWorkerDetail {
   dispatchSpawnReservationTargetId?: string;
   dispatchSpawnReservationTask?: string;
   dispatchTick?: number;
+  energyBufferAfterSpend?: number;
+  energyBufferCurrent?: number;
+  energyBufferSpend?: number;
+  energyBufferThreshold?: number;
   freeCapacity: number;
   repairBlockedReason: RuntimeWorkerRepairAssignmentBlockedReason;
   name?: string;
@@ -1862,7 +1874,8 @@ function summarizeProductiveEnergy(
           workerAssignmentBlockedDetail: selectWorkerAssignmentBlockedDetail(
             colony,
             colonyWorkers,
-            roomEnergyStructures
+            roomEnergyStructures,
+            constructionSites
           ),
           workerAssignmentBlockedWorkers: selectWorkerAssignmentBlockedWorkers(
             colony,
@@ -1912,7 +1925,8 @@ function hasConstructionEnergyAcquisitionAssignment(colonyWorkers: Creep[]): boo
 function selectWorkerAssignmentBlockedDetail(
   colony: ColonySnapshot,
   colonyWorkers: Creep[],
-  roomEnergyStructures: unknown[]
+  roomEnergyStructures: unknown[],
+  constructionSites: unknown[]
 ): RuntimeWorkerAssignmentBlockedDetail {
   if (!colonyWorkers.some(isConstructionCapableWorker)) {
     return 'no_valid_body';
@@ -1921,6 +1935,10 @@ function selectWorkerAssignmentBlockedDetail(
   const energyBuffer = getRoomEnergyBufferHealth(colony.room);
   if (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) {
     return 'energy_buffer_below_threshold';
+  }
+
+  if (hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(colony.room, colonyWorkers, constructionSites)) {
+    return 'energy_buffer_spend_margin';
   }
 
   if (colonyWorkers.every((worker) => getFreeEnergyCapacityInStore(worker) <= 0)) {
@@ -1963,6 +1981,7 @@ function selectWorkerAssignmentBlockedWorkers(
           pendingBuildProgress,
           repairBacklogHits
         ),
+        ...formatWorkerConstructionEnergyGateDiagnostic(colony.room, worker, constructionSites),
         ...formatWorkerDispatchDiagnostic(dispatchDiagnostic)
       };
     });
@@ -2017,7 +2036,13 @@ function selectWorkerBuildAssignmentBlockedReason(
     return 'build_blocked_no_carried_energy';
   }
 
-  if (isBuildBlockedByEnergyBuffer(colony, getEnergyInStore(worker))) {
+  if (
+    !canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(
+      colony.room,
+      getEnergyInStore(worker),
+      constructionSites
+    )
+  ) {
     return 'build_blocked_energy_buffer';
   }
 
@@ -2030,6 +2055,74 @@ function selectWorkerBuildAssignmentBlockedReason(
   }
 
   return 'build_blocked_unknown';
+}
+
+function hasCarriedEnergyWorkerBlockedByConstructionEnergyMargin(
+  room: Room,
+  colonyWorkers: Creep[],
+  constructionSites: unknown[]
+): boolean {
+  return colonyWorkers.some(
+    (worker) =>
+      isConstructionCapableWorker(worker) &&
+      getEnergyInStore(worker) > 0 &&
+      !canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, getEnergyInStore(worker), constructionSites)
+  );
+}
+
+function canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(
+  room: Room,
+  carriedEnergy: number,
+  constructionSites: unknown[]
+): boolean {
+  if (carriedEnergy <= 0 || constructionSites.length <= 0) {
+    return false;
+  }
+
+  return constructionSites.some((site) => canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, site));
+}
+
+function canSpendWorkerEnergyOnConstructionSiteForTelemetry(
+  room: Room,
+  carriedEnergy: number,
+  constructionSite: unknown
+): boolean {
+  if (!isRecord(constructionSite)) {
+    return checkEnergyBufferForSpending(room, carriedEnergy);
+  }
+
+  if (matchesStructureType(constructionSite.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return checkEnergyBufferForExtensionConstruction(room, carriedEnergy);
+  }
+
+  if (matchesStructureType(constructionSite.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return checkEnergyBufferForCapacityEnablingConstruction(room, carriedEnergy);
+  }
+
+  return checkEnergyBufferForSpending(room, carriedEnergy);
+}
+
+function formatWorkerConstructionEnergyGateDiagnostic(
+  room: Room,
+  worker: Creep,
+  constructionSites: unknown[]
+): Partial<RuntimeWorkerAssignmentBlockedWorkerDetail> {
+  const carriedEnergy = getEnergyInStore(worker);
+  if (
+    carriedEnergy <= 0 ||
+    canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, carriedEnergy, constructionSites)
+  ) {
+    return {};
+  }
+
+  const energyBuffer = getRoomEnergyBufferHealth(room);
+  return {
+    constructionEnergyGate: 'blocked_by_buffer_margin',
+    energyBufferAfterSpend: energyBuffer.currentEnergy - carriedEnergy,
+    energyBufferCurrent: energyBuffer.currentEnergy,
+    energyBufferSpend: carriedEnergy,
+    energyBufferThreshold: energyBuffer.threshold
+  };
 }
 
 function selectWorkerRepairAssignmentBlockedReason(

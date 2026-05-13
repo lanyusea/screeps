@@ -1041,6 +1041,45 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
+  it('reports a narrow energy-buffer spend margin when healthy room energy cannot fund routine construction', () => {
+    const loadedWorker = {
+      name: 'LoadedBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: makeEnergyStore(50, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      creeps: [loadedWorker],
+      constructionSites: [
+        { id: 'road-site', structureType: TEST_GLOBALS.STRUCTURE_ROAD, progress: 0, progressTotal: 300 }
+      ]
+    });
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 310;
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 450;
+    colony.energyAvailable = 310;
+    colony.energyCapacityAvailable = 450;
+
+    emitRuntimeSummary([colony], [loadedWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(productiveEnergy.workerAssignmentBlockedDetail).toBe('energy_buffer_spend_margin');
+    expect(productiveEnergy.workerAssignmentBlockedWorkers).toEqual([
+      expect.objectContaining({
+        name: 'LoadedBuilder',
+        buildBlockedReason: 'build_blocked_energy_buffer',
+        constructionEnergyGate: 'blocked_by_buffer_margin',
+        energyBufferCurrent: 310,
+        energyBufferThreshold: 292,
+        energyBufferSpend: 50,
+        energyBufferAfterSpend: 260
+      })
+    ]);
+  });
+
   it('does not report a construction gap while a worker is acquiring energy for a construction site', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
