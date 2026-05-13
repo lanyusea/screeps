@@ -1695,7 +1695,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(501);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1724,7 +1724,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
   });
 
@@ -1780,7 +1780,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(4);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1846,7 +1846,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(5);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',

@@ -786,6 +786,63 @@ describe('next expansion scoring', () => {
     expect(neutral.score).toBeGreaterThan(owned.score);
   });
 
+  it('uses fresh adjacent-room scout reports as expansion scoring evidence', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      intel: {
+        scoutReports: {
+          W2N1: makeRoomScoutReport('W2N1', {
+            sourceCount: 2,
+            mineralType: 'O',
+            owner: null,
+            controller: {
+              present: true,
+              state: 'unreserved',
+              id: 'controller-W2N1' as Id<StructureController>
+            }
+          }),
+          W3N1: makeRoomScoutReport('W3N1', {
+            sourceCount: 2,
+            owner: 'enemy',
+            controller: {
+              present: true,
+              state: 'owned',
+              id: 'controller-W3N1' as Id<StructureController>,
+              ownerUsername: 'enemy'
+            }
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { time: 101 };
+
+    const report = scoreExpansionCandidates(
+      makeInput([makeUnscoredCandidate('W2N1', 0), makeUnscoredCandidate('W3N1', 1)])
+    );
+    const neutral = getCandidate(report, 'W2N1');
+    const owned = getCandidate(report, 'W3N1');
+
+    expect(neutral).toMatchObject({
+      visible: false,
+      sourceCount: 2,
+      terrain: {
+        walkableRatio: 0.945,
+        swampRatio: 0.047,
+        wallRatio: 0.055
+      },
+      mineral: { mineralType: 'O' },
+      controllerId: 'controller-W2N1'
+    });
+    expect(neutral.rationale).toEqual(
+      expect.arrayContaining(['controller unreserved', '2 sources scouted', 'O mineral scouted'])
+    );
+    expect(owned).toMatchObject({
+      evidenceStatus: 'unavailable',
+      sourceCount: 2,
+      risks: expect.arrayContaining(['enemy-owned controller cannot be claimed safely'])
+    });
+    expect(neutral.score).toBeGreaterThan(owned.score);
+  });
+
   it('uses scout intel when candidate source count is zero and controller evidence is empty', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -1542,6 +1599,19 @@ function makeScoutIntel(
     hostileCreepCount: 0,
     hostileStructureCount: 0,
     hostileSpawnCount: 0,
+    ...overrides
+  };
+}
+
+function makeRoomScoutReport(
+  roomName: string,
+  overrides: Partial<RoomScoutReportMemory> = {}
+): RoomScoutReportMemory {
+  return {
+    roomName,
+    timestamp: 100,
+    visible: true,
+    terrain: { plains: 1900, swamp: 100, wall: 116 },
     ...overrides
   };
 }

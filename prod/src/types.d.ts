@@ -7,6 +7,7 @@ declare global {
     };
     defense?: DefenseMemory;
     scout?: Record<string, unknown>;
+    intel?: IntelMemory;
     enableMarketTrading?: boolean;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
@@ -75,6 +76,39 @@ declare global {
   type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
   type DefenseThreatLevel = 'none' | 'hostile_present' | 'under_attack';
   type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
+
+  interface IntelMemory {
+    scoutReports?: Record<string, RoomScoutReportMemory>;
+  }
+
+  interface RoomScoutReportMemory {
+    roomName: string;
+    terrain: RoomScoutTerrainMemory;
+    timestamp: number;
+    visible?: boolean;
+    observerRequested?: boolean;
+    controller?: RoomScoutControllerMemory;
+    owner?: string | null;
+    sourceCount?: number;
+    mineralType?: string;
+  }
+
+  interface RoomScoutTerrainMemory {
+    plains: number;
+    swamp: number;
+    wall: number;
+  }
+
+  interface RoomScoutControllerMemory {
+    present: boolean;
+    state: 'missing' | 'unreserved' | 'reserved' | 'owned';
+    id?: Id<StructureController>;
+    my?: boolean;
+    ownerUsername?: string;
+    reservationUsername?: string;
+    reservationTicksToEnd?: number;
+    level?: number;
+  }
 
   interface DefenseMemory {
     actions?: DefenseActionMemory[];
