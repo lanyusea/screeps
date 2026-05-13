@@ -369,6 +369,167 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(territory["history"]["status"], "complete")
         self.assertIn("reducer-backed KPI history", territory["footer"])
 
+    def test_runtime_artifact_history_blanks_not_observed_resource_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
+            artifact_dir.mkdir(parents=True)
+            older = {
+                "type": "runtime-summary",
+                "tick": 100,
+                "rooms": [
+                    {
+                        "roomName": "E17S59",
+                        "shard": "shardX",
+                        "resources": {
+                            "storedEnergy": 50,
+                            "workerCarriedEnergy": 5,
+                            "droppedEnergy": 0,
+                            "sourceCount": 2,
+                        },
+                    }
+                ],
+            }
+            newer = {
+                "type": "runtime-summary",
+                "tick": 120,
+                "rooms": [{"roomName": "E17S59", "shard": "shardX"}],
+            }
+            (artifact_dir / "runtime-summary-console-20260501T120000Z.log").write_text(
+                f"#runtime-summary {json.dumps(older, sort_keys=True)}\n",
+                encoding="utf-8",
+            )
+            (artifact_dir / "runtime-summary-console-20260501T130000Z.log").write_text(
+                f"#runtime-summary {json.dumps(newer, sort_keys=True)}\n",
+                encoding="utf-8",
+            )
+
+            artifact_history, artifact_status = roadmap.load_runtime_artifact_metric_history(
+                repo_root,
+                "2026-05-01T15:00:00Z",
+                {},
+                paths=[str(repo_root / "runtime-artifacts")],
+            )
+
+        stored_energy = artifact_history["stored_energy"][0]
+        self.assertEqual(artifact_status["dailyBucketDays"], 1)
+        self.assertIsNone(stored_energy["value"])
+        self.assertFalse(stored_energy["observed"])
+        self.assertEqual(stored_energy["status"], "not observed")
+
+        cards = roadmap.build_report_kpi_cards(artifact_history, "2026-05-01T15:00:00Z")
+        resources = next(card for card in cards if card["key"] == "resources")
+        stored_series = next(series for series in resources["series"] if series["label"] == "Stored energy")
+
+        self.assertIsNone(stored_series["values"][-1])
+        self.assertEqual(stored_series["statuses"][-1], "not observed")
+
+    def test_not_observed_sections_still_emit_valid_delta_and_event_metrics(self) -> None:
+        report = {
+            "territory": {
+                "ownedRooms": {
+                    "status": "observed",
+                    "latest": [],
+                    "latestCount": 0,
+                    "deltaCount": -1,
+                    "gained": [],
+                    "lost": ["E17S59"],
+                },
+                "controllers": {"status": "not instrumented"},
+            },
+            "resources": {
+                "status": "not observed",
+                "totals": {
+                    "latest": {"storedEnergy": None},
+                    "delta": {"storedEnergy": -100},
+                },
+                "eventDeltas": {
+                    "status": "observed",
+                    "harvestedEnergy": 6,
+                    "transferredEnergy": 4,
+                },
+            },
+            "combat": {
+                "status": "not observed",
+                "totals": {
+                    "latest": {
+                        "hostileCreepCount": None,
+                        "hostileStructureCount": None,
+                    },
+                    "delta": {
+                        "hostileCreepCount": -3,
+                        "hostileStructureCount": -1,
+                    },
+                },
+                "eventDeltas": {
+                    "status": "observed",
+                    "attackCount": 2,
+                    "attackDamage": 9,
+                    "objectDestroyedCount": 1,
+                    "creepDestroyedCount": 0,
+                },
+            },
+            "source": {"matchedFiles": 1, "runtimeSummaryLines": 2},
+            "input": {"runtimeSummaryCount": 2},
+        }
+
+        metrics = {metric["key"]: metric for metric in roadmap.build_current_metrics(report)}
+
+        self.assertEqual(metrics["stored_energy"]["status"], "not observed")
+        self.assertIsNone(metrics["stored_energy"]["value"])
+        self.assertEqual(metrics["stored_energy_delta"]["status"], "observed")
+        self.assertEqual(metrics["stored_energy_delta"]["value"], -100)
+        self.assertEqual(metrics["harvested_energy"]["status"], "observed")
+        self.assertEqual(metrics["harvested_energy"]["value"], 6)
+        self.assertEqual(metrics["hostile_creeps"]["status"], "not observed")
+        self.assertIsNone(metrics["hostile_creeps"]["value"])
+        self.assertEqual(metrics["attack_damage"]["status"], "observed")
+        self.assertEqual(metrics["attack_damage"]["value"], 9)
+
+    def test_mixed_room_artifacts_keep_observed_values_and_carry_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
+            artifact_dir.mkdir(parents=True)
+            payload = {
+                "type": "runtime-summary",
+                "tick": 100,
+                "rooms": [
+                    {
+                        "roomName": "E17S59",
+                        "shard": "shardX",
+                        "resources": {
+                            "storedEnergy": 75,
+                            "workerCarriedEnergy": 5,
+                            "droppedEnergy": 0,
+                            "sourceCount": 2,
+                        },
+                    },
+                    {"roomName": "W9N9", "shard": "shardX"},
+                ],
+            }
+            (artifact_dir / "runtime-summary-console-20260501T120000Z.log").write_text(
+                f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n",
+                encoding="utf-8",
+            )
+
+            artifact_history, _artifact_status = roadmap.load_runtime_artifact_metric_history(
+                repo_root,
+                "2026-05-01T15:00:00Z",
+                {},
+                paths=[str(repo_root / "runtime-artifacts")],
+            )
+
+        stored_energy = artifact_history["stored_energy"][0]
+        self.assertEqual(stored_energy["value"], 75)
+        self.assertTrue(stored_energy["observed"])
+        self.assertEqual(stored_energy["status"], "observed")
+        self.assertEqual(stored_energy["sourceKind"], "runtime-summary-artifact")
+        self.assertEqual(stored_energy["reducerSchemaVersion"], roadmap.runtime_kpi_reducer.SCHEMA_VERSION)
+        self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")
+        self.assertEqual(stored_energy["scope"]["targetRoom"], "E17S59")
+        self.assertEqual(stored_energy["scope"]["observedRooms"], ["E17S59", "W9N9"])
+
     def test_counts_only_successful_official_deploy_evidence_json_in_delivery_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
@@ -598,7 +759,11 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     token_count_record("2026-05-01T02:10:00Z", 999),
                 ],
             )
-            for relative in ("job-a/one.md", "job-a/two.md", "job-b/three.md"):
+            for relative in (
+                "job-a/one-20260501T020000Z.md",
+                "job-a/two-20260501T021000Z.md",
+                "job-b/three-20260501T022000Z.md",
+            ):
                 output = cron_root / relative
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text("screeps roadmap fanout for lanyusea/screeps\n", encoding="utf-8")
@@ -808,7 +973,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             unrelated = cron_root / "job-a" / "unrelated.md"
             unrelated.parent.mkdir(parents=True, exist_ok=True)
             unrelated.write_text("github.com/lanyusea/screeps-tools\n", encoding="utf-8")
-            related = cron_root / "job-b" / "related.md"
+            related = cron_root / "job-b" / "related-20260501T020000Z.md"
             related.parent.mkdir(parents=True, exist_ok=True)
             related.write_text("github.com/lanyusea/screeps\n", encoding="utf-8")
 
