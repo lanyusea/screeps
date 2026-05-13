@@ -54,7 +54,7 @@ SCREEPS_AUTH_TOKEN=***
 SCREEPS_BRANCH=main
 SCREEPS_API_URL=https://screeps.com
 SCREEPS_SHARD=shardX
-SCREEPS_ROOM=E17S59
+SCREEPS_ROOM=E19S57
 ```
 
 For private-server smoke tests:
@@ -104,8 +104,8 @@ Likely private-server inputs:
 
 - Auth token: present in local secret storage; do not paste or commit it.
 - Deployment branch: `main`.
-- Current public room: `E17S59`.
-- Current spawn: `Spawn1` at `(9,42)`.
+- Current public room: `E19S57`.
+- Current spawn: `Spawn1` at `(30,29)`, placed successfully on 2026-05-13 after `E17S59` and `E26S49` were respawn-prohibited.
 - Shard: `shardX`, verified against the official API. The earlier `sharedX` spelling is invalid for official API calls.
 
 ## Open decisions

@@ -7,7 +7,7 @@ export interface TerritoryExpansionScoutTargetConfig {
   adjacentToOwnedRoom: boolean;
 }
 
-// Official deployment is retargeted to E17S59, so configured targets keep E17S59 as the colony key.
+// Legacy E17S59 corridor targets remain room-scoped; current E19S57 expansion targets need fresh intel before adding static config.
 export const TERRITORY_EXPANSION_SCOUT_TARGETS: readonly TerritoryExpansionScoutTargetConfig[] = [
   {
     colony: 'E17S59',
