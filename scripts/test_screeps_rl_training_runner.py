@@ -207,6 +207,21 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(metrics["territory"]["collapsedClaimedRooms"], ["W1N2"])
         self.assertEqual(metrics["rewardTuple"][0], -1)
 
+    def test_run_metrics_prefer_harness_room_states_over_aggregate_room_counters(self) -> None:
+        run = variant_result("candidate", [])
+        run["metrics"] = {
+            "initialRooms": {"ownedRoomCount": 0, "structures": {}, "controllerLevels": {}},
+            "finalRooms": {"ownedRoomCount": 0, "structures": {}, "controllerLevels": {}},
+            "initialRoomStates": {"E1S1": room("E1S1", spawns=1, creeps=1, energy=250, rcl=1)},
+            "finalRoomStates": {"E1S1": room("E1S1", spawns=1, creeps=2, energy=300, rcl=2)},
+        }
+
+        metrics = runner.compute_run_metrics(run, {"resourceNormalizer": 1000})
+
+        self.assertEqual(metrics["territory"]["ownedRoomCount"], 1)
+        self.assertEqual(metrics["territory"]["rclLevels"], {"E1S1": 2})
+        self.assertEqual(metrics["resources"]["storedEnergyDelta"], 50)
+
     def test_experiment_card_loading_and_validation_accepts_yaml_inline_variants(self) -> None:
         yaml_text = """
 card_id: rl-exp-yaml-000000000000

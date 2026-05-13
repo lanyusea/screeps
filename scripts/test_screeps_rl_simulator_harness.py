@@ -650,6 +650,182 @@ cli:
         self.assertEqual(tick_entry["overview"]["roomCount"], 1)
         self.assertEqual(tick_entry["rooms"]["E1S1"]["structures"]["spawn"], 1)
 
+    def test_build_tick_entry_normalizes_private_object_maps_into_owned_scorecard_fields(self) -> None:
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            43,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "user": {"id": "user-1", "username": "rl-sim"},
+                        "objects": {
+                            "controller1": {
+                                "type": "controller",
+                                "user": "user-1",
+                                "level": 2,
+                                "progress": 12,
+                                "progressTotal": 45000,
+                            },
+                            "spawn1": {
+                                "type": "spawn",
+                                "user": "user-1",
+                                "store": {"energy": 220, "capacity": 300},
+                            },
+                            "extension1": {
+                                "type": "extension",
+                                "user": "user-1",
+                                "store": {"energy": 30, "capacity": 50},
+                            },
+                            "worker1": {
+                                "type": "creep",
+                                "user": "user-1",
+                                "name": "worker-E1S1-43",
+                                "memory": {"role": "worker"},
+                                "carry": {"energy": 10},
+                            },
+                        },
+                    },
+                }
+            },
+        )
+
+        room = tick_entry["rooms"]["E1S1"]
+        self.assertTrue(room["owned"])
+        self.assertEqual(room["controller"]["level"], 2)
+        self.assertEqual(room["controller"]["owner"], "user-1")
+        self.assertEqual(room["structureCounts"], {"extension": 1, "spawn": 1})
+        self.assertEqual(room["ownStructures"], 2)
+        self.assertEqual(room["ownedCreeps"], 1)
+        self.assertEqual(room["ownCreepRoles"], {"worker": 1})
+        self.assertEqual(room["storedEnergy"], 250)
+        self.assertEqual(room["energyCapacity"], 350)
+
+        variant = {"variant_id": "baseline", "variant_run_id": "run-baseline", "tick_log": [tick_entry]}
+        scorecard = harness.build_variant_owned_room_scorecard(variant)
+
+        self.assertEqual(scorecard["ownedRoomCount"], 1)
+        self.assertEqual(scorecard["ownedRooms"][0]["roomName"], "E1S1")
+        self.assertEqual(scorecard["ownedRooms"][0]["rcl"], 2)
+        self.assertEqual(scorecard["ownedRooms"][0]["structureCounts"], {"extension": 1, "spawn": 1})
+        self.assertEqual(scorecard["ownedRooms"][0]["creepCounts"], {"worker": 1})
+
+    def test_untrusted_room_objects_do_not_count_as_owned_scorecard_evidence(self) -> None:
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            43,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "objects": {
+                            "controller1": {
+                                "type": "controller",
+                                "user": "enemy-user",
+                                "level": 2,
+                                "progress": 12,
+                                "progressTotal": 45000,
+                            },
+                            "spawn1": {
+                                "type": "spawn",
+                                "user": "enemy-user",
+                                "store": {"energy": 220, "capacity": 300},
+                            },
+                            "worker1": {
+                                "type": "creep",
+                                "user": "enemy-user",
+                                "name": "worker-E1S1-43",
+                                "memory": {"role": "worker"},
+                            },
+                        },
+                    },
+                }
+            },
+        )
+
+        room = tick_entry["rooms"]["E1S1"]
+        self.assertFalse(room["owned"])
+        self.assertEqual(room["ownStructures"], 0)
+        self.assertEqual(room["ownedCreeps"], 0)
+        self.assertEqual(room["ownCreepRoles"], {})
+        self.assertEqual(room["storedEnergy"], 0)
+        self.assertIsNone(room["energyCapacity"])
+
+        variant = {"variant_id": "baseline", "variant_run_id": "run-baseline", "tick_log": [tick_entry]}
+        scorecard = harness.build_variant_owned_room_scorecard(variant)
+
+        self.assertEqual(scorecard["ownedRoomCount"], 0)
+        self.assertEqual(scorecard["ownedRooms"], [])
+
+    def test_mongo_room_summary_merges_into_empty_http_tick_entry(self) -> None:
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            44,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {"E1S1": {"room": "E1S1", "roomData": {}}},
+        )
+        mongo_summary = {
+            "ok": True,
+            "summary": {
+                "room": "E1S1",
+                "user": {"username": "rl-sim", "id": "user-1"},
+                "controller": {
+                    "level": 1,
+                    "progress": 5,
+                    "progressTotal": 300,
+                    "user": "user-1",
+                    "my": True,
+                    "owner": {"username": "rl-sim"},
+                },
+                "structureCounts": {"spawn": 1},
+                "ownStructureCounts": {"spawn": 1},
+                "ownStructures": 1,
+                "creepCounts": {"worker": 2},
+                "ownCreeps": 2,
+                "storedEnergy": 280,
+                "energyCapacityAvailable": 300,
+                "objects": [
+                    {"type": "spawn", "user": "user-1", "store": {"energy": 280, "capacity": 300}},
+                    {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                    {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                    {"type": "controller", "user": "user-1", "level": 1, "progress": 5, "progressTotal": 300},
+                ],
+            },
+        }
+
+        self.assertTrue(harness._merge_mongo_room_summary_into_tick(tick_entry, mongo_summary))
+
+        room = tick_entry["rooms"]["E1S1"]
+        self.assertTrue(room["owned"])
+        self.assertEqual(room["controller"]["owner"], "rl-sim")
+        self.assertEqual(room["ownStructures"], 1)
+        self.assertEqual(room["ownedCreeps"], 2)
+        self.assertEqual(room["ownCreepRoles"], {"worker": 2})
+        self.assertEqual(room["energyCapacity"], 300)
+        self.assertIn("mongo-room-objects", tick_entry["roomStateSources"])
+
+    def test_failed_mongo_room_summary_exposes_collection_error(self) -> None:
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            44,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {"E1S1": {"room": "E1S1", "roomData": {}}},
+        )
+        mongo_summary = {"ok": False, "error": "could not parse mongosh summary"}
+
+        self.assertFalse(harness._merge_mongo_room_summary_into_tick(tick_entry, mongo_summary))
+        self.assertEqual(harness._mongo_room_summary_error(mongo_summary), "could not parse mongosh summary")
+
     def test_run_one_tick_uses_stats_gametime_when_private_overview_has_no_shard_clock(self) -> None:
         class Result:
             def __init__(self, payload: object) -> None:
@@ -1154,13 +1330,32 @@ cli:
     def test_run_simulator_writes_schema_validated_and_redacted_artifact(self) -> None:
         mock_variant = {
             "variant_id": "baseline",
+            "variant_run_id": "run-validate-baseline",
             "ticks_requested": 3,
             "ticks_run": 3,
             "wall_clock_seconds": 1.2,
             "ticks_per_second": 2.5,
-            "tick_log": [],
+            "tick_log": [
+                {
+                    "tick": 1,
+                    "rooms": {
+                        "E1S1": {
+                            "roomName": "E1S1",
+                            "owned": True,
+                            "controller": {"level": 1, "progress": 0, "progressTotal": 300, "my": True, "owner": "rl-sim"},
+                            "storedEnergy": 300,
+                            "energyCapacity": 300,
+                            "ownStructureCounts": {"spawn": 1},
+                            "ownStructures": 1,
+                            "ownedCreeps": 1,
+                            "ownCreepRoles": {"worker": 1},
+                        }
+                    },
+                }
+            ],
             "live_effect": False,
             "official_mmo_writes": False,
+            "ok": True,
         }
         run_artifact = {
             "type": harness.RUN_SUMMARY_TYPE,
@@ -1195,12 +1390,16 @@ cli:
                     output_path = out_dir / "run-validate" / "run_summary.json"
                     output_data = json.loads(output_path.read_text(encoding="utf-8"))
                     self.assertTrue(output_path.exists())
+                    self.assertTrue((out_dir / "run-validate" / "owned_room_scorecard.json").exists())
 
         self.assertEqual(summary["runId"], "run-validate")
         self.assertIsNotNone(output_data)
         self.assertEqual(output_data["runId"], "run-validate")
         self.assertEqual(output_data["botCommit"], harness.DEFAULT_BOT_COMMIT)
         self.assertEqual(output_data["variants"][0]["variant_id"], "baseline")
+        self.assertEqual(output_data["ownedRoomScorecard"]["ownedRoomCount"], 1)
+        self.assertEqual(output_data["ownedRoomScorecard"]["ownedRooms"][0]["roomName"], "E1S1")
+        self.assertEqual(output_data["ownedRoomScorecard"]["ownedRooms"][0]["creepCounts"], {"worker": 1})
         self.assertFalse(output_data["official_mmo_writes"])
         self.assertFalse(output_data["live_effect"])
         self.assertNotIn("super-secret-key", json.dumps(output_data))
