@@ -28223,13 +28223,13 @@ function selectWorkerDispatchDiagnosticReason(creep, context, assignedTask) {
     if ((selectedTask == null ? void 0 : selectedTask.type) === "upgrade") {
       return "preempted_for_upgrader_boost";
     }
-    return "assigned_selected_task";
+    return "preempted_for_new_task";
   }
   if (!selectedTask) {
     return currentTask ? "selected_null_retained_current_task" : "no_selected_task_idle";
   }
   if (!currentTask) {
-    return assignedTask ? "assigned_selected_task" : "selected_task_not_assigned";
+    return assignedTask ? "assigned_selected_task" : "unreachable_state_task_not_assigned";
   }
   if (isSameTask2(currentTask, selectedTask)) {
     return "selected_same_as_current";
@@ -34877,7 +34877,8 @@ function applyCpuSummaryToRooms(rooms, cpu) {
   }));
 }
 function getGameTime30() {
-  return typeof Game.time === "number" ? Game.time : 0;
+  var _a, _b;
+  return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }
 
 // src/economy/sourceWorkload.ts

@@ -2853,5 +2853,5 @@ function applyCpuSummaryToRooms(
 }
 
 function getGameTime(): number {
-  return typeof Game.time === 'number' ? Game.time : 0;
+  return (globalThis as any).Game?.time ?? 0;
 }

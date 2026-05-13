@@ -1117,13 +1117,15 @@ declare global {
     | 'preempted_for_controller_progress'
     | 'preempted_for_controller_signing'
     | 'preempted_for_energy_critical'
+    | 'preempted_for_new_task'
     | 'preempted_for_nearby_energy'
     | 'preempted_for_productive_backlog'
     | 'preempted_for_spawn_recovery'
     | 'preempted_for_spawn_reservation_refill'
     | 'preempted_for_territory'
     | 'preempted_for_upgrader_boost'
-    | 'preempted_for_urgent_spending';
+    | 'preempted_for_urgent_spending'
+    | 'unreachable_state_task_not_assigned';
 
   interface WorkerDispatchDiagnosticMemory {
     tick: number;

@@ -236,7 +236,7 @@ function selectWorkerDispatchDiagnosticReason(
       return 'preempted_for_upgrader_boost';
     }
 
-    return 'assigned_selected_task';
+    return 'preempted_for_new_task';
   }
 
   if (!selectedTask) {
@@ -244,7 +244,7 @@ function selectWorkerDispatchDiagnosticReason(
   }
 
   if (!currentTask) {
-    return assignedTask ? 'assigned_selected_task' : 'selected_task_not_assigned';
+    return assignedTask ? 'assigned_selected_task' : 'unreachable_state_task_not_assigned';
   }
 
   if (isSameTask(currentTask, selectedTask)) {
