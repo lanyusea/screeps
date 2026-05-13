@@ -22,6 +22,11 @@ import {
 } from './expansionConfig';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { pruneLowerPriorityDuplicateClaimPlans } from './multiRoomTerritory';
+import {
+  getFreshRoomScoutReport,
+  refreshAdjacentRoomScoutReports,
+  type RoomScoutReport
+} from '../intel/adjacentRoomScout';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
@@ -393,6 +398,8 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
   const gameTime = getGameTime();
   let order = 0;
 
+  refreshAdjacentRoomScoutReports(colonyName, gameTime);
+
   for (const ownedRoomName of ownedRoomNames) {
     const nearbyRoomDistances = nearbyRoomDistancesByOwnedRoom.get(ownedRoomName);
     if (!nearbyRoomDistances) {
@@ -480,7 +487,7 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
           ? buildVisibleExpansionCandidateEvidence(room)
           : scoutIntel
             ? buildScoutedExpansionCandidateEvidence(scoutIntel)
-            : buildUnseenExpansionCandidateEvidence(roomName))
+            : buildUnseenExpansionCandidateEvidence(roomName, gameTime))
       }
     ];
   });
@@ -509,8 +516,14 @@ function getConfiguredNearestOwnedRoomDistance(
 }
 
 function buildUnseenExpansionCandidateEvidence(
-  roomName: string
+  roomName: string,
+  gameTime = getGameTime()
 ): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
+  const scoutReport = getFreshRoomScoutReport(roomName, gameTime);
+  if (scoutReport) {
+    return buildRoomScoutReportExpansionCandidateEvidence(scoutReport);
+  }
+
   const terrain = summarizeRoomTerrain(roomName);
   return {
     visible: false,
@@ -565,17 +578,72 @@ function buildScoutedExpansionCandidateEvidence(
   };
 }
 
+function buildRoomScoutReportExpansionCandidateEvidence(
+  report: RoomScoutReport
+): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
+  const terrain = summarizeRoomScoutReportTerrain(report.terrain);
+  const controller = summarizeRoomScoutReportController(report.controller);
+  const visibleEvidence = report.visible === true;
+
+  return {
+    visible: false,
+    ...(visibleEvidence ? { scouted: true } : {}),
+    ...(controller ? { controller } : {}),
+    ...(report.controller?.id ? { controllerId: report.controller.id } : {}),
+    ...(typeof report.sourceCount === 'number' ? { sourceCount: report.sourceCount } : {}),
+    ...(terrain ? { terrain } : {}),
+    ...(report.mineralType ? { mineral: { mineralType: report.mineralType } } : {})
+  };
+}
+
+function summarizeRoomScoutReportController(
+  controller: RoomScoutReport['controller']
+): ExpansionControllerEvidence | undefined {
+  if (!controller?.present) {
+    return undefined;
+  }
+
+  return {
+    ...(controller.my === true ? { my: true } : {}),
+    ...(controller.ownerUsername ? { ownerUsername: controller.ownerUsername } : {}),
+    ...(controller.reservationUsername ? { reservationUsername: controller.reservationUsername } : {}),
+    ...(typeof controller.reservationTicksToEnd === 'number'
+      ? { reservationTicksToEnd: controller.reservationTicksToEnd }
+      : {})
+  };
+}
+
+function summarizeRoomScoutReportTerrain(
+  terrain: RoomScoutReport['terrain']
+): ExpansionTerrainQuality | null {
+  const total = terrain.plains + terrain.swamp + terrain.wall;
+  if (total <= 0) {
+    return null;
+  }
+
+  return {
+    walkableRatio: roundRatio(terrain.plains + terrain.swamp, total),
+    swampRatio: roundRatio(terrain.swamp, total),
+    wallRatio: roundRatio(terrain.wall, total)
+  };
+}
+
 function applyScoutIntelToExpansionCandidate(
   input: ExpansionScoringInput,
   candidate: ExpansionCandidateInput,
   gameTime: number
 ): ExpansionCandidateInput {
   const intel = getFreshExpansionScoutIntel(input.colonyName, candidate.roomName, gameTime);
-  if (!intel) {
+  const roomScoutReport = getFreshRoomScoutReport(candidate.roomName, gameTime);
+  const scoutEvidence = intel
+    ? buildScoutedExpansionCandidateEvidence(intel)
+    : roomScoutReport
+      ? buildRoomScoutReportExpansionCandidateEvidence(roomScoutReport)
+      : null;
+  if (!scoutEvidence) {
     return candidate;
   }
 
-  const scoutEvidence = buildScoutedExpansionCandidateEvidence(intel);
   const controller = hasExpansionControllerEvidence(candidate.controller)
     ? candidate.controller
     : scoutEvidence.controller;
