@@ -59,6 +59,65 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('withdraws construction-buffer spawn energy for an idle builder', () => {
+    const site = withRangeTo(
+      { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const withdraw = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        return type === FIND_STRUCTURES ? [spawn] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      withdraw,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById: jest.fn().mockReturnValue(spawn)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn1',
+      constructionSiteId: 'extension-site1'
+    });
+    expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 50);
+  });
+
   it('signs an owned controller when controller management reports a missing signature', () => {
     const controller = {
       id: 'controller1',

@@ -16,7 +16,8 @@ import {
 } from './workerTaskPolicy';
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
-import { getSpawnEnergyWithdrawalAmount } from '../economy/spawnEnergyBuffer';
+import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
+import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 import { selectSpawnEnergyReservationRefillTarget } from '../economy/spawnEnergyReservation';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
@@ -457,6 +458,13 @@ function getStoredEnergy(target: unknown): number {
   const storedEnergy = (target as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null } })
     .store?.getUsedCapacity?.(RESOURCE_ENERGY);
   return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+
+function getRoomEnergyAvailable(room: Room): number | null {
+  const energyAvailable = (room as Room & { energyAvailable?: unknown }).energyAvailable;
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable)
+    ? Math.max(0, energyAvailable)
+    : null;
 }
 
 function getCarriedEnergy(creep: Creep): number {
@@ -1341,7 +1349,7 @@ function executeTask(
     case 'withdraw': {
       const withdrawTarget = target as AnyStoreStructure;
       const requestedAmount = getFreeTransferEnergyCapacity(creep);
-      const safeAmount = getSpawnEnergyWithdrawalAmount(creep.room, withdrawTarget, requestedAmount);
+      const safeAmount = getSafeWithdrawEnergyAmount(creep, withdrawTarget, requestedAmount, task);
       if (safeAmount <= 0) {
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
@@ -1390,6 +1398,25 @@ function executeTask(
     case 'upgrade':
       return toTaskExecutionResult(runUpgrader(creep, target as StructureController), 'work');
   }
+}
+
+function getSafeWithdrawEnergyAmount(
+  creep: Creep,
+  target: AnyStoreStructure,
+  requestedAmount: number,
+  task: Extract<CreepTaskMemory, { type: 'withdraw' }>
+): number {
+  if (!task.constructionSiteId || !isSpawnEnergySource(target)) {
+    return getSpawnEnergyWithdrawalAmount(creep.room, target, requestedAmount);
+  }
+
+  const roomEnergyAvailable = getRoomEnergyAvailable(creep.room);
+  if (roomEnergyAvailable === null) {
+    return 0;
+  }
+
+  const constructionBudget = Math.max(0, roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room));
+  return Math.min(Math.max(0, requestedAmount), getStoredEnergy(target), constructionBudget);
 }
 
 function executeHarvestTask(

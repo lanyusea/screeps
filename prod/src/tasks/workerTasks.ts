@@ -359,6 +359,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return builderEnergyAcquisitionTask;
       }
 
+      const constructionBacklogEnergyAcquisitionTask = selectConstructionBacklogEnergyAcquisitionTask(creep);
+      if (constructionBacklogEnergyAcquisitionTask) {
+        return constructionBacklogEnergyAcquisitionTask;
+      }
+
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
       if (nearbyWorkerEnergyAcquisitionTask) {
         return nearbyWorkerEnergyAcquisitionTask;
@@ -3736,6 +3741,52 @@ function selectBuilderEnergyAcquisitionTask(creep: Creep): BuilderEnergyAcquisit
   return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
 }
 
+function selectConstructionBacklogEnergyAcquisitionTask(creep: Creep): BuilderEnergyAcquisitionTask | null {
+  if (getFreeEnergyCapacity(creep) <= 0 || getActiveWorkParts(creep) <= 0) {
+    return null;
+  }
+
+  const constructionSites =
+    typeof FIND_CONSTRUCTION_SITES === 'number' && typeof creep.room?.find === 'function'
+      ? creep.room.find(FIND_CONSTRUCTION_SITES)
+      : [];
+  if (constructionSites.length === 0) {
+    return null;
+  }
+
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const capacityConstructionSite = selectCapacityEnablingConstructionSite(
+    creep,
+    constructionSites,
+    creep.room.controller,
+    constructionReservationContext,
+    constructionPriorityContext
+  );
+  const constructionSite =
+    selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+      creep,
+      capacityConstructionSite,
+      constructionSites,
+      constructionReservationContext,
+      constructionPriorityContext
+    ) ??
+    capacityConstructionSite ??
+    selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, () => true, {
+      priorityContext: constructionPriorityContext
+    });
+  if (!constructionSite) {
+    return null;
+  }
+
+  const candidates = findBuilderEnergyAcquisitionCandidates(creep, constructionSite);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+
 export function findBuilderEnergyAcquisitionCandidates(
   creep: Creep,
   constructionSite: ConstructionSite
@@ -3751,6 +3802,7 @@ export function findBuilderEnergyAcquisitionCandidates(
     .filter(
       (structure): structure is BuilderStoredEnergySource =>
         isSafeStoredEnergySource(structure, context) ||
+        isBuilderConstructionBufferSpawnSource(creep, structure, context, reservationContext) ||
         isBuilderConstructionPreBufferExtension(creep, constructionSite, structure)
     )
     .filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE))
@@ -3764,7 +3816,8 @@ export function findBuilderEnergyAcquisitionCandidates(
           targetId: source.id as Id<AnyStoreStructure>
         },
         reservationContext,
-        BUILDER_STORAGE_WITHDRAW_MIN
+        BUILDER_STORAGE_WITHDRAW_MIN,
+        constructionSite
       );
 
       return candidate ? [candidate] : [];
@@ -3811,9 +3864,10 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
   creep: Creep,
   source: BuilderStoredEnergySource,
   energy: number,
-  task: WorkerEnergyAcquisitionTask,
+  task: Extract<WorkerEnergyAcquisitionTask, { type: 'withdraw' }>,
   reservationContext: WorkerEnergyAcquisitionReservationContext,
-  minimumEnergy: number
+  minimumEnergy: number,
+  constructionSite: ConstructionSite
 ): BuilderEnergyAcquisitionCandidate | null {
   if (isExtensionEnergyBuffer(source)) {
     if (!isConstructionPreBufferExtensionSource(creep, source) || energy < CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY) {
@@ -3821,6 +3875,23 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
     }
 
     return createBuilderEnergyAcquisitionCandidate(creep, source, energy, task);
+  }
+
+  if (isSpawnEnergySource(source)) {
+    const constructionEnergy = getSpawnConstructionEnergyAvailableForWithdrawal(
+      creep,
+      source,
+      energy,
+      reservationContext
+    );
+    if (constructionEnergy <= 0) {
+      return null;
+    }
+
+    return createBuilderEnergyAcquisitionCandidate(creep, source, constructionEnergy, {
+      ...task,
+      constructionSiteId: constructionSite.id
+    });
   }
 
   const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
@@ -3832,6 +3903,44 @@ function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
     minimumEnergy
   );
   return candidate ? toBuilderEnergyAcquisitionCandidate(candidate) : null;
+}
+
+function isBuilderConstructionBufferSpawnSource(
+  creep: Creep,
+  structure: AnyStructure,
+  context: StoredEnergySourceContext,
+  reservationContext: WorkerEnergyAcquisitionReservationContext
+): structure is StructureSpawn {
+  return (
+    isSpawnEnergySource(structure) &&
+    isFriendlyStoredEnergySource(structure, context) &&
+    getSpawnConstructionEnergyAvailableForWithdrawal(
+      creep,
+      structure,
+      getStoredEnergy(structure),
+      reservationContext
+    ) > 0
+  );
+}
+
+function getSpawnConstructionEnergyAvailableForWithdrawal(
+  creep: Creep,
+  source: StructureSpawn,
+  energy: number,
+  reservationContext: WorkerEnergyAcquisitionReservationContext
+): number {
+  const roomEnergyAvailable = getRoomEnergyAvailable(creep.room);
+  if (roomEnergyAvailable === null) {
+    return 0;
+  }
+
+  const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
+  const projectedSourceEnergy = Math.max(0, energy - reservedEnergy);
+  const constructionBudget = Math.max(
+    0,
+    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservedEnergy
+  );
+  return Math.min(projectedSourceEnergy, constructionBudget);
 }
 
 function createBuilderEnergyAcquisitionCandidate(

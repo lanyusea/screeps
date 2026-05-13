@@ -69,6 +69,12 @@ type RuntimeBuildBlockedReason =
   | 'energy_buffer_blocked'
   | 'no_construction_sites'
   | 'worker_assignment_gap';
+type RuntimeWorkerAssignmentBlockedDetail =
+  | 'energy_buffer_below_threshold'
+  | 'spawn_reserving_energy'
+  | 'no_valid_body'
+  | 'room_capacity_full'
+  | 'unknown';
 
 interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
   none: number;
@@ -344,6 +350,7 @@ interface RuntimeProductiveEnergySummary {
   pendingBuildProgress: number;
   repairBacklogHits: number;
   buildBlockedReason?: RuntimeBuildBlockedReason;
+  workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
   controllerProgressRemaining?: number;
 }
 
@@ -1633,7 +1640,14 @@ function summarizeResources(
     droppedEnergy: sumDroppedEnergy(droppedResources),
     sourceCount: sourceContainerCoverage.sourceCount,
     sourceContainers: sourceContainerCoverage,
-    productiveEnergy: summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roomStructures, events),
+    productiveEnergy: summarizeProductiveEnergy(
+      colony,
+      colonyWorkers,
+      constructionSites,
+      roomStructures,
+      roomEnergyStructures,
+      events
+    ),
     energySurplus: summarizeEnergySurplus(colony.room, colonyWorkers),
     ...summarizeMultiRoomEnergy(colony.room.name),
     ...(events ? { events } : {})
@@ -1764,12 +1778,14 @@ function summarizeProductiveEnergy(
   colonyWorkers: Creep[],
   constructionSites: unknown[],
   roomStructures: unknown[],
+  roomEnergyStructures: unknown[],
   events: RuntimeResourceEventSummary | undefined
 ): RuntimeProductiveEnergySummary {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
   const pendingBuildProgress = sumPendingBuildProgress(constructionSites);
   const buildBlockedReason = selectBuildBlockedReason(
     colony,
+    colonyWorkers,
     productiveAssignments,
     pendingBuildProgress,
     constructionSites.length,
@@ -1781,12 +1797,22 @@ function summarizeProductiveEnergy(
     pendingBuildProgress,
     repairBacklogHits: sumRepairBacklogHits(roomStructures),
     ...(buildBlockedReason ? { buildBlockedReason } : {}),
+    ...(buildBlockedReason === 'worker_assignment_gap'
+      ? {
+          workerAssignmentBlockedDetail: selectWorkerAssignmentBlockedDetail(
+            colony,
+            colonyWorkers,
+            roomEnergyStructures
+          )
+        }
+      : {}),
     ...buildControllerProgressRemaining(colony.room)
   };
 }
 
 function selectBuildBlockedReason(
   colony: ColonySnapshot,
+  colonyWorkers: Creep[],
   productiveAssignments: Pick<
     RuntimeProductiveEnergySummary,
     'assignedCarriedEnergy' | 'buildCarriedEnergy'
@@ -1803,9 +1829,91 @@ function selectBuildBlockedReason(
     return undefined;
   }
 
+  if (hasConstructionEnergyAcquisitionAssignment(colonyWorkers)) {
+    return undefined;
+  }
+
   return isBuildBlockedByEnergyBuffer(colony, productiveAssignments.assignedCarriedEnergy)
     ? 'energy_buffer_blocked'
     : 'worker_assignment_gap';
+}
+
+function hasConstructionEnergyAcquisitionAssignment(colonyWorkers: Creep[]): boolean {
+  return colonyWorkers.some(hasConstructionEnergyAcquisitionTask);
+}
+
+function selectWorkerAssignmentBlockedDetail(
+  colony: ColonySnapshot,
+  colonyWorkers: Creep[],
+  roomEnergyStructures: unknown[]
+): RuntimeWorkerAssignmentBlockedDetail {
+  if (!colonyWorkers.some(isConstructionCapableWorker)) {
+    return 'no_valid_body';
+  }
+
+  const energyBuffer = getRoomEnergyBufferHealth(colony.room);
+  if (!energyBuffer.healthy || energyBuffer.currentEnergy < energyBuffer.threshold) {
+    return 'energy_buffer_below_threshold';
+  }
+
+  if (colonyWorkers.every((worker) => getFreeEnergyCapacityInStore(worker) <= 0)) {
+    return 'room_capacity_full';
+  }
+
+  if (hasSpawnReservedConstructionEnergy(colony, roomEnergyStructures, energyBuffer)) {
+    return 'spawn_reserving_energy';
+  }
+
+  return 'unknown';
+}
+
+function hasConstructionEnergyAcquisitionTask(creep: Creep): boolean {
+  const task = creep.memory?.task;
+  return task?.type === 'withdraw' && typeof task.constructionSiteId === 'string';
+}
+
+function isConstructionCapableWorker(creep: Creep): boolean {
+  return hasActiveBodyPart(creep, 'WORK', 'work') && getEnergyCapacityInStore(creep) > 0;
+}
+
+function hasActiveBodyPart(
+  creep: Creep,
+  globalName: 'WORK',
+  fallback: BodyPartConstant
+): boolean {
+  const bodyPart = ((globalThis as Partial<Record<typeof globalName, BodyPartConstant>>)[globalName] ??
+    fallback) as BodyPartConstant;
+  const activeBodyParts = creep.getActiveBodyparts?.(bodyPart);
+  if (typeof activeBodyParts === 'number' && Number.isFinite(activeBodyParts)) {
+    return activeBodyParts > 0;
+  }
+
+  const body = (creep as Creep & { body?: Array<{ type?: BodyPartConstant; hits?: number }> }).body;
+  if (!Array.isArray(body)) {
+    return true;
+  }
+
+  return body.some((part) => part.type === bodyPart && (part.hits ?? 1) > 0);
+}
+
+function hasSpawnReservedConstructionEnergy(
+  colony: ColonySnapshot,
+  roomEnergyStructures: unknown[],
+  energyBuffer: EnergyBufferHealth
+): boolean {
+  const roomEnergyBudget = Math.max(0, energyBuffer.currentEnergy - energyBuffer.threshold);
+  if (roomEnergyBudget <= 0) {
+    return false;
+  }
+
+  const spawnEnergy = roomEnergyStructures
+    .filter(isSpawnEnergyStructure)
+    .reduce<number>((total, structure) => total + getEnergyInStore(structure), 0);
+  return spawnEnergy > 0 && getRoomEnergyAvailable(colony) > energyBuffer.threshold;
+}
+
+function isSpawnEnergyStructure(structure: unknown): boolean {
+  return isRecord(structure) && matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn');
 }
 
 function isBuildBlockedByEnergyBuffer(colony: ColonySnapshot, assignedCarriedEnergy: number): boolean {
@@ -2398,6 +2506,20 @@ function getEnergyCapacityInStore(object: unknown): number {
 
   const capacity = object.store.capacity;
   return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
+}
+
+function getFreeEnergyCapacityInStore(object: unknown): number {
+  if (!isRecord(object) || !isRecord(object.store)) {
+    return 0;
+  }
+
+  const getFreeCapacity = object.store.getFreeCapacity;
+  if (typeof getFreeCapacity !== 'function') {
+    return 0;
+  }
+
+  const freeCapacity = getFreeCapacity.call(object.store, getEnergyResource());
+  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
 }
 
 function sumDroppedEnergy(droppedResources: unknown[]): number {
