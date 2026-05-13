@@ -172,7 +172,7 @@ def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, h
         "source": "test",
         "rooms": [
             {
-                "roomName": "E17S59",
+                "roomName": "E19S57",
                 "shard": "shardX",
                 "controller": {
                     "level": level,
@@ -220,10 +220,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         target = roadmap.build_screeps_room_target({})
 
         self.assertEqual(target["status"], "official target")
-        self.assertEqual(target["label"], "shardX/E17S59")
+        self.assertEqual(target["label"], "shardX/E19S57")
         self.assertEqual(target["shard"], "shardX")
-        self.assertEqual(target["room"], "E17S59")
-        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E17S59")
+        self.assertEqual(target["room"], "E19S57")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E19S57")
 
     def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -379,7 +379,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 "tick": 100,
                 "rooms": [
                     {
-                        "roomName": "E17S59",
+                        "roomName": "E19S57",
                         "shard": "shardX",
                         "resources": {
                             "storedEnergy": 50,
@@ -393,7 +393,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             newer = {
                 "type": "runtime-summary",
                 "tick": 120,
-                "rooms": [{"roomName": "E17S59", "shard": "shardX"}],
+                "rooms": [{"roomName": "E19S57", "shard": "shardX"}],
             }
             (artifact_dir / "runtime-summary-console-20260501T120000Z.log").write_text(
                 f"#runtime-summary {json.dumps(older, sort_keys=True)}\n",
@@ -433,7 +433,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "latestCount": 0,
                     "deltaCount": -1,
                     "gained": [],
-                    "lost": ["E17S59"],
+                    "lost": ["E19S57"],
                 },
                 "controllers": {"status": "not instrumented"},
             },
@@ -496,7 +496,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 "tick": 100,
                 "rooms": [
                     {
-                        "roomName": "E17S59",
+                        "roomName": "E19S57",
                         "shard": "shardX",
                         "resources": {
                             "storedEnergy": 75,
@@ -527,8 +527,8 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(stored_energy["sourceKind"], "runtime-summary-artifact")
         self.assertEqual(stored_energy["reducerSchemaVersion"], roadmap.runtime_kpi_reducer.SCHEMA_VERSION)
         self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")
-        self.assertEqual(stored_energy["scope"]["targetRoom"], "E17S59")
-        self.assertEqual(stored_energy["scope"]["observedRooms"], ["E17S59", "W9N9"])
+        self.assertEqual(stored_energy["scope"]["targetRoom"], "E19S57")
+        self.assertEqual(stored_energy["scope"]["observedRooms"], ["E19S57", "W9N9"])
 
     def test_counts_only_successful_official_deploy_evidence_json_in_delivery_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -29084,16 +29084,16 @@
     "pagesUrl": "https://lanyusea.github.io/screeps/",
     "projectUrl": "https://github.com/users/lanyusea/projects/3",
     "screepsRoom": {
-      "label": "shardX/E17S59",
+      "label": "shardX/E19S57",
       "message": "Target room from the AGENTS.md official deployment target.",
-      "room": "E17S59",
+      "room": "E19S57",
       "shard": "shardX",
       "sources": {
         "room": "AGENTS.md official target",
         "shard": "AGENTS.md official target"
       },
       "status": "official target",
-      "url": "https://screeps.com/a/#!/room/shardX/E17S59"
+      "url": "https://screeps.com/a/#!/room/shardX/E19S57"
     },
     "url": "https://github.com/lanyusea/screeps"
   },
