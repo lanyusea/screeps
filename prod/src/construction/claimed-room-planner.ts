@@ -113,6 +113,7 @@ function buildClaimedRoomConstructionOptions(
     includeStorage: options.includeStorage ?? postClaimRoom,
     postClaimPriorityOrder: options.postClaimPriorityOrder ?? postClaimRoom,
     respectRoomEnergyBuffer: options.respectRoomEnergyBuffer ?? true,
+    maxContainerSitesPerTick: options.maxContainerSitesPerTick ?? Math.max(1, sourceCount),
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,
       maxTargetsPerTick: Math.max(1, sourceCount),

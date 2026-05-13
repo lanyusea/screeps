@@ -184,7 +184,7 @@ const CONTROLLER_DOWNGRADE_WARNING_TICKS = 10_000;
 const EARLY_ENERGY_CAPACITY_TARGET = 550;
 const MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
 const MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
-const MIN_RCL_FOR_AUTOMATED_ROADS = 4;
+const MIN_RCL_FOR_AUTOMATED_ROADS = 2;
 const MIN_RCL_FOR_STORAGE = 4;
 const MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY = 4;
 const STORAGE_STRUCTURE_LIMIT = 1;
@@ -233,8 +233,8 @@ export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
 const POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   spawn: 170,
   extension: 160,
-  road: 150,
-  container: 140,
+  container: 150,
+  road: 140,
   rampart: 130,
   tower: 120,
   storage: 110,
@@ -537,14 +537,6 @@ export function planPriorityConstructionSites(
     };
   }
 
-  const towerResult = planTowerConstruction(colony);
-  if (towerResult !== null) {
-    return {
-      ...createEmptyConstructionPriorityPlanningResult(),
-      towerResult
-    };
-  }
-
   const sourceContainerResults = planSourceContainerConstruction(colony, options);
   if (sourceContainerResults.length > 0) {
     return {
@@ -558,6 +550,14 @@ export function planPriorityConstructionSites(
     return {
       ...createEmptyConstructionPriorityPlanningResult(),
       roadResults
+    };
+  }
+
+  const towerResult = planTowerConstruction(colony);
+  if (towerResult !== null) {
+    return {
+      ...createEmptyConstructionPriorityPlanningResult(),
+      towerResult
     };
   }
 
