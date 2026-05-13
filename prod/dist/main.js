@@ -24637,7 +24637,7 @@ function selectUncoveredProductiveBacklogTaskBeforeControllerProgress(creep, con
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
-  if (!hasSameRoomWorkerAssignedToTask(creep.room, "build")) {
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, creep, "build")) {
     const constructionSite = selectUnreservedConstructionSite(
       creep,
       constructionSites,
@@ -24649,7 +24649,7 @@ function selectUncoveredProductiveBacklogTaskBeforeControllerProgress(creep, con
       return { type: "build", targetId: constructionSite.id };
     }
   }
-  if (!hasSameRoomWorkerAssignedToTask(creep.room, "repair")) {
+  if (!hasSameRoomWorkerAssignedToTask(creep.room, creep, "repair")) {
     const repairTarget = selectRepairTarget(creep);
     if (repairTarget) {
       return { type: "repair", targetId: repairTarget.id };
@@ -24699,11 +24699,11 @@ function hasLoadedWorkerAvailableForUncoveredProductiveBacklog(creep, controller
     return taskType === void 0 || taskType === null;
   });
 }
-function hasSameRoomWorkerAssignedToTask(room, taskType) {
+function hasSameRoomWorkerAssignedToTask(room, currentCreep, taskType) {
   return getGameCreeps().some(
     (worker) => {
       var _a, _b;
-      return isSameRoomWorker(worker, room) && ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === taskType;
+      return !isSameCreep(worker, currentCreep) && isSameRoomWorker(worker, room) && ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === taskType;
     }
   );
 }
