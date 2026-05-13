@@ -11039,6 +11039,86 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('reserves a loaded worker for construction when healthy energy and idle workers leave build coverage empty', () => {
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 317,
+      energyCapacityAvailable: 400,
+      structures: [storage]
+    });
+    const builder = {
+      name: 'BuilderCandidate',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'EmptyIdle',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      UpgraderA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderB: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      EmptyIdle: idleWorker
+    });
+
+    const selectedTask = selectWorkerTask(builder);
+    const taskCounts = { build: selectedTask?.type === 'build' ? 1 : 0 };
+
+    expect(taskCounts.build).toBeGreaterThan(0);
+    expect(selectedTask).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
+  it('does not count the current build-assigned worker as uncovered construction coverage', () => {
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 317,
+      energyCapacityAvailable: 400,
+      structures: [storage]
+    });
+    const builder = {
+      name: 'BuilderCandidate',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'wall-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      BuilderCandidate: builder,
+      UpgraderA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderB: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> })
+    });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'wall-site1' });
+  });
+
   it('routes carried energy to controller upgrade before non-critical construction when salvage surplus exists', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const tombstone = makeSalvageEnergySource('tombstone-surplus', 100);
