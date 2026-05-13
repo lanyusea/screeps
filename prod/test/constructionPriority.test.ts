@@ -251,6 +251,69 @@ describe('construction priority scoring', () => {
     );
   });
 
+  it('adds high-priority RCL2 extension bootstrap weight when stored energy is surplus and capacity is below max', () => {
+    const state = makeRoomState({
+      rcl: 2,
+      energyCapacity: 300,
+      storedEnergy: 600,
+      extensionCount: 0,
+      constructionSiteCount: 3
+    });
+
+    const report = scoreConstructionPriorities(state, [
+      makeExtensionCandidate(),
+      makeSourceContainerCandidate()
+    ]);
+    const extension = scoreByName(report.candidates, 'build extension capacity');
+
+    expect(report.nextPrimary?.buildItem).toBe('build extension capacity');
+    expect(extension.factors.extensionBootstrapWeight).toBeGreaterThan(0);
+    expect(extension.score).toBeGreaterThan(scoreFor(report.candidates, 'build source containers'));
+    expect(extension.urgency).toBe('critical');
+  });
+
+  it('does not add RCL2 extension bootstrap weight after all five RCL2 extensions are built', () => {
+    const report = scoreConstructionPriorities(
+      makeRoomState({
+        rcl: 2,
+        energyCapacity: 550,
+        storedEnergy: 1_000,
+        extensionCount: 5
+      }),
+      [makeExtensionCandidate()]
+    );
+
+    expect(scoreByName(report.candidates, 'build extension capacity').factors.extensionBootstrapWeight).toBe(0);
+  });
+
+  it('does not add RCL2 extension bootstrap weight without stored energy surplus', () => {
+    const report = scoreConstructionPriorities(
+      makeRoomState({
+        rcl: 2,
+        energyCapacity: 300,
+        storedEnergy: 500,
+        extensionCount: 0
+      }),
+      [makeExtensionCandidate()]
+    );
+
+    expect(scoreByName(report.candidates, 'build extension capacity').factors.extensionBootstrapWeight).toBe(0);
+  });
+
+  it('does not add RCL2 extension bootstrap weight at RCL3', () => {
+    const report = scoreConstructionPriorities(
+      makeRoomState({
+        rcl: 3,
+        energyCapacity: 300,
+        storedEnergy: 1_000,
+        extensionCount: 0
+      }),
+      [makeExtensionCandidate()]
+    );
+
+    expect(scoreByName(report.candidates, 'build extension capacity').factors.extensionBootstrapWeight).toBe(0);
+  });
+
   it('returns a missing-observation precondition instead of scoring unsupported remote certainty', () => {
     const state = makeRoomState({
       activeTerritoryIntentCount: 1,
@@ -752,6 +815,7 @@ function makeRoomState(overrides: Partial<ConstructionPriorityRoomState> = {}): 
     rcl: 2,
     energyAvailable: 300,
     energyCapacity: 550,
+    storedEnergy: 300,
     workerCount: 3,
     spawnCount: 1,
     sourceCount: 2,
@@ -780,6 +844,35 @@ function makeRoomState(overrides: Partial<ConstructionPriorityRoomState> = {}): 
       ...overrides.observations
     },
     ...overrides
+  };
+}
+
+function makeExtensionCandidate(): ConstructionBuildCandidate {
+  return {
+    buildItem: 'build extension capacity',
+    buildType: 'extension',
+    minimumRcl: 2,
+    requiredObservations: ['room-controller', 'energy-capacity', 'worker-count', 'construction-sites'],
+    expectedKpiMovement: ['raises spawn energy capacity', 'unlocks larger workers and faster RCL progress'],
+    risk: ['adds build backlog before roads/containers if worker capacity is low'],
+    estimatedEnergyCost: 3_000,
+    signals: { energyBottleneck: 0.85, spawnUtilization: 0.8, rclAcceleration: 0.65 },
+    vision: { resources: 1, territory: 0.35 }
+  };
+}
+
+function makeSourceContainerCandidate(): ConstructionBuildCandidate {
+  return {
+    buildItem: 'build source containers',
+    buildType: 'container',
+    minimumRcl: 2,
+    requiredObservations: ['room-controller', 'sources', 'worker-count'],
+    expectedKpiMovement: ['raises harvest throughput', 'reduces dropped-energy waste'],
+    risk: ['large early build cost and decay upkeep'],
+    estimatedEnergyCost: 5_000,
+    pathExposure: 'low',
+    signals: { harvestThroughput: 0.9, storageLogistics: 0.65, rclAcceleration: 0.35 },
+    vision: { resources: 1, territory: 0.35 }
   };
 }
 

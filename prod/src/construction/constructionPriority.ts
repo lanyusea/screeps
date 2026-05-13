@@ -56,6 +56,7 @@ export interface ConstructionPriorityRoomState {
   rcl?: number;
   energyAvailable?: number;
   energyCapacity?: number;
+  storedEnergy?: number;
   workerCount?: number;
   spawnCount?: number;
   sourceCount?: number;
@@ -97,6 +98,7 @@ export interface ConstructionBuildCandidate {
 export interface ConstructionPriorityFactors {
   urgency: number;
   roomState: number;
+  extensionBootstrapWeight: number;
   expansionPrerequisites: number;
   economicBenefit: number;
   visionWeight: number;
@@ -182,6 +184,19 @@ interface PositionedRoomPosition {
 const CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5_000;
 const CONTROLLER_DOWNGRADE_WARNING_TICKS = 10_000;
 const EARLY_ENERGY_CAPACITY_TARGET = 550;
+const RCL2_EXTENSION_BOOTSTRAP_STORED_ENERGY_THRESHOLD = 500;
+const RCL2_EXTENSION_BOOTSTRAP_POINTS = 30;
+const SPAWN_ENERGY_CAPACITY_FALLBACK = 300;
+const EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL: Record<number, number> = {
+  1: 0,
+  2: 50,
+  3: 50,
+  4: 50,
+  5: 50,
+  6: 50,
+  7: 100,
+  8: 200
+};
 const MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
 const MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
 const MIN_RCL_FOR_AUTOMATED_ROADS = 2;
@@ -313,6 +328,7 @@ export function scoreConstructionCandidate(
       factors: {
         urgency: 0,
         roomState: 0,
+        extensionBootstrapWeight: 0,
         expansionPrerequisites: 0,
         economicBenefit: 0,
         visionWeight: 0,
@@ -327,6 +343,7 @@ export function scoreConstructionCandidate(
   const factors: ConstructionPriorityFactors = {
     urgency: Math.round(urgencyMagnitude * MAX_URGENCY_POINTS),
     roomState: scoreRoomState(roomState, candidate),
+    extensionBootstrapWeight: scoreExtensionBootstrapWeight(roomState, candidate),
     expansionPrerequisites: scoreExpansionPrerequisites(roomState, candidate),
     economicBenefit: scoreEconomicBenefit(roomState, candidate),
     visionWeight: scoreVisionWeight(candidate),
@@ -335,6 +352,7 @@ export function scoreConstructionCandidate(
   const rawScore =
     factors.urgency +
     factors.roomState +
+    factors.extensionBootstrapWeight +
     factors.expansionPrerequisites +
     factors.economicBenefit +
     factors.visionWeight -
@@ -1563,6 +1581,37 @@ function scoreRoomState(roomState: ConstructionPriorityRoomState, candidate: Con
   return Math.min(MAX_ROOM_STATE_POINTS, score);
 }
 
+function scoreExtensionBootstrapWeight(
+  roomState: ConstructionPriorityRoomState,
+  candidate: ConstructionBuildCandidate
+): number {
+  if (candidate.buildType !== 'extension' || roomState.rcl !== 2) {
+    return 0;
+  }
+
+  const extensionLimit = getControllerExtensionLimitForRcl(roomState.rcl);
+  if (extensionLimit <= 0 || (roomState.extensionCount ?? extensionLimit) >= extensionLimit) {
+    return 0;
+  }
+
+  const energyCapacity = roomState.energyCapacity;
+  const storedEnergy = roomState.storedEnergy;
+  if (
+    typeof energyCapacity !== 'number' ||
+    typeof storedEnergy !== 'number' ||
+    storedEnergy <= RCL2_EXTENSION_BOOTSTRAP_STORED_ENERGY_THRESHOLD
+  ) {
+    return 0;
+  }
+
+  const rclCapacityTarget = getSpawnEnergyCapacity() + extensionLimit * getExtensionEnergyCapacityForRcl(roomState.rcl);
+  if (energyCapacity >= rclCapacityTarget) {
+    return 0;
+  }
+
+  return RCL2_EXTENSION_BOOTSTRAP_POINTS;
+}
+
 function scoreExpansionPrerequisites(
   roomState: ConstructionPriorityRoomState,
   candidate: ConstructionBuildCandidate
@@ -1851,6 +1900,32 @@ function getEnergyBottleneckPressure(roomState: ConstructionPriorityRoomState): 
   return 0;
 }
 
+function getControllerExtensionLimitForRcl(rcl: number): number {
+  const controllerStructures = (globalThis as unknown as { CONTROLLER_STRUCTURES?: unknown }).CONTROLLER_STRUCTURES;
+  const extensionStructureType = getBuildableStructureConstant('STRUCTURE_EXTENSION', 'extension');
+  const configuredLimit = isRecord(controllerStructures)
+    ? getIndexedNonNegativeInteger(controllerStructures[extensionStructureType], rcl)
+    : null;
+
+  return configuredLimit ?? getExtensionLimitForRcl(rcl);
+}
+
+function getSpawnEnergyCapacity(): number {
+  return (
+    getNonNegativeInteger((globalThis as { SPAWN_ENERGY_CAPACITY?: unknown }).SPAWN_ENERGY_CAPACITY) ??
+    SPAWN_ENERGY_CAPACITY_FALLBACK
+  );
+}
+
+function getExtensionEnergyCapacityForRcl(rcl: number): number {
+  const configuredCapacity = getIndexedNonNegativeInteger(
+    (globalThis as { EXTENSION_ENERGY_CAPACITY?: unknown }).EXTENSION_ENERGY_CAPACITY,
+    rcl
+  );
+
+  return configuredCapacity ?? EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL[rcl] ?? 0;
+}
+
 function getRepairDecayPressure(roomState: ConstructionPriorityRoomState): number {
   if ((roomState.criticalRepairCount ?? 0) > 0) {
     return 0.7;
@@ -1903,6 +1978,7 @@ function buildRuntimeConstructionPriorityState(
     rcl: room.controller?.my === true ? room.controller.level : undefined,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
+    storedEnergy: summarizeRuntimeStoredEnergy(colony, ownedStructures, visibleStructures),
     workerCount: colonyWorkers.length,
     spawnCount: colony.spawns.length,
     sourceCount: sources?.length,
@@ -1933,6 +2009,59 @@ function buildRuntimeConstructionPriorityState(
     ownedStructures,
     visibleStructures
   };
+}
+
+function summarizeRuntimeStoredEnergy(
+  colony: ColonySnapshot,
+  ownedStructures: AnyOwnedStructure[] | null,
+  visibleStructures: AnyStructure[] | null
+): number {
+  return Math.max(
+    sumStoredEnergy(getRuntimeEnergyStoreStructures(colony, ownedStructures, visibleStructures)),
+    getNonNegativeInteger(colony.energyAvailable) ?? 0,
+    getNonNegativeInteger((colony.room as Partial<Room>).energyAvailable) ?? 0
+  );
+}
+
+function getRuntimeEnergyStoreStructures(
+  colony: ColonySnapshot,
+  ownedStructures: AnyOwnedStructure[] | null,
+  visibleStructures: AnyStructure[] | null
+): unknown[] {
+  const observedStructures = visibleStructures ?? ownedStructures ?? [];
+  const fallbackStructures = observedStructures.length === 0 ? colony.spawns : [];
+  const directRoomStructures = getDirectRoomEnergyStoreStructures(colony.room);
+
+  return uniqueRuntimeObjects([
+    ...observedStructures,
+    ...fallbackStructures,
+    ...directRoomStructures
+  ]).filter(isRuntimeEnergyStoreStructure);
+}
+
+function getDirectRoomEnergyStoreStructures(room: Room): unknown[] {
+  const roomWithStores = room as Room & { storage?: unknown; terminal?: unknown };
+  return [roomWithStores.storage, roomWithStores.terminal].filter(
+    (structure) => structure !== undefined && structure !== null
+  );
+}
+
+function isRuntimeEnergyStoreStructure(structure: unknown): boolean {
+  if (!isRecord(structure)) {
+    return false;
+  }
+
+  const structureType = typeof structure.structureType === 'string' ? structure.structureType : undefined;
+  return (
+    matchesStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension') ||
+    matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structureType, 'STRUCTURE_STORAGE', 'storage')
+  );
+}
+
+function sumStoredEnergy(objects: unknown[]): number {
+  return objects.reduce<number>((total, object) => total + getStoredEnergy(object), 0);
 }
 
 function buildRuntimeConstructionCandidates(state: RuntimeConstructionPriorityState): ConstructionBuildCandidate[] {
@@ -2343,6 +2472,96 @@ function countTerritoryIntents(roomName: string): { active: number; planned: num
     },
     { active: 0, planned: 0 }
   );
+}
+
+function uniqueRuntimeObjects(objects: unknown[]): unknown[] {
+  const seenKeys = new Set<string>();
+  const seenReferences = new Set<unknown>();
+  const uniqueObjects: unknown[] = [];
+
+  for (const object of objects) {
+    if (object === undefined || object === null) {
+      continue;
+    }
+
+    const key = getObjectIdentityKey(object);
+    if (key) {
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      seenKeys.add(key);
+    } else if (seenReferences.has(object)) {
+      continue;
+    }
+
+    seenReferences.add(object);
+    uniqueObjects.push(object);
+  }
+
+  return uniqueObjects;
+}
+
+function getObjectIdentityKey(object: unknown): string | null {
+  if (!isRecord(object)) {
+    return null;
+  }
+
+  if (typeof object.id === 'string' && object.id.length > 0) {
+    return `id:${object.id}`;
+  }
+
+  if (typeof object.name === 'string' && object.name.length > 0) {
+    return `name:${object.name}`;
+  }
+
+  return null;
+}
+
+function getStoredEnergy(object: unknown): number {
+  if (!isRecord(object)) {
+    return 0;
+  }
+
+  const store = object.store;
+  if (!isRecord(store)) {
+    return getNonNegativeInteger(object.energy) ?? 0;
+  }
+
+  const energyResource = getEnergyResource();
+  const storedEnergy = store[energyResource];
+  if (typeof storedEnergy === 'number' && Number.isFinite(storedEnergy)) {
+    return Math.max(0, Math.floor(storedEnergy));
+  }
+
+  const getUsedCapacity = store.getUsedCapacity;
+  if (typeof getUsedCapacity === 'function') {
+    const usedCapacity = getUsedCapacity.call(store, energyResource);
+    return getNonNegativeInteger(usedCapacity) ?? 0;
+  }
+
+  return getNonNegativeInteger(object.energy) ?? 0;
+}
+
+function getEnergyResource(): ResourceConstant {
+  return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
+}
+
+function getIndexedNonNegativeInteger(value: unknown, index: number): number | null {
+  if (Array.isArray(value)) {
+    return getNonNegativeInteger(value[index]);
+  }
+
+  if (isRecord(value)) {
+    return getNonNegativeInteger(value[String(index)]);
+  }
+
+  return null;
+}
+
+function getNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
