@@ -79,16 +79,16 @@ describe('owned room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
       'extension',
-      'road',
       'container',
+      'road',
       'tower',
       'rampart',
       'wall'
     ]);
     expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
       STRUCTURE_EXTENSION,
-      STRUCTURE_ROAD,
       STRUCTURE_CONTAINER,
+      STRUCTURE_ROAD,
       STRUCTURE_TOWER,
       STRUCTURE_RAMPART,
       STRUCTURE_WALL
@@ -97,7 +97,7 @@ describe('owned room construction planner', () => {
     expect(result.energyReserved).toBe(300);
   });
 
-  it('places spawn and controller staging containers after extension and road work', () => {
+  it('places spawn and controller staging containers after extension work before roads', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
       controllerLevel: 3,
@@ -117,17 +117,17 @@ describe('owned room construction planner', () => {
 
     expect(result.placements.map((placement) => placement.priority)).toEqual([
       'extension',
+      'container',
+      'container',
       'road',
-      'container',
-      'container',
       'tower',
       'rampart',
       'wall'
     ]);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 9, 9, STRUCTURE_EXTENSION);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 10, 11, STRUCTURE_ROAD);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(3, 11, 11, STRUCTURE_CONTAINER);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(4, 24, 24, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 11, 11, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(3, 24, 24, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(4, 10, 11, STRUCTURE_ROAD);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(5, 10, 9, STRUCTURE_TOWER);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(6, 10, 10, STRUCTURE_RAMPART);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(7, 11, 9, STRUCTURE_WALL);

@@ -212,6 +212,18 @@ describe('runtime telemetry summaries', () => {
                 preconditions: [],
                 expectedKpiMovement: ['raises harvest throughput', 'reduces dropped-energy waste'],
                 risk: ['large early build cost and decay upkeep']
+              },
+              {
+                buildItem: 'build source/controller roads',
+                room: 'W1N1',
+                score: 21,
+                urgency: 'low',
+                preconditions: [],
+                expectedKpiMovement: [
+                  'reduces worker travel time',
+                  'improves harvest-to-spawn throughput'
+                ],
+                risk: ['road decay creates recurring repair load']
               }
             ],
             nextPrimary: {
@@ -641,7 +653,7 @@ describe('runtime telemetry summaries', () => {
       controllerId: 'controller-e18s59',
       progress: {
         construction: {
-          priorityOrder: ['spawn', 'extension', 'road', 'container', 'tower', 'rampart', 'storage'],
+          priorityOrder: ['spawn', 'extension', 'container', 'road', 'tower', 'rampart', 'storage'],
           sourceContainers: {
             existing: 1,
             pending: 0,
