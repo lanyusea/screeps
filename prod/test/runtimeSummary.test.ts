@@ -964,6 +964,7 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerAssignmentBlockedDetail).toBe('spawn_reserving_energy');
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
       buildBlockedReason: 'worker_assignment_gap',
       workerAssignmentBlockedDetail: 'spawn_reserving_energy'
@@ -1017,6 +1018,8 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.workerAssignmentBlockedDetail).toEqual(productiveEnergy.workerAssignmentBlockedDetail);
+    expect(room.workerAssignmentBlockedWorkers).toEqual(productiveEnergy.workerAssignmentBlockedWorkers);
     expect(productiveEnergy.workerAssignmentBlockedWorkers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
