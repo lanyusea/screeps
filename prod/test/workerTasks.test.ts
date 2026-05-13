@@ -10377,6 +10377,40 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('uses room construction buffer energy from a full spawn for an idle builder', () => {
+    const site = withRangeTo(
+      { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 300, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        structures: [spawn as AnyStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn1',
+      constructionSiteId: 'extension-site1'
+    });
+  });
+
   it('gates construction spending when the room energy buffer would be breached', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;

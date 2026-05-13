@@ -935,6 +935,70 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
+  it('reports spawn reservation detail for a construction assignment gap with room buffer energy', () => {
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+      store: makeEnergyStore(300, 300)
+    };
+    const worker = {
+      name: 'IdleBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: makeEnergyStore(0, 50),
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [spawn],
+      creeps: [worker],
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    (colony.room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 300;
+    colony.energyAvailable = 300;
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
+      buildBlockedReason: 'worker_assignment_gap',
+      workerAssignmentBlockedDetail: 'spawn_reserving_energy'
+    });
+  });
+
+  it('does not report a construction gap while a worker is acquiring energy for a construction site', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: {
+          type: 'withdraw',
+          targetId: 'spawn1' as Id<AnyStoreStructure>,
+          constructionSiteId: 'extension-site' as Id<ConstructionSite>
+        }
+      },
+      0,
+      'ConstructionLoader'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBeUndefined();
+  });
+
   it('reports storedEnergy from owned spawn, extension, container, and terminal stores', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
