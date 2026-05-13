@@ -43,6 +43,13 @@ Per-room payload:
 | `resources.productiveEnergy.pendingBuildProgress` | same value as room `pendingBuildProgress` | number | Existing productive-energy namespace for construction analysis. | INSTRUMENTED |
 | `resources.productiveEnergy.buildCarriedEnergy` | same value as room `buildCarriedEnergy` | number | Builder energy under productive-energy namespace. | INSTRUMENTED |
 | `resources.productiveEnergy.constructionSiteCount` | same value as room `constructionSiteCount` | number | Construction site count under productive-energy namespace. | INSTRUMENTED |
+| `resources.productiveEnergy.buildBlockedReason` | backlog/energy/assignment classifier | string | One of `energy_buffer_blocked`, `no_construction_sites`, or `worker_assignment_gap` when construction is blocked or absent. | INSTRUMENTED |
+| `structures.extensionCount` | completed extension structures | number | Completed extension count used to identify spawn-only capacity stalls. | INSTRUMENTED |
+| `structures.extensionCapacityContribution` | completed extension store capacities | number | Energy capacity contributed by extensions only. | INSTRUMENTED |
+| `behavior.totals.pathFindingFailures` | stuck no-work behavior summary | number | Inferred pathing failure ticks from `stuckTicks > 0` and `workTicks = 0`. | INSTRUMENTED |
+| `behavior.totals.destinationBlocked` | stuck no-work behavior summary | number | Count of creeps with an inferred blocked destination in the window. | INSTRUMENTED |
+| `workerLoadEfficiency.tripEnergyMean` | worker efficiency telemetry | number | Mean carried energy for recent worker return/load samples. | INSTRUMENTED |
+| `workerLoadEfficiency.tripEnergyMin` | worker efficiency telemetry | number | Minimum carried energy for recent worker return/load samples. | INSTRUMENTED |
 | `resources.harvestedThisTick` | in-bot runtime summary event accounting | number | Energy harvested during the tick/window. | MISSING |
 | `resources.events.harvestedEnergy` | in-bot runtime summary event accounting | number | Window harvest delta for reducer event summaries. | MISSING |
 | `resources.events.transferredEnergy` | in-bot runtime summary event accounting | number | Window transfer delta for reducer event summaries. | MISSING |
@@ -55,13 +62,20 @@ Per-room payload:
 
 ## SQLite Persistence
 
-The historical store is `runtime-artifacts/rl-metrics/rl_metrics.sqlite`. The seven v2 fields are persisted in `runtime_room_metrics`:
+The historical store is `runtime-artifacts/rl-metrics/rl_metrics.sqlite`. The room-metric fields are persisted in `runtime_room_metrics`:
 
 | Column | Capture field | NULL behavior |
 | --- | --- | --- |
 | `pending_build_progress` | `pendingBuildProgress` | `NULL` for old rows or unreadable values. |
 | `build_carried_energy` | `buildCarriedEnergy` | `NULL` for old rows or unreadable values. |
+| `build_blocked_reason` | `resources.productiveEnergy.buildBlockedReason` | `NULL` for old rows, active building, or unreadable values. |
 | `construction_site_count` | `constructionSiteCount` | `NULL` for old rows or unreadable values. |
+| `extension_count` | `structures.extensionCount` | `NULL` for old rows or unreadable values. |
+| `extension_capacity_contribution` | `structures.extensionCapacityContribution` | `NULL` for old rows or unreadable values. |
+| `path_finding_failures` | `behavior.totals.pathFindingFailures` | `NULL` for old rows or missing behavior telemetry. |
+| `destination_blocked` | `behavior.totals.destinationBlocked` | `NULL` for old rows or missing behavior telemetry. |
+| `worker_load_trip_energy_mean` | `workerLoadEfficiency.tripEnergyMean` | `NULL` for old rows or missing worker-load telemetry. |
+| `worker_load_trip_energy_min` | `workerLoadEfficiency.tripEnergyMin` | `NULL` for old rows or missing worker-load telemetry. |
 | `cpu_used` | `cpuUsed` | `NULL` when CPU data is not exposed by the snapshot. |
 | `cpu_bucket` | `cpuBucket` | `NULL` when CPU data is not exposed by the snapshot. |
 | `rcl_level` | `rclLevel` | `NULL` when no controller is visible. |

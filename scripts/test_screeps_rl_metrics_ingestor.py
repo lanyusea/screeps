@@ -94,7 +94,14 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
         for column_name in (
             "pending_build_progress",
             "build_carried_energy",
+            "build_blocked_reason",
             "construction_site_count",
+            "extension_count",
+            "extension_capacity_contribution",
+            "path_finding_failures",
+            "destination_blocked",
+            "worker_load_trip_energy_mean",
+            "worker_load_trip_energy_min",
             "cpu_used",
             "cpu_bucket",
             "rcl_level",
@@ -186,7 +193,22 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                         "energyAvailable": 300,
                         "pendingBuildProgress": 700,
                         "buildCarriedEnergy": 0,
+                        "buildBlockedReason": "worker_assignment_gap",
                         "constructionSiteCount": 2,
+                        "extensionCount": 0,
+                        "extensionCapacityContribution": 0,
+                        "behavior": {
+                            "totals": {
+                                "stuckTicks": 2,
+                                "pathFindingFailures": 2,
+                                "destinationBlocked": 1,
+                            }
+                        },
+                        "workerLoadEfficiency": {
+                            "sampleCount": 2,
+                            "tripEnergyMean": 7,
+                            "tripEnergyMin": 5,
+                        },
                         "cpuUsed": 6.25,
                         "cpuBucket": 8123,
                         "storedEnergy": 800,
@@ -197,6 +219,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                                 "pendingBuildProgress": 700,
                                 "builtProgress": 0,
                                 "buildCarriedEnergy": 0,
+                                "buildBlockedReason": "worker_assignment_gap",
                             },
                         },
                         "constructionPriority": {
@@ -227,6 +250,9 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 row = conn.execute(
                     """
                     SELECT pending_build_progress, build_carried_energy, construction_site_count,
+                           build_blocked_reason, extension_count, extension_capacity_contribution,
+                           path_finding_failures, destination_blocked,
+                           worker_load_trip_energy_mean, worker_load_trip_energy_min,
                            cpu_used, cpu_bucket, rcl_level, stored_energy
                     FROM runtime_room_metrics
                     WHERE room_name = ?
@@ -235,9 +261,11 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 ).fetchone()
             summary = json.loads(ingestor.summarize_database(db_path, output_format="json"))
 
-            self.assertEqual(row, (700.0, 0.0, 2.0, 6.25, 8123.0, 3.0, 800.0))
+            self.assertEqual(row, (700.0, 0.0, 2.0, "worker_assignment_gap", 0.0, 0.0, 2.0, 1.0, 7.0, 5.0, 6.25, 8123.0, 3.0, 800.0))
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["pendingBuildProgress"], 700.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["constructionSiteCount"], 2.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["pathFindingFailures"], 2.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["workerLoadTripEnergyMin"], 5.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["minCpuBucket"], 8123.0)
             self.assertEqual(
                 fetch_count(
@@ -245,6 +273,33 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                     "metric_observations",
                     "WHERE metric_name = ?",
                     ("construction.site_count",),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ? AND value_text = ?",
+                    ("construction.build_blocked_reason", "worker_assignment_gap"),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ?",
+                    ("creep.path_finding_failures",),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ?",
+                    ("creep.worker_load_trip_energy_min",),
                 ),
                 1,
             )

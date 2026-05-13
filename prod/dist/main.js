@@ -18923,12 +18923,17 @@ function toRuntimeCreepBehaviorSummary(creep) {
   if (!telemetry || !hasReportableBehaviorTelemetry(telemetry)) {
     return null;
   }
+  const workTicks = getNonNegativeCounter(telemetry.workTicks);
+  const stuckTicks = getNonNegativeCounter(telemetry.stuckTicks);
+  const pathFindingFailures = summarizePathFindingFailures(stuckTicks, workTicks);
   return {
     ...buildCreepNameSummary(creep),
     idleTicks: getNonNegativeCounter(telemetry.idleTicks),
     moveTicks: getNonNegativeCounter(telemetry.moveTicks),
-    workTicks: getNonNegativeCounter(telemetry.workTicks),
-    stuckTicks: getNonNegativeCounter(telemetry.stuckTicks),
+    workTicks,
+    stuckTicks,
+    pathFindingFailures,
+    destinationBlocked: pathFindingFailures > 0 ? 1 : 0,
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
     sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
@@ -18962,6 +18967,8 @@ function summarizeBehaviorTotals(creeps) {
       moveTicks: totals.moveTicks + creep.moveTicks,
       workTicks: totals.workTicks + creep.workTicks,
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
+      pathFindingFailures: totals.pathFindingFailures + creep.pathFindingFailures,
+      destinationBlocked: totals.destinationBlocked + creep.destinationBlocked,
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
       sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
       pathLength: totals.pathLength + creep.pathLength,
@@ -18972,11 +18979,16 @@ function summarizeBehaviorTotals(creeps) {
       moveTicks: 0,
       workTicks: 0,
       stuckTicks: 0,
+      pathFindingFailures: 0,
+      destinationBlocked: 0,
       containerTransfers: 0,
       sourceContainerWithdrawals: 0,
       pathLength: 0
     }
   );
+}
+function summarizePathFindingFailures(stuckTicks, workTicks) {
+  return stuckTicks > 0 && workTicks === 0 ? stuckTicks : 0;
 }
 function summarizeEnergyAcquisitionMethods(telemetry) {
   const distribution = {
@@ -32433,6 +32445,7 @@ var SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
+var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
 var cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsTick;
@@ -32466,24 +32479,26 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   }
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
+  const cpuSummary = buildCpuSummary();
+  const rooms = colonies.map(
+    (colony) => {
+      var _a, _b;
+      return summarizeRoom(
+        colony,
+        (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
+        persistOccupationRecommendations,
+        (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
+        shouldBuildStructureSnapshot(tick)
+      );
+    }
+  );
   const summary = {
     type: "runtime-summary",
     tick,
-    rooms: colonies.map(
-      (colony) => {
-        var _a, _b;
-        return summarizeRoom(
-          colony,
-          (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
-          persistOccupationRecommendations,
-          (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
-          shouldBuildStructureSnapshot(tick)
-        );
-      }
-    ),
+    rooms: applyCpuSummaryToRooms(rooms, cpuSummary.cpu),
     ...reportedEvents.length > 0 ? { events: reportedEvents } : {},
     ...events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {},
-    ...buildCpuSummary()
+    ...cpuSummary
   };
   console.log(`${RUNTIME_SUMMARY_PREFIX}${JSON.stringify(summary)}`);
   return summary;
@@ -32738,15 +32753,26 @@ function summarizeStructures(colony, colonyWorkers) {
   const constructionSites = (_b = findRoomObjects25(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
   const roadCount = countStructuresByType2(roomStructures, "STRUCTURE_ROAD", "road");
   const pendingRoadSiteCount = countConstructionSitesByType(constructionSites, "STRUCTURE_ROAD", "road");
+  const extensions = roomStructures.filter(
+    (structure) => isStructureOfType(structure, "STRUCTURE_EXTENSION", "extension")
+  );
   return {
     towerCount: countStructuresByType2(roomStructures, "STRUCTURE_TOWER", "tower"),
     rampartCount: countOwnedRamparts(roomStructures),
+    extensionCount: extensions.length,
+    extensionCapacityContribution: sumExtensionCapacityContribution(extensions),
     containers: summarizeContainers(roomStructures),
     repairTargets: summarizeRepairTargetDistribution(colonyWorkers, roomStructures),
     roadCount,
     pendingRoadSiteCount,
     roadCoverageRatio: calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount)
   };
+}
+function sumExtensionCapacityContribution(extensions) {
+  return extensions.reduce((total, extension) => {
+    const capacity = getEnergyCapacityInStore(extension);
+    return total + (capacity > 0 ? capacity : DEFAULT_EXTENSION_ENERGY_CAPACITY);
+  }, 0);
 }
 function countStructuresByType2(structures, globalName, fallback) {
   return structures.filter((structure) => isStructureOfType(structure, globalName, fallback)).length;
@@ -32827,6 +32853,9 @@ function summarizeWorkerEfficiency(workers, tick) {
     (entry) => isEmergencyLowLoadReturnReason(getLowLoadReturnReason(entry.sample))
   ).length;
   const lowLoadReturnReasons = summarizeLowLoadReturnReasons(lowLoadReturnSamples);
+  const workerLoadEfficiency = summarizeWorkerLoadEfficiency(
+    lowLoadReturnSamples.length > 0 ? lowLoadReturnSamples : samples
+  );
   return {
     workerEfficiency: {
       lowLoadReturnCount: lowLoadReturnSamples.length,
@@ -32836,7 +32865,19 @@ function summarizeWorkerEfficiency(workers, tick) {
       ...lowLoadReturnReasons.length > 0 ? { lowLoadReturnReasons } : {},
       samples: reportedSamples,
       ...samples.length > MAX_WORKER_EFFICIENCY_SAMPLES ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES } : {}
-    }
+    },
+    ...workerLoadEfficiency ? { workerLoadEfficiency } : {}
+  };
+}
+function summarizeWorkerLoadEfficiency(samples) {
+  const tripEnergies = samples.map((entry) => entry.sample.carriedEnergy).filter((value) => Number.isFinite(value) && value >= 0);
+  if (tripEnergies.length === 0) {
+    return null;
+  }
+  return {
+    sampleCount: tripEnergies.length,
+    tripEnergyMean: roundRatio6(tripEnergies.reduce((total, value) => total + value, 0), tripEnergies.length),
+    tripEnergyMin: Math.min(...tripEnergies)
   };
 }
 function summarizeLowLoadReturnReasons(samples) {
@@ -33089,7 +33130,7 @@ function summarizeResources(colony, colonyWorkers, colonyCreeps, events) {
     droppedEnergy: sumDroppedEnergy2(droppedResources),
     sourceCount: sourceContainerCoverage.sourceCount,
     sourceContainers: sourceContainerCoverage,
-    productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
+    productiveEnergy: summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roomStructures, events),
     energySurplus: summarizeEnergySurplus(colony.room, colonyWorkers),
     ...summarizeMultiRoomEnergy(colony.room.name),
     ...events ? { events } : {}
@@ -33191,14 +33232,41 @@ function getEnergySurplusSinkIds(state) {
   }
   return ids;
 }
-function summarizeProductiveEnergy(room, colonyWorkers, constructionSites, roomStructures) {
+function summarizeProductiveEnergy(colony, colonyWorkers, constructionSites, roomStructures, events) {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
+  const pendingBuildProgress = sumPendingBuildProgress(constructionSites);
+  const buildBlockedReason = selectBuildBlockedReason(
+    colony,
+    productiveAssignments,
+    pendingBuildProgress,
+    constructionSites.length,
+    events
+  );
   return {
     ...productiveAssignments,
-    pendingBuildProgress: sumPendingBuildProgress(constructionSites),
+    pendingBuildProgress,
     repairBacklogHits: sumRepairBacklogHits(roomStructures),
-    ...buildControllerProgressRemaining(room)
+    ...buildBlockedReason ? { buildBlockedReason } : {},
+    ...buildControllerProgressRemaining(colony.room)
   };
+}
+function selectBuildBlockedReason(colony, productiveAssignments, pendingBuildProgress, constructionSiteCount, events) {
+  var _a;
+  if (constructionSiteCount <= 0 || pendingBuildProgress <= 0) {
+    return "no_construction_sites";
+  }
+  if (((_a = events == null ? void 0 : events.builtProgress) != null ? _a : 0) > 0 || productiveAssignments.buildCarriedEnergy > 0) {
+    return void 0;
+  }
+  return isBuildBlockedByEnergyBuffer(colony, productiveAssignments.assignedCarriedEnergy) ? "energy_buffer_blocked" : "worker_assignment_gap";
+}
+function isBuildBlockedByEnergyBuffer(colony, assignedCarriedEnergy) {
+  const energyAvailable = getRoomEnergyAvailable11(colony);
+  if (energyAvailable <= 0) {
+    return true;
+  }
+  const buffer = getRoomEnergyBufferHealth(colony.room);
+  return buffer.healthy === false && buffer.currentEnergy < buffer.threshold && assignedCarriedEnergy <= 0;
 }
 function summarizeProductiveWorkerAssignments(colonyWorkers) {
   var _a;
@@ -33698,6 +33766,16 @@ function buildCpuSummary() {
     summary.bucket = cpu.bucket;
   }
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
+}
+function applyCpuSummaryToRooms(rooms, cpu) {
+  if (!cpu || cpu.used === void 0 && cpu.bucket === void 0) {
+    return rooms;
+  }
+  return rooms.map((room) => ({
+    ...room,
+    ...cpu.used !== void 0 ? { cpuUsed: cpu.used } : {},
+    ...cpu.bucket !== void 0 ? { cpuBucket: cpu.bucket } : {}
+  }));
 }
 function getGameTime29() {
   return typeof Game.time === "number" ? Game.time : 0;

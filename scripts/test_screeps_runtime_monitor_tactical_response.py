@@ -570,9 +570,39 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     "my": True,
                     "owner": {"username": "lanyusea"},
                     "carry": {"energy": 61},
-                    "memory": {"task": "build"},
+                    "memory": {"role": "worker", "task": "build"},
                     "x": 27,
                     "y": 23,
+                },
+                "defender-1": {
+                    "_id": "defender-1",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "body": [{"type": "attack"}, {"type": "move"}],
+                    "memory": {"role": "defender"},
+                    "x": 25,
+                    "y": 23,
+                },
+                "scout-1": {
+                    "_id": "scout-1",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "body": [{"type": "move"}],
+                    "memory": {"role": "scout"},
+                    "x": 25,
+                    "y": 22,
+                },
+                "claimer-1": {
+                    "_id": "claimer-1",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "body": [{"type": "claim"}, {"type": "move"}],
+                    "memory": {"role": "claimer"},
+                    "x": 25,
+                    "y": 21,
                 },
                 "site-1": {
                     "_id": "site-1",
@@ -615,9 +645,20 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["buildCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["constructionSiteCount"], 1)
+        self.assertEqual(payload["rooms"][0]["extensionCount"], 1)
+        self.assertEqual(payload["rooms"][0]["extensionCapacityContribution"], 50)
+        self.assertEqual(payload["rooms"][0]["structures"]["extensionCount"], 1)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["buildCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionSiteCount"], 1)
+        self.assertNotIn("buildBlockedReason", payload["rooms"][0]["resources"]["productiveEnergy"])
+        self.assertNotIn("behavior", payload["rooms"][0])
+        self.assertNotIn("pathFindingFailures", payload["rooms"][0])
+        self.assertNotIn("destinationBlocked", payload["rooms"][0])
+        self.assertEqual(
+            payload["rooms"][0]["workerLoadEfficiency"],
+            {"sampleCount": 1, "tripEnergyMean": 61.0, "tripEnergyMin": 61},
+        )
         self.assertEqual(payload["rooms"][0]["cpuUsed"], 7.25)
         self.assertEqual(payload["rooms"][0]["cpuBucket"], 9123)
         self.assertEqual(payload["cpu"], {"used": 7.25, "bucket": 9123})
@@ -640,6 +681,53 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = json.loads(line.split(" ", 1)[1])
         self.assertEqual(payload["tick"], 265631)
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
+
+    def test_runtime_summary_preserves_explicit_pathing_totals(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={},
+            tick=265631,
+            owner="lanyusea",
+            info={"behavior": {"totals": {"pathFindingFailures": 2, "destinationBlocked": 0}}},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        summary = monitor.room_summary(snapshot)
+
+        expected = {"pathFindingFailures": 2, "destinationBlocked": 0}
+        self.assertEqual(payload["rooms"][0]["behavior"]["totals"], expected)
+        self.assertEqual(summary["behavior"]["totals"], expected)
+
+    def test_runtime_summary_payload_classifies_unassigned_build_backlog(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    }
+                }
+            ),
+            tick=265632,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["rooms"][0]["buildBlockedReason"], "worker_assignment_gap")
+        self.assertEqual(
+            payload["rooms"][0]["resources"]["productiveEnergy"]["buildBlockedReason"],
+            "worker_assignment_gap",
+        )
 
     def test_runtime_summary_does_not_label_unknown_structures_as_hostile(self) -> None:
         snapshot = monitor.RoomSnapshot(
@@ -701,6 +789,36 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "existing evidence\n")
             self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
             self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
+
+    def test_runtime_summary_loader_ignores_behavior_only_pathing_totals(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 265635,
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "behavior": {"totals": {"pathFindingFailures": 0, "destinationBlocked": 0}},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-monitor-20260513T000000Z.log").write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            result = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E26S49")],
+                warnings,
+            )
+
+        self.assertEqual(result, {})
+        self.assertEqual(warnings, [])
 
 
 
