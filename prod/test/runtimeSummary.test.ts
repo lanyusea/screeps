@@ -1041,7 +1041,7 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
-  it('reports a narrow energy-buffer spend margin when healthy room energy cannot fund routine construction', () => {
+  it('does not report a spend-margin block for carried construction energy above the construction floor', () => {
     const loadedWorker = {
       name: 'LoadedBuilder',
       memory: { role: 'worker', colony: 'W1N1' },
@@ -1066,16 +1066,11 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
-    expect(productiveEnergy.workerAssignmentBlockedDetail).toBe('energy_buffer_spend_margin');
+    expect(productiveEnergy.workerAssignmentBlockedDetail).toBe('room_capacity_full');
     expect(productiveEnergy.workerAssignmentBlockedWorkers).toEqual([
       expect.objectContaining({
         name: 'LoadedBuilder',
-        buildBlockedReason: 'build_blocked_energy_buffer',
-        constructionEnergyGate: 'blocked_by_buffer_margin',
-        energyBufferCurrent: 310,
-        energyBufferThreshold: 292,
-        energyBufferSpend: 50,
-        energyBufferAfterSpend: 260
+        buildBlockedReason: 'build_blocked_unknown'
       })
     ]);
   });

@@ -3135,6 +3135,13 @@ function checkEnergyBufferForSpending(room, amount) {
   }
   return observation.currentEnergy - normalizeEnergyAmount2(amount) >= getEffectiveRoomEnergyBufferThreshold(room);
 }
+function checkEnergyBufferForConstructionSpending(room) {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  if (!observation.known) {
+    return true;
+  }
+  return observation.currentEnergy >= getConstructionSpendingEnergyThreshold(room);
+}
 function checkEnergyBufferForCapacityEnablingConstruction(room, amount) {
   if (checkEnergyBufferForSpending(room, amount)) {
     return true;
@@ -3213,6 +3220,12 @@ function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable) {
   return Math.max(
     MINIMUM_WORKER_SPAWN_ENERGY,
     Math.floor(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+  );
+}
+function getConstructionSpendingEnergyThreshold(room) {
+  return Math.min(
+    getEffectiveRoomEnergyBufferThreshold(room),
+    CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY
   );
 }
 function isSurvivalBufferMode(room) {
@@ -22919,18 +22932,6 @@ function selectHeuristicWorkerTask(creep) {
   if (minimumHarvesterTask) {
     return minimumHarvesterTask;
   }
-  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
-  if (upgraderBoostUpgradeTask) {
-    return upgraderBoostUpgradeTask;
-  }
-  const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
-  if (controllerSustainUpgradeTask) {
-    return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
-  }
-  const managedControllerUpgradeTask = selectManagedControllerUpgradeTask(creep, controller, carriedEnergy);
-  if (managedControllerUpgradeTask) {
-    return applyMinimumUsefulLoadPolicy(creep, managedControllerUpgradeTask);
-  }
   const constructionPreBufferBuildTask = selectConstructionPreBufferBuildTask(creep);
   if (constructionPreBufferBuildTask) {
     return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
@@ -23003,18 +23004,8 @@ function selectHeuristicWorkerTask(creep) {
   if (readyFollowUpProductiveEnergySinkTask) {
     return applyMinimumUsefulLoadPolicy(creep, readyFollowUpProductiveEnergySinkTask);
   }
-  if (territoryControllerTask) {
-    return territoryControllerTask;
-  }
-  const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) : null;
-  if (source2ControllerLaneLoadedTask) {
-    return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
-  }
   if (capacityConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: capacityConstructionSite.id });
-  }
-  if (controller && shouldRushRcl1Controller(controller)) {
-    return canLevelUpController2(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id }) : null;
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
@@ -23032,6 +23023,10 @@ function selectHeuristicWorkerTask(creep) {
   }
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
+  }
+  const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
+  if (controllerSustainUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const highImpactConstructionSite = selectUnreservedConstructionSite(
@@ -23056,6 +23051,31 @@ function selectHeuristicWorkerTask(creep) {
   if (uncoveredProductiveBacklogTask) {
     return applyMinimumUsefulLoadPolicy(creep, uncoveredProductiveBacklogTask);
   }
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  if (constructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id });
+  }
+  const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) : null;
+  if (source2ControllerLaneLoadedTask) {
+    return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
+  }
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return canLevelUpController2(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id }) : null;
+  }
+  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
+  if (upgraderBoostUpgradeTask) {
+    return upgraderBoostUpgradeTask;
+  }
+  const managedControllerUpgradeTask = selectManagedControllerUpgradeTask(creep, controller, carriedEnergy);
+  if (managedControllerUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, managedControllerUpgradeTask);
+  }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
@@ -23067,16 +23087,6 @@ function selectHeuristicWorkerTask(creep) {
       return applyMinimumUsefulLoadPolicy(creep, productiveEnergySinkTask);
     }
     return canLevelUpController2(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id }) : null;
-  }
-  const constructionSite = selectUnreservedConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext,
-    () => true,
-    { priorityContext: constructionPriorityContext }
-  );
-  if (constructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id });
   }
   const repairTarget = selectRepairTarget(creep);
   if (repairTarget) {
@@ -24516,7 +24526,7 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || checkEnergyBufferForSpending(creep.room, carriedEnergy) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
 }
 function isMissingSpawnRecoveryConstructionSite(room, site) {
   return isSpawnConstructionSite(site) && getOwnedSpawnCount(room) === 0;
@@ -34277,7 +34287,7 @@ function canSpendWorkerEnergyOnAnyConstructionSiteForTelemetry(room, carriedEner
 }
 function canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy, constructionSite) {
   if (!isRecord28(constructionSite)) {
-    return checkEnergyBufferForSpending(room, carriedEnergy);
+    return checkEnergyBufferForConstructionSpending(room);
   }
   if (matchesStructureType25(constructionSite.structureType, "STRUCTURE_EXTENSION", "extension")) {
     return checkEnergyBufferForExtensionConstruction(room, carriedEnergy);
@@ -34285,7 +34295,7 @@ function canSpendWorkerEnergyOnConstructionSiteForTelemetry(room, carriedEnergy,
   if (matchesStructureType25(constructionSite.structureType, "STRUCTURE_CONTAINER", "container")) {
     return checkEnergyBufferForCapacityEnablingConstruction(room, carriedEnergy);
   }
-  return checkEnergyBufferForSpending(room, carriedEnergy);
+  return checkEnergyBufferForConstructionSpending(room);
 }
 function formatWorkerConstructionEnergyGateDiagnostic(room, worker, constructionSites) {
   const carriedEnergy = getEnergyInStore(worker);

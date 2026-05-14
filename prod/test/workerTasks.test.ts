@@ -7041,7 +7041,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('keeps construction gated by the room buffer when other workers cover near-term refill reserve', () => {
+  it('keeps construction available when other workers cover near-term refill reserve', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
       structureType: 'spawn',
@@ -7086,7 +7086,7 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ ReserveA: reserveWorkerA, ReserveB: reserveWorkerB });
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('deduplicates reserve workers by stable key before counting reserved refill energy', () => {
@@ -7119,7 +7119,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('keeps construction buffer-gated after reserving higher-energy workers for near-term refill capacity', () => {
+  it('keeps construction available after reserving higher-energy workers for near-term refill capacity', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
       structureType: 'spawn',
@@ -7146,7 +7146,7 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LowReserve: lowEnergyReserveWorker, HighReserve: highEnergyReserveWorker });
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('keeps emergency spawn refill before surplus spending while a near-term reserve is active', () => {
@@ -7498,7 +7498,7 @@ describe('selectWorkerTask', () => {
     expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
   });
 
-  it('routes carried energy to controller progress when survival gates are territory-ready', () => {
+  it('routes carried energy to construction when survival gates are territory-ready', () => {
     recordSurvivalMode('TERRITORY_READY');
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
@@ -7518,7 +7518,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('suppresses non-critical construction and routine upgrading during bootstrap', () => {
@@ -7935,7 +7935,7 @@ describe('selectWorkerTask', () => {
     expect(pressureCreep.getActiveBodyparts).toHaveBeenCalledWith(CLAIM);
   });
 
-  it('upgrades a claimed territory target before unrelated construction support', () => {
+  it('builds claimed-room construction before fallback territory upgrading', () => {
     const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -7953,7 +7953,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller2' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
   it('builds claimed-room spawn construction before fallback territory upgrading', () => {
@@ -8917,7 +8917,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: id });
   });
 
-  it('keeps RCL1 controller rush before critical road repair', () => {
+  it('keeps RCL1 construction before controller rush', () => {
     const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
     const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
     const controller = {
@@ -8931,7 +8931,7 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
   });
 
   it('keeps critical road repair before sustained controller progress', () => {
@@ -9023,7 +9023,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'remote-road-critical' });
   });
 
-  it('selects RCL1 controller upgrade before non-spawn construction when downgrade is safe', () => {
+  it('selects RCL1 non-spawn construction before controller upgrade when downgrade is safe', () => {
     const fullSpawn = {
       id: 'spawn1',
       structureType: 'spawn',
@@ -9051,7 +9051,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
   it('builds spawn construction before RCL1 controller rush', () => {
@@ -10433,7 +10433,7 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('gates construction spending when the room energy buffer would be breached', () => {
+  it('allows carried construction energy when room energy stays above the construction floor', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
@@ -10452,7 +10452,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('bypasses construction energy buffer for spawn sites when no owned spawn exists', () => {
@@ -10522,14 +10522,14 @@ describe('selectWorkerTask', () => {
       }) as unknown as Creep;
 
     recordSurvivalMode('DEFENSE');
-    expect(selectWorkerTask(makeCreep())).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(makeCreep())).toEqual({ type: 'build', targetId: 'road-site1' });
 
     clearColonySurvivalAssessmentCache();
     recordSurvivalMode('LOCAL_STABLE');
     expect(selectWorkerTask(makeCreep())).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
-  it('routes carried energy to controller upgrade before non-critical construction once spawn recovery is safe', () => {
+  it('routes carried energy to non-critical construction once spawn recovery is safe', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
@@ -10553,7 +10553,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('reserves urgent spawn refill for active follow-up demand before non-critical construction', () => {
@@ -10908,7 +10908,7 @@ describe('selectWorkerTask', () => {
       time: 501
     };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('ignores stale follow-up demand when choosing non-critical construction', () => {
@@ -10977,7 +10977,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('keeps controller pressure upgrade when non-critical construction is farther than the controller', () => {
+  it('keeps construction before controller pressure even when construction is farther than the controller', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
@@ -11009,7 +11009,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it.each([
@@ -11042,7 +11042,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('routes carried energy to controller upgrade before non-critical construction when stored surplus exists', () => {
+  it('routes carried energy to non-critical construction before controller upgrade when stored surplus exists', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
       my: true
@@ -11058,7 +11058,7 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [storage] })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('reserves a loaded worker for construction when healthy energy and idle workers leave build coverage empty', () => {
@@ -11141,7 +11141,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('routes carried energy to controller upgrade before non-critical construction when salvage surplus exists', () => {
+  it('routes carried energy to non-critical construction before controller upgrade when salvage surplus exists', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const tombstone = makeSalvageEnergySource('tombstone-surplus', 100);
     const controller = {
@@ -11176,11 +11176,11 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
-  it('routes carried energy to controller upgrade before non-critical construction when dropped energy surplus exists', () => {
+  it('routes carried energy to non-critical construction before controller upgrade when dropped energy surplus exists', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const controller = {
@@ -11206,10 +11206,10 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('routes carried energy to controller upgrade on visible dropped energy surplus without pathfinding', () => {
+  it('routes carried energy to construction on visible dropped energy surplus without pathfinding', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const controller = {
@@ -11246,7 +11246,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
     expect(creep.pos.findPathTo).not.toHaveBeenCalled();
   });
 
@@ -11420,7 +11420,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-controller-source-site1' });
   });
 
-  it('keeps stored-surplus controller upgrading before off-route road construction', () => {
+  it('keeps off-route road construction before stored-surplus controller upgrading', () => {
     const site = {
       id: 'road-off-route',
       structureType: 'road',
@@ -11450,7 +11450,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-off-route' });
   });
 
   it('does not treat unsafe stored energy as controller upgrade surplus', () => {
@@ -11472,7 +11472,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
   });
 
-  it('selects RCL3 controller upgrade before non-critical construction when another loaded worker can build', () => {
+  it('selects RCL3 non-critical construction even when another loaded worker can build', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -11491,7 +11491,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ Builder: makeLoadedWorker(room) });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('keeps non-critical build priority when another loaded worker is already upgrading the controller', () => {
@@ -11518,7 +11518,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('allows a second RCL3 controller pressure upgrader when several loaded workers can cover construction', () => {
+  it('keeps building instead of adding a second RCL3 controller pressure upgrader', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -11541,7 +11541,7 @@ describe('selectWorkerTask', () => {
       BuilderB: makeLoadedWorker(room)
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('bounds RCL3 controller pressure once two loaded workers are already upgrading', () => {
@@ -11709,7 +11709,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
   });
 
-  it('allows a third stable-room controller upgrader when spawn energy is full', () => {
+  it('keeps stable-room construction before a third controller upgrader when spawn energy is full', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -11736,7 +11736,7 @@ describe('selectWorkerTask', () => {
       BuilderB: makeLoadedWorker(room)
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('bounds stable-room surplus controller pressure once three workers are upgrading', () => {
@@ -12291,7 +12291,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-a' });
   });
 
-  it('routes a loaded source2/controller lane worker to upgrade before far generic construction', () => {
+  it('routes a loaded source2/controller lane worker to far generic construction before upgrade', () => {
     const site = {
       id: 'tower-site1',
       structureType: 'tower',
@@ -12323,7 +12323,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ LaneWorker: creep });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
   });
 
   it('routes a loaded source2/controller lane worker to critical spawn repair before upgrading', () => {
