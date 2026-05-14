@@ -3121,7 +3121,8 @@ function getEffectiveRoomEnergyBufferThreshold(room) {
   }
   const capacityLimitedThreshold = Math.min(effectiveThreshold, energyCapacityAvailable);
   if (survivalBufferMode) {
-    return capacityLimitedThreshold;
+    const survivalCapacityCap = Math.ceil(energyCapacityAvailable * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO);
+    return Math.min(capacityLimitedThreshold, survivalCapacityCap);
   }
   return Math.min(capacityLimitedThreshold, getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable));
 }

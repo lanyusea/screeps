@@ -100,12 +100,15 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForSpending(room, 343)).toBe(false);
   });
 
-  it('caps an RCL 2 bootstrap threshold after applying the survival multiplier', () => {
-    const room = makeRoom({ level: 2, energyAvailable: 300, energyCapacityAvailable: 300 });
+  it('caps an RCL 2 bootstrap threshold below full capacity after applying the survival multiplier', () => {
+    const room = makeRoom({ level: 2, energyAvailable: 450, energyCapacityAvailable: 450 });
     recordSurvivalMode('BOOTSTRAP');
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(300);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(300);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(
+      Math.ceil(450 * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+    );
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBeLessThan(room.energyCapacityAvailable);
   });
 
   it('caps an RCL 3 bootstrap threshold after applying the survival multiplier', () => {
@@ -113,7 +116,9 @@ describe('energyBuffer', () => {
     recordSurvivalMode('BOOTSTRAP');
 
     expect(getRoomEnergyBufferThreshold(room)).toBe(500);
-    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(550);
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(
+      Math.ceil(550 * NON_CRISIS_ENERGY_BUFFER_CAPACITY_RATIO)
+    );
   });
 
   it('keeps non-survival effective thresholds above basic worker spawn energy', () => {
@@ -156,8 +161,8 @@ describe('energyBuffer', () => {
   it('allows capacity-enabling construction when it preserves basic worker spawn energy', () => {
     const room = makeRoom({
       level: 3,
-      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 50,
-      energyCapacityAvailable: 300
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 110,
+      energyCapacityAvailable: 450
     });
     recordSurvivalMode('BOOTSTRAP');
 
@@ -169,7 +174,7 @@ describe('energyBuffer', () => {
     const room = makeRoom({
       level: 3,
       energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY + 49,
-      energyCapacityAvailable: 300
+      energyCapacityAvailable: 450
     });
     recordSurvivalMode('BOOTSTRAP');
 
@@ -179,7 +184,7 @@ describe('energyBuffer', () => {
   it('keeps bootstrap extension construction above the worker spawn recovery floor', () => {
     const room = makeRoom({
       level: 2,
-      energyAvailable: 400,
+      energyAvailable: 250,
       energyCapacityAvailable: 400,
       myStructures: [makeExtension('extension1'), makeExtension('extension2')]
     });
