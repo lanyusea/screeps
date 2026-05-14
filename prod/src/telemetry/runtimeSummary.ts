@@ -31,8 +31,8 @@ import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '..
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
 import {
   checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForConstructionSpending,
   checkEnergyBufferForExtensionConstruction,
-  checkEnergyBufferForSpending,
   getRoomEnergyBufferHealth,
   type EnergyBufferHealth
 } from '../economy/energyBuffer';
@@ -2088,7 +2088,7 @@ function canSpendWorkerEnergyOnConstructionSiteForTelemetry(
   constructionSite: unknown
 ): boolean {
   if (!isRecord(constructionSite)) {
-    return checkEnergyBufferForSpending(room, carriedEnergy);
+    return checkEnergyBufferForConstructionSpending(room);
   }
 
   if (matchesStructureType(constructionSite.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
@@ -2099,7 +2099,7 @@ function canSpendWorkerEnergyOnConstructionSiteForTelemetry(
     return checkEnergyBufferForCapacityEnablingConstruction(room, carriedEnergy);
   }
 
-  return checkEnergyBufferForSpending(room, carriedEnergy);
+  return checkEnergyBufferForConstructionSpending(room);
 }
 
 function formatWorkerConstructionEnergyGateDiagnostic(

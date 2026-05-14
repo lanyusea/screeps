@@ -32,8 +32,8 @@ import {
 } from '../construction/constructionPriority';
 import {
   checkEnergyBufferForCapacityEnablingConstruction,
+  checkEnergyBufferForConstructionSpending,
   checkEnergyBufferForExtensionConstruction,
-  checkEnergyBufferForSpending,
   getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
@@ -531,21 +531,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return minimumHarvesterTask;
   }
 
-  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
-  if (upgraderBoostUpgradeTask) {
-    return upgraderBoostUpgradeTask;
-  }
-
-  const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
-  if (controllerSustainUpgradeTask) {
-    return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
-  }
-
-  const managedControllerUpgradeTask = selectManagedControllerUpgradeTask(creep, controller, carriedEnergy);
-  if (managedControllerUpgradeTask) {
-    return applyMinimumUsefulLoadPolicy(creep, managedControllerUpgradeTask);
-  }
-
   const constructionPreBufferBuildTask = selectConstructionPreBufferBuildTask(creep);
   if (constructionPreBufferBuildTask) {
     return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
@@ -627,25 +612,8 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, readyFollowUpProductiveEnergySinkTask);
   }
 
-  if (territoryControllerTask) {
-    return territoryControllerTask;
-  }
-
-  const source2ControllerLaneLoadedTask = controller
-    ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext)
-    : null;
-  if (source2ControllerLaneLoadedTask) {
-    return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
-  }
-
   if (capacityConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
-  }
-
-  if (controller && shouldRushRcl1Controller(controller)) {
-    return canLevelUpController(controller)
-      ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
-      : null;
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
@@ -693,6 +661,49 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, uncoveredProductiveBacklogTask);
   }
 
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  if (constructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id });
+  }
+
+  if (territoryControllerTask) {
+    return territoryControllerTask;
+  }
+
+  const source2ControllerLaneLoadedTask = controller
+    ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext)
+    : null;
+  if (source2ControllerLaneLoadedTask) {
+    return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
+  }
+
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return canLevelUpController(controller)
+      ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
+      : null;
+  }
+
+  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
+  if (upgraderBoostUpgradeTask) {
+    return upgraderBoostUpgradeTask;
+  }
+
+  const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
+  if (controllerSustainUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
+  }
+
+  const managedControllerUpgradeTask = selectManagedControllerUpgradeTask(creep, controller, carriedEnergy);
+  if (managedControllerUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, managedControllerUpgradeTask);
+  }
+
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
@@ -707,17 +718,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return canLevelUpController(controller)
       ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
       : null;
-  }
-
-  const constructionSite = selectUnreservedConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext,
-    () => true,
-    { priorityContext: constructionPriorityContext }
-  );
-  if (constructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id });
   }
 
   const repairTarget = selectRepairTarget(creep);
@@ -2933,7 +2933,7 @@ function canSpendCreepEnergyOnConstructionSite(
   const carriedEnergy = getUsedEnergy(creep);
   return (
     (carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site)) ||
-    checkEnergyBufferForSpending(creep.room, carriedEnergy) ||
+    (carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room)) ||
     (carriedEnergy > 0 &&
       isExtensionConstructionSite(site) &&
       checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy)) ||

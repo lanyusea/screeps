@@ -1254,6 +1254,78 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('dispatches loaded workers to construction before retaining controller upgrades', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const constructionSites = Array.from(
+      { length: 10 },
+      (_, index) =>
+        ({
+          id: `site-${index}`,
+          structureType: 'road',
+          progress: 0,
+          progressTotal: 5_000
+        }) as ConstructionSite
+    );
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E19S57',
+      controller,
+      energyAvailable: 320,
+      energyCapacityAvailable: 400,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (index: number): Creep =>
+      ({
+        name: `Worker${index}`,
+        memory: {
+          role: 'worker',
+          colony: 'E19S57',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn(),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(...Array.from({ length: 6 }, (_, index) => makeWorker(index)));
+    const creeps = Object.fromEntries(workers.map((worker) => [worker.name, worker]));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps,
+      getObjectById: jest.fn((id: string) =>
+        constructionSites.find((site) => site.id === id) ?? (id === 'controller1' ? controller : null)
+      ),
+      time: 917_318
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(assignedTasks.filter((task) => task === 'build').length).toBeGreaterThanOrEqual(2);
+    expect(assignedTasks).not.toContain('upgrade');
+    for (const worker of workers) {
+      expect(worker.upgradeController).not.toHaveBeenCalled();
+    }
+  });
+
   it('keeps the RCL2 downgrade guard above upgrade preemption', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
@@ -1867,7 +1939,7 @@ describe('runWorker', () => {
     expect(moveTo).not.toHaveBeenCalled();
   });
 
-  it('preempts local construction when a claimed territory target needs upgrade support', () => {
+  it('keeps local construction before claimed territory upgrade support', () => {
     const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -1898,13 +1970,13 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(getObjectById).not.toHaveBeenCalled();
-    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
-    expect(creep.build).not.toHaveBeenCalled();
+    expect(getObjectById).toHaveBeenCalledWith('site1');
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('preempts non-critical construction for controller pressure once spawn recovery is safe', () => {
+  it('keeps non-critical construction before controller pressure once spawn recovery is safe', () => {
     const fullSpawn = {
       id: 'spawn1',
       structureType: 'spawn',
@@ -1951,9 +2023,9 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(getObjectById).not.toHaveBeenCalled();
-    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
-    expect(creep.build).not.toHaveBeenCalled();
+    expect(getObjectById).toHaveBeenCalledWith('wall-site1');
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'wall-site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
