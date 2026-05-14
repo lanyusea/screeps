@@ -220,10 +220,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         target = roadmap.build_screeps_room_target({})
 
         self.assertEqual(target["status"], "official target")
-        self.assertEqual(target["label"], "shardX/E19S57")
+        self.assertEqual(target["label"], "shardX/W3N9")
         self.assertEqual(target["shard"], "shardX")
-        self.assertEqual(target["room"], "E19S57")
-        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E19S57")
+        self.assertEqual(target["room"], "W3N9")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/W3N9")
 
     def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -527,7 +527,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(stored_energy["sourceKind"], "runtime-summary-artifact")
         self.assertEqual(stored_energy["reducerSchemaVersion"], roadmap.runtime_kpi_reducer.SCHEMA_VERSION)
         self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")
-        self.assertEqual(stored_energy["scope"]["targetRoom"], "E19S57")
+        self.assertEqual(stored_energy["scope"]["targetRoom"], "W3N9")
         self.assertEqual(stored_energy["scope"]["observedRooms"], ["E19S57", "W9N9"])
 
     def test_counts_only_successful_official_deploy_evidence_json_in_delivery_window(self) -> None:

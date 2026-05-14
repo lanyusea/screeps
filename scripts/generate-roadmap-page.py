@@ -36,7 +36,7 @@ GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
 SCREEPS_ROOM_URL_BASE = "https://screeps.com/a/#!/room"
 # AGENTS.md official deployment target; generation env can override it.
 OFFICIAL_SCREEPS_SHARD = "shardX"
-OFFICIAL_SCREEPS_ROOM = "E19S57"
+OFFICIAL_SCREEPS_ROOM = "W3N9"
 DISCORD_URL = "https://discord.gg/XenFZG9bCE"
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")

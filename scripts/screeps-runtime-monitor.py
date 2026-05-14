@@ -38,7 +38,7 @@ DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "E19S57"
+DEFAULT_ROOM = "W3N9"
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
@@ -581,7 +581,7 @@ def parse_room_arg(value: str | None, default_shard: str) -> RoomRef | None:
     if "/" in value:
         shard, room = value.split("/", 1)
         if not shard or not room:
-            raise ValueError("--room must use shard/room, for example shardX/E19S57")
+            raise ValueError("--room must use shard/room, for example shardX/W3N9")
         return RoomRef(shard=shard, room=room)
     return RoomRef(shard=default_shard, room=value)
 
