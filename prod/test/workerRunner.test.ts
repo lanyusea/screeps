@@ -5,6 +5,11 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
 } from '../src/tasks/workerTasks';
+import {
+  assessColonySurvival,
+  clearColonySurvivalAssessmentCache,
+  recordColonySurvivalAssessment
+} from '../src/colony/survivalMode';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
@@ -44,6 +49,7 @@ describe('runWorker', () => {
     delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    clearColonySurvivalAssessmentCache();
   });
 
   it('assigns a task when the creep has none', () => {
@@ -1324,6 +1330,138 @@ describe('runWorker', () => {
     for (const worker of workers) {
       expect(worker.upgradeController).not.toHaveBeenCalled();
     }
+  });
+
+  it('assigns a W3N9 bootstrap builder when controller upgrades leave construction uncovered', () => {
+    const source = {
+      id: 'source1',
+      pos: { x: 20, y: 10, roomName: 'W3N9' } as RoomPosition
+    } as Source;
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      structureType: 'container',
+      progress: 0,
+      progressTotal: 5_000,
+      pos: { x: 21, y: 10, roomName: 'W3N9' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 300
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(278),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const workers: Creep[] = [];
+    const sourceHarvester = {
+      name: 'SourceHarvester',
+      memory: {
+        role: 'sourceHarvester',
+        sourceHarvester: { sourceId: 'source1' as Id<Source>, colony: 'W3N9' }
+      },
+      room: undefined as unknown as Room
+    } as unknown as Creep;
+    const room = {
+      name: 'W3N9',
+      energyAvailable: 278,
+      energyCapacityAvailable: 300,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [sourceContainerSite];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return [...workers, sourceHarvester];
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    (sourceHarvester as Creep & { room: Room }).room = room;
+    const makeWorker = (name: string, carriedEnergy: number, freeCapacity: number): Creep =>
+      ({
+        name,
+        memory: {
+          role: 'worker',
+          colony: 'W3N9',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+          getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+          getCapacity: jest.fn().mockReturnValue(carriedEnergy + freeCapacity)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(18) },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(0),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(
+      makeWorker('worker-W3N9-1', 50, 0),
+      makeWorker('worker-W3N9-2', 17, 33),
+      makeWorker('worker-W3N9-3', 16, 34)
+    );
+    const assessment = assessColonySurvival({
+      roomName: 'W3N9',
+      totalCreeps: workers.length,
+      workerCapacity: workers.length,
+      workerTarget: 6,
+      energyAvailable: 278,
+      energyCapacityAvailable: 300,
+      spawnEnergyAvailable: 278,
+      controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 300 },
+      hostileCreepCount: 0,
+      hostileStructureCount: 0
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 954_381,
+      creeps: Object.fromEntries([
+        ...workers.map((worker) => [worker.name, worker]),
+        [sourceHarvester.name, sourceHarvester]
+      ]),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'source-container-site1') {
+          return sourceContainerSite;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'source1' ? source : null;
+      })
+    };
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('W3N9', assessment, 954_381);
+
+    workers.forEach(runWorker);
+
+    expect(workers.map((worker) => worker.memory.task?.type).filter((task) => task === 'build')).toHaveLength(1);
+    expect(workers[0].memory.task).toEqual({ type: 'build', targetId: 'source-container-site1' });
+    expect(workers[0].build).toHaveBeenCalledWith(sourceContainerSite);
   });
 
   it('keeps the RCL2 downgrade guard above upgrade preemption', () => {
