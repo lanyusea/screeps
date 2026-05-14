@@ -1,6 +1,6 @@
 # Screeps Minimal Rules Registry
 
-Last updated: 2026-05-13
+Last updated: 2026-05-14
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry is the canonical compact rules standard for the two-person Screeps project. It intentionally avoids multi-level governance. The goal is to keep autonomous agents from doing the wrong thing while keeping the system small enough to maintain.
@@ -11,7 +11,7 @@ This registry is the canonical compact rules standard for the two-person Screeps
 - Official shard: `shardX`
 - Official room: `E19S57`
 - Official spawn: `Spawn1` at `(30,29)`; placed successfully on 2026-05-13 with `{ok:1,newbie:true}`
-- Official respawn fallback candidates, in order: `E17S59`, `E26S49`, `E19S57`
+- Official respawn fallback candidates, in order: `E17S59`, `E26S49`, `E19S57`, `W3N9`
 
 References to `E24S49`, `E19S55`, `E22S49`, `E48S28`, `E48S29`, `E26S49`, or `E17S59` are historical incident/fallback or superseded rooms unless a future owner decision explicitly retargets the project.
 
@@ -114,7 +114,7 @@ When the official target room (`E19S57` on `shardX`) enters a dead-end state —
 4. Verify recovery: spawn ≥ 1, creeps ≥ 1, alert=false
 5. Resume normal autonomous operation
 
-The respawn-room retry sequence is `E17S59`, then `E26S49`, then `E19S57`. If a candidate cannot respawn because it is respawn-prohibited, unavailable, or `/api/game/place-spawn` rejects it as unavailable, skip that candidate and try the next one. During the 2026-05-13 recovery, `E17S59` and `E26S49` were prohibited and `E19S57` succeeded.
+The respawn-room retry sequence is `E17S59`, then `E26S49`, then `E19S57`, then `W3N9`. If a candidate cannot respawn because it is respawn-prohibited, unavailable, or `/api/game/place-spawn` rejects it as unavailable, skip that candidate and try the next one. During the 2026-05-13 recovery, `E17S59` and `E26S49` were prohibited and `E19S57` succeeded. During the 2026-05-14 recovery, the predefined list was exhausted (`E17S59`/`E19S57` prohibited and `E26S49` busy), then owner-selected `W3N9` succeeded with `Spawn1` at `(35,23)` and is now included in the retry list.
 
 This authorization is automatic — no owner approval required. The agent MUST act immediately when the dead-end condition is detected, not wait for owner authorization. After recovery, post a concise summary to #decisions and update the P0 incident issue.
 
