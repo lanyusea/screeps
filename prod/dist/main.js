@@ -22901,6 +22901,17 @@ function selectHeuristicWorkerTask(creep) {
       targetId: bootstrapExtensionConstructionSite.id
     });
   }
+  if (!bootstrapNonCriticalWorkSuppressed && !remoteProductiveSpendingSuppressed) {
+    const productiveTaskBeforeIdleRefill = selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
+      creep,
+      spawnOrExtensionEnergySink,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (productiveTaskBeforeIdleRefill) {
+      return applyMinimumUsefulLoadPolicy(creep, productiveTaskBeforeIdleRefill);
+    }
+  }
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask = {
       type: "transfer",
@@ -24934,6 +24945,36 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
     priorityContext
   );
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
+}
+function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext) {
+  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink)) {
+    return null;
+  }
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  if (constructionSite) {
+    return { type: "build", targetId: constructionSite.id };
+  }
+  const repairTarget = selectRepairTarget(creep);
+  return repairTarget ? { type: "repair", targetId: repairTarget.id } : null;
+}
+function shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink) {
+  return spawnOrExtensionEnergySink !== null && hasHealthyRoomEnergyBuffer(creep.room) && !hasActiveSpawningSpawn(creep.room);
+}
+function hasHealthyRoomEnergyBuffer(room) {
+  const energyAvailable = getRoomEnergyAvailable9(room);
+  return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+function hasActiveSpawningSpawn(room) {
+  return findSpawnExtensionEnergyStructures(room).some(
+    (structure) => isSpawnEnergySink(structure) && Boolean(structure.spawning)
+  );
 }
 function isSpawnConstructionSite(site) {
   return matchesStructureType18(site.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -28300,6 +28341,9 @@ function selectWorkerTaskForRunner(creep) {
   return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
+  if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
+    return null;
+  }
   const target = selectSpawnEnergyReservationRefillTarget(creep);
   if (!target) {
     return null;
@@ -28309,6 +28353,22 @@ function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask
   }
   const targetId = getObjectId10(target.spawn);
   return targetId.length > 0 ? { type: "transfer", targetId } : null;
+}
+function shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask) {
+  return ((selectedTask == null ? void 0 : selectedTask.type) === "build" || (selectedTask == null ? void 0 : selectedTask.type) === "repair") && hasHealthyRoomEnergyBuffer2(creep.room) && !hasActiveSpawningSpawn2(creep.room);
+}
+function hasHealthyRoomEnergyBuffer2(room) {
+  const energyAvailable = getRoomEnergyAvailable11(room);
+  return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+function hasActiveSpawningSpawn2(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
+    return false;
+  }
+  return room.find(FIND_MY_STRUCTURES).some((structure) => {
+    const structureType = structure.structureType;
+    return typeof structureType === "string" && matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn") && Boolean(structure.spawning);
+  });
 }
 function isSoftSpawnReservationPreemptibleTask(creep, task) {
   if (!task) {

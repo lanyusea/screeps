@@ -488,6 +488,18 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  if (!bootstrapNonCriticalWorkSuppressed && !remoteProductiveSpendingSuppressed) {
+    const productiveTaskBeforeIdleRefill = selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
+      creep,
+      spawnOrExtensionEnergySink,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (productiveTaskBeforeIdleRefill) {
+      return applyMinimumUsefulLoadPolicy(creep, productiveTaskBeforeIdleRefill);
+    }
+  }
+
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
       type: 'transfer',
@@ -3592,6 +3604,54 @@ function selectReadyFollowUpProductiveEnergySinkTask(
     priorityContext
   );
   return criticalRoadConstructionSite ? { type: 'build', targetId: criticalRoadConstructionSite.id } : null;
+}
+
+function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
+  creep: Creep,
+  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): ProductiveEnergySinkTask | null {
+  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink)) {
+    return null;
+  }
+
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
+  );
+  if (constructionSite) {
+    return { type: 'build', targetId: constructionSite.id };
+  }
+
+  const repairTarget = selectRepairTarget(creep);
+  return repairTarget ? { type: 'repair', targetId: repairTarget.id as Id<Structure> } : null;
+}
+
+function shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+  creep: Creep,
+  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
+): boolean {
+  return (
+    spawnOrExtensionEnergySink !== null &&
+    hasHealthyRoomEnergyBuffer(creep.room) &&
+    !hasActiveSpawningSpawn(creep.room)
+  );
+}
+
+function hasHealthyRoomEnergyBuffer(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+
+function hasActiveSpawningSpawn(room: Room): boolean {
+  return findSpawnExtensionEnergyStructures(room).some(
+    (structure) => isSpawnEnergySink(structure) && Boolean(structure.spawning)
+  );
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {
