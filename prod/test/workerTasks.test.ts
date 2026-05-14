@@ -10622,7 +10622,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('keeps spawn refill before construction when follow-up energy target is ready', () => {
+  it('builds before idle spawn refill when follow-up energy target is ready', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
@@ -10652,7 +10652,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('keeps extension refill before controller upgrade when follow-up energy target is ready', () => {
@@ -10686,7 +10686,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension1' });
   });
 
-  it('keeps spawn refill before nearby non-urgent repair when follow-up energy target is ready', () => {
+  it('repairs before idle spawn refill when follow-up energy target is ready', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const road = makeStructure('road-worn', 'road' as StructureConstant, 4_000, 5_000);
     const controller = {
@@ -10724,7 +10724,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-worn' });
   });
 
   it('builds follow-up-ready capacity construction before fallback territory upgrading', () => {

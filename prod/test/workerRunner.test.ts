@@ -1649,6 +1649,162 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('keeps construction ahead of idle spawn refill when the energy buffer is healthy', () => {
+    const site = { id: 'site1', structureType: 'road', progress: 0, progressTotal: 100 } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(200),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
+      }
+    } as unknown as StructureSpawn;
+    const extension = {
+      id: 'extension1',
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(42),
+        getFreeCapacity: jest.fn().mockReturnValue(8)
+      }
+    } as unknown as StructureExtension;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 442,
+      energyCapacityAvailable: 450,
+      controller,
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn, extension];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? site : spawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(build).toHaveBeenCalledWith(site);
+    expect(transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps construction ahead of idle spawn reservation refill when the energy buffer is healthy', () => {
+    const site = { id: 'site1', structureType: 'road', progress: 0, progressTotal: 100 } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(150),
+        getFreeCapacity: jest.fn().mockReturnValue(150)
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn();
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 442,
+      energyCapacityAvailable: 450,
+      controller,
+      memory: { spawnEnergyReservation: { transferThreshold: 250 } },
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_CONSTRUCTION_SITES) {
+            return [site];
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: 123,
+          rooms: {
+            W1N1: {
+              bodyCost: 650,
+              creepName: 'worker-W1N1-124',
+              reservedAt: 123,
+              reservedEnergy: 650,
+              role: 'worker',
+              roomName: 'W1N1',
+              updatedAt: 123
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      rooms: { W1N1: room },
+      time: 124,
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? site : spawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.memory.workerDispatchDiagnostic?.spawnReservationTask).toBeUndefined();
+    expect(build).toHaveBeenCalledWith(site);
+    expect(transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('preempts construction for an assigned visible reserve target before spawn refill pressure', () => {
     const spawn = {
       id: 'spawn1',

@@ -326,6 +326,10 @@ function selectSpawnEnergyReservationRefillTask(
   currentTask: CreepTaskMemory | null | undefined,
   selectedTask: CreepTaskMemory | null
 ): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
+  if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
+    return null;
+  }
+
   const target = selectSpawnEnergyReservationRefillTarget(creep);
   if (!target) {
     return null;
@@ -340,6 +344,37 @@ function selectSpawnEnergyReservationRefillTask(
 
   const targetId = getObjectId(target.spawn);
   return targetId.length > 0 ? { type: 'transfer', targetId: targetId as Id<AnyStoreStructure> } : null;
+}
+
+function shouldDeferSpawnReservationRefillForProductiveWork(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    (selectedTask?.type === 'build' || selectedTask?.type === 'repair') &&
+    hasHealthyRoomEnergyBuffer(creep.room) &&
+    !hasActiveSpawningSpawn(creep.room)
+  );
+}
+
+function hasHealthyRoomEnergyBuffer(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+
+function hasActiveSpawningSpawn(room: Room): boolean {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room?.find !== 'function') {
+    return false;
+  }
+
+  return room.find(FIND_MY_STRUCTURES).some((structure) => {
+    const structureType = (structure as { structureType?: unknown }).structureType;
+    return (
+      typeof structureType === 'string' &&
+      matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+      Boolean((structure as StructureSpawn).spawning)
+    );
+  });
 }
 
 function isSoftSpawnReservationPreemptibleTask(
