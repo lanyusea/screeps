@@ -10390,7 +10390,7 @@ describe('selectWorkerTask', () => {
       room: makeWorkerTaskRoom({
         constructionSites: [site],
         controller,
-        energyAvailable: 249,
+        energyAvailable: 194,
         energyCapacityAvailable: 300
       })
     } as unknown as Creep;

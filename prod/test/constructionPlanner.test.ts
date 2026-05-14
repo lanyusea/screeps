@@ -184,7 +184,7 @@ describe('owned room construction planner', () => {
     recordBootstrapSurvivalMode();
     const { room, colony } = makeColony({
       controllerLevel: 2,
-      energyAvailable: 249,
+      energyAvailable: 244,
       energyCapacityAvailable: 300,
       sources: [makeSource('source-a', 20, 10)],
       pathsByTarget: {
@@ -203,7 +203,7 @@ describe('owned room construction planner', () => {
     recordBootstrapSurvivalMode();
     const { room, colony } = makeColony({
       controllerLevel: 2,
-      energyAvailable: 300,
+      energyAvailable: 244,
       energyCapacityAvailable: 300,
       constructionSites: [makeConstructionSite('extension-pending', TEST_GLOBALS.STRUCTURE_EXTENSION, 9, 9, 'W1N1')],
       sources: [makeSource('source-a', 20, 10)],
@@ -276,7 +276,7 @@ describe('owned room construction planner', () => {
     recordBootstrapSurvivalMode();
     const { room, colony } = makeColony({
       controllerLevel: 4,
-      energyAvailable: 300,
+      energyAvailable: 277,
       energyCapacityAvailable: 350,
       structures: [makeStructure('extension-existing', TEST_GLOBALS.STRUCTURE_EXTENSION, 30, 30)],
       sources: [],
@@ -295,7 +295,7 @@ describe('owned room construction planner', () => {
     recordBootstrapSurvivalMode();
     const { room, colony } = makeColony({
       controllerLevel: 4,
-      energyAvailable: 300,
+      energyAvailable: 277,
       energyCapacityAvailable: 350,
       structures: [
         ...Array.from({ length: 20 }, (_, index) =>
