@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       confirmation:
-        description: "Required for deploy mode: deploy main to shardX/E19S57"
+        description: "Required for deploy mode: deploy main to shardX/W3N9"
         required: false
         type: string
 
@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: official-screeps-deploy-main-shardX-E19S57
+  group: official-screeps-deploy-main-shardX-W3N9
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +45,7 @@ jobs:
       SCREEPS_API_URL: https://screeps.com
       SCREEPS_BRANCH: main
       SCREEPS_SHARD: shardX
-      SCREEPS_ROOM: E19S57
+      SCREEPS_ROOM: W3N9
       EVIDENCE_DIR: runtime-artifacts/official-screeps-deploy
 
     steps:
@@ -104,8 +104,8 @@ jobs:
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
-          if [ "$CONFIRMATION" != "deploy main to shardX/E19S57" ]; then
-            echo "::error::Deploy mode requires exact confirmation: deploy main to shardX/E19S57"
+          if [ "$CONFIRMATION" != "deploy main to shardX/W3N9" ]; then
+            echo "::error::Deploy mode requires exact confirmation: deploy main to shardX/W3N9"
             exit 1
           fi
 

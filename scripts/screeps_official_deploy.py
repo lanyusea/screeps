@@ -30,7 +30,7 @@ DEFAULT_EVIDENCE_DIR = REPO_ROOT / "runtime-artifacts" / "official-screeps-deplo
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_BRANCH = "main"
 DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "E19S57"
+DEFAULT_ROOM = "W3N9"
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_MONITOR_TIMEOUT_SECONDS = 120
 DEFAULT_ROLLBACK_RECOVERY_TIMEOUT_SECONDS = 300
@@ -1276,7 +1276,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true", help="Verify artifact metadata only; default when --deploy is omitted.")
     mode.add_argument("--deploy", action="store_true", help="Perform authenticated API writes.")
     parser.add_argument("--activate-world", action="store_true", help="Set the deployed branch as activeWorld and verify it by hash.")
-    parser.add_argument("--confirm", help='Required for --deploy, e.g. "deploy main to shardX/E19S57".')
+    parser.add_argument("--confirm", help='Required for --deploy, e.g. "deploy main to shardX/W3N9".')
     parser.add_argument("--api-url", default=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL))
     parser.add_argument("--branch", default=os.environ.get("SCREEPS_BRANCH", DEFAULT_BRANCH))
     parser.add_argument("--shard", default=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD))
