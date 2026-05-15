@@ -29403,9 +29403,6 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
   if (!isEnergyAcquisitionTask2(task)) {
     return false;
   }
-  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
-    return false;
-  }
   if (!selectedTask || isSameTask2(task, selectedTask)) {
     return false;
   }
@@ -29414,6 +29411,9 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
   }
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
     return false;
+  }
+  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
+    return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
   }
   if (hasLowWorkerEnergyLoad(creep)) {
     return shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask);

@@ -1064,10 +1064,6 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
     return false;
   }
 
-  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
-    return false;
-  }
-
   if (!selectedTask || isSameTask(task, selectedTask)) {
     return false;
   }
@@ -1078,6 +1074,10 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
 
   if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
     return false;
+  }
+
+  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
+    return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
   }
 
   if (hasLowWorkerEnergyLoad(creep)) {
