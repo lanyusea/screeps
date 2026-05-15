@@ -680,7 +680,7 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
     expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 50);
-    expect(creep.moveTo).toHaveBeenCalledWith(storage);
+    expect(creep.moveTo).toHaveBeenCalledWith(storage, { range: 1 });
   });
 
   it('sends a loaded post-claim energy hauler from home to the claimed room', () => {
@@ -725,7 +725,7 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
     expect(creep.harvest).toHaveBeenCalledWith(source);
-    expect(creep.moveTo).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
   });
 
   it('moves a source-container harvest task onto the container before harvesting', () => {
@@ -772,7 +772,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.moveTo).toHaveBeenCalledWith(container);
+    expect(creep.moveTo).toHaveBeenCalledWith(container, { range: 0 });
     expect(creep.harvest).not.toHaveBeenCalled();
     expect(creep.transfer).not.toHaveBeenCalled();
   });
@@ -911,7 +911,7 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source-adjacent' });
     expect(creep.harvest).toHaveBeenCalledWith(adjacentSource);
-    expect(creep.moveTo).toHaveBeenCalledWith(adjacentSource);
+    expect(creep.moveTo).toHaveBeenCalledWith(adjacentSource, { range: 1 });
   });
 
   it('splits empty workers across sources as harvest assignments change', () => {
@@ -983,7 +983,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.harvest).toHaveBeenCalledWith(source);
-    expect(creep.moveTo).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
   });
 
   it('records worker behavior telemetry while moving and working across ticks', () => {
@@ -1266,7 +1266,7 @@ describe('runWorker', () => {
       targetId: 'remote-source',
       sourceContainerAssigned: true
     });
-    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer);
+    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer, { range: 0 });
     expect(creep.harvest).not.toHaveBeenCalled();
   });
 
@@ -1289,7 +1289,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.pickup).toHaveBeenCalledWith(droppedEnergy);
-    expect(creep.moveTo).toHaveBeenCalledWith(droppedEnergy);
+    expect(creep.moveTo).toHaveBeenCalledWith(droppedEnergy, { range: 1 });
   });
 
   it('transfers energy to a transfer target and moves when not in range', () => {
@@ -1307,7 +1307,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
-    expect(creep.moveTo).toHaveBeenCalledWith(spawn);
+    expect(creep.moveTo).toHaveBeenCalledWith(spawn, { range: 1 });
   });
 
   it('withdraws energy from a withdraw target and moves when not in range', () => {
@@ -1329,7 +1329,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy', 50);
-    expect(creep.moveTo).toHaveBeenCalledWith(container);
+    expect(creep.moveTo).toHaveBeenCalledWith(container, { range: 1 });
   });
 
   it('caps spawn energy withdrawal to approved amount', () => {
@@ -1477,7 +1477,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('site1');
     expect(build).toHaveBeenCalledWith(site);
-    expect(moveTo).toHaveBeenCalledWith(site);
+    expect(moveTo).toHaveBeenCalledWith(site, { range: 3 });
   });
 
   it('repairs an existing repair target and moves when not in range', () => {
@@ -1503,7 +1503,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('road1');
     expect(repair).toHaveBeenCalledWith(road);
-    expect(moveTo).toHaveBeenCalledWith(road);
+    expect(moveTo).toHaveBeenCalledWith(road, { range: 3 });
   });
 
   it('upgrades an existing upgrade target and moves when not in range', () => {
@@ -1529,7 +1529,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('controller1');
     expect(upgradeController).toHaveBeenCalledWith(controller);
-    expect(moveTo).toHaveBeenCalledWith(controller);
+    expect(moveTo).toHaveBeenCalledWith(controller, { range: 3 });
   });
 
   it('signs an incorrectly signed owned upgrade target while upgrading it', () => {
@@ -4024,7 +4024,7 @@ describe('runWorker', () => {
       spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 50
     });
     expect(harvest).toHaveBeenCalledWith(source);
-    expect(creep.moveTo).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).toHaveBeenCalledWith(source, { range: 1 });
     expect(creep.upgradeController).not.toHaveBeenCalled();
   });
 
