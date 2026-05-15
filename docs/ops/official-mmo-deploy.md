@@ -75,6 +75,8 @@ PR #588 (`e87059d`) added 847 lines to `linkManager.ts` and modified `economyLoo
 ## Live Deploy
 
 Load `SCREEPS_AUTH_TOKEN` into the environment through local secret storage or CI secrets. Do not print it.
+Live deploy mode is intentionally limited to the persistent MMO root, `https://screeps.com`.
+Seasonal roots such as `https://screeps.com/season` are supported only for dry-run planning by this helper until Seasonal live-deploy evidence, monitor state, and cache paths are isolated.
 
 ```bash
 mkdir -p runtime-artifacts/official-screeps-deploy
