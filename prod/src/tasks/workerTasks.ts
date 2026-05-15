@@ -6701,11 +6701,15 @@ function shouldStandbySurplusWorkerInsteadOfAcquiring(
   creep: Creep,
   controller: StructureController | undefined
 ): boolean {
-  return (
-    controller?.my === true &&
-    isControllerUpgradeSaturated(creep, controller) &&
-    !hasNonControllerWorkerEnergyDemand(creep)
-  );
+  if (controller?.my !== true || !isControllerUpgradeSaturated(creep, controller)) {
+    return false;
+  }
+
+  if (hasNonControllerWorkerEnergyDemand(creep)) {
+    return false;
+  }
+
+  return !hasPostConstructionControllerUpgradeEnergy(creep, controller);
 }
 
 function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
@@ -6726,6 +6730,20 @@ function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
     selectRepairTarget(creep) !== null ||
     selectRoutineBarrierMaintenanceRepairTarget(creep) !== null
   );
+}
+
+function hasPostConstructionControllerUpgradeEnergy(creep: Creep, controller: StructureController): boolean {
+  return (
+    isLowRclControllerProgressTarget(controller) &&
+    !hasVisibleHostilePresence(creep.room) &&
+    !hasVisibleOwnedConstructionDemand(creep.room) &&
+    (findWorkerEnergyAcquisitionCandidates(creep).length > 0 ||
+      hasFullRoomEnergyForControllerProgress(creep.room))
+  );
+}
+
+function isLowRclControllerProgressTarget(controller: StructureController): boolean {
+  return canLevelUpController(controller) && controller.level >= 2 && controller.level <= 3;
 }
 
 function isControllerUpgradeSaturated(creep: Creep, controller: StructureController): boolean {
