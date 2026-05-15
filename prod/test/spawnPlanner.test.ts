@@ -1372,6 +1372,29 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps E29N55 extension bootstrap from counting source harvesters as the whole worker force', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E29N55',
+      sourceCount: 2,
+      constructionSiteCount: 11,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: {
+        ...makeSafeOwnedController(),
+        level: 2,
+        progress: 4,
+        progressTotal: 45_000
+      } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 0, workerCapacity: 6, sourceHarvester: 2, upgrader: 4 }, 992_140)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-E29N55-992140',
+      memory: { role: 'worker', colony: 'E29N55' }
+    });
+  });
+
   it('does not spawn surplus low-RCL upgraders while construction demand remains', () => {
     const { colony } = makeColony({
       roomName: 'E29N55',

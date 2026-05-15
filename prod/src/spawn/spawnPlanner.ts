@@ -231,7 +231,7 @@ const SPAWN_QUEUE: SpawnQueueDefinition[] = [
   { tier: 'localEnergyHauling', getPriority: getLocalEnergyHaulingSpawnQueuePriority },
   { tier: 'territoryRemote', getPriority: getTerritoryRemoteSpawnQueuePriority },
   { tier: 'remoteEconomy', getPriority: () => 'high' },
-  { tier: 'localRefillSurvival', getPriority: () => 'normal' },
+  { tier: 'localRefillSurvival', getPriority: getLocalRefillSurvivalSpawnQueuePriority },
   { tier: 'postClaimControllerSustain', getPriority: getPostClaimControllerSustainSpawnQueuePriority },
   { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
   { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' }
@@ -484,6 +484,10 @@ function getLocalEnergyHaulingSpawnQueuePriority(context: SpawnPlanningContext):
   return demand && demand.activeHaulers <= 0 ? 'high' : 'normal';
 }
 
+function getLocalRefillSurvivalSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return hasLocalSupportWorkerShortfall(context) ? 'critical' : 'normal';
+}
+
 function getPostClaimControllerSustainSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
   return hasPostClaimSustainLocalWorkerFloor(context) &&
     context.survival.hostilePresence !== true &&
@@ -523,7 +527,8 @@ function isEmergencyLocalRefillSurvivalEntry(
 ): boolean {
   return (
     entry.tier === 'localRefillSurvival' &&
-    (context.workerCapacity < context.survival.survivalWorkerFloor ||
+    (hasLocalSupportWorkerShortfall(context) ||
+      context.workerCapacity < context.survival.survivalWorkerFloor ||
       context.survival.bootstrapRecovery)
   );
 }
@@ -601,8 +606,9 @@ function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnReques
 }
 
 function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  const localSupportWorkerShortfall = hasLocalSupportWorkerShortfall(context);
   if (
-    context.workerCapacity >= context.workerTarget ||
+    (!localSupportWorkerShortfall && context.workerCapacity >= context.workerTarget) ||
     !hasRecoveryWorkerSpawnEnergy(context.colony) ||
     (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony))
   ) {
@@ -610,6 +616,39 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
   }
 
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function hasLocalSupportWorkerShortfall(context: SpawnPlanningContext): boolean {
+  return (
+    context.roleCounts.worker < getLocalSupportWorkerFloor(context) &&
+    hasLocalSupportWorkerDemand(context)
+  );
+}
+
+function getLocalSupportWorkerFloor(context: SpawnPlanningContext): number {
+  if (context.workerTarget <= 0) {
+    return 0;
+  }
+
+  return Math.min(LOCAL_SUPPORT_WORKER_FLOOR, context.workerTarget);
+}
+
+function hasLocalSupportWorkerDemand(context: SpawnPlanningContext): boolean {
+  return (
+    context.colony.room.controller?.my === true &&
+    !context.survival.hostilePresence &&
+    !context.survival.controllerDowngradeGuard &&
+    (context.survival.mode === 'BOOTSTRAP' ||
+      getVisibleConstructionSiteCount(context.colony.room) > 0 ||
+      hasSpawnExtensionRefillDemand(context.colony))
+  );
+}
+
+function hasSpawnExtensionRefillDemand(colony: ColonySnapshot): boolean {
+  return (
+    normalizeNonNegativeInteger(colony.energyCapacityAvailable) > 0 &&
+    normalizeNonNegativeInteger(colony.energyAvailable) < normalizeNonNegativeInteger(colony.energyCapacityAvailable)
+  );
 }
 
 function planLocalEnergyHaulingSpawn(context: SpawnPlanningContext): SpawnRequest | null {
