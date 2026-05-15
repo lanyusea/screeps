@@ -482,7 +482,17 @@ export const STRATEGY_REGISTRY = [
             )
 
         self.assertEqual([call["run_id"] for call in simulator.calls], ["multi-rep-ports-r01", "multi-rep-ports-r02", "multi-rep-ports-r03"])
-        self.assertEqual([call["host_port_start"] for call in simulator.calls], [24125, 24129, 24133])
+        self.assertEqual([call["host_port_start"] for call in simulator.calls], [24125, 24133, 24141])
+        attempts_per_run = 1 + runner.simulator_harness.RUN_BROKEN_PIPE_MAX_RETRIES
+        repetition_port_width = 2 * runner.simulator_harness.RUN_HTTP_PORT_STEP * attempts_per_run
+        reserved_ports_by_repetition = [
+            set(range(call["host_port_start"], call["host_port_start"] + repetition_port_width))
+            for call in simulator.calls
+        ]
+        self.assertEqual([max(ports) for ports in reserved_ports_by_repetition], [24132, 24140, 24148])
+        for left_index, left_ports in enumerate(reserved_ports_by_repetition):
+            for right_ports in reserved_ports_by_repetition[left_index + 1 :]:
+                self.assertTrue(left_ports.isdisjoint(right_ports))
 
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])

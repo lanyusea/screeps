@@ -586,10 +586,13 @@ def simulator_repetition_host_port_start(base_host_port_start: int, repetition_i
         raise ValueError("repetition_index must be non-negative")
     if effective_workers <= 0:
         raise ValueError("effective_workers must be a positive integer")
+    attempts_per_run = 1 + simulator_harness.RUN_BROKEN_PIPE_MAX_RETRIES
     host_port_start = base_host_port_start + (
-        repetition_index * effective_workers * simulator_harness.RUN_HTTP_PORT_STEP
+        repetition_index * effective_workers * simulator_harness.RUN_HTTP_PORT_STEP * attempts_per_run
     )
-    last_cli_port = host_port_start + ((effective_workers - 1) * simulator_harness.RUN_HTTP_PORT_STEP) + 1
+    last_cli_port = (
+        host_port_start + (effective_workers * simulator_harness.RUN_HTTP_PORT_STEP * attempts_per_run) - 1
+    )
     if last_cli_port > 65535:
         raise RuntimeError(f"simulator repetition host port range exceeds TCP port limit: {last_cli_port}")
     return host_port_start
