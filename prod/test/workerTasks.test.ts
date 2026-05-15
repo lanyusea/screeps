@@ -13047,6 +13047,46 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
   });
 
+  it('repairs W3N9 active-decay ramparts before controller upgrade pressure', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 44_500,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-active-decay',
+      'rampart' as StructureConstant,
+      120_301,
+      300_000_000,
+      { my: true }
+    );
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_641, {
+      my: true
+    });
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [rampart, storage]
+    });
+    const creep = {
+      name: 'RclPushUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
+  });
+
   it.each([
     ['owned rampart', 'rampart' as StructureConstant, { my: true }, 'rampart-decay'],
     ['constructed wall', 'constructedWall' as StructureConstant, {}, 'wall-decay']
