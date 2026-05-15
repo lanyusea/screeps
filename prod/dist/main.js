@@ -3401,21 +3401,36 @@ function isRecord3(value) {
   return typeof value === "object" && value !== null;
 }
 
-// src/territory/expansionConfig.ts
-var TERRITORY_EXPANSION_SCOUT_TARGETS = [
+// src/config/roomConfig.ts
+var OFFICIAL_SHARD = "shardX";
+var ACTIVE_OFFICIAL_ROOM = "W3N9";
+var STRATEGY_SUPPORTED_SHARDS = [OFFICIAL_SHARD];
+var STRATEGY_SUPPORTED_ROOMS = [ACTIVE_OFFICIAL_ROOM];
+var ECONOMY_CORRIDOR_ROOMS = ["E17S58", "E17S59", "E18S59"];
+var LOCAL_FIRST_ENERGY_ROOMS = ["E17S58", "E18S59"];
+var LOCAL_FIRST_SOURCE_ROOMS = ["E17S59"];
+var SAFE_TRANSIT_ALLOWLIST = ["E17S59"];
+var CORRIDOR_EXPORTER_PRIORITY_PAIRS = [
   {
-    colony: "W3N9",
+    sourceRoom: "E17S59",
+    targetRoom: "E18S59",
+    priority: 0
+  }
+];
+var STATIC_EXPANSION_SCOUT_TARGETS = [
+  {
+    colony: ACTIVE_OFFICIAL_ROOM,
     roomName: "W3N8",
-    nearestOwnedRoom: "W3N9",
+    nearestOwnedRoom: ACTIVE_OFFICIAL_ROOM,
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true,
     scoutOnly: true
   },
   {
-    colony: "W3N9",
+    colony: ACTIVE_OFFICIAL_ROOM,
     roomName: "W2N9",
-    nearestOwnedRoom: "W3N9",
+    nearestOwnedRoom: ACTIVE_OFFICIAL_ROOM,
     nearestOwnedRoomDistance: 1,
     routeDistance: 1,
     adjacentToOwnedRoom: true,
@@ -3438,6 +3453,9 @@ var TERRITORY_EXPANSION_SCOUT_TARGETS = [
     adjacentToOwnedRoom: true
   }
 ];
+
+// src/territory/expansionConfig.ts
+var TERRITORY_EXPANSION_SCOUT_TARGETS = STATIC_EXPANSION_SCOUT_TARGETS;
 function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
   return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
     (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
@@ -19879,13 +19897,10 @@ function matchesStructureType13(actual, globalName, fallback) {
 }
 
 // src/economy/localEnergyStrategy.ts
-var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E17S58";
-var DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM = "E18S59";
-var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = "E17S59";
-var DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = [
-  DEFAULT_LOCAL_FIRST_ENERGY_ROOM,
-  DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM
-];
+var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = LOCAL_FIRST_ENERGY_ROOMS[0];
+var DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM = LOCAL_FIRST_ENERGY_ROOMS[1];
+var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = LOCAL_FIRST_SOURCE_ROOMS[0];
+var DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = LOCAL_FIRST_ENERGY_ROOMS;
 var DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD = 500;
 var DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO = 0.8;
 var DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS = 50;
@@ -19895,7 +19910,7 @@ var DEFAULT_ROOM_CONFIGS = Object.fromEntries(
     roomName,
     {
       importThreshold: DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD,
-      sourceRooms: [DEFAULT_LOCAL_FIRST_SOURCE_ROOM],
+      sourceRooms: [...LOCAL_FIRST_SOURCE_ROOMS],
       harvestCoverageRatio: DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO,
       sourceWorkloadFreshTicks: DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS,
       spawnCollapseEnergyThreshold: DEFAULT_SPAWN_COLLAPSE_ENERGY_THRESHOLD
@@ -20138,7 +20153,7 @@ function getEnergyResource13() {
 }
 
 // src/economy/multiRoomEnergy.ts
-var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E17S58", "E17S59", "E18S59"];
+var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ECONOMY_CORRIDOR_ROOMS;
 var MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 function buildMultiRoomEnergyState(roomStates, transfers, auditEntries, gameTime) {
   const importsByRoom = sumTransfersByRoom(transfers, "targetRoom");
@@ -20365,7 +20380,7 @@ function roundRatio4(numerator, denominator) {
 }
 
 // src/economy/roomLogistics.ts
-var safeTransitAllowlist = /* @__PURE__ */ new Set(["E17S59"]);
+var safeTransitAllowlist = new Set(SAFE_TRANSIT_ALLOWLIST);
 function canFindOwnedLogisticsRoute() {
   var _a;
   return typeof ((_a = getGameMap()) == null ? void 0 : _a.findRoute) === "function";
@@ -20768,10 +20783,10 @@ function compareExportRoomsForImporter(left, right, importer, routeContext) {
   return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || getRoomEnergyTransferExportLimit(right, importer) - getRoomEnergyTransferExportLimit(left, importer) || compareExportRooms(left, right);
 }
 function getCorridorExporterPriority(sourceRoom, targetRoom) {
-  if (sourceRoom === "E17S59" && targetRoom === "E18S59") {
-    return 0;
-  }
-  return 1;
+  var _a, _b;
+  return (_b = (_a = CORRIDOR_EXPORTER_PRIORITY_PAIRS.find(
+    (pair) => pair.sourceRoom === sourceRoom && pair.targetRoom === targetRoom
+  )) == null ? void 0 : _a.priority) != null ? _b : 1;
 }
 function compareExportRooms(left, right) {
   return right.exportableEnergy - left.exportableEnergy || right.ratio - left.ratio || left.roomName.localeCompare(right.roomName);
@@ -44147,8 +44162,8 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       maxRcl: 4,
       notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
@@ -44183,8 +44198,8 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       maxRcl: 4,
       notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
@@ -44219,8 +44234,8 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
     },
@@ -44254,8 +44269,8 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
     },
@@ -44289,8 +44304,8 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
     },

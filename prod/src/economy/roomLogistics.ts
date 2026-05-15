@@ -1,3 +1,4 @@
+import { SAFE_TRANSIT_ALLOWLIST } from '../config/roomConfig';
 import { isKnownDeadZoneRoom } from '../defense/deadZone';
 
 export interface LogisticsRoute {
@@ -5,7 +6,7 @@ export interface LogisticsRoute {
   rooms: string[];
 }
 
-export const safeTransitAllowlist = new Set<string>(['E17S59']);
+export const safeTransitAllowlist = new Set<string>(SAFE_TRANSIT_ALLOWLIST);
 
 export function canFindOwnedLogisticsRoute(): boolean {
   return typeof getGameMap()?.findRoute === 'function';

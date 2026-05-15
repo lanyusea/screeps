@@ -1,3 +1,4 @@
+import { CORRIDOR_EXPORTER_PRIORITY_PAIRS } from '../config/roomConfig';
 import { getTerminalEnergyTarget } from './energySurplus';
 import {
   auditLocalEnergyImport,
@@ -502,11 +503,9 @@ function compareExportRoomsForImporter(
 }
 
 function getCorridorExporterPriority(sourceRoom: string, targetRoom: string): number {
-  if (sourceRoom === 'E17S59' && targetRoom === 'E18S59') {
-    return 0;
-  }
-
-  return 1;
+  return CORRIDOR_EXPORTER_PRIORITY_PAIRS.find(
+    (pair) => pair.sourceRoom === sourceRoom && pair.targetRoom === targetRoom
+  )?.priority ?? 1;
 }
 
 function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {

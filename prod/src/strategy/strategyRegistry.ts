@@ -1,3 +1,5 @@
+import { STRATEGY_SUPPORTED_ROOMS, STRATEGY_SUPPORTED_SHARDS } from '../config/roomConfig';
+
 export const STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
 
 export type StrategyModelFamily =
@@ -106,8 +108,8 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary'],
-      shards: ['shardX'],
-      rooms: ['E19S57'],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       maxRcl: 4,
       notes: 'Reads emitted constructionPriority candidate summaries; does not alter construction selection.'
@@ -142,8 +144,8 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary'],
-      shards: ['shardX'],
-      rooms: ['E19S57'],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       maxRcl: 4,
       notes: 'Replays only saved constructionPriority candidates with a higher territory signal weight.'
@@ -178,8 +180,8 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: ['shardX'],
-      rooms: ['E19S57'],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: 'Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents.'
     },
@@ -213,8 +215,8 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: ['shardX'],
-      rooms: ['E19S57'],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: 'Emphasizes occupy/reserve candidates in offline ranking reports only.'
     },
@@ -248,8 +250,8 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: ['shardX'],
-      rooms: ['E19S57'],
+      shards: [...STRATEGY_SUPPORTED_SHARDS],
+      rooms: [...STRATEGY_SUPPORTED_ROOMS],
       minRcl: 1,
       notes: 'Ranks observed rooms by hostile and repair pressure from saved artifacts only.'
     },
