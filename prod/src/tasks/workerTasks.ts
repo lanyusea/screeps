@@ -39,6 +39,7 @@ import {
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
+  MINIMUM_WORKER_SPAWN_ENERGY,
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import {
@@ -88,6 +89,9 @@ export const LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS = 1_000;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 export const LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
+export const ROUTINE_REPAIR_MIN_HITS_DEFICIT = 500;
+export const ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
+export const ROUTINE_REPAIR_MAX_RANGE = 5;
 export const BUILDER_STORAGE_WITHDRAW_MIN = 100;
 export const BUILDER_DROPPED_PICKUP_RANGE = 5;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
@@ -1448,7 +1452,48 @@ function isTerritoryControlTask(task: CreepTaskMemory | null): task is Extract<C
 
 function hasEmergencySpawnExtensionRefillDemand(creep: Creep): boolean {
   const energyAvailable = getRoomEnergyAvailable(creep.room);
-  return energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
+  if (energyAvailable !== null && energyAvailable >= URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
+    return false;
+  }
+
+  if (!getLowLoadWorkerEnergyContext(creep)) {
+    return true;
+  }
+
+  return hasTrueLowLoadSpawnExtensionRefillEmergency(creep);
+}
+
+function hasTrueLowLoadSpawnExtensionRefillEmergency(creep: Creep): boolean {
+  if (hasVisibleHostilePresence(creep.room)) {
+    return true;
+  }
+
+  if (isControllerDowngradeImminentForLowLoadReturn(creep.room.controller)) {
+    return true;
+  }
+
+  if (isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep)) {
+    return true;
+  }
+
+  return selectLowLoadSpawnExtensionDeliveryContinuationCandidate(creep) === null;
+}
+
+function isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep: Creep): boolean {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
+  if (!spawnExtensionEnergyStructures.some(isNearTermSpawningSpawn)) {
+    return false;
+  }
+
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (energyAvailable === null) {
+    return true;
+  }
+
+  const otherLoadedEnergy = getSameRoomLoadedWorkersForRefillReservations(creep)
+    .filter((worker) => !isSameCreep(worker, creep))
+    .reduce((total, worker) => total + getUsedEnergy(worker), 0);
+  return energyAvailable + otherLoadedEnergy < MINIMUM_WORKER_SPAWN_ENERGY;
 }
 
 function shouldGuardControllerDowngradeForWorkerLoad(
@@ -3387,7 +3432,7 @@ function selectNearbyProductiveEnergySinkTask(
         )
       ),
     ...findVisibleRoomStructures(creep.room)
-      .filter((structure) => isSafeRepairTargetForWorkerRoom(creep, structure))
+      .filter((structure) => isRoutineRepairTargetForWorker(creep, structure))
       .map((structure) =>
         createProductiveEnergySinkCandidate(
           creep,
@@ -6170,7 +6215,9 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
     return null;
   }
 
-  const repairTargets = findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget);
+  const repairTargets = findVisibleRoomStructures(creep.room).filter((structure) =>
+    isRoutineRepairTargetForWorker(creep, structure)
+  );
   if (repairTargets.length === 0) {
     return null;
   }
@@ -6382,6 +6429,64 @@ function isSafeRepairTargetForWorkerRoom(
   structure: AnyStructure
 ): structure is RepairableWorkerStructure {
   return isSafeRepairTarget(structure) && (!isSpawnRepairTarget(structure) || creep.room.controller?.my === true);
+}
+
+function isRoutineRepairTargetForWorker(
+  creep: Creep,
+  structure: AnyStructure
+): structure is RepairableWorkerStructure {
+  if (!isSafeRepairTargetForWorkerRoom(creep, structure)) {
+    return false;
+  }
+
+  if (isWorkerBarrierRepairStructure(structure)) {
+    return true;
+  }
+
+  return (
+    hasMeaningfulRoutineRepairDeficit(structure) &&
+    isRoutineRepairTargetWithinOpportunisticRange(creep, structure) &&
+    hasRoutineRepairAssignmentCapacity(creep, structure)
+  );
+}
+
+function hasMeaningfulRoutineRepairDeficit(structure: RepairableWorkerStructure): boolean {
+  const repairCeiling = getWorkerRepairHitsCeiling(structure);
+  const deficit = Math.max(0, repairCeiling - structure.hits);
+  return (
+    deficit >= ROUTINE_REPAIR_MIN_HITS_DEFICIT &&
+    repairCeiling > 0 &&
+    deficit / repairCeiling >= ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO
+  );
+}
+
+function isRoutineRepairTargetWithinOpportunisticRange(
+  creep: Creep,
+  structure: RepairableWorkerStructure
+): boolean {
+  const range = getRangeBetweenRoomObjects(creep, structure);
+  return range === null || range <= ROUTINE_REPAIR_MAX_RANGE;
+}
+
+function hasRoutineRepairAssignmentCapacity(creep: Creep, structure: RepairableWorkerStructure): boolean {
+  return (
+    isWorkerAssignedToRepairTarget(creep, structure) ||
+    !hasOtherWorkerAssignedToRepairTarget(creep, structure)
+  );
+}
+
+function hasOtherWorkerAssignedToRepairTarget(creep: Creep, structure: RepairableWorkerStructure): boolean {
+  return getGameCreeps().some(
+    (worker) =>
+      !isSameCreep(worker, creep) &&
+      isSameRoomWorker(worker, creep.room) &&
+      isWorkerAssignedToRepairTarget(worker, structure)
+  );
+}
+
+function isWorkerAssignedToRepairTarget(worker: Creep, structure: RepairableWorkerStructure): boolean {
+  const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'repair' && String(task.targetId) === String(structure.id);
 }
 
 function isCriticalInfrastructureRepairTarget(
@@ -6795,6 +6900,10 @@ function shouldStandbySurplusWorkerInsteadOfAcquiring(
 
 function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
   if (selectFillableEnergySink(creep)) {
+    return true;
+  }
+
+  if (hasRoomSpawnExtensionEnergyDeficit(creep.room)) {
     return true;
   }
 
