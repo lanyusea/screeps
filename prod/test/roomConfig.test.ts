@@ -102,7 +102,23 @@ describe('room config', () => {
     expect(getMultiRoomEnergyCorridorRooms()).toEqual(['W1N1', 'W8N3']);
   });
 
-  it('allows explicit Memory runtime room config to override live current room selection', () => {
+  it('falls back to explicit Memory runtime room config when live ownership is absent', () => {
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {},
+      spawns: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'W5N5',
+        ownedRoomNames: ['W5N5']
+      }
+    };
+
+    expect(getRuntimeOwnedRoomNames()).toEqual(['W5N5']);
+    expect(getRuntimeCurrentRoomName()).toBe('W5N5');
+  });
+
+  it('prefers live owned rooms over stale Memory runtime room config', () => {
     const spawnRoom = makeOwnedRoom('W8N3');
     (globalThis as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -119,8 +135,8 @@ describe('room config', () => {
       }
     };
 
-    expect(getRuntimeOwnedRoomNames()).toEqual(['W5N5', 'W8N3']);
-    expect(getRuntimeCurrentRoomName()).toBe('W5N5');
+    expect(getRuntimeOwnedRoomNames()).toEqual(['W8N3']);
+    expect(getRuntimeCurrentRoomName()).toBe('W8N3');
   });
 
   it('keeps protected room literals out of production business modules', () => {

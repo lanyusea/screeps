@@ -1,17 +1,20 @@
 export function getRuntimeCurrentRoomName(): string | undefined {
   const configured = getConfiguredRuntimeCurrentRoomName();
-  if (configured) {
+  const ownedRoomNames = getRuntimeOwnedRoomNames();
+  if (ownedRoomNames.length === 0) {
     return configured;
   }
 
-  return getRuntimeOwnedRoomNames()[0];
+  return configured && ownedRoomNames.includes(configured)
+    ? configured
+    : ownedRoomNames[0];
 }
 
 export function getRuntimeOwnedRoomNames(): string[] {
-  return getSortedUniqueRoomNames([
-    ...getConfiguredRuntimeOwnedRoomNames(),
-    ...getLiveOwnedRoomNames()
-  ]);
+  const liveOwnedRoomNames = getLiveOwnedRoomNames();
+  return liveOwnedRoomNames.length > 0
+    ? liveOwnedRoomNames
+    : getSortedUniqueRoomNames(getConfiguredRuntimeOwnedRoomNames());
 }
 
 export function refreshRuntimeRoomMemory(): void {
@@ -22,10 +25,9 @@ export function refreshRuntimeRoomMemory(): void {
 
   const configuredOwnedRoomNames = getConfiguredRuntimeOwnedRoomNames();
   const liveOwnedRoomNames = getLiveOwnedRoomNames();
-  const ownedRoomNames = getSortedUniqueRoomNames([
-    ...configuredOwnedRoomNames,
-    ...liveOwnedRoomNames
-  ]);
+  const ownedRoomNames = liveOwnedRoomNames.length > 0
+    ? liveOwnedRoomNames
+    : getSortedUniqueRoomNames(configuredOwnedRoomNames);
   const configuredCurrentRoomName = getConfiguredRuntimeCurrentRoomName();
   if (!memory.runtime && !configuredCurrentRoomName && ownedRoomNames.length === 0) {
     return;

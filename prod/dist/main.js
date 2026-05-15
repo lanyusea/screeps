@@ -777,16 +777,15 @@ function getGameTime() {
 // src/config/runtimeRooms.ts
 function getRuntimeCurrentRoomName() {
   const configured = getConfiguredRuntimeCurrentRoomName();
-  if (configured) {
+  const ownedRoomNames = getRuntimeOwnedRoomNames();
+  if (ownedRoomNames.length === 0) {
     return configured;
   }
-  return getRuntimeOwnedRoomNames()[0];
+  return configured && ownedRoomNames.includes(configured) ? configured : ownedRoomNames[0];
 }
 function getRuntimeOwnedRoomNames() {
-  return getSortedUniqueRoomNames([
-    ...getConfiguredRuntimeOwnedRoomNames(),
-    ...getLiveOwnedRoomNames()
-  ]);
+  const liveOwnedRoomNames = getLiveOwnedRoomNames();
+  return liveOwnedRoomNames.length > 0 ? liveOwnedRoomNames : getSortedUniqueRoomNames(getConfiguredRuntimeOwnedRoomNames());
 }
 function refreshRuntimeRoomMemory() {
   var _a;
@@ -796,10 +795,7 @@ function refreshRuntimeRoomMemory() {
   }
   const configuredOwnedRoomNames = getConfiguredRuntimeOwnedRoomNames();
   const liveOwnedRoomNames = getLiveOwnedRoomNames();
-  const ownedRoomNames = getSortedUniqueRoomNames([
-    ...configuredOwnedRoomNames,
-    ...liveOwnedRoomNames
-  ]);
+  const ownedRoomNames = liveOwnedRoomNames.length > 0 ? liveOwnedRoomNames : getSortedUniqueRoomNames(configuredOwnedRoomNames);
   const configuredCurrentRoomName = getConfiguredRuntimeCurrentRoomName();
   if (!memory.runtime && !configuredCurrentRoomName && ownedRoomNames.length === 0) {
     return;
@@ -20164,7 +20160,7 @@ function getLocalEnergyRoomConfig(roomName) {
   if ((configured == null ? void 0 : configured.enabled) === false) {
     return null;
   }
-  if (!defaults && !configured) {
+  if (!defaults && (configured == null ? void 0 : configured.enabled) !== true) {
     return null;
   }
   return {

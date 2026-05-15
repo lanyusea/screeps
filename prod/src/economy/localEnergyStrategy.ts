@@ -198,7 +198,7 @@ function getLocalEnergyRoomConfig(roomName: string): LocalEnergyRoomConfig | nul
     return null;
   }
 
-  if (!defaults && !configured) {
+  if (!defaults && configured?.enabled !== true) {
     return null;
   }
 

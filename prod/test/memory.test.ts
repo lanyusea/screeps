@@ -65,6 +65,27 @@ describe('memory schema initialization', () => {
     expect(Memory.runtime?.ownedRoomNames).toEqual(['W8N3']);
   });
 
+  it('overwrites stale Memory.runtime room state when live ownership changes', () => {
+    const room = makeOwnedRoom('W8N3');
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'W5N5',
+        ownedRoomNames: ['W5N5']
+      }
+    };
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W8N3: room
+      },
+      spawns: {}
+    };
+
+    initializeMemory();
+
+    expect(Memory.runtime?.currentRoomName).toBe('W8N3');
+    expect(Memory.runtime?.ownedRoomNames).toEqual(['W8N3']);
+  });
+
   it('enables current-room scout-only targets after production memory initialization', () => {
     const room = makeOwnedRoom('W8N3');
     (globalThis as { Game: Partial<Game> }).Game = {
