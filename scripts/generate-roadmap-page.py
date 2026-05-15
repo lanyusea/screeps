@@ -1531,8 +1531,10 @@ def load_runtime_artifact_metric_history(
     generated_at: str,
     existing_history: JsonObject,
     paths: Sequence[str] | None = None,
+    world_id: str = runtime_kpi_bridge.PERSISTENT_WORLD_ID,
 ) -> tuple[JsonObject, JsonObject]:
     input_paths = runtime_history_input_paths(repo_root) if paths is None else list(paths)
+    selected_world_id = runtime_kpi_bridge.normalize_world_id(world_id) or runtime_kpi_bridge.PERSISTENT_WORLD_ID
     try:
         scan_result = runtime_kpi_bridge.collect_runtime_summary_lines(input_paths)
     except Exception as error:
@@ -1541,13 +1543,19 @@ def load_runtime_artifact_metric_history(
             "message": "runtime-summary artifact history scan failed",
             "error": error.__class__.__name__,
             "inputPaths": runtime_history_input_path_labels(input_paths),
+            "worldId": selected_world_id,
         }
 
     buckets = report_kpi_date_buckets(existing_history, generated_at)
     bucket_days = set(buckets)
     records_by_day: dict[date, list[runtime_kpi_bridge.RuntimeSummaryRecord]] = {}
     untimestamped_records = 0
-    for record in scan_result.records:
+    selected_records = [
+        record
+        for record in scan_result.records
+        if runtime_kpi_bridge.normalize_world_id(getattr(record, "world_id", None)) == selected_world_id
+    ]
+    for record in selected_records:
         if record.timestamp is None:
             untimestamped_records += 1
             continue
@@ -1573,7 +1581,7 @@ def load_runtime_artifact_metric_history(
         if latest_record is None:
             continue
         sampled_at = format_utc_timestamp(latest_record)
-        provenance = daily_runtime_history_provenance(report)
+        provenance = daily_runtime_history_provenance(report, world_id=selected_world_id)
         for metric in build_current_metrics(report):
             history.setdefault(metric["key"], []).append(
                 metric_history_point(
@@ -1587,6 +1595,7 @@ def load_runtime_artifact_metric_history(
 
     day_count = len(records_by_day)
     status = "observed" if day_count else "unavailable"
+    scan_metadata = scan_result.metadata()
     return history, {
         "status": status,
         "message": (
@@ -1597,10 +1606,14 @@ def load_runtime_artifact_metric_history(
         "inputPaths": runtime_history_input_path_labels(scan_result.input_paths),
         "matchedFiles": scan_result.matched_files,
         "runtimeSummaryLines": len(scan_result.lines),
+        "selectedRuntimeSummaryLines": len(selected_records),
         "scannedFiles": scan_result.scanned_files,
         "skippedFileCount": len(scan_result.skipped_files),
         "untimestampedRuntimeSummaryLines": untimestamped_records,
         "dailyBucketDays": day_count,
+        "worldId": selected_world_id,
+        "worldIdCounts": scan_metadata.get("worldIdCounts", {}),
+        "worldIdStatusCounts": scan_metadata.get("worldIdStatusCounts", {}),
     }
 
 
@@ -1630,15 +1643,21 @@ def format_utc_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def daily_runtime_history_provenance(report: JsonObject) -> JsonObject:
+def daily_runtime_history_provenance(
+    report: JsonObject,
+    world_id: str = runtime_kpi_bridge.PERSISTENT_WORLD_ID,
+) -> JsonObject:
     target = build_screeps_room_target()
     latest_rooms = get_path(report, ("territory", "ownedRooms", "latest"), [])
     if not isinstance(latest_rooms, list):
         latest_rooms = []
+    selected_world_id = runtime_kpi_bridge.normalize_world_id(world_id) or runtime_kpi_bridge.PERSISTENT_WORLD_ID
     return {
         "sourceKind": RUNTIME_ARTIFACT_SOURCE_KIND,
         "reducerSchemaVersion": report.get("schemaVersion"),
         "scope": {
+            "targetWorld": selected_world_id,
+            "worldId": selected_world_id,
             "targetShard": target.get("shard"),
             "targetRoom": target.get("room"),
             "targetStatus": target.get("status"),
