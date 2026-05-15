@@ -389,6 +389,25 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(configs[1]["rolloutStatus"], "shadow")
         self.assertGreater(configs[1]["defaultValues"]["resourceSignalWeight"], configs[0]["defaultValues"]["resourceSignalWeight"])
 
+    def test_scale_environment_expansion_keeps_unique_rows_backed_by_base_variants(self) -> None:
+        base_variants = [
+            "construction-priority.incumbent.v1",
+            "construction-priority.container-prioritized-shadow.v1",
+        ]
+
+        expanded = harness.expand_scale_environment_variants(base_variants, 5)
+        configs = harness.resolve_strategy_variant_configs(expanded)
+
+        self.assertEqual(len(expanded), 5)
+        self.assertEqual(len(set(expanded)), 5)
+        self.assertEqual(expanded[0], "construction-priority.incumbent.v1.scale-env-01")
+        self.assertEqual(expanded[1], "construction-priority.container-prioritized-shadow.v1.scale-env-02")
+        self.assertEqual(configs[0]["sourceVariantId"], "construction-priority.incumbent.v1")
+        self.assertEqual(configs[0]["scaleEnvironment"]["environmentIndex"], 1)
+        self.assertEqual(configs[1]["sourceVariantId"], "construction-priority.container-prioritized-shadow.v1")
+        self.assertFalse(configs[0]["safety"]["liveEffect"])
+        self.assertFalse(configs[0]["safety"]["officialMmoWrites"])
+
     def test_private_server_active_branch_aliases_are_normalized(self) -> None:
         self.assertEqual(harness.normalize_private_server_code_branch("activeWorld"), "$activeWorld")
         self.assertEqual(harness.normalize_private_server_code_branch("activeSim"), "$activeSim")
@@ -1823,6 +1842,87 @@ cli:
         self.assertEqual(two_variant_decision["effectiveWorkers"], 2)
         self.assertEqual(two_variant_decision["guardedWorkerEstimate"], 5)
 
+    def test_resource_guard_scale_plan_reports_cleanup_and_memory_gap_for_five_environments(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 6822,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 6822,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 3,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 3,
+            "activeSimulatorContainerCount": 3,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": [
+                "screeps-private-smoke-a-screeps-1",
+                "screeps-private-smoke-b-mongo-1",
+                "screeps-private-smoke-c-redis-1",
+            ],
+        }
+        variants = harness.expand_scale_environment_variants(
+            [
+                "construction-priority.incumbent.v1",
+                "construction-priority.container-prioritized-shadow.v1",
+            ],
+            5,
+        )
+
+        decision = harness.build_resource_guard_decision(
+            run_id="scale-plan",
+            workers=5,
+            variants=variants,
+            host_snapshot=snapshot,
+            min_concurrent_environments=5,
+        )
+
+        self.assertFalse(decision["ok"])
+        plan = decision["scaleValidation"]
+        self.assertEqual(plan["minConcurrentEnvironments"], 5)
+        self.assertTrue(plan["targetConcurrencyMet"])
+        self.assertEqual(plan["successCriteria"]["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(plan["memory"]["requiredNowMiB"], 17236)
+        self.assertEqual(plan["memory"]["requiredAfterCleanupMiB"], 13036)
+        self.assertEqual(plan["memory"]["additionalAfterCleanupMiB"], 6214)
+        self.assertEqual(plan["memory"]["estimatedCleanupReliefMiB"], 4200)
+        self.assertEqual(plan["capacity"]["afterCleanupMaxWorkers"], 2)
+        self.assertIn("stop 3 active rl-sim/private-smoke Docker container", plan["recommendations"][0])
+        self.assertIn("prepare at least 13036 MiB", plan["recommendations"][1])
+
+    def test_resource_guard_rejects_when_effective_environment_count_misses_scale_target(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 32768,
+            "memoryAvailableMiB": 32768,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 32768,
+            "cpuCount": 16,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 0,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 0,
+            "activeSimulatorContainerCount": 0,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": [],
+        }
+
+        decision = harness.build_resource_guard_decision(
+            run_id="scale-target-miss",
+            workers=5,
+            variants=[
+                "construction-priority.incumbent.v1",
+                "construction-priority.container-prioritized-shadow.v1",
+            ],
+            host_snapshot=snapshot,
+            min_concurrent_environments=5,
+        )
+
+        self.assertFalse(decision["ok"])
+        self.assertEqual(decision["effectiveWorkers"], 2)
+        self.assertFalse(decision["scaleValidation"]["targetConcurrencyMet"])
+        self.assertIn("minConcurrentEnvironments=5", decision["reasons"][0])
+        self.assertIn("--scale-environments 5", decision["scaleValidation"]["recommendations"][0])
+
     def test_run_failure_artifacts_use_phase_specific_paths_and_types(self) -> None:
         cleanup = {
             "ok": True,
@@ -2133,6 +2233,115 @@ cli:
 
         self.assertEqual(exit_code, 0)
         self.assertIs(captured_kwargs["allow_unsafe_scale"], True)
+
+    def test_run_command_expands_scale_environments_and_enforces_minimum(self) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_run_simulator(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {
+                "type": harness.RUN_SUMMARY_TYPE,
+                "runId": "scale-env-run",
+                "variants": [{"variant_id": "baseline.scale-env-01", "ok": True}],
+            }
+
+        output = io.StringIO()
+
+        with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+            with mock.patch("screeps_rl_simulator_harness.run_simulator", side_effect=fake_run_simulator):
+                exit_code = harness.main(
+                    ["run", "--variants", "baseline", "--workers", "5", "--scale-environments", "5"],
+                    stdout=output,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured_kwargs["workers"], 5)
+        self.assertEqual(captured_kwargs["min_concurrent_environments"], 5)
+        self.assertEqual(len(captured_kwargs["variants"]), 5)
+        self.assertEqual(captured_kwargs["variants"][0], "baseline.scale-env-01")
+
+    def test_plan_scale_command_writes_preflight_artifact_and_returns_nonzero_when_rejected(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 6822,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 6822,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 3,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 3,
+            "activeSimulatorContainerCount": 3,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": ["screeps-private-smoke-a-screeps-1"],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = io.StringIO()
+            out_dir = Path(temp_dir) / "runtime-artifacts"
+            with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+                with mock.patch(
+                    "screeps_rl_simulator_harness.collect_resource_guard_host_snapshot",
+                    return_value=snapshot,
+                ):
+                    exit_code = harness.main(
+                        ["plan-scale", "--run-id", "scale-plan", "--out-dir", str(out_dir)],
+                        stdout=output,
+                    )
+            artifact = read_json(out_dir / "scale-plan" / "scale_validation_plan.json")
+            stdout_report = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(artifact["ok"])
+        self.assertEqual(artifact["variantCount"], 5)
+        self.assertEqual(artifact["resourceGuard"]["effectiveWorkers"], 5)
+        self.assertEqual(artifact["scaleValidation"]["successCriteria"]["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(stdout_report["planArtifactPath"], str(out_dir / "scale-plan" / "scale_validation_plan.json"))
+
+    def test_plan_scale_command_returns_nonzero_when_override_allows_unsafe_scale(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 6822,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 6822,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 3,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 3,
+            "activeSimulatorContainerCount": 3,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": ["screeps-private-smoke-a-screeps-1"],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = io.StringIO()
+            out_dir = Path(temp_dir) / "runtime-artifacts"
+            with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+                with mock.patch(
+                    "screeps_rl_simulator_harness.collect_resource_guard_host_snapshot",
+                    return_value=snapshot,
+                ):
+                    exit_code = harness.main(
+                        [
+                            "plan-scale",
+                            "--run-id",
+                            "scale-plan-override",
+                            "--out-dir",
+                            str(out_dir),
+                            "--allow-unsafe-scale",
+                        ],
+                        stdout=output,
+                    )
+            artifact = read_json(out_dir / "scale-plan-override" / "scale_validation_plan.json")
+            stdout_report = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(artifact["ok"])
+        self.assertEqual(artifact["decision"], "allowed-with-override")
+        self.assertEqual(artifact["resourceGuard"]["decision"], "allowed-with-override")
+        self.assertIn("cli:--allow-unsafe-scale", artifact["resourceGuard"]["override"]["sources"])
+        self.assertEqual(stdout_report["decision"], "allowed-with-override")
 
 
 if __name__ == "__main__":
