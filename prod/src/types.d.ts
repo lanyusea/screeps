@@ -5,6 +5,7 @@ declare global {
     meta: {
       version: number;
     };
+    runtime?: RuntimeConfigMemory;
     defense?: DefenseMemory;
     scout?: Record<string, unknown>;
     intel?: IntelMemory;
@@ -235,6 +236,13 @@ declare global {
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
     spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
     labManagement?: EconomyLabManagementMemory;
+    safeTransitAllowlist?: string[];
+    storageTransferPriorities?: EconomyStorageTransferPriorityMemory[];
+  }
+
+  interface RuntimeConfigMemory {
+    currentRoomName?: string;
+    ownedRoomNames?: string[];
   }
 
   type CreepLabBoostState = 'moving' | 'complete' | 'blocked';
@@ -421,6 +429,12 @@ declare global {
     targetRoom: string;
     amount: number;
     updatedAt: number;
+  }
+
+  interface EconomyStorageTransferPriorityMemory {
+    sourceRoom: string;
+    targetRoom: string;
+    priority: number;
   }
 
   type EconomyMultiRoomEnergyBottleneck =
@@ -755,11 +769,23 @@ declare global {
     controllers?: Record<string, TerritoryControllerManagementMemory>;
     scoutAttempts?: Record<string, TerritoryScoutAttemptMemory>;
     scoutIntel?: Record<string, TerritoryScoutIntelMemory>;
+    runtimeCurrentRoomScoutTargetsEnabled?: boolean;
+    expansionScoutTargets?: TerritoryExpansionScoutTargetMemory[];
     expansionCandidates?: TerritoryExpansionCandidateMemory[];
     expansionPipelines?: Record<string, TerritoryExpansionPipelineMemory>;
     expansionReevaluations?: Record<string, TerritoryExpansionReevaluationMemory>;
     routeDistancesUpdatedAt?: Record<string, number>;
     routeDistances?: Record<string, number | null>;
+  }
+
+  interface TerritoryExpansionScoutTargetMemory {
+    colony: string;
+    roomName: string;
+    nearestOwnedRoom: string;
+    nearestOwnedRoomDistance: number;
+    routeDistance: number;
+    adjacentToOwnedRoom: boolean;
+    scoutOnly?: boolean;
   }
 
   interface TerritoryTargetMemory {

@@ -5,6 +5,7 @@ import { runClaimedRoomBootstrapper } from '../../src/territory/claimedRoomBoots
 import { refreshExpansionExecutorIntent } from '../../src/territory/expansionExecutor';
 import { recordPostClaimBootstrapClaimSuccess } from '../../src/territory/postClaimBootstrap';
 import type { RuntimeTelemetryEvent } from '../../src/telemetry/runtimeSummary';
+import { installE17S60ExpansionScoutTarget } from '../helpers/runtimeRoomConfig';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -80,6 +81,7 @@ describe('E17S60 claimer dispatch and buildout', () => {
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
     );
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installE17S60ExpansionScoutTarget();
   });
 
   afterEach(() => {

@@ -1,7 +1,7 @@
-import { ECONOMY_CORRIDOR_ROOMS } from '../config/roomConfig';
+import { getRuntimeOwnedRoomNames } from '../config/runtimeRooms';
 import type { RoomStoredEnergyState } from './storageBalancer';
 
-export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ECONOMY_CORRIDOR_ROOMS;
+export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS: readonly string[] = [];
 export const MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 
 export type MultiRoomEnergyTransferAuditStatus = 'planned' | 'suppressed' | 'blocked';
@@ -44,7 +44,7 @@ export function buildMultiRoomEnergyState(
 
   return {
     updatedAt: gameTime,
-    corridor: [...MULTI_ROOM_ENERGY_CORRIDOR_ROOMS],
+    corridor: getMultiRoomEnergyCorridorRooms(),
     rooms: Object.fromEntries(
       roomStates.map((roomState) => {
         const roomName = roomState.roomName;
@@ -60,6 +60,10 @@ export function buildMultiRoomEnergyState(
     ),
     transfers: auditEntries
   };
+}
+
+export function getMultiRoomEnergyCorridorRooms(): string[] {
+  return getRuntimeOwnedRoomNames();
 }
 
 export function getMultiRoomEnergyRoomState(

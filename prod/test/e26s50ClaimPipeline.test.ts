@@ -4,6 +4,7 @@ import { planSpawn } from '../src/spawn/spawnPlanner';
 import { refreshExpansionExecutorIntent } from '../src/territory/expansionExecutor';
 import { getExpansionTriggerRequiredEnergy } from '../src/territory/expansionTrigger';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
+import { installE18S59ExpansionScoutTarget } from './helpers/runtimeRoomConfig';
 
 describe('E18S59 claim pipeline', () => {
   beforeEach(() => {
@@ -28,6 +29,7 @@ describe('E18S59 claim pipeline', () => {
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
     ) as unknown as typeof RoomPosition;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installE18S59ExpansionScoutTarget();
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 

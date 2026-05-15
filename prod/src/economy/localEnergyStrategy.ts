@@ -1,10 +1,9 @@
-import { LOCAL_FIRST_ENERGY_ROOMS, LOCAL_FIRST_SOURCE_ROOMS } from '../config/roomConfig';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
-export const DEFAULT_LOCAL_FIRST_ENERGY_ROOM = LOCAL_FIRST_ENERGY_ROOMS[0];
-export const DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM = LOCAL_FIRST_ENERGY_ROOMS[1];
-export const DEFAULT_LOCAL_FIRST_SOURCE_ROOM = LOCAL_FIRST_SOURCE_ROOMS[0];
-export const DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = LOCAL_FIRST_ENERGY_ROOMS;
+export const DEFAULT_LOCAL_FIRST_ENERGY_ROOM: string | undefined = undefined;
+export const DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM: string | undefined = undefined;
+export const DEFAULT_LOCAL_FIRST_SOURCE_ROOM: string | undefined = undefined;
+export const DEFAULT_LOCAL_FIRST_ENERGY_ROOMS: readonly string[] = [];
 export const DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD = 500;
 export const DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO = 0.8;
 export const DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS = 50;
@@ -60,7 +59,7 @@ const DEFAULT_ROOM_CONFIGS: Record<string, Omit<LocalEnergyRoomConfig, 'enabled'
     roomName,
     {
       importThreshold: DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD,
-      sourceRooms: [...LOCAL_FIRST_SOURCE_ROOMS],
+      sourceRooms: DEFAULT_LOCAL_FIRST_SOURCE_ROOM ? [DEFAULT_LOCAL_FIRST_SOURCE_ROOM] : [],
       harvestCoverageRatio: DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO,
       sourceWorkloadFreshTicks: DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS,
       spawnCollapseEnergyThreshold: DEFAULT_SPAWN_COLLAPSE_ENERGY_THRESHOLD
@@ -199,7 +198,7 @@ function getLocalEnergyRoomConfig(roomName: string): LocalEnergyRoomConfig | nul
     return null;
   }
 
-  if (!defaults && configured?.enabled !== true) {
+  if (!defaults && !configured) {
     return null;
   }
 

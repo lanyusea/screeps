@@ -23,6 +23,7 @@ import {
   TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
   TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
 } from '../src/territory/autoClaim';
+import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
 
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
@@ -4854,6 +4855,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installRuntimeCurrentRoom('W3N9');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { W3N9: colony.room }
     };

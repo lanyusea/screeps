@@ -257,6 +257,26 @@ describe('expansion executor', () => {
 
   it('requests configured E17S59 expansion scout targets', () => {
     const colony = makeColony({ roomName: 'E17S59' });
+    Memory.territory = {
+      expansionScoutTargets: [
+        {
+          colony: 'E17S59',
+          roomName: 'E18S59',
+          nearestOwnedRoom: 'E17S59',
+          nearestOwnedRoomDistance: 1,
+          routeDistance: 1,
+          adjacentToOwnedRoom: true
+        },
+        {
+          colony: 'E17S59',
+          roomName: 'E17S60',
+          nearestOwnedRoom: 'E17S58',
+          nearestOwnedRoomDistance: 1,
+          routeDistance: 2,
+          adjacentToOwnedRoom: true
+        }
+      ]
+    };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 821,
       rooms: {
@@ -322,6 +342,9 @@ describe('expansion executor', () => {
   it('does not convert fresh W3N9 scout-only expansion intel into claim or reserve automation', () => {
     const colony = makeColony({ roomName: 'W3N9' });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'W3N9'
+      },
       territory: {
         scoutIntel: {
           'W3N9>W3N8': makeScoutIntel('W3N9', 'W3N8', 968_700),

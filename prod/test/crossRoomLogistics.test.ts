@@ -143,6 +143,13 @@ describe('cross-room energy logistics', () => {
     });
     installGame([targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -174,6 +181,13 @@ describe('cross-room energy logistics', () => {
     });
     installGame([targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E18S59: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E18S59: {
           updatedAt: 100,
@@ -206,6 +220,13 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -240,6 +261,13 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, localFirstRoom, e18s59Room], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -433,6 +461,13 @@ describe('cross-room energy logistics', () => {
     targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -474,6 +509,13 @@ describe('cross-room energy logistics', () => {
     targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -771,6 +813,13 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,

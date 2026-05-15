@@ -6,6 +6,10 @@ import {
   refreshNearbyRoomScouting,
   refreshAdjacentRoomScouting
 } from '../src/territory/roomScouting';
+import {
+  enableRuntimeCurrentRoomScoutTargets,
+  installE17S60ExpansionScoutTarget
+} from './helpers/runtimeRoomConfig';
 
 describe('room scouting', () => {
   beforeEach(() => {
@@ -183,6 +187,7 @@ describe('room scouting', () => {
         }
       }
     };
+    installE17S60ExpansionScoutTarget();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 300,
       rooms: {
@@ -222,6 +227,7 @@ describe('room scouting', () => {
 
   it('requests only scout intents for W3N9 adjacent expansion intel refresh targets', () => {
     const colony = makeColony('W3N9');
+    enableRuntimeCurrentRoomScoutTargets('W3N9');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 968_800,
       rooms: {

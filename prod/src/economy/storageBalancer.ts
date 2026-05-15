@@ -1,4 +1,3 @@
-import { CORRIDOR_EXPORTER_PRIORITY_PAIRS } from '../config/roomConfig';
 import { getTerminalEnergyTarget } from './energySurplus';
 import {
   auditLocalEnergyImport,
@@ -503,8 +502,8 @@ function compareExportRoomsForImporter(
 }
 
 function getCorridorExporterPriority(sourceRoom: string, targetRoom: string): number {
-  return CORRIDOR_EXPORTER_PRIORITY_PAIRS.find(
-    (pair) => pair.sourceRoom === sourceRoom && pair.targetRoom === targetRoom
+  return normalizeStorageTransferPriorities(getEconomyMemory().storageTransferPriorities).find(
+    (priority) => priority.sourceRoom === sourceRoom && priority.targetRoom === targetRoom
   )?.priority ?? 1;
 }
 
@@ -789,6 +788,34 @@ function getGameTime(): number {
 
 function normalizeNonNegativeInteger(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function normalizeStorageTransferPriorities(value: unknown): EconomyStorageTransferPriorityMemory[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((priority) => {
+    if (!isRecord(priority) || !isNonEmptyString(priority.sourceRoom) || !isNonEmptyString(priority.targetRoom)) {
+      return [];
+    }
+
+    return [
+      {
+        sourceRoom: priority.sourceRoom,
+        targetRoom: priority.targetRoom,
+        priority: normalizeNonNegativeInteger(priority.priority)
+      }
+    ];
+  });
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function getEnergyResource(): ResourceConstant {

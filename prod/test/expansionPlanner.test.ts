@@ -12,6 +12,7 @@ import {
 } from '../src/territory/expansionPlanner';
 import { refreshConfiguredExpansionRoomScouting } from '../src/territory/roomScouting';
 import { planTerritoryIntent, type TerritoryIntentPlan } from '../src/territory/territoryPlanner';
+import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
 
 describe('expansion planner', () => {
   beforeEach(() => {
@@ -469,6 +470,7 @@ describe('expansion planner', () => {
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300
     });
+    installRuntimeCurrentRoom('W3N9');
     installGame(colony, {
       gclLevel: 2,
       exits: { W3N9: { '1': 'W3N8', '7': 'W2N9' } },
