@@ -20,7 +20,7 @@ import { MULTI_ROOM_ENERGY_CORRIDOR_ROOMS, getMultiRoomEnergyCorridorRooms } fro
 import { safeTransitAllowlist } from '../src/economy/roomLogistics';
 import { TERRITORY_EXPANSION_SCOUT_TARGETS } from '../src/territory/expansionConfig';
 
-declare const process: { cwd(): string };
+declare const __dirname: string;
 declare const require: (moduleName: string) => unknown;
 
 interface DirentLike {
@@ -116,7 +116,7 @@ describe('room config', () => {
   });
 
   it('keeps protected room literals out of production business modules', () => {
-    const sourceRoot = path.join(process.cwd(), 'src');
+    const sourceRoot = path.join(__dirname, '..', 'src');
     const allowedPaths = new Set(
       [
         path.join(sourceRoot, 'config', 'roomConfig.ts'),
