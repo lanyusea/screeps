@@ -38,7 +38,6 @@ import {
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
-  MINIMUM_WORKER_SPAWN_ENERGY,
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import {
@@ -1299,11 +1298,7 @@ function hasLowWorkerThroughputRecoveryPressure(creep: Creep): boolean {
   }
 
   const energyAvailable = getRoomEnergyAvailable(room);
-  if (
-    energyAvailable === null ||
-    energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY ||
-    energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)
-  ) {
+  if (energyAvailable === null || energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)) {
     return false;
   }
 

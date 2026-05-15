@@ -41,6 +41,7 @@ import {
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_RESERVATION_RENEWAL_TICKS
 } from '../src/territory/territoryPlanner';
+import { MINIMUM_WORKER_SPAWN_ENERGY } from '../src/economy/energyBuffer';
 
 const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
 const TEST_ERR_NO_PATH = -2 as const;
@@ -10177,12 +10178,13 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
-  it('forces a generic worker harvest during low-worker energy deficit even when source containers are assigned', () => {
+  it('forces a generic worker harvest during low-worker energy deficit below the spawn floor', () => {
+    const scarceEnergyAvailable = MINIMUM_WORKER_SPAWN_ENERGY - 10;
     const source = makeSource('source1', 20, 10);
     const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 0, {
       pos: makeRoomPosition(20, 11)
     });
-    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 190, 110);
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, scarceEnergyAvailable, 110);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -10194,7 +10196,7 @@ describe('selectWorkerTask', () => {
       name: 'W3N9',
       constructionSites: [site],
       controller,
-      energyAvailable: 290,
+      energyAvailable: scarceEnergyAvailable,
       energyCapacityAvailable: 550,
       myStructures: [spawn as unknown as AnyOwnedStructure],
       sources: [source],
@@ -10229,7 +10231,8 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
-  it('uses carried energy on build recovery before upgrade during low-worker buffer deficit', () => {
+  it('uses carried energy on build recovery below the spawn floor before upgrade', () => {
+    const scarceEnergyAvailable = MINIMUM_WORKER_SPAWN_ENERGY - 10;
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -10241,7 +10244,7 @@ describe('selectWorkerTask', () => {
       name: 'W3N9',
       constructionSites: [site],
       controller,
-      energyAvailable: 290,
+      energyAvailable: scarceEnergyAvailable,
       energyCapacityAvailable: 550
     });
     const creep = {
@@ -10271,7 +10274,7 @@ describe('selectWorkerTask', () => {
         roomName: 'W3N9',
         workerCapacity: 3,
         workerTarget: 4,
-        energyAvailable: 290,
+        energyAvailable: scarceEnergyAvailable,
         energyCapacityAvailable: 550,
         controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
       }),
@@ -10374,6 +10377,12 @@ describe('selectWorkerTask', () => {
         myStructures: builtExtensions as AnyOwnedStructure[]
       })
     } as unknown as Creep;
+    setGameCreeps({
+      WorkerA: { memory: { role: 'worker' }, room: creep.room } as unknown as Creep,
+      WorkerB: { memory: { role: 'worker' }, room: creep.room } as unknown as Creep,
+      WorkerC: { memory: { role: 'worker' }, room: creep.room } as unknown as Creep,
+      WorkerD: { memory: { role: 'worker' }, room: creep.room } as unknown as Creep
+    });
     recordSurvivalMode('BOOTSTRAP');
 
     expect(selectWorkerTask(creep)?.type).not.toBe('build');

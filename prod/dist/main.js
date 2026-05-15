@@ -23500,7 +23500,7 @@ function hasLowWorkerThroughputRecoveryPressure(creep) {
     return false;
   }
   const energyAvailable = getRoomEnergyAvailable9(room);
-  if (energyAvailable === null || energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY || energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)) {
+  if (energyAvailable === null || energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)) {
     return false;
   }
   if (!hasVisibleOwnedConstructionDemand(room)) {
