@@ -234,6 +234,17 @@ interface GameCreepsCache {
   tick: number | null;
 }
 
+interface RoutineBarrierMaintenanceRepairTargetCacheEntry {
+  room: Room;
+  target: StructureRampart | StructureWall | null;
+}
+
+interface RoutineBarrierMaintenanceRepairTargetCache {
+  game: Partial<Game> | undefined;
+  roomsByName: Map<string, RoutineBarrierMaintenanceRepairTargetCacheEntry>;
+  tick: number;
+}
+
 interface ConstructionSiteSelectionOptions {
   priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
   requireReasonableRange?: boolean;
@@ -281,6 +292,7 @@ let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserv
 let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
 let gameCreepsCache: GameCreepsCache | null = null;
+let routineBarrierMaintenanceRepairTargetCache: RoutineBarrierMaintenanceRepairTargetCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
@@ -6128,15 +6140,49 @@ function selectThreatenedBarrierRepairTarget(creep: Creep): StructureRampart | S
 }
 
 function selectRoutineBarrierMaintenanceRepairTarget(creep: Creep): StructureRampart | StructureWall | null {
+  return getRoutineBarrierMaintenanceRepairTarget(creep.room);
+}
+
+function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+  const gameTick = getGameTick();
+  const roomName = getRoomName(room);
+  if (gameTick === null || roomName === null) {
+    return computeRoutineBarrierMaintenanceRepairTarget(room);
+  }
+
+  const game = getGameReference();
   if (
-    creep.room.controller?.my !== true ||
-    hasVisibleHostilePresence(creep.room) ||
-    !checkEnergyBufferForConstructionSpending(creep.room)
+    !routineBarrierMaintenanceRepairTargetCache ||
+    routineBarrierMaintenanceRepairTargetCache.tick !== gameTick ||
+    routineBarrierMaintenanceRepairTargetCache.game !== game
+  ) {
+    routineBarrierMaintenanceRepairTargetCache = {
+      game,
+      roomsByName: new Map<string, RoutineBarrierMaintenanceRepairTargetCacheEntry>(),
+      tick: gameTick
+    };
+  }
+
+  const cachedEntry = routineBarrierMaintenanceRepairTargetCache.roomsByName.get(roomName);
+  if (cachedEntry?.room === room) {
+    return cachedEntry.target;
+  }
+
+  const target = computeRoutineBarrierMaintenanceRepairTarget(room);
+  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, target });
+  return target;
+}
+
+function computeRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+  if (
+    room.controller?.my !== true ||
+    hasVisibleHostilePresence(room) ||
+    !checkEnergyBufferForConstructionSpending(room)
   ) {
     return null;
   }
 
-  const repairTargets = findVisibleRoomStructures(creep.room).filter(isRoutineBarrierMaintenanceRepairTarget);
+  const repairTargets = findVisibleRoomStructures(room).filter(isRoutineBarrierMaintenanceRepairTarget);
   if (repairTargets.length === 0) {
     return null;
   }

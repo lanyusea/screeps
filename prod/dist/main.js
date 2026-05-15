@@ -22810,6 +22810,7 @@ var nearTermSpawnExtensionRefillReserveCache = null;
 var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
 var gameCreepsCache = null;
+var routineBarrierMaintenanceRepairTargetCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
   const heuristicTask = selectHeuristicWorkerTask(creep);
@@ -26571,11 +26572,36 @@ function selectThreatenedBarrierRepairTarget(creep) {
   return repairTargets.sort(compareRepairTargets)[0];
 }
 function selectRoutineBarrierMaintenanceRepairTarget(creep) {
+  return getRoutineBarrierMaintenanceRepairTarget(creep.room);
+}
+function getRoutineBarrierMaintenanceRepairTarget(room) {
+  const gameTick = getGameTick3();
+  const roomName = getRoomName6(room);
+  if (gameTick === null || roomName === null) {
+    return computeRoutineBarrierMaintenanceRepairTarget(room);
+  }
+  const game = getGameReference();
+  if (!routineBarrierMaintenanceRepairTargetCache || routineBarrierMaintenanceRepairTargetCache.tick !== gameTick || routineBarrierMaintenanceRepairTargetCache.game !== game) {
+    routineBarrierMaintenanceRepairTargetCache = {
+      game,
+      roomsByName: /* @__PURE__ */ new Map(),
+      tick: gameTick
+    };
+  }
+  const cachedEntry = routineBarrierMaintenanceRepairTargetCache.roomsByName.get(roomName);
+  if ((cachedEntry == null ? void 0 : cachedEntry.room) === room) {
+    return cachedEntry.target;
+  }
+  const target = computeRoutineBarrierMaintenanceRepairTarget(room);
+  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, target });
+  return target;
+}
+function computeRoutineBarrierMaintenanceRepairTarget(room) {
   var _a;
-  if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true || hasVisibleHostilePresence2(creep.room) || !checkEnergyBufferForConstructionSpending(creep.room)) {
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true || hasVisibleHostilePresence2(room) || !checkEnergyBufferForConstructionSpending(room)) {
     return null;
   }
-  const repairTargets = findVisibleRoomStructures(creep.room).filter(isRoutineBarrierMaintenanceRepairTarget);
+  const repairTargets = findVisibleRoomStructures(room).filter(isRoutineBarrierMaintenanceRepairTarget);
   if (repairTargets.length === 0) {
     return null;
   }

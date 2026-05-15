@@ -13056,6 +13056,49 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('reuses the routine barrier maintenance target for workers in the same room tick', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const wall = makeStructure(
+      'wall-decay',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 299,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [wall]
+    });
+    const makeCreep = (name: string): Creep =>
+      ({
+        name,
+        memory: { role: 'worker' },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      }) as unknown as Creep;
+    const firstWorker = makeCreep('FirstWorker');
+    const secondWorker = makeCreep('SecondWorker');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { FirstWorker: firstWorker, SecondWorker: secondWorker },
+      time: 700
+    };
+    const findMock = room.find as unknown as jest.Mock;
+
+    expect(selectWorkerTask(firstWorker)).toEqual({ type: 'repair', targetId: 'wall-decay' });
+    const firstWorkerStructureFinds = findMock.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
+
+    expect(selectWorkerTask(secondWorker)).toEqual({ type: 'repair', targetId: 'wall-decay' });
+    const totalStructureFinds = findMock.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
+
+    expect(totalStructureFinds - firstWorkerStructureFinds).toBeLessThan(firstWorkerStructureFinds);
+  });
+
   it('keeps managed controller upgrade when barrier maintenance would spend below the construction floor', () => {
     const controller = {
       id: 'controller1',
