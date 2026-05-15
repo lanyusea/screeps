@@ -146,6 +146,75 @@ describe('runWorker', () => {
     expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 50);
   });
 
+  it('withdraws only construction-safe spawn energy below the W3N9 bootstrap buffer margin', () => {
+    const site = withRangeTo(
+      { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(323),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const withdraw = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'W3N9',
+      energyAvailable: 323,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        return type === FIND_STRUCTURES ? [spawn] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'W3N9' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      withdraw,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'W3N9',
+      workerCapacity: 1,
+      workerTarget: 3,
+      hostileCreepCount: 0,
+      energyCapacityAvailable: 550,
+      controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('W3N9', assessment, 966752);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById: jest.fn().mockReturnValue(spawn)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn1',
+      constructionSiteId: 'extension-site1'
+    });
+    expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 23);
+  });
+
   it('signs an owned controller when controller management reports a missing signature', () => {
     const controller = {
       id: 'controller1',

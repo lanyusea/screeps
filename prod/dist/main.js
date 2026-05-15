@@ -25404,7 +25404,7 @@ function getSpawnConstructionEnergyAvailableForWithdrawal(creep, source, energy,
   );
   const constructionBudget = Math.max(
     0,
-    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
+    roomEnergyAvailable - getConstructionSpendingEnergyThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
   );
   return Math.min(projectedSourceEnergy, constructionBudget, spawnReservationBudget);
 }
@@ -29391,7 +29391,7 @@ function getConstructionSpawnWithdrawEnergyAvailable(creep, target) {
   );
   const constructionBudget = Math.max(
     0,
-    roomEnergyAvailable - getEffectiveRoomEnergyBufferThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
+    roomEnergyAvailable - getConstructionSpendingEnergyThreshold(creep.room) - reservationContext.constructionEnergyWithdrawn
   );
   return Math.min(sourceEnergy, constructionBudget, spawnReservationBudget);
 }
