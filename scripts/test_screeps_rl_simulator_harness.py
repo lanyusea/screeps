@@ -2298,6 +2298,51 @@ cli:
         self.assertEqual(artifact["scaleValidation"]["successCriteria"]["minimumSuccessfulEnvironments"], 4)
         self.assertEqual(stdout_report["planArtifactPath"], str(out_dir / "scale-plan" / "scale_validation_plan.json"))
 
+    def test_plan_scale_command_returns_nonzero_when_override_allows_unsafe_scale(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 6822,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 6822,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 3,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 3,
+            "activeSimulatorContainerCount": 3,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": ["screeps-private-smoke-a-screeps-1"],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = io.StringIO()
+            out_dir = Path(temp_dir) / "runtime-artifacts"
+            with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+                with mock.patch(
+                    "screeps_rl_simulator_harness.collect_resource_guard_host_snapshot",
+                    return_value=snapshot,
+                ):
+                    exit_code = harness.main(
+                        [
+                            "plan-scale",
+                            "--run-id",
+                            "scale-plan-override",
+                            "--out-dir",
+                            str(out_dir),
+                            "--allow-unsafe-scale",
+                        ],
+                        stdout=output,
+                    )
+            artifact = read_json(out_dir / "scale-plan-override" / "scale_validation_plan.json")
+            stdout_report = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(artifact["ok"])
+        self.assertEqual(artifact["decision"], "allowed-with-override")
+        self.assertEqual(artifact["resourceGuard"]["decision"], "allowed-with-override")
+        self.assertIn("cli:--allow-unsafe-scale", artifact["resourceGuard"]["override"]["sources"])
+        self.assertEqual(stdout_report["decision"], "allowed-with-override")
+
 
 if __name__ == "__main__":
     unittest.main()

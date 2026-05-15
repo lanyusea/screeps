@@ -4624,7 +4624,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
         )
         stdout.write(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")
-        return 0 if report.get("ok") is True else 1
+        return 0 if report.get("decision") == "allowed" else 1
     raise AssertionError(f"unhandled command: {args.command}")
 
 
