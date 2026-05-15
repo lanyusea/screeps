@@ -250,6 +250,154 @@ describe('runEconomy', () => {
     });
   });
 
+  it('backfills local worker colony memory before assigning E29N55 construction work', () => {
+    (globalThis as unknown as {
+      ERR_NOT_IN_RANGE: number;
+      ERR_FULL: number;
+      ERR_NOT_ENOUGH_RESOURCES: number;
+      ERR_INVALID_TARGET: number;
+      FIND_SOURCES: number;
+      FIND_MY_CREEPS: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_STRUCTURES: number;
+      FIND_STRUCTURES: number;
+      FIND_DROPPED_RESOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_SPAWN: StructureConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+      STRUCTURE_CONTAINER: StructureConstant;
+      STRUCTURE_ROAD: StructureConstant;
+    }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
+    (globalThis as unknown as { ERR_NOT_ENOUGH_RESOURCES: number }).ERR_NOT_ENOUGH_RESOURCES = -6;
+    (globalThis as unknown as { ERR_INVALID_TARGET: number }).ERR_INVALID_TARGET = ERR_INVALID_TARGET_CODE;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 2;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 5;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 6;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 7;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 8;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 9;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    const source = { id: 'source1', energy: 2_800, pos: { x: 16, y: 28, roomName: 'E29N55' } } as Source;
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 25,
+      progressTotal: 3_000,
+      pos: { x: 18, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 300
+    } as StructureController;
+    let spawn: StructureSpawn;
+    let extension: StructureExtension;
+    let worker: Creep;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 350,
+      energyCapacityAvailable: 350,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+        if (type === FIND_MY_CREEPS) {
+          return [worker];
+        }
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn as unknown as AnyOwnedStructure, extension as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        return [];
+      })
+    } as unknown as Room;
+    spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(300)
+      },
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    extension = {
+      id: 'extension1',
+      my: true,
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      }
+    } as unknown as StructureExtension;
+    worker = {
+      name: 'worker-E29N55-994364',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(20),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      build: jest.fn().mockReturnValue(OK_CODE),
+      harvest: jest.fn().mockReturnValue(OK_CODE),
+      transfer: jest.fn().mockReturnValue(OK_CODE),
+      upgradeController: jest.fn().mockReturnValue(OK_CODE),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 994_364,
+      rooms: { E29N55: room },
+      spawns: { Spawn1: spawn },
+      creeps: { [worker.name]: worker },
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'extension-site1') {
+          return extensionSite;
+        }
+        if (id === 'source1') {
+          return source;
+        }
+        if (id === 'spawn1') {
+          return spawn;
+        }
+        if (id === 'extension1') {
+          return extension;
+        }
+        return id === 'controller1' ? controller : null;
+      })
+    };
+
+    runEconomy();
+
+    expect(worker.memory.colony).toBe('E29N55');
+    expect(worker.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(worker.build).toHaveBeenCalledWith(extensionSite);
+  });
+
   it('spawns an emergency bootstrap worker when the energy buffer is satisfied', () => {
     const room = {
       name: 'W1N1',

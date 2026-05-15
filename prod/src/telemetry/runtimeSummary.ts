@@ -662,7 +662,7 @@ export function emitRuntimeSummary(
   const tick = getGameTime();
   resetCachedRefillTelemetryIfTickRewound(tick);
   const emitsSummary = shouldEmitRuntimeSummary(tick, events);
-  const creepsByColony = groupCreepsByColony(creeps);
+  const creepsByColony = groupCreepsByColony(creeps, colonies);
   let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
   let eventMetricsByRoom = cachedEventMetricsByRoom;
 
@@ -726,21 +726,43 @@ function resetCachedRefillTelemetryIfTickRewound(tick: number): void {
   cachedEventMetricsTick = undefined;
 }
 
-function groupCreepsByColony(creeps: Creep[]): Map<string, Creep[]> {
+function groupCreepsByColony(creeps: Creep[], colonies: ColonySnapshot[]): Map<string, Creep[]> {
   const creepsByColony = new Map<string, Creep[]>();
+  const colonyNames = new Set(colonies.map((colony) => colony.room.name));
 
   for (const creep of creeps) {
     const colonyName = creep.memory.colony;
-    if (!colonyName) {
+    if (isNonEmptyString(colonyName)) {
+      addCreepToColonyGroup(creepsByColony, colonyName, creep);
       continue;
     }
 
-    const colonyCreeps = creepsByColony.get(colonyName) ?? [];
-    colonyCreeps.push(creep);
-    creepsByColony.set(colonyName, colonyCreeps);
+    const roomName = creep.room?.name;
+    if (
+      creep.memory.role === 'worker' &&
+      isNonEmptyString(roomName) &&
+      colonyNames.has(roomName) &&
+      isRoomLocalWorkerName(creep, roomName)
+    ) {
+      addCreepToColonyGroup(creepsByColony, roomName, creep);
+    }
   }
 
   return creepsByColony;
+}
+
+function addCreepToColonyGroup(creepsByColony: Map<string, Creep[]>, colonyName: string, creep: Creep): void {
+  const colonyCreeps = creepsByColony.get(colonyName) ?? [];
+  colonyCreeps.push(creep);
+  creepsByColony.set(colonyName, colonyCreeps);
+}
+
+function isRoomLocalWorkerName(creep: Creep, roomName: string): boolean {
+  return typeof creep.name === 'string' && creep.name.startsWith(`worker-${roomName}-`);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function buildRefillTargetIdsByRoom(colonies: ColonySnapshot[]): Map<string, Set<string>> {

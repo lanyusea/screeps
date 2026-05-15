@@ -151,6 +151,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();
+  ensureLocalWorkerColonyMemory(ownedColonies, creeps);
   refreshSpawnEnergyReservationStates(ownedColonies);
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)] as const)
@@ -327,6 +328,32 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function ensureLocalWorkerColonyMemory(colonies: ColonySnapshot[], creeps: Creep[]): void {
+  if (colonies.length === 0 || creeps.length === 0) {
+    return;
+  }
+
+  const colonyNames = new Set(colonies.map((colony) => colony.room.name));
+  for (const creep of creeps) {
+    if (creep.memory.role !== 'worker' || isNonEmptyString(creep.memory.colony)) {
+      continue;
+    }
+
+    const roomName = creep.room?.name;
+    if (isNonEmptyString(roomName) && colonyNames.has(roomName) && isRoomLocalWorkerName(creep, roomName)) {
+      creep.memory.colony = roomName;
+    }
+  }
+}
+
+function isRoomLocalWorkerName(creep: Creep, roomName: string): boolean {
+  return typeof creep.name === 'string' && creep.name.startsWith(`worker-${roomName}-`);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 export function orderCreepsForEconomyTaskPriority(creeps: Creep[]): Creep[] {
