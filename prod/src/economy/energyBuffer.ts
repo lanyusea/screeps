@@ -227,7 +227,7 @@ function getNonCrisisEnergyBufferCapacityCap(energyCapacityAvailable: number): n
   );
 }
 
-function getConstructionSpendingEnergyThreshold(room: Room): number {
+export function getConstructionSpendingEnergyThreshold(room: Room): number {
   return Math.min(
     getEffectiveRoomEnergyBufferThreshold(room),
     CONSTRUCTION_SPENDING_MINIMUM_SPAWN_ENERGY

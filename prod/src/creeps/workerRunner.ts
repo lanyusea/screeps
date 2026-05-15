@@ -16,7 +16,10 @@ import {
 } from './workerTaskPolicy';
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
-import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
+import {
+  getConstructionSpendingEnergyThreshold,
+  getEffectiveRoomEnergyBufferThreshold
+} from '../economy/energyBuffer';
 import { getSpawnEnergyWithdrawalAmount, isSpawnEnergySource } from '../economy/spawnEnergyBuffer';
 import {
   getRoomSpawnEnergyReservationState,
@@ -1669,7 +1672,7 @@ function getConstructionSpawnWithdrawEnergyAvailable(creep: Creep, target: Struc
   const constructionBudget = Math.max(
     0,
     roomEnergyAvailable -
-      getEffectiveRoomEnergyBufferThreshold(creep.room) -
+      getConstructionSpendingEnergyThreshold(creep.room) -
       reservationContext.constructionEnergyWithdrawn
   );
   return Math.min(sourceEnergy, constructionBudget, spawnReservationBudget);
