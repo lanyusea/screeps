@@ -20,6 +20,9 @@ DEFAULT_INPUT_PATHS = (
     "/root/.hermes/cron/output",
 )
 DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024
+PERSISTENT_WORLD_ID = "persistent"
+SEASONAL_WORLD_ID = "seasonal"
+RUNTIME_SUMMARY_WORLD_FIELDS = ("worldId", "world", "worldProfile")
 
 JsonObject = dict[str, Any]
 
@@ -29,6 +32,9 @@ class RuntimeSummaryRecord:
     line: str
     path: Path
     timestamp: datetime | None
+    world_id: str = PERSISTENT_WORLD_ID
+    world_id_status: str = "fallback"
+    world_id_source: str = "default"
 
 
 @dataclass
@@ -53,6 +59,8 @@ class ScanResult:
             "scannedFiles": self.scanned_files,
             "skippedFileCount": len(self.skipped_files),
             "skippedFiles": self.skipped_files,
+            "worldIdCounts": count_record_values(self.records, "world_id"),
+            "worldIdStatusCounts": count_record_values(self.records, "world_id_status"),
         }
 
 
@@ -162,7 +170,18 @@ def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
     result.matched_files += 1
     result.lines.extend(matching_lines)
     timestamp = infer_runtime_summary_timestamp(path)
-    result.records.extend(RuntimeSummaryRecord(line=line, path=path, timestamp=timestamp) for line in matching_lines)
+    for line in matching_lines:
+        world_id, world_id_status, world_id_source = infer_runtime_summary_world_id(line, path)
+        result.records.append(
+            RuntimeSummaryRecord(
+                line=line,
+                path=path,
+                timestamp=timestamp,
+                world_id=world_id,
+                world_id_status=world_id_status,
+                world_id_source=world_id_source,
+            )
+        )
 
 
 def infer_runtime_summary_timestamp(path: Path) -> datetime | None:
@@ -176,6 +195,45 @@ def infer_runtime_summary_timestamp(path: Path) -> datetime | None:
         return dashed_match
 
     return None
+
+
+def normalize_world_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"season", "seasonal", "screeps-seasonal"}:
+        return SEASONAL_WORLD_ID
+    if normalized in {"main", "mmo", "official", "persistent", "screeps"}:
+        return PERSISTENT_WORLD_ID
+    return re.sub(r"[^a-z0-9_.-]+", "-", normalized).strip("-") or None
+
+
+def infer_runtime_summary_world_id(line: str, path: Path) -> tuple[str, str, str]:
+    payload, _malformed = reducer.parse_runtime_summary_line(line)
+    if isinstance(payload, dict):
+        for field_name in RUNTIME_SUMMARY_WORLD_FIELDS:
+            world_id = normalize_world_id(payload.get(field_name))
+            if world_id is not None:
+                return world_id, "explicit", f"payload.{field_name}"
+
+    for part in path.parts:
+        normalized = part.strip().lower()
+        if normalized == SEASONAL_WORLD_ID or normalized == "screeps-seasonal-runtime-monitor":
+            return SEASONAL_WORLD_ID, "path", "path"
+
+    return PERSISTENT_WORLD_ID, "fallback", "default"
+
+
+def count_record_values(records: Sequence[RuntimeSummaryRecord], attribute: str) -> JsonObject:
+    counts: dict[str, int] = {}
+    for record in records:
+        value = str(getattr(record, attribute, "") or "")
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
 
 
 def re_search_timestamp(pattern: str, value: str) -> datetime | None:
