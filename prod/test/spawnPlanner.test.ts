@@ -109,7 +109,7 @@ describe('planSpawn', () => {
     spawnPosition?: RoomPosition;
     structures?: AnyStructure[];
     ownedStructures?: AnyOwnedStructure[];
-  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
+  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock } {
     const sources = Array.from(
       { length: sourceCount },
       (_, index) =>
@@ -122,7 +122,7 @@ describe('planSpawn', () => {
       { length: constructionSiteCount },
       (_, index) => ({ id: `site${index}` }) as ConstructionSite
     );
-    const find = jest.fn((type: number) => {
+    const find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
       if (type === FIND_SOURCES) {
         return sources;
       }
@@ -136,7 +136,7 @@ describe('planSpawn', () => {
       }
 
       if (type === FIND_MY_STRUCTURES) {
-        return ownedStructures;
+        return typeof options?.filter === 'function' ? ownedStructures.filter(options.filter) : ownedStructures;
       }
 
       if (type === FIND_STRUCTURES) {
@@ -1328,7 +1328,7 @@ describe('planSpawn', () => {
         progress: 3_000,
         progressTotal: 45_000
       } as StructureController,
-      structures: [makeEnergyHaulingStructure('stored-surplus', 'container', 2_000, 0)]
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
     });
 
     expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_333)).toEqual({
@@ -1361,7 +1361,7 @@ describe('planSpawn', () => {
         progress: 3_000,
         progressTotal: 45_000
       } as StructureController,
-      structures: [makeEnergyHaulingStructure('stored-surplus', 'container', 2_000, 0)]
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
     });
 
     expect(planSpawn(colony, { worker: 3, upgrader: 1 }, 980_334)).toEqual({
@@ -1385,7 +1385,7 @@ describe('planSpawn', () => {
         progress: 3_000,
         progressTotal: 45_000
       } as StructureController,
-      structures: [makeEnergyHaulingStructure('stored-surplus', 'container', 2_000, 0)]
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
     });
 
     expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_335)?.memory.role).not.toBe('upgrader');
@@ -1403,7 +1403,7 @@ describe('planSpawn', () => {
         progress: 3_000,
         progressTotal: 135_000
       } as StructureController,
-      structures: [makeEnergyHaulingStructure('stored-surplus', 'container', 2_000, 0)]
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       economy: { energySurplus: { updatedAt: 980_336, rooms: { W3N9: { surplus: true } as EconomyEnergySurplusRoomMemory } } }

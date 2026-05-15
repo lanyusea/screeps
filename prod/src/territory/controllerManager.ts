@@ -437,11 +437,30 @@ function getStoredEnergySurplusThreshold(energyCapacityAvailable: number): numbe
 
 function getVisibleStoredEnergy(room: Room): number {
   return uniqueRoomObjects([
-    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findOwnedStoredEnergyStructures(room),
     ...(getDirectRoomEnergyStructures(room) as Structure[])
   ])
     .filter(isControllerUpgradeStoredEnergyStructure)
     .reduce((total, structure) => total + getStoredEnergy(structure), 0);
+}
+
+function findOwnedStoredEnergyStructures(room: Room): Structure[] {
+  const findConstant = (globalThis as Record<string, unknown>).FIND_MY_STRUCTURES;
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (
+      room.find as unknown as (
+        type: number,
+        options: { filter: (structure: Structure) => boolean }
+      ) => unknown[]
+    )(findConstant, { filter: isControllerUpgradeStoredEnergyStructure });
+    return Array.isArray(result) ? (result as Structure[]).filter(isControllerUpgradeStoredEnergyStructure) : [];
+  } catch {
+    return [];
+  }
 }
 
 function getDirectRoomEnergyStructures(room: Room): unknown[] {

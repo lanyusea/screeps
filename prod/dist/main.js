@@ -31876,9 +31876,21 @@ function getStoredEnergySurplusThreshold(energyCapacityAvailable) {
 }
 function getVisibleStoredEnergy(room) {
   return uniqueRoomObjects([
-    ...findRoomObjects24(room, "FIND_STRUCTURES"),
+    ...findOwnedStoredEnergyStructures(room),
     ...getDirectRoomEnergyStructures(room)
   ]).filter(isControllerUpgradeStoredEnergyStructure).reduce((total, structure) => total + getStoredEnergy23(structure), 0);
+}
+function findOwnedStoredEnergyStructures(room) {
+  const findConstant = globalThis.FIND_MY_STRUCTURES;
+  if (typeof findConstant !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const result = room.find(findConstant, { filter: isControllerUpgradeStoredEnergyStructure });
+    return Array.isArray(result) ? result.filter(isControllerUpgradeStoredEnergyStructure) : [];
+  } catch {
+    return [];
+  }
 }
 function getDirectRoomEnergyStructures(room) {
   const roomWithStores = room;

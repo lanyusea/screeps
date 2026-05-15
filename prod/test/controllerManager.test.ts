@@ -16,6 +16,7 @@ describe('controller manager', () => {
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 4;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
@@ -176,7 +177,7 @@ describe('controller manager', () => {
         energyAvailable: 550,
         energyCapacityAvailable: 550,
         controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
-        structures: [makeEnergyStore('container1', 'container', 2_000)]
+        myStructures: [makeEnergyStore('storage1', 'storage', 2_000)]
       }),
       { worker: 4, upgrader: 1 },
       4,
@@ -201,7 +202,7 @@ describe('controller manager', () => {
         energyAvailable: 550,
         energyCapacityAvailable: 550,
         controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
-        structures: [makeEnergyStore('container1', 'container', 2_000)]
+        myStructures: [makeEnergyStore('storage1', 'storage', 2_000)]
       }),
       { worker: 3, upgrader: 1 },
       4,
@@ -219,7 +220,7 @@ describe('controller manager', () => {
         energyAvailable: 550,
         energyCapacityAvailable: 550,
         controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
-        structures: [makeEnergyStore('container1', 'container', 2_000)]
+        myStructures: [makeEnergyStore('storage1', 'storage', 2_000)]
       }),
       { worker: 4, upgrader: 1 },
       4,
@@ -237,7 +238,7 @@ describe('controller manager', () => {
         energyAvailable: 550,
         energyCapacityAvailable: 550,
         controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
-        structures: [makeEnergyStore('container1', 'container', 2_000)]
+        myStructures: [makeEnergyStore('storage1', 'storage', 2_000)]
       }),
       { worker: 4, upgrader: 1 },
       4,
@@ -255,7 +256,7 @@ describe('controller manager', () => {
         energyAvailable: 599,
         energyCapacityAvailable: 650,
         controller: makeController({ level: 3, progress: 3_000, progressTotal: 135_000 }),
-        structures: [makeEnergyStore('container1', 'container', 2_000)]
+        myStructures: [makeEnergyStore('storage1', 'storage', 2_000)]
       }),
       { worker: 4, upgrader: 1 },
       4,
@@ -282,6 +283,49 @@ describe('controller manager', () => {
 
     expect(plan.desiredUpgraderCount).toBe(0);
     expect(plan.spawnDemand).toBeUndefined();
+  });
+
+  it('uses owned stored-energy structures without scanning every room structure', () => {
+    const colony = makeColony({
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
+      myStructures: [makeEnergyStore('link1', 'link', 2_000)],
+      structures: [makeEnergyStore('container1', 'container', 5_000)]
+    });
+
+    const plan = buildControllerManagementPlan(colony, { worker: 4, upgrader: 1 }, 4, 215);
+
+    expect(plan).toMatchObject({
+      upgradePriority: 'energySurplus',
+      desiredUpgraderCount: 2,
+      spawnDemand: {
+        priority: 'energySurplus',
+        desiredUpgraderCount: 2
+      }
+    });
+    const find = colony.room.find as jest.Mock;
+    expect(find.mock.calls.some(([type]) => type === FIND_STRUCTURES)).toBe(false);
+    expect(find).toHaveBeenCalledWith(
+      FIND_MY_STRUCTURES,
+      expect.objectContaining({ filter: expect.any(Function) })
+    );
+  });
+
+  it('counts direct room storage and terminal energy without a global structure scan', () => {
+    const colony = makeColony({
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: makeController({ level: 2, progress: 3_000, progressTotal: 45_000 }),
+      storage: makeEnergyStore('storage1', 'storage', 700) as StructureStorage,
+      terminal: makeEnergyStore('terminal1', 'terminal', 500) as StructureTerminal
+    });
+
+    const plan = buildControllerManagementPlan(colony, { worker: 4, upgrader: 1 }, 4, 216);
+
+    const find = colony.room.find as jest.Mock;
+    expect(plan.desiredUpgraderCount).toBe(2);
+    expect(find.mock.calls.some(([type]) => type === FIND_STRUCTURES)).toBe(false);
   });
 
   it('treats missing Game state as no active controller upgraders', () => {
@@ -412,13 +456,19 @@ describe('controller manager', () => {
     energyAvailable = 650,
     energyCapacityAvailable = 650,
     constructionSiteCount = 0,
-    structures = []
+    structures = [],
+    myStructures = [],
+    storage,
+    terminal
   }: {
     controller?: StructureController;
     energyAvailable?: number;
     energyCapacityAvailable?: number;
     constructionSiteCount?: number;
     structures?: Structure[];
+    myStructures?: Structure[];
+    storage?: StructureStorage;
+    terminal?: StructureTerminal;
   } = {}): ColonySnapshot {
     const constructionSites = Array.from(
       { length: constructionSiteCount },
@@ -427,9 +477,15 @@ describe('controller manager', () => {
     const room = {
       name: 'W1N1',
       controller,
-      find: jest.fn((type: number) => {
+      ...(storage ? { storage } : {}),
+      ...(terminal ? { terminal } : {}),
+      find: jest.fn((type: number, options?: { filter?: (structure: Structure) => boolean }) => {
         if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
           return constructionSites;
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          return typeof options?.filter === 'function' ? myStructures.filter(options.filter) : myStructures;
         }
 
         if (type === FIND_STRUCTURES) {
