@@ -18353,6 +18353,7 @@ var CONTROLLER_UPGRADE_PROGRESS_PRESSURE_RATIO = 0.85;
 var CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS = 5e3;
 var MAX_CONTROLLER_LEVEL2 = 8;
 var ERR_NOT_IN_RANGE_CODE3 = -9;
+var CONTROLLER_UPGRADE_MOVE_RANGE = 3;
 var MIN_DROPPED_UPGRADER_ENERGY = 25;
 function runUpgrader(creep, controller) {
   if (shouldSignOwnedRoomController(getControllerSigningRoom(creep, controller), controller)) {
@@ -18384,7 +18385,7 @@ function runUpgraderCreep(creep) {
     }
     const result2 = runUpgrader(creep, controller);
     if (result2 === ERR_NOT_IN_RANGE_CODE3) {
-      creep.moveTo(controller);
+      creep.moveTo(controller, { range: CONTROLLER_UPGRADE_MOVE_RANGE });
     }
     return;
   }
@@ -28423,6 +28424,9 @@ var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
 var ERR_INVALID_TARGET_CODE2 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
+var ADJACENT_ACTION_MOVE_RANGE = 1;
+var RANGED_WORK_MOVE_RANGE = 3;
+var EXACT_POSITION_MOVE_RANGE = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 function runWorker(creep) {
   var _a;
@@ -28963,7 +28967,7 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
     return;
   }
   if (execution.result === ERR_NOT_IN_RANGE_CODE6) {
-    creep.moveTo(target);
+    moveToAssignedTaskTarget(creep, task, target);
     recordCreepBehaviorMove(creep);
   }
 }
@@ -29569,7 +29573,7 @@ function executeHarvestTask(creep, task, source) {
     return toTaskExecutionResult(creep.harvest(source), "work", { energyAcquisitionMethod: "harvested" });
   }
   if (!isInRangeToRoomObject(creep, sourceContainer, 0)) {
-    creep.moveTo(sourceContainer);
+    creep.moveTo(sourceContainer, { range: EXACT_POSITION_MOVE_RANGE });
     return { result: OK_CODE11, action: "move" };
   }
   let transferResult = null;
@@ -29599,7 +29603,7 @@ function transferDedicatedHarvestEnergy(creep, sourceContainer) {
   }
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE_CODE6) {
-    creep.moveTo(sourceContainer);
+    creep.moveTo(sourceContainer, { range: EXACT_POSITION_MOVE_RANGE });
     return { result: OK_CODE11, action: "move" };
   }
   return toTaskExecutionResult(result, "work", { containerTransfer: true });
@@ -29632,6 +29636,26 @@ function recordTaskBehavior(creep, task, execution) {
   }
   if (execution.sourceContainerWithdrawal) {
     recordCreepBehaviorSourceContainerWithdrawal(creep);
+  }
+}
+function moveToAssignedTaskTarget(creep, task, target) {
+  const range = getAssignedTaskMoveRange(task);
+  creep.moveTo(target, { range });
+}
+function getAssignedTaskMoveRange(task) {
+  switch (task.type) {
+    case "build":
+    case "repair":
+    case "upgrade":
+      return RANGED_WORK_MOVE_RANGE;
+    case "harvest":
+    case "pickup":
+    case "withdraw":
+    case "transfer":
+    case "claim":
+    case "reserve":
+    case "signController":
+      return ADJACENT_ACTION_MOVE_RANGE;
   }
 }
 function isContainerStructure3(target) {
