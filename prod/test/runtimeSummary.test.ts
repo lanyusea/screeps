@@ -8,6 +8,7 @@ import {
 } from '../src/telemetry/runtimeSummary';
 import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
+import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 
 const TEST_GLOBALS = {
   FIND_STRUCTURES: 101,
@@ -121,7 +122,8 @@ describe('runtime telemetry summaries', () => {
             level: 2,
             progress: 1234,
             progressTotal: 45000,
-            ticksToDowngrade: 15000
+            ticksToDowngrade: 15000,
+            sign: null
           },
           resources: {
             storedEnergy: 250,
@@ -1768,6 +1770,71 @@ describe('runtime telemetry summaries', () => {
     });
     expect((room.resources as Record<string, unknown>).events).toBeUndefined();
     expect((room.combat as Record<string, unknown>).events).toBeUndefined();
+  });
+
+  it('reports owned controller sign evidence in room telemetry', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    (colony.room.controller as StructureController).sign = {
+      username: 'lanyusea',
+      text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+      time: 12345,
+      datetime: new Date('2026-05-15T00:00:00.000Z')
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.controller).toMatchObject({
+      sign: {
+        username: 'lanyusea',
+        text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+        time: 12345,
+        datetime: '2026-05-15T00:00:00.000Z'
+      }
+    });
+  });
+
+  it('reports null sign evidence for unsigned owned controllers and skips unowned controllers safely', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    let payload = parseLoggedSummary();
+    let [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.controller as Record<string, unknown>).sign).toBeNull();
+
+    logSpy.mockClear();
+    (colony.room as Room & { controller?: StructureController }).controller = {
+      my: false,
+      level: 2
+    } as StructureController;
+
+    emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'spawn',
+          roomName: 'W1N1',
+          spawnName: 'Spawn1',
+          creepName: 'worker-W1N1-event',
+          role: 'worker',
+          result: 0 as ScreepsReturnCode
+        }
+      ],
+      { persistOccupationRecommendations: false }
+    );
+
+    payload = parseLoggedSummary();
+    [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.controller).toBeUndefined();
   });
 
   it('emits the next occupation recommendation in room telemetry', () => {
