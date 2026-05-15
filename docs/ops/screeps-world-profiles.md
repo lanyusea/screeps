@@ -49,10 +49,12 @@ Seasonal commands must set their Seasonal world root, selectors, and state/cache
 The current Seasonal goal is a smoke test only:
 
 1. Discover the authenticated Seasonal room target without writing to the persistent MMO.
-2. Use `https://screeps.com/season` as the world root and `shardSeason` as the shard selector.
+2. Use `https://screeps.com/season` as the dry-run world root and `shardSeason` as the shard selector.
 3. Use an isolated Seasonal branch, pending final choice between `seasonal-smoke` and `seasonal-main`.
 4. Write evidence and monitor outputs only under `runtime-artifacts/seasonal/...` and `/root/.hermes/screeps-seasonal-runtime-monitor/...`.
 5. Keep persistent deploy, monitor, cron, and recovery automation unchanged.
+
+`scripts/screeps_official_deploy.py` accepts the Seasonal world root for dry-run planning only. Seasonal live deploy is not enabled; its `--deploy` mode remains restricted to the persistent MMO root, `https://screeps.com`, until monitor/evidence/state/cache isolation is complete in a later slice.
 
 ## No-Impact Verification
 

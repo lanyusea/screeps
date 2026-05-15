@@ -206,8 +206,15 @@ def normalize_api_url(raw_url: str) -> str:
 
 
 def require_https_api_url(api_url: str) -> None:
-    """Reject non-official world roots before authenticated deploy requests."""
-    normalize_api_url(api_url)
+    """Reject non-persistent world roots before authenticated deploy requests."""
+    world_root = normalize_api_url(api_url)
+    if world_root != PERSISTENT_WORLD_ROOT:
+        raise DeployError(
+            "Seasonal live deploy is not enabled. --deploy currently supports only "
+            f"the persistent Screeps MMO root {PERSISTENT_WORLD_ROOT}; Seasonal root "
+            f"{SEASONAL_WORLD_ROOT} is dry-run only until monitor/evidence/state/cache "
+            "isolation is complete"
+        )
 
 
 def world_profile_metadata(api_url: str) -> dict[str, str]:

@@ -226,6 +226,29 @@ class OfficialDeployTest(unittest.TestCase):
                     transport=lambda **_kwargs: self.fail("no HTTP expected"),
                 )
 
+    def test_deploy_rejects_seasonal_api_url_before_authenticated_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp))
+            cfg = self.config(
+                artifact,
+                api_url="https://screeps.com/season",
+                branch="seasonal-smoke",
+                shard="shardSeason",
+                room="W1N1",
+                deploy_mode=True,
+                confirm="deploy seasonal-smoke to shardSeason/W1N1",
+            )
+
+            with self.assertRaisesRegex(
+                deploy.DeployError,
+                "Seasonal live deploy is not enabled.*dry-run only.*isolation",
+            ):
+                deploy.run_deploy(
+                    cfg,
+                    env={deploy.AUTH_TOKEN_ENV: "fixture-value"},
+                    transport=lambda **_kwargs: self.fail("no HTTP expected"),
+                )
+
     def test_deploy_requests_expected_endpoints_and_verifies_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             artifact_body = "module.exports.loop = function () { return 1; };\n"
