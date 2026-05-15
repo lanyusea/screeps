@@ -32,6 +32,7 @@ export const CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS = 5_000;
 
 const MAX_CONTROLLER_LEVEL = 8;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const CONTROLLER_UPGRADE_MOVE_RANGE = 3;
 const MIN_DROPPED_UPGRADER_ENERGY = 25;
 
 export function runUpgrader(creep: Creep, controller: StructureController): ScreepsReturnCode {
@@ -69,7 +70,7 @@ export function runUpgraderCreep(creep: Creep): void {
 
     const result = runUpgrader(creep, controller);
     if (result === ERR_NOT_IN_RANGE_CODE) {
-      creep.moveTo(controller);
+      creep.moveTo(controller, { range: CONTROLLER_UPGRADE_MOVE_RANGE });
     }
     return;
   }

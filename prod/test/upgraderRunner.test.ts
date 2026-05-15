@@ -192,6 +192,17 @@ describe('upgrader runner', () => {
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
   });
 
+  it('moves dedicated upgraders only to controller upgrade range', () => {
+    const controller = makeController();
+    const room = makeRoom({ controller });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0 });
+    creep.upgradeController = jest.fn().mockReturnValue(-9 as ScreepsReturnCode);
+
+    runUpgraderCreep(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(controller, { range: 3 });
+  });
+
   it('renews at an idle spawn only while assigned controller can level up', () => {
     const controller = makeController();
     const spawn = makeRenewSpawn('Spawn1');
