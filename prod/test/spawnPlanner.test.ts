@@ -2182,6 +2182,98 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 505)?.memory.role).not.toBe('hauler');
   });
 
+  it('spawns an early RCL controller-runway hauler once the local worker floor is stable', () => {
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 7;
+    const sourceContainer = makeEnergyHaulingStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
+    const controllerContainer = makeEnergyHaulingStructure(
+      'controller-stage',
+      STRUCTURE_CONTAINER,
+      0,
+      2_000,
+      24,
+      25
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 8_000,
+      progressTotal: 45_000,
+      ticksToDowngrade: 10_000,
+      owner: { username: 'player' },
+      pos: makeRoomPosition(25, 25, 'W1N1')
+    } as StructureController;
+    const { colony, spawn } = makeColony({
+      sourceCount: 1,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller,
+      structures: [sourceContainer as unknown as AnyStructure, controllerContainer as unknown as AnyStructure]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 507,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 1 }, 507)).toEqual({
+      spawn,
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      name: 'hauler-W1N1-energy-507',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        energyHauler: {
+          roomName: 'W1N1'
+        }
+      }
+    });
+  });
+
+  it('keeps bootstrap worker recovery ahead of early RCL controller-runway hauling', () => {
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 7;
+    const sourceContainer = makeEnergyHaulingStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
+    const controllerContainer = makeEnergyHaulingStructure(
+      'controller-stage',
+      STRUCTURE_CONTAINER,
+      0,
+      2_000,
+      24,
+      25
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 8_000,
+      progressTotal: 45_000,
+      ticksToDowngrade: 10_000,
+      owner: { username: 'player' },
+      pos: makeRoomPosition(25, 25, 'W1N1')
+    } as StructureController;
+    const { colony, spawn } = makeColony({
+      sourceCount: 1,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller,
+      structures: [sourceContainer as unknown as AnyStructure, controllerContainer as unknown as AnyStructure]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 508,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 0, sourceHarvester: 1 }, 508)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-508',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('preempts normal worker recovery when a high-priority hauler fits the energy budget', () => {
     const container = makeEnergyHaulingStructure('container1', STRUCTURE_CONTAINER, 650, 1_350, 5, 5, 2_000);
     const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 12, 12, 10_000);
