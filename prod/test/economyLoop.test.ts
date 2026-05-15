@@ -157,7 +157,7 @@ describe('runEconomy', () => {
     );
   });
 
-  it('spawns a local recovery worker below the spawn buffer when W3N9 has three workers and build backlog', () => {
+  it('spawns a local recovery worker below the spawn buffer when E29N55 has three workers and build backlog', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -176,11 +176,11 @@ describe('runEconomy', () => {
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const sourceA = { id: 'sourceA', energy: 300, pos: { x: 10, y: 10, roomName: 'W3N9' } } as Source;
-    const sourceB = { id: 'sourceB', energy: 300, pos: { x: 40, y: 40, roomName: 'W3N9' } } as Source;
+    const sourceA = { id: 'sourceA', energy: 300, pos: { x: 10, y: 10, roomName: 'E29N55' } } as Source;
+    const sourceB = { id: 'sourceB', energy: 300, pos: { x: 40, y: 40, roomName: 'E29N55' } } as Source;
     const sites = Array.from({ length: 7 }, (_, index) => ({ id: `site${index}`, my: true }) as ConstructionSite);
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       energyAvailable: 290,
       energyCapacityAvailable: 550,
       controller: { id: 'controller1', my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController,
@@ -212,7 +212,7 @@ describe('runEconomy', () => {
     } as unknown as StructureSpawn;
     const makeWorker = (name: string, energy: number, task?: CreepTaskMemory): Creep => ({
       name,
-      memory: { role: 'worker', colony: 'W3N9', ...(task ? { task } : {}) },
+      memory: { role: 'worker', colony: 'E29N55', ...(task ? { task } : {}) },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(energy),
         getFreeCapacity: jest.fn().mockReturnValue(energy > 0 ? 0 : 50)
@@ -229,7 +229,7 @@ describe('runEconomy', () => {
     const workerC = makeWorker('WorkerC', 0);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 140,
-      rooms: { W3N9: room },
+      rooms: { E29N55: room },
       spawns: { Spawn1: spawn },
       creeps: { WorkerA: workerA, WorkerB: workerB, WorkerC: workerC },
       getObjectById: jest.fn((id: string) => {
@@ -245,8 +245,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W3N9-140', {
-      memory: { role: 'worker', colony: 'W3N9' }
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-E29N55-140', {
+      memory: { role: 'worker', colony: 'E29N55' }
     });
   });
 

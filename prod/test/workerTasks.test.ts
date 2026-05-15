@@ -11,6 +11,8 @@ import {
   LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
   MINIMUM_USEFUL_LOAD_RATIO,
+  ROUTINE_REPAIR_MAX_RANGE,
+  ROUTINE_REPAIR_MIN_HITS_DEFICIT,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   WORKER_PRE_HARVEST_REGEN_THRESHOLD,
@@ -4781,6 +4783,56 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('keeps a 2/50 low-load refill worker acquiring reachable energy below urgent room energy', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = makeSource('source1', 16, 29, 300);
+    const carriedEnergy = 2;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
+        spawn1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 300,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      name: 'BootstrapCarrier',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(50),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ BootstrapCarrier: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 329;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 329,
+      carriedEnergy,
+      freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    });
+  });
+
   it('lets a worker at the minimum useful load proceed with normal refill', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;
@@ -5279,6 +5331,109 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('does not let loaded build workers suppress near-term low-load emergency refill', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 175, 125, {
+      spawning: { remainingTime: 10 }
+    });
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 25,
+      energyCapacityAvailable: 300,
+      myStructures: [spawningSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const builder = {
+      name: 'Builder',
+      memory: {
+        role: 'worker',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'LowLoadRefill',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source1' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder, LowLoadRefill: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 342;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 342,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'emergencySpawnExtensionRefill'
+    });
+  });
+
+  it('lets refill-bound workers cover near-term low-load emergency refill', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 175, 125, {
+      spawning: { remainingTime: 10 }
+    });
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 25,
+      energyCapacityAvailable: 300,
+      myStructures: [spawningSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const refillWorker = {
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(25) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'LowLoadRefill',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source1' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RefillWorker: refillWorker, LowLoadRefill: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 343;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 343,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: 1
+    });
   });
 
   it('returns to refill instead of taking a far low-load harvest detour', () => {
@@ -6016,10 +6171,10 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('lets emergency spawn refill preempt the minimum useful load requirement', () => {
+  it('lets emergency spawn refill preempt the minimum useful load requirement when no continuation exists', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
-    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
-    const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'drop-near' ? 1 : 99));
+    const depletedSource = makeSource('source-empty', 8, 8, 0);
+    const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'source-empty' ? 1 : 99));
     const roomFind = jest.fn(
       (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
         if (type === FIND_MY_STRUCTURES) {
@@ -6028,7 +6183,7 @@ describe('selectWorkerTask', () => {
         }
 
         if (type === FIND_DROPPED_RESOURCES) {
-          return [droppedEnergy];
+          return [];
         }
 
         if (
@@ -6039,6 +6194,10 @@ describe('selectWorkerTask', () => {
           type === FIND_RUINS
         ) {
           return [];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [depletedSource];
         }
 
         return [];
@@ -10193,7 +10352,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: scarceEnergyAvailable,
@@ -10204,7 +10363,7 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'RecoveryWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -10217,9 +10376,9 @@ describe('selectWorkerTask', () => {
       name: 'SourceHarvester',
       memory: {
         role: 'sourceHarvester',
-        colony: 'W3N9',
+        colony: 'E29N55',
         sourceHarvester: {
-          roomName: 'W3N9',
+          roomName: 'E29N55',
           sourceId: 'source1' as Id<Source>,
           containerId: 'source-container1' as Id<StructureContainer>
         }
@@ -10241,7 +10400,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: scarceEnergyAvailable,
@@ -10249,13 +10408,13 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'LoadedWorker',
-      memory: { role: 'worker', colony: 'W3N9', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      memory: { role: 'worker', colony: 'E29N55', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
     } as unknown as Creep;
     const emptyWorker = {
       name: 'EmptyWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
       room
     } as unknown as Creep;
@@ -10269,9 +10428,9 @@ describe('selectWorkerTask', () => {
       time: 100
     };
     recordColonySurvivalAssessment(
-      'W3N9',
+      'E29N55',
       assessColonySurvival({
-        roomName: 'W3N9',
+        roomName: 'E29N55',
         workerCapacity: 3,
         workerTarget: 4,
         energyAvailable: scarceEnergyAvailable,
@@ -10546,7 +10705,7 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('uses safe W3N9 construction energy below the bootstrap buffer margin', () => {
+  it('uses safe E29N55 construction energy below the bootstrap buffer margin', () => {
     const site = withRangeTo(
       { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
       { spawn1: 1 }
@@ -10559,7 +10718,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: 323,
@@ -10568,7 +10727,7 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'Builder',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -10576,7 +10735,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
     const assessment = assessColonySurvival({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       workerCapacity: 1,
       workerTarget: 3,
       hostileCreepCount: 0,
@@ -10584,7 +10743,7 @@ describe('selectWorkerTask', () => {
       controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
     });
     expect(assessment.mode).toBe('BOOTSTRAP');
-    recordColonySurvivalAssessment('W3N9', assessment, 966752);
+    recordColonySurvivalAssessment('E29N55', assessment, 966752);
     setGameCreeps({ Builder: creep });
 
     expect(selectWorkerTask(creep)).toEqual({
@@ -13008,6 +13167,78 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-damaged' });
   });
 
+  it.each([
+    ['road', 'road-minor', 'road' as StructureConstant, {}],
+    ['container', 'container-minor', 'container' as StructureConstant, {}],
+    ['spawn', 'spawn-minor', 'spawn' as StructureConstant, { my: true }]
+  ])('ignores minor long-distance %s damage for generic repair', (_label, targetId, structureType, extra) => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const target = makeStructure(
+      targetId,
+      structureType,
+      5_000 - ROUTINE_REPAIR_MIN_HITS_DEFICIT + 1,
+      5_000,
+      extra
+    );
+    const getRangeTo = jest.fn((targetObject: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        controller1: 1,
+        [targetId]: ROUTINE_REPAIR_MAX_RANGE + 1
+      };
+      return ranges[String(targetObject.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        controller,
+        structures: [target]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps a generic repair target from consuming a second loaded worker', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const road = makeStructure('road-damaged', 'road' as StructureConstant, 3_000, 5_000);
+    const room = makeWorkerTaskRoom({ controller, structures: [road] });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'road-damaged' as Id<Structure> });
+    const creep = {
+      name: 'SecondWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, SecondWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps critical container repair ahead of routine assignment caps', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const container = makeStructure('container-critical', 'container' as StructureConstant, 500, 2_000);
+    const room = makeWorkerTaskRoom({ controller, structures: [container] });
+    const repairer = makeLoadedWorker(room, {
+      type: 'repair',
+      targetId: 'container-critical' as Id<Structure>
+    });
+    const creep = {
+      name: 'CriticalRepairWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, CriticalRepairWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
+  });
+
   it('chooses repair targets deterministically and avoids hostile structures', () => {
     const controller = { id: 'controller1', my: true } as StructureController;
     const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 100, 1_000, {
@@ -13047,7 +13278,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
   });
 
-  it('repairs W3N9 active-decay ramparts before controller upgrade pressure', () => {
+  it('repairs E29N55 active-decay ramparts before controller upgrade pressure', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -13067,7 +13298,7 @@ describe('selectWorkerTask', () => {
       my: true
     });
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13077,8 +13308,8 @@ describe('selectWorkerTask', () => {
       name: 'RclPushUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+        colony: 'E29N55',
+        controllerUpgrade: { roomName: 'E29N55', controllerId: 'controller1' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13087,7 +13318,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
   });
 
-  it('repairs W3N9 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
+  it('repairs E29N55 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -13114,7 +13345,7 @@ describe('selectWorkerTask', () => {
       my: true
     });
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13125,8 +13356,8 @@ describe('selectWorkerTask', () => {
       name: 'RclPushUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+        colony: 'E29N55',
+        controllerUpgrade: { roomName: 'E29N55', controllerId: 'controller1' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13157,7 +13388,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13168,7 +13399,7 @@ describe('selectWorkerTask', () => {
       name: 'Repairer',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
+        colony: 'E29N55',
         task: { type: 'repair', targetId: 'rampart-active-decay' as Id<Structure> }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
@@ -13176,7 +13407,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     const creep = {
       name: 'ReserveWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
     } as unknown as Creep;
@@ -13239,7 +13470,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13249,8 +13480,8 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13274,7 +13505,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13284,7 +13515,7 @@ describe('selectWorkerTask', () => {
       name: 'Repairer',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
+        colony: 'E29N55',
         task: { type: 'repair', targetId: 'rampart-alert-band' as Id<Structure> }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
@@ -13294,8 +13525,8 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13357,12 +13588,12 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({
-        name: 'W3N9',
+        name: 'E29N55',
         controller,
         energyAvailable: 550,
         energyCapacityAvailable: 550,

@@ -48,7 +48,12 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
 
   return [
     formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate, parsed.verticalDirection, parsed.verticalCoordinate - 1),
-    formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate - 1, parsed.verticalDirection, parsed.verticalCoordinate)
+    formatRoomName(
+      parsed.horizontalDirection,
+      parsed.horizontalCoordinate + getEastwardCoordinateOffset(parsed.horizontalDirection),
+      parsed.verticalDirection,
+      parsed.verticalCoordinate
+    )
   ].filter(isNonEmptyString);
 }
 
@@ -179,6 +184,10 @@ function getOppositeDirection<T extends 'E' | 'W' | 'N' | 'S'>(direction: T): Op
     case 'S':
       return 'N' as OppositeDirection<T>;
   }
+}
+
+function getEastwardCoordinateOffset(direction: 'E' | 'W'): 1 | -1 {
+  return direction === 'E' ? 1 : -1;
 }
 
 type OppositeDirection<T extends 'E' | 'W' | 'N' | 'S'> =

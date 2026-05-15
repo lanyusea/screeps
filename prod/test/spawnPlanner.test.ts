@@ -1319,7 +1319,7 @@ describe('planSpawn', () => {
 
   it('spawns a second dedicated low-RCL upgrader when construction is clear and stored energy is surplus', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       energyAvailable: 550,
       energyCapacityAvailable: 550,
       controller: {
@@ -1335,12 +1335,12 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_333)).toEqual({
       spawn,
       body: ['work', 'carry', 'move'],
-      name: 'upgrader-W3N9-controller-980333',
+      name: 'upgrader-E29N55-controller-980333',
       memory: {
         role: 'upgrader',
-        colony: 'W3N9',
+        colony: 'E29N55',
         controllerUpgrade: {
-          roomName: 'W3N9',
+          roomName: 'E29N55',
           controllerId: 'controller-w3n9',
           priority: 'energySurplus',
           assignedAt: 980_333
@@ -1351,7 +1351,7 @@ describe('planSpawn', () => {
 
   it('keeps worker recovery ahead of surplus low-RCL upgrader surge', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       sourceCount: 2,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -1368,14 +1368,14 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3, upgrader: 1 }, 980_334)).toEqual({
       spawn,
       body: SCALED_WORKER_550,
-      name: 'worker-W3N9-980334',
-      memory: { role: 'worker', colony: 'W3N9' }
+      name: 'worker-E29N55-980334',
+      memory: { role: 'worker', colony: 'E29N55' }
     });
   });
 
   it('does not spawn surplus low-RCL upgraders while construction demand remains', () => {
     const { colony } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       constructionSiteCount: 1,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -1394,7 +1394,7 @@ describe('planSpawn', () => {
 
   it('does not spawn surplus low-RCL upgraders until spawn energy is full with buffer margin', () => {
     const { colony } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       energyAvailable: 599,
       energyCapacityAvailable: 650,
       controller: {
@@ -1407,7 +1407,7 @@ describe('planSpawn', () => {
       ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
-      economy: { energySurplus: { updatedAt: 980_336, rooms: { W3N9: { surplus: true } as EconomyEnergySurplusRoomMemory } } }
+      economy: { energySurplus: { updatedAt: 980_336, rooms: { E29N55: { surplus: true } as EconomyEnergySurplusRoomMemory } } }
     };
 
     expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_336)?.memory.role).not.toBe('upgrader');
@@ -4847,28 +4847,28 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('spawns a MOVE-only scout for the W3N9 scout-only W3N8 intel refresh without reserve or claim memory', () => {
+  it('spawns a MOVE-only scout for the E29N55 scout-only E29N54 intel refresh without reserve or claim memory', () => {
     const { colony, spawn } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       energyAvailable: 450,
       energyCapacityAvailable: 550,
       controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    installRuntimeCurrentRoom('W3N9');
+    installRuntimeCurrentRoom('E29N55');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      rooms: { W3N9: colony.room }
+      rooms: { E29N55: colony.room }
     };
 
     expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_801)).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-W3N9-W3N8-968801',
+      name: 'scout-E29N55-E29N54-968801',
       memory: {
         role: 'scout',
-        colony: 'W3N9',
+        colony: 'E29N55',
         territory: {
-          targetRoom: 'W3N8',
+          targetRoom: 'E29N54',
           action: 'scout'
         }
       }
@@ -4876,8 +4876,8 @@ describe('planSpawn', () => {
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'W3N9',
-        targetRoom: 'W3N8',
+        colony: 'E29N55',
+        targetRoom: 'E29N54',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_801

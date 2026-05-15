@@ -3517,7 +3517,12 @@ function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName) {
   }
   return [
     formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate, parsed.verticalDirection, parsed.verticalCoordinate - 1),
-    formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate - 1, parsed.verticalDirection, parsed.verticalCoordinate)
+    formatRoomName(
+      parsed.horizontalDirection,
+      parsed.horizontalCoordinate + getEastwardCoordinateOffset(parsed.horizontalDirection),
+      parsed.verticalDirection,
+      parsed.verticalCoordinate
+    )
   ].filter(isNonEmptyString4);
 }
 function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
@@ -3604,6 +3609,9 @@ function getOppositeDirection(direction) {
     case "S":
       return "N";
   }
+}
+function getEastwardCoordinateOffset(direction) {
+  return direction === "E" ? 1 : -1;
 }
 function normalizePositiveDistance(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
@@ -22954,6 +22962,9 @@ var LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS = 1e3;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
+var ROUTINE_REPAIR_MIN_HITS_DEFICIT = 500;
+var ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
+var ROUTINE_REPAIR_MAX_RANGE = 5;
 var BUILDER_STORAGE_WITHDRAW_MIN = 100;
 var BUILDER_DROPPED_PICKUP_RANGE = 5;
 var DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
@@ -23821,7 +23832,53 @@ function isTerritoryControlTask(task) {
 }
 function hasEmergencySpawnExtensionRefillDemand(creep) {
   const energyAvailable = getRoomEnergyAvailable9(creep.room);
-  return energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
+  if (energyAvailable !== null && energyAvailable >= URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
+    return false;
+  }
+  if (!getLowLoadWorkerEnergyContext(creep)) {
+    return true;
+  }
+  return hasTrueLowLoadSpawnExtensionRefillEmergency(creep);
+}
+function hasTrueLowLoadSpawnExtensionRefillEmergency(creep) {
+  if (hasVisibleHostilePresence2(creep.room)) {
+    return true;
+  }
+  if (isControllerDowngradeImminentForLowLoadReturn(creep.room.controller)) {
+    return true;
+  }
+  if (isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep)) {
+    return true;
+  }
+  return selectLowLoadSpawnExtensionDeliveryContinuationCandidate(creep) === null;
+}
+function isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep) {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
+  if (!spawnExtensionEnergyStructures.some(isNearTermSpawningSpawn)) {
+    return false;
+  }
+  const energyAvailable = getRoomEnergyAvailable9(creep.room);
+  if (energyAvailable === null) {
+    return true;
+  }
+  const otherRefillCoverageEnergy = getOtherNearTermSpawnExtensionRefillCoverageEnergy(
+    creep,
+    spawnExtensionEnergyStructures
+  );
+  return energyAvailable + otherRefillCoverageEnergy < MINIMUM_WORKER_SPAWN_ENERGY;
+}
+function getOtherNearTermSpawnExtensionRefillCoverageEnergy(creep, spawnExtensionEnergyStructures) {
+  const spawnExtensionEnergyStructureIds = new Set(
+    spawnExtensionEnergyStructures.map((structure) => String(structure.id))
+  );
+  return getSameRoomLoadedWorkersForRefillReservations(creep).filter((worker) => !isSameCreep(worker, creep)).filter(
+    (worker) => isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds)
+  ).reduce((total, worker) => total + getUsedEnergy2(worker), 0);
+}
+function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds) {
+  var _a;
+  const task = (_a = worker.memory) == null ? void 0 : _a.task;
+  return task == null || (task == null ? void 0 : task.type) === "transfer" && task.targetId !== void 0 && spawnExtensionEnergyStructureIds.has(String(task.targetId));
 }
 function shouldGuardControllerDowngradeForWorkerLoad(creep, controller) {
   if (!shouldGuardControllerDowngrade2(controller)) {
@@ -25072,7 +25129,7 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
         canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
       )
     ),
-    ...findVisibleRoomStructures(creep.room).filter((structure) => isSafeRepairTargetForWorkerRoom(creep, structure)).map(
+    ...findVisibleRoomStructures(creep.room).filter((structure) => isRoutineRepairTargetForWorker(creep, structure)).map(
       (structure) => createProductiveEnergySinkCandidate(
         creep,
         structure,
@@ -26783,7 +26840,9 @@ function selectRepairTarget(creep) {
   if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true) {
     return null;
   }
-  const repairTargets = findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget);
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isRoutineRepairTargetForWorker(creep, structure)
+  );
   if (repairTargets.length === 0) {
     return null;
   }
@@ -26931,6 +26990,40 @@ function isRoutineRampartMaintenanceRepairTarget(structure) {
 function isSafeRepairTargetForWorkerRoom(creep, structure) {
   var _a;
   return isSafeRepairTarget(structure) && (!isSpawnRepairTarget(structure) || ((_a = creep.room.controller) == null ? void 0 : _a.my) === true);
+}
+function isRoutineRepairTargetForWorker(creep, structure) {
+  if (!isSafeRepairTargetForWorkerRoom(creep, structure)) {
+    return false;
+  }
+  if (isWorkerBarrierRepairStructure(structure)) {
+    return true;
+  }
+  return hasMeaningfulRoutineRepairDeficit(structure) && isRoutineRepairTargetWithinOpportunisticRange(creep, structure) && hasRoutineRepairAssignmentCapacity(creep, structure);
+}
+function hasMeaningfulRoutineRepairDeficit(structure) {
+  const repairCeiling = getWorkerRepairHitsCeiling(structure);
+  const deficit = Math.max(0, repairCeiling - structure.hits);
+  return deficit >= ROUTINE_REPAIR_MIN_HITS_DEFICIT && repairCeiling > 0 && deficit / repairCeiling >= ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO;
+}
+function isRoutineRepairTargetWithinOpportunisticRange(creep, structure) {
+  const range = getRangeBetweenRoomObjects3(creep, structure);
+  return range === null || range <= ROUTINE_REPAIR_MAX_RANGE;
+}
+function hasRoutineRepairAssignmentCapacity(creep, structure) {
+  return isWorkerAssignedToRepairTarget(creep, structure) || !hasOtherWorkerAssignedToRepairTarget(creep, structure);
+}
+function hasOtherWorkerAssignedToRepairTarget(creep, structure) {
+  return getRoomOwnedCreeps(creep.room).some(
+    (worker) => {
+      var _a;
+      return !isSameCreep(worker, creep) && ((_a = worker.memory) == null ? void 0 : _a.role) === "worker" && isWorkerAssignedToRepairTarget(worker, structure);
+    }
+  );
+}
+function isWorkerAssignedToRepairTarget(worker, structure) {
+  var _a;
+  const task = (_a = worker.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "repair" && String(task.targetId) === String(structure.id);
 }
 function isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, options) {
   if (!isSafeRepairTarget(structure) || !isRoadOrContainerRepairTarget(structure) || getHitsRatio(structure) > CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) {
@@ -27193,6 +27286,9 @@ function shouldStandbySurplusWorkerInsteadOfAcquiring(creep, controller) {
 function hasNonControllerWorkerEnergyDemand(creep) {
   var _a;
   if (selectFillableEnergySink(creep)) {
+    return true;
+  }
+  if (hasRoomSpawnExtensionEnergyDeficit(creep.room)) {
     return true;
   }
   const constructionSites = typeof FIND_CONSTRUCTION_SITES === "number" && typeof ((_a = creep.room) == null ? void 0 : _a.find) === "function" ? creep.room.find(FIND_CONSTRUCTION_SITES) : [];
@@ -44328,29 +44424,125 @@ function getGameTime43() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
-// src/config/roomConfig.ts
-var OFFICIAL_SHARD = "shardX";
-var STRATEGIC_FOCUS_ROOM = "W3N9";
+// src/config/roomSelection.ts
+var ACTIVE_OFFICIAL_ROOM_SELECTION = {
+  branch: "main",
+  shard: "shardX",
+  roomName: "E29N55",
+  spawn: {
+    name: "Spawn1",
+    x: 17,
+    y: 24
+  }
+};
 var OFFICIAL_ROOM_CANDIDATES = [
-  "E17S59",
-  "E26S49",
-  "E19S57",
-  STRATEGIC_FOCUS_ROOM
+  {
+    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+    status: "active",
+    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
+    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
+  },
+  {
+    shard: "shardX",
+    roomName: "W3N9",
+    status: "fallback",
+    spawn: { name: "Spawn1", x: 35, y: 23 },
+    notes: "Previous official target retained only as a fallback/audit candidate."
+  },
+  {
+    shard: "shardX",
+    roomName: "E19S57",
+    status: "fallback",
+    notes: "Prior recovery candidate from the owner-approved fallback sequence."
+  },
+  {
+    shard: "shardX",
+    roomName: "E26S49",
+    status: "fallback",
+    notes: "Prior official room and fallback candidate; not an active default."
+  },
+  {
+    shard: "shardX",
+    roomName: "E17S59",
+    status: "fallback",
+    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
+  }
 ];
-var STRATEGY_SUPPORTED_SHARDS = [OFFICIAL_SHARD];
-var STRATEGY_SUPPORTED_ROOMS = [STRATEGIC_FOCUS_ROOM];
-var STRATEGIC_ROOM_AUDIT_LITERALS = [
-  ...OFFICIAL_ROOM_CANDIDATES,
-  "W3N8",
-  "W2N9",
-  "E17S58",
-  "E18S59"
-];
+var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
+var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
+var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
+var LOGISTICS_ROOM_SELECTION = {
+  corridorRooms: ["E17S58", "E17S59", "E18S59"],
+  safeTransitRooms: ["E17S59"],
+  localFirstEnergyRooms: ["E17S58", "E18S59"],
+  localFirstSourceRoom: "E17S59",
+  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
+};
+var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
+var TERRITORY_EXPANSION_ROOM_SELECTION = {
+  scoutTargets: [
+    {
+      colony: activeRoom,
+      roomName: "E29N54",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: activeRoom,
+      roomName: "E30N55",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E18S59",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E17S60",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 2,
+      adjacentToOwnedRoom: true
+    }
+  ]
+};
+var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
+  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
+  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
+  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
+  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
+  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
+  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
+    target.colony,
+    target.roomName,
+    target.nearestOwnedRoom
+  ])
+]));
 
 // src/strategy/strategyRegistry.ts
 var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
 var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
 var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
+var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
+  shards: [...ACTIVE_OFFICIAL_SHARDS],
+  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
+};
 var DEFAULT_STRATEGY_REGISTRY = [
   {
     id: "construction-priority.incumbent.v1",
@@ -44361,8 +44553,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
@@ -44397,8 +44588,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
@@ -44433,8 +44623,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
     },
@@ -44468,8 +44657,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
     },
@@ -44503,8 +44691,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
     },

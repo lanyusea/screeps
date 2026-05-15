@@ -1,4 +1,4 @@
-import { STRATEGY_SUPPORTED_ROOMS, STRATEGY_SUPPORTED_SHARDS } from '../config/roomConfig';
+import { ACTIVE_OFFICIAL_ROOM_NAMES, ACTIVE_OFFICIAL_SHARDS } from '../config/roomSelection';
 
 export const STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
 
@@ -97,6 +97,10 @@ export interface StrategyRegistryValidationResult {
 
 const ISSUE_265_URL = 'https://github.com/lanyusea/screeps/issues/265';
 const RL_RESEARCH_PATH = 'docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md';
+const DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
+  shards: [...ACTIVE_OFFICIAL_SHARDS],
+  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
+};
 
 export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
   {
@@ -108,8 +112,7 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary'],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: 'Reads emitted constructionPriority candidate summaries; does not alter construction selection.'
@@ -144,8 +147,7 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary'],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: 'Replays only saved constructionPriority candidates with a higher territory signal weight.'
@@ -180,8 +182,7 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: 'Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents.'
     },
@@ -215,8 +216,7 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: 'Emphasizes occupy/reserve candidates in offline ranking reports only.'
     },
@@ -250,8 +250,7 @@ export const DEFAULT_STRATEGY_REGISTRY: StrategyRegistryEntry[] = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ['runtime-summary', 'room-snapshot'],
-      shards: [...STRATEGY_SUPPORTED_SHARDS],
-      rooms: [...STRATEGY_SUPPORTED_ROOMS],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: 'Ranks observed rooms by hostile and repair pressure from saved artifacts only.'
     },

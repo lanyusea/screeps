@@ -2,7 +2,7 @@
 
 Date: 2026-05-15
 
-This document defines the durable profile contract for official Screeps: World automation. The persistent MMO profile remains the default. Seasonal World support is explicit opt-in and must never change persistent `main / shardX / W3N9` behavior unless a later owner decision says so.
+This document defines the durable profile contract for official Screeps: World automation. The persistent MMO profile remains the default. Seasonal World support is explicit opt-in and must never change persistent `main / shardX / E29N55` behavior unless a later owner decision says so.
 
 ## URL Contract
 
@@ -21,7 +21,7 @@ Do not pass API roots such as `https://screeps.com/api` or `https://screeps.com/
 | World root | `https://screeps.com` | `https://screeps.com/season` |
 | Code branch | `main` | `seasonal-smoke` or `seasonal-main`; final branch name pending authenticated discovery |
 | Shard | `shardX` | `shardSeason` |
-| Room | `W3N9` | `TBD` until authenticated discovery |
+| Room | `E29N55` | `TBD` until authenticated discovery |
 | Deploy artifact | `prod/dist/main.js` | `prod/dist/main.js` built from the same verified source |
 | Deploy evidence | `runtime-artifacts/official-screeps-deploy/` | `runtime-artifacts/seasonal/official-screeps-deploy/` |
 | Routine monitor artifacts | `runtime-artifacts/screeps-monitor/` | `runtime-artifacts/seasonal/screeps-monitor/` |
@@ -34,7 +34,7 @@ Do not pass API roots such as `https://screeps.com/api` or `https://screeps.com/
 | Discord dev/QA route | persistent/global `#dev-log` | `discord:1504889127227621507` |
 | Discord runtime summary route | persistent/global runtime summary route | `discord:1504889233670930442` |
 | Discord runtime alert route | persistent/global runtime alerts route | `discord:1504889421655314512` |
-| Recovery authorization | W3N9 autonomous recovery rules in `docs/ops/rules-registry.md` | No destructive recovery, respawn, or autonomous placement authorization unless explicitly approved for Seasonal |
+| Recovery authorization | E29N55 autonomous recovery rules in `docs/ops/rules-registry.md` | No destructive recovery, respawn, or autonomous placement authorization unless explicitly approved for Seasonal |
 
 ## Persistent MMO Invariant
 
@@ -43,7 +43,7 @@ The following defaults are part of the persistent production contract:
 - `SCREEPS_API_URL=https://screeps.com`
 - `SCREEPS_BRANCH=main`
 - `SCREEPS_SHARD=shardX`
-- `SCREEPS_ROOM=W3N9`
+- `SCREEPS_ROOM=E29N55`
 - Deployment evidence remains under `runtime-artifacts/official-screeps-deploy/`.
 - Runtime monitor artifacts remain under `runtime-artifacts/screeps-monitor/`.
 - Runtime monitor state/cache remain under `/root/.hermes/screeps-runtime-monitor/`.
@@ -70,7 +70,7 @@ The current Seasonal goal is a smoke test only:
 Every Seasonal-related change or smoke step must include persistent MMO no-impact verification:
 
 1. Confirm the command line or environment uses a world root, not an API root.
-2. Confirm persistent selectors are unchanged when running persistent checks: `https://screeps.com`, `main`, `shardX`, `W3N9`.
+2. Confirm persistent selectors are unchanged when running persistent checks: `https://screeps.com`, `main`, `shardX`, `E29N55`.
 3. Confirm Seasonal checks use isolated selectors and paths: `https://screeps.com/season`, `shardSeason`, `runtime-artifacts/seasonal/...`, and `/root/.hermes/screeps-seasonal-runtime-monitor/...`.
 4. Run the deploy helper dry run for the persistent profile after script changes:
 
@@ -80,9 +80,9 @@ Every Seasonal-related change or smoke step must include persistent MMO no-impac
      --api-url https://screeps.com \
      --branch main \
      --shard shardX \
-     --room W3N9
+     --room E29N55
    ```
 
 5. Run the narrow script tests and production build/test gate required by the task or PR.
-6. Before any live Seasonal write, verify no command will touch persistent artifact/state/cache paths and no W3N9 recovery or respawn authorization is being applied to Seasonal.
+6. Before any live Seasonal write, verify no command will touch persistent artifact/state/cache paths and no E29N55 recovery or respawn authorization is being applied to Seasonal.
 7. Before marking any Seasonal task Done, verify the corresponding Seasonal Discord route, GitHub Issue/Project item, and QA-agent acceptance evidence all agree.

@@ -464,19 +464,19 @@ describe('expansion planner', () => {
     ]);
   });
 
-  it('keeps visible W3N9 scout-only rooms out of expansion planner control candidates and intents', () => {
+  it('keeps visible E29N55 scout-only rooms out of expansion planner control candidates and intents', () => {
     const { colony } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300
     });
-    installRuntimeCurrentRoom('W3N9');
+    installRuntimeCurrentRoom('E29N55');
     installGame(colony, {
       gclLevel: 2,
-      exits: { W3N9: { '1': 'W3N8', '7': 'W2N9' } },
+      exits: { E29N55: { '1': 'E29N54', '7': 'E30N55' } },
       rooms: {
-        W3N8: makeExpansionRoom('W3N8'),
-        W2N9: makeExpansionRoom('W2N9')
+        E29N54: makeExpansionRoom('E29N54'),
+        E30N55: makeExpansionRoom('E30N55')
       }
     });
 
@@ -486,7 +486,7 @@ describe('expansion planner', () => {
 
     expect(plan).toEqual({
       status: 'skipped',
-      colony: 'W3N9',
+      colony: 'E29N55',
       reason: 'noCandidate',
       candidates: []
     });
@@ -499,37 +499,37 @@ describe('expansion planner', () => {
 
     expect(scouting.records).toEqual([
       {
-        colony: 'W3N9',
-        roomName: 'W3N8',
+        colony: 'E29N55',
+        roomName: 'E29N54',
         status: 'observed',
         updatedAt: 968_900,
         distance: 1,
         sourceCount: 2,
         controllerPresent: true,
-        controllerId: 'controller-W3N8',
+        controllerId: 'controller-E29N54',
         terrainType: 'unknown'
       },
       {
-        colony: 'W3N9',
-        roomName: 'W2N9',
+        colony: 'E29N55',
+        roomName: 'E30N55',
         status: 'observed',
         updatedAt: 968_900,
         distance: 1,
         sourceCount: 2,
         controllerPresent: true,
-        controllerId: 'controller-W2N9',
+        controllerId: 'controller-E30N55',
         terrainType: 'unknown'
       }
     ]);
-    expect(Memory.territory?.scoutIntel?.['W3N9>W3N8']).toMatchObject({
-      colony: 'W3N9',
-      roomName: 'W3N8',
+    expect(Memory.territory?.scoutIntel?.['E29N55>E29N54']).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N54',
       updatedAt: 968_900,
       sourceCount: 2
     });
-    expect(Memory.territory?.scoutIntel?.['W3N9>W2N9']).toMatchObject({
-      colony: 'W3N9',
-      roomName: 'W2N9',
+    expect(Memory.territory?.scoutIntel?.['E29N55>E30N55']).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E30N55',
       updatedAt: 968_900,
       sourceCount: 2
     });

@@ -18,6 +18,7 @@ from typing import Any, Sequence, TextIO
 import screeps_rl_dataset_export as dataset_export
 import screeps_rl_mmo_validator as mmo_validator
 import screeps_rl_rollout_manager as rollout_manager
+import screeps_world_profiles as world_profiles
 import screeps_strategy_shadow_report as shadow_report
 
 
@@ -29,7 +30,7 @@ DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-dataset-gates")
 DEFAULT_MIN_SAMPLES = 1
 DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
 QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
-DEFAULT_HOME_ROOM = "W3N9"
+DEFAULT_HOME_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 

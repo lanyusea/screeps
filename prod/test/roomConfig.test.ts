@@ -7,6 +7,13 @@ import {
   STRATEGY_SUPPORTED_SHARDS
 } from '../src/config/roomConfig';
 import {
+  ACTIVE_OFFICIAL_ROOM_NAMES,
+  ACTIVE_OFFICIAL_ROOM_SELECTION,
+  ACTIVE_OFFICIAL_SHARDS,
+  OFFICIAL_ROOM_CANDIDATES as ROOM_SELECTION_CANDIDATES,
+  PRODUCTION_ROOM_SELECTION_LITERAL_NAMES
+} from '../src/config/roomSelection';
+import {
   getRuntimeCurrentRoomName,
   getRuntimeOwnedRoomNames
 } from '../src/config/runtimeRooms';
@@ -46,11 +53,12 @@ describe('room config', () => {
   });
 
   it('captures strategic official room state in one place', () => {
-    expect(OFFICIAL_SHARD).toBe('shardX');
-    expect(STRATEGIC_FOCUS_ROOM).toBe('W3N9');
-    expect(OFFICIAL_ROOM_CANDIDATES).toEqual(['E17S59', 'E26S49', 'E19S57', 'W3N9']);
-    expect(STRATEGY_SUPPORTED_SHARDS).toEqual([OFFICIAL_SHARD]);
-    expect(STRATEGY_SUPPORTED_ROOMS).toEqual([STRATEGIC_FOCUS_ROOM]);
+    expect(OFFICIAL_SHARD).toBe(ACTIVE_OFFICIAL_ROOM_SELECTION.shard);
+    expect(STRATEGIC_FOCUS_ROOM).toBe(ACTIVE_OFFICIAL_ROOM_SELECTION.roomName);
+    expect(STRATEGIC_FOCUS_ROOM).toBe('E29N55');
+    expect(OFFICIAL_ROOM_CANDIDATES).toEqual(ROOM_SELECTION_CANDIDATES.map((candidate) => candidate.roomName));
+    expect(STRATEGY_SUPPORTED_SHARDS).toEqual([...ACTIVE_OFFICIAL_SHARDS]);
+    expect(STRATEGY_SUPPORTED_ROOMS).toEqual([...ACTIVE_OFFICIAL_ROOM_NAMES]);
   });
 
   it('keeps tactical defaults runtime- or Memory-configured instead of strategic-room driven', () => {
@@ -117,22 +125,15 @@ describe('room config', () => {
 
   it('keeps protected room literals out of production business modules', () => {
     const sourceRoot = path.join(__dirname, '..', 'src');
-    const allowedPaths = new Set(
-      [
-        path.join(sourceRoot, 'config', 'roomConfig.ts'),
-        path.join(sourceRoot, 'config', 'runtimeRooms.ts'),
-        path.join(sourceRoot, 'territory', 'expansionConfig.ts')
-      ].map(normalizePath)
-    );
     const protectedLiterals = getProtectedRoomConfigLiterals();
     const violations: string[] = [];
 
     for (const filePath of walkTypeScriptFiles(sourceRoot)) {
-      if (allowedPaths.has(normalizePath(filePath))) {
+      const relativePath = normalizePath(path.relative(sourceRoot, filePath));
+      if (relativePath.startsWith('config/')) {
         continue;
       }
 
-      const relativePath = normalizePath(path.relative(sourceRoot, filePath));
       const sourceText = fs.readFileSync(filePath, 'utf8');
       const literals = collectStringLiteralValues(filePath, sourceText);
       for (const literal of literals) {
@@ -148,6 +149,7 @@ describe('room config', () => {
 
 function getProtectedRoomConfigLiterals(): Set<string> {
   return new Set<string>([
+    ...PRODUCTION_ROOM_SELECTION_LITERAL_NAMES,
     OFFICIAL_SHARD,
     ...OFFICIAL_ROOM_CANDIDATES,
     ...STRATEGY_SUPPORTED_SHARDS,

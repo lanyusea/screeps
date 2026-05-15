@@ -339,23 +339,23 @@ describe('expansion executor', () => {
     ]);
   });
 
-  it('does not convert fresh W3N9 scout-only expansion intel into claim or reserve automation', () => {
-    const colony = makeColony({ roomName: 'W3N9' });
+  it('does not convert fresh E29N55 scout-only expansion intel into claim or reserve automation', () => {
+    const colony = makeColony({ roomName: 'E29N55' });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       runtime: {
-        currentRoomName: 'W3N9'
+        currentRoomName: 'E29N55'
       },
       territory: {
         scoutIntel: {
-          'W3N9>W3N8': makeScoutIntel('W3N9', 'W3N8', 968_700),
-          'W3N9>W2N9': makeScoutIntel('W3N9', 'W2N9', 968_700)
+          'E29N55>E29N54': makeScoutIntel('E29N55', 'E29N54', 968_700),
+          'E29N55>E30N55': makeScoutIntel('E29N55', 'E30N55', 968_700)
         }
       }
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 968_900,
       rooms: {
-        W3N9: colony.room
+        E29N55: colony.room
       },
       map: {
         describeExits: jest.fn(() => ({})),
@@ -363,11 +363,11 @@ describe('expansion executor', () => {
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
-    setSafeHomeThreat('W3N9', 968_900);
+    setSafeHomeThreat('E29N55', 968_900);
 
     expect(refreshExpansionExecutorIntent(colony, 968_900)).toEqual({
       status: 'skipped',
-      colony: 'W3N9',
+      colony: 'E29N55',
       reason: 'unavailable'
     });
     expect(Memory.territory?.targets).toBeUndefined();
@@ -376,15 +376,15 @@ describe('expansion executor', () => {
     expect(Memory.territory?.expansionCandidates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          colony: 'W3N9',
-          roomName: 'W3N8',
+          colony: 'E29N55',
+          roomName: 'E29N54',
           evidenceStatus: 'sufficient',
           recommendedAction: 'scout',
           scoutOnly: true
         }),
         expect.objectContaining({
-          colony: 'W3N9',
-          roomName: 'W2N9',
+          colony: 'E29N55',
+          roomName: 'E30N55',
           evidenceStatus: 'sufficient',
           recommendedAction: 'scout',
           scoutOnly: true

@@ -208,7 +208,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             artifact = root / "runtime.log"
             dead_room = runtime_payload(100, stored_energy=0)
             room = dead_room["rooms"][0]
-            room["roomName"] = "W3N9"
+            room["roomName"] = "E29N55"
             room["workerCount"] = 0
             room["spawnStatus"] = []
             room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
@@ -278,7 +278,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             root = Path(temp_dir)
             artifact = root / "runtime.log"
             home_room = runtime_payload(100)
-            home_room["rooms"][0]["roomName"] = "W3N9"
+            home_room["rooms"][0]["roomName"] = "E29N55"
             artifact.write_text(runtime_line(home_room), encoding="utf-8")
 
             report = gate.run_gate(

@@ -3,12 +3,13 @@ import os, asyncio, json, urllib.request, urllib.parse, html
 from pathlib import Path
 from collections import Counter
 import websockets
+import screeps_world_profiles as world_profiles
 
 base_http = os.environ.get('SCREEPS_API_URL', 'https://screeps.com').rstrip('/')
 base_ws = base_http.replace('https://', 'wss://').replace('http://', 'ws://')
 tok = os.environ['SCREEPS_AUTH_TOKEN']
-shard = os.environ.get('SCREEPS_SHARD', 'shardX')
-room = os.environ.get('SCREEPS_ROOM', 'E19S57')
+shard = os.environ.get('SCREEPS_SHARD', world_profiles.PERSISTENT_DEFAULTS.shard)
+room = os.environ.get('SCREEPS_ROOM', world_profiles.PERSISTENT_DEFAULTS.room)
 owner = 'lanyusea'
 
 def get_json(path, params=None):

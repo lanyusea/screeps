@@ -1,4 +1,4 @@
-import { STRATEGY_SUPPORTED_ROOMS, STRATEGY_SUPPORTED_SHARDS } from '../src/config/roomConfig';
+import { ACTIVE_OFFICIAL_ROOM_NAMES, ACTIVE_OFFICIAL_SHARDS } from '../src/config/roomSelection';
 import {
   DEFAULT_STRATEGY_REGISTRY,
   STRATEGY_REGISTRY_SCHEMA_VERSION,
@@ -18,8 +18,8 @@ describe('strategy registry schema', () => {
       expect(entry.schemaVersion).toBe(STRATEGY_REGISTRY_SCHEMA_VERSION);
       expect(entry.owner.issue).toBe(265);
       expect(entry.supportedContext.artifactTypes.length).toBeGreaterThan(0);
-      expect(entry.supportedContext.shards).toEqual([...STRATEGY_SUPPORTED_SHARDS]);
-      expect(entry.supportedContext.rooms).toEqual([...STRATEGY_SUPPORTED_ROOMS]);
+      expect(entry.supportedContext.shards).toEqual([...ACTIVE_OFFICIAL_SHARDS]);
+      expect(entry.supportedContext.rooms).toEqual([...ACTIVE_OFFICIAL_ROOM_NAMES]);
       expect(entry.knobBounds.length).toBeGreaterThan(0);
       expect(Object.keys(entry.defaultValues).sort()).toEqual(entry.knobBounds.map((knob) => knob.name).sort());
       expect(entry.evidenceLinks.length).toBeGreaterThan(0);

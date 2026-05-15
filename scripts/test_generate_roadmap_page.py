@@ -232,10 +232,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         target = roadmap.build_screeps_room_target({})
 
         self.assertEqual(target["status"], "official target")
-        self.assertEqual(target["label"], "shardX/W3N9")
+        self.assertEqual(target["label"], "shardX/E29N55")
         self.assertEqual(target["shard"], "shardX")
-        self.assertEqual(target["room"], "W3N9")
-        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/W3N9")
+        self.assertEqual(target["room"], "E29N55")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E29N55")
 
     def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
         conn = sqlite3.connect(":memory:")
@@ -539,7 +539,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(stored_energy["sourceKind"], "runtime-summary-artifact")
         self.assertEqual(stored_energy["reducerSchemaVersion"], roadmap.runtime_kpi_reducer.SCHEMA_VERSION)
         self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")
-        self.assertEqual(stored_energy["scope"]["targetRoom"], "W3N9")
+        self.assertEqual(stored_energy["scope"]["targetRoom"], "E29N55")
         self.assertEqual(stored_energy["scope"]["observedRooms"], ["E19S57", "W9N9"])
 
     def test_runtime_artifact_history_filters_by_world_scope(self) -> None:
@@ -587,7 +587,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetWorld"], "persistent")
         self.assertEqual(persistent_history["stored_energy"][0]["scope"]["worldId"], "persistent")
         self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetShard"], "shardX")
-        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetRoom"], "W3N9")
+        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetRoom"], "E29N55")
 
         self.assertEqual(seasonal_status["worldId"], "seasonal")
         self.assertEqual(seasonal_status["dailyBucketDays"], 2)

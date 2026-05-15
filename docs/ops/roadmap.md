@@ -199,7 +199,7 @@ Artifacts:
 Current result:
 
 - Docker Engine is available on this host (`29.1.3`), and Docker Compose v2 is available (`v2.40.3`).
-- Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S29`.
+- Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; current safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E29N55`.
 - The first Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
 - Redacted first failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
 - Follow-up finding: launcher `version: latest` generates `screeps: *`; explicit `version: 4.2.21` is Node 12-compatible.

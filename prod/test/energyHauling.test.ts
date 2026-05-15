@@ -116,7 +116,7 @@ describe('energy hauling priority system', () => {
   it('reports early RCL controller runway demand below the default backlog threshold', () => {
     const sourceContainer = makeStoreStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
     const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);
-    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 35, 23);
+    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 17, 24);
     const room = makeRoom([sourceContainer, controllerContainer], [fullSpawn], {
       controller: { my: true, level: 2, pos: makePosition(25, 25) } as StructureController,
       energyAvailable: 550,
@@ -139,7 +139,7 @@ describe('energy hauling priority system', () => {
   it('keeps the default hauler backlog threshold while construction is pending', () => {
     const sourceContainer = makeStoreStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
     const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);
-    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 35, 23);
+    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 17, 24);
     const room = makeRoom([sourceContainer, controllerContainer], [fullSpawn], {
       constructionSites: [{ id: 'extension-site1', my: true } as ConstructionSite],
       controller: { my: true, level: 2, pos: makePosition(25, 25) } as StructureController,
