@@ -6332,7 +6332,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
   let order = 0;
   for (const ownedRoomName of ownedRoomNames) {
     for (const adjacentRoomName of getAdjacentRoomNames3(ownedRoomName)) {
-      if (ownedRoomNames.has(adjacentRoomName) || isConfiguredExpansionScoutOnlyTarget(colonyName, adjacentRoomName)) {
+      if (isRuntimeExpansionPlannerControlRoomSkipped(colonyName, adjacentRoomName, ownedRoomNames)) {
         continue;
       }
       const room = rooms[adjacentRoomName];
@@ -6353,7 +6353,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
     }
   }
   for (const room of Object.values(rooms)) {
-    if (!room || !isNonEmptyString9(room.name) || room.name === colonyName || ownedRoomNames.has(room.name)) {
+    if (!room || !isNonEmptyString9(room.name) || isRuntimeExpansionPlannerControlRoomSkipped(colonyName, room.name, ownedRoomNames)) {
       continue;
     }
     const distance = getNearestOwnedRoomDistance2(ownedRoomNames, room.name);
@@ -7277,6 +7277,9 @@ function toRuntimeExpansionPlannerCandidate(colony, room, distance, order, colon
     ),
     ...suitability
   };
+}
+function isRuntimeExpansionPlannerControlRoomSkipped(colonyName, roomName, ownedRoomNames) {
+  return roomName === colonyName || ownedRoomNames.has(roomName) || isConfiguredExpansionScoutOnlyTarget(colonyName, roomName);
 }
 function compareExpansionPlannerCandidates(left, right) {
   return right.score - left.score || right.sourceCount - left.sourceCount || left.distance - right.distance || getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) || left.order - right.order || left.roomName.localeCompare(right.roomName);

@@ -10,6 +10,7 @@ import {
   prioritizeExpansionCandidates,
   refreshExpansionPlannerIntent
 } from '../src/territory/expansionPlanner';
+import { refreshConfiguredExpansionRoomScouting } from '../src/territory/roomScouting';
 import { planTerritoryIntent, type TerritoryIntentPlan } from '../src/territory/territoryPlanner';
 
 describe('expansion planner', () => {
@@ -460,6 +461,80 @@ describe('expansion planner', () => {
         controllerId: 'controller-W2N1'
       }
     ]);
+  });
+
+  it('keeps visible W3N9 scout-only rooms out of expansion planner control candidates and intents', () => {
+    const { colony } = makeColony({
+      roomName: 'W3N9',
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W3N9: { '1': 'W3N8', '7': 'W2N9' } },
+      rooms: {
+        W3N8: makeExpansionRoom('W3N8'),
+        W2N9: makeExpansionRoom('W2N9')
+      }
+    });
+
+    expect(buildRuntimeExpansionPlannerCandidates(colony)).toEqual([]);
+
+    const plan = refreshExpansionPlannerIntent(colony, 968_900);
+
+    expect(plan).toEqual({
+      status: 'skipped',
+      colony: 'W3N9',
+      reason: 'noCandidate',
+      candidates: []
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+
+    const scouting = refreshConfiguredExpansionRoomScouting(colony, 968_900);
+
+    expect(scouting.records).toEqual([
+      {
+        colony: 'W3N9',
+        roomName: 'W3N8',
+        status: 'observed',
+        updatedAt: 968_900,
+        distance: 1,
+        sourceCount: 2,
+        controllerPresent: true,
+        controllerId: 'controller-W3N8',
+        terrainType: 'unknown'
+      },
+      {
+        colony: 'W3N9',
+        roomName: 'W2N9',
+        status: 'observed',
+        updatedAt: 968_900,
+        distance: 1,
+        sourceCount: 2,
+        controllerPresent: true,
+        controllerId: 'controller-W2N9',
+        terrainType: 'unknown'
+      }
+    ]);
+    expect(Memory.territory?.scoutIntel?.['W3N9>W3N8']).toMatchObject({
+      colony: 'W3N9',
+      roomName: 'W3N8',
+      updatedAt: 968_900,
+      sourceCount: 2
+    });
+    expect(Memory.territory?.scoutIntel?.['W3N9>W2N9']).toMatchObject({
+      colony: 'W3N9',
+      roomName: 'W2N9',
+      updatedAt: 968_900,
+      sourceCount: 2
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
   });
 
   it.each([
@@ -1514,13 +1589,15 @@ describe('expansion planner', () => {
 });
 
 function makeColony({
+  roomName = 'W1N1',
   energyAvailable = 650,
   energyCapacityAvailable = 650,
   controllerLevel = 3,
   hostileCreepCount = 0,
   hostileStructureCount = 0,
-  spawns = [makeActiveSpawn('spawn-W1N1')]
+  spawns = [makeActiveSpawn(`spawn-${roomName}`)]
 }: {
+  roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   controllerLevel?: number;
@@ -1529,11 +1606,11 @@ function makeColony({
   spawns?: StructureSpawn[];
 } = {}): { colony: ColonySnapshot } {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable,
     energyCapacityAvailable,
     controller: {
-      id: 'controller-W1N1' as Id<StructureController>,
+      id: `controller-${roomName}` as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
       level: controllerLevel,
@@ -1541,7 +1618,7 @@ function makeColony({
     } as StructureController,
     find: jest.fn((findType: number): unknown[] => {
       if (findType === FIND_SOURCES) {
-        return [{ id: 'source-W1N1-0' }];
+        return [{ id: `source-${roomName}-0` }];
       }
       if (findType === FIND_HOSTILE_CREEPS) {
         return Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `home-hostile-${index}` }));
