@@ -77,7 +77,7 @@ import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
-export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
+export const IDLE_RAMPART_REPAIR_HITS_CEILING = 120_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
 export const CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 export const URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
@@ -666,6 +666,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
+  const controllerSustainBarrierMaintenanceTask = selectControllerSustainBarrierMaintenanceTask(
+    creep,
+    constructionSites
+  );
+  if (controllerSustainBarrierMaintenanceTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainBarrierMaintenanceTask);
+  }
+
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
@@ -1022,6 +1030,26 @@ function selectControllerSustainUpgradeTask(
   }
 
   return { type: 'upgrade', targetId: controller.id };
+}
+
+function selectControllerSustainBarrierMaintenanceTask(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): Extract<CreepTaskMemory, { type: 'repair' }> | null {
+  const sustain = creep.memory?.controllerSustain;
+  if (
+    sustain?.role !== 'upgrader' ||
+    sustain.targetRoom !== creep.room?.name ||
+    constructionSites.length > 0 ||
+    hasSameRoomWorkerAssignedToTask(creep.room, creep, 'repair')
+  ) {
+    return null;
+  }
+
+  const barrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  return barrierMaintenanceTarget
+    ? { type: 'repair', targetId: barrierMaintenanceTarget.id as Id<Structure> }
+    : null;
 }
 
 function shouldYieldControllerSustainUpgradeToConstruction(
