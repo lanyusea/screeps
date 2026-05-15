@@ -5333,6 +5333,109 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('does not let loaded build workers suppress near-term low-load emergency refill', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 175, 125, {
+      spawning: { remainingTime: 10 }
+    });
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 25,
+      energyCapacityAvailable: 300,
+      myStructures: [spawningSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const builder = {
+      name: 'Builder',
+      memory: {
+        role: 'worker',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'LowLoadRefill',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source1' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: builder, LowLoadRefill: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 342;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 342,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'emergencySpawnExtensionRefill'
+    });
+  });
+
+  it('lets refill-bound workers cover near-term low-load emergency refill', () => {
+    const spawningSpawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 175, 125, {
+      spawning: { remainingTime: 10 }
+    });
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: MINIMUM_WORKER_SPAWN_ENERGY - 25,
+      energyCapacityAvailable: 300,
+      myStructures: [spawningSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const refillWorker = {
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(25) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'LowLoadRefill',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source1' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RefillWorker: refillWorker, LowLoadRefill: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 343;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 343,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: 1
+    });
+  });
+
   it('returns to refill instead of taking a far low-load harvest detour', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;

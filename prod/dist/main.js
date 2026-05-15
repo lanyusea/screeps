@@ -23658,8 +23658,24 @@ function isNearTermSpawnCompletionBlockedWithoutLowLoadEnergy(creep) {
   if (energyAvailable === null) {
     return true;
   }
-  const otherLoadedEnergy = getSameRoomLoadedWorkersForRefillReservations(creep).filter((worker) => !isSameCreep(worker, creep)).reduce((total, worker) => total + getUsedEnergy2(worker), 0);
-  return energyAvailable + otherLoadedEnergy < MINIMUM_WORKER_SPAWN_ENERGY;
+  const otherRefillCoverageEnergy = getOtherNearTermSpawnExtensionRefillCoverageEnergy(
+    creep,
+    spawnExtensionEnergyStructures
+  );
+  return energyAvailable + otherRefillCoverageEnergy < MINIMUM_WORKER_SPAWN_ENERGY;
+}
+function getOtherNearTermSpawnExtensionRefillCoverageEnergy(creep, spawnExtensionEnergyStructures) {
+  const spawnExtensionEnergyStructureIds = new Set(
+    spawnExtensionEnergyStructures.map((structure) => String(structure.id))
+  );
+  return getSameRoomLoadedWorkersForRefillReservations(creep).filter((worker) => !isSameCreep(worker, creep)).filter(
+    (worker) => isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds)
+  ).reduce((total, worker) => total + getUsedEnergy2(worker), 0);
+}
+function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(worker, spawnExtensionEnergyStructureIds) {
+  var _a;
+  const task = (_a = worker.memory) == null ? void 0 : _a.task;
+  return task == null || (task == null ? void 0 : task.type) === "transfer" && task.targetId !== void 0 && spawnExtensionEnergyStructureIds.has(String(task.targetId));
 }
 function shouldGuardControllerDowngradeForWorkerLoad(creep, controller) {
   if (!shouldGuardControllerDowngrade2(controller)) {
