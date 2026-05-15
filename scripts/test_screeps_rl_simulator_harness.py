@@ -1691,6 +1691,151 @@ cli:
         run_variants.assert_not_called()
         self.assertFalse((root / "outside" / "run_summary.json").exists())
 
+    def test_resource_guard_rejects_workers_5_on_8gb_host_and_writes_deterministic_failure(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 8192,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 8192,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 0,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 0,
+            "activeSimulatorContainerCount": 0,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": [],
+        }
+        cleanup = {
+            "ok": True,
+            "runId": "guard-reject",
+            "targetNamePrefix": "rl-sim-worker-guard-reject-",
+            "matchedContainers": [],
+            "removedContainers": [],
+            "command": None,
+            "returncode": None,
+            "outputExcerpt": None,
+            "errors": [],
+        }
+        variants = [f"scale-env-{index}" for index in range(5)]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "runtime-artifacts"
+            failure_path = out_dir / "guard-reject" / "resource_guard_failure.json"
+            failure_texts: list[str] = []
+            with mock.patch("screeps_rl_simulator_harness.collect_resource_guard_host_snapshot", return_value=snapshot):
+                with mock.patch("screeps_rl_simulator_harness.cleanup_exact_run_worker_containers", return_value=cleanup):
+                    with mock.patch("screeps_rl_simulator_harness.run_variants") as run_variants:
+                        for _ in range(2):
+                            with self.assertRaisesRegex(RuntimeError, "resource guard rejected"):
+                                harness.run_simulator(
+                                    ticks=1,
+                                    workers=5,
+                                    variants=variants,
+                                    out_dir=out_dir,
+                                    run_id="guard-reject",
+                                    code_path=root / "main.js",
+                                    map_source_file=root / "map.json",
+                                )
+                            failure_texts.append(failure_path.read_text(encoding="utf-8"))
+
+        run_variants.assert_not_called()
+        self.assertEqual(failure_texts[0], failure_texts[1])
+        failure = json.loads(failure_texts[0])
+        self.assertFalse(failure["ok"])
+        self.assertEqual(failure["resourceGuard"]["decision"], "rejected")
+        self.assertEqual(failure["resourceGuard"]["requestedWorkers"], 5)
+        self.assertEqual(failure["resourceGuard"]["effectiveWorkers"], 5)
+        self.assertEqual(failure["resourceGuard"]["guardedWorkerEstimate"], 5)
+        self.assertIn("requires", failure["resourceGuard"]["reasons"][0])
+        self.assertEqual(failure["cleanup"]["matchedContainers"], [])
+        two_variant_decision = harness.build_resource_guard_decision(
+            run_id="guard-reject-two-variants",
+            workers=5,
+            variants=variants[:2],
+            host_snapshot=snapshot,
+        )
+        self.assertFalse(two_variant_decision["ok"])
+        self.assertEqual(two_variant_decision["effectiveWorkers"], 2)
+        self.assertEqual(two_variant_decision["guardedWorkerEstimate"], 5)
+
+    def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:
+        snapshot = {
+            "memoryTotalMiB": 8192,
+            "memoryAvailableMiB": 8192,
+            "swapFreeMiB": 0,
+            "memoryAndSwapAvailableMiB": 8192,
+            "cpuCount": 4,
+            "dockerAvailable": True,
+            "activeDockerContainerCount": 0,
+            "activeRlSimulatorContainerCount": 0,
+            "activePrivateSmokeContainerCount": 0,
+            "activeSimulatorContainerCount": 0,
+            "activeRlSimulatorContainers": [],
+            "activePrivateSmokeContainers": [],
+        }
+
+        with mock.patch.dict(os.environ, {harness.RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV: "1"}):
+            decision = harness.build_resource_guard_decision(
+                run_id="guard-override",
+                workers=5,
+                variants=[f"scale-env-{index}" for index in range(5)],
+                host_snapshot=snapshot,
+            )
+
+        self.assertTrue(decision["ok"])
+        self.assertEqual(decision["decision"], "allowed-with-override")
+        self.assertTrue(decision["override"]["enabled"])
+        self.assertIn(f"env:{harness.RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV}", decision["override"]["sources"])
+
+    def test_exact_run_cleanup_targets_only_matching_worker_containers(self) -> None:
+        commands: list[list[str]] = []
+
+        class Result:
+            returncode = 0
+            stdout = "removed\n"
+            stderr = ""
+
+        def fake_runner(command: list[str], **kwargs: object) -> Result:
+            _ = kwargs
+            commands.append(command)
+            return Result()
+
+        cleanup = harness.cleanup_exact_run_worker_containers(
+            "run-1",
+            container_names=[
+                "rl-sim-worker-run-1-00-screeps-1",
+                "/rl-sim-worker-run-1-01-mongo-1",
+                "rl-sim-worker-run-10-00-screeps-1",
+                "rl-sim-worker-run-2-00-screeps-1",
+                "screeps-private-smoke-abcdef12-screeps-1",
+            ],
+            docker_binary="/usr/bin/docker",
+            runner=fake_runner,
+        )
+
+        self.assertTrue(cleanup["ok"])
+        self.assertEqual(
+            cleanup["matchedContainers"],
+            [
+                "rl-sim-worker-run-1-00-screeps-1",
+                "rl-sim-worker-run-1-01-mongo-1",
+            ],
+        )
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "/usr/bin/docker",
+                    "rm",
+                    "-f",
+                    "rl-sim-worker-run-1-00-screeps-1",
+                    "rl-sim-worker-run-1-01-mongo-1",
+                ]
+            ],
+        )
+
     def test_run_command_exits_nonzero_when_any_variant_failed(self) -> None:
         failed_summary = {
             "type": harness.RUN_SUMMARY_TYPE,
@@ -1749,6 +1894,29 @@ cli:
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(captured_kwargs["host_port_start"], 23125)
+
+    def test_run_command_passes_allow_unsafe_scale_flag(self) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_run_simulator(**kwargs: object) -> dict[str, object]:
+            captured_kwargs.update(kwargs)
+            return {
+                "type": harness.RUN_SUMMARY_TYPE,
+                "runId": "allow-unsafe-scale",
+                "variants": [{"variant_id": "baseline", "ok": True}],
+            }
+
+        output = io.StringIO()
+
+        with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+            with mock.patch("screeps_rl_simulator_harness.run_simulator", side_effect=fake_run_simulator):
+                exit_code = harness.main(
+                    ["run", "--variants", "baseline", "--allow-unsafe-scale"],
+                    stdout=output,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIs(captured_kwargs["allow_unsafe_scale"], True)
 
 
 if __name__ == "__main__":

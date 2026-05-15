@@ -13,6 +13,8 @@ import math
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -82,6 +84,15 @@ RUN_TICK_POLL_SECONDS = 0.20
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV = "SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE"
+RUN_RESOURCE_GUARD_MIN_WORKERS = 3
+RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB = 2300
+RUN_RESOURCE_GUARD_HOST_RESERVE_MIB = 1536
+RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB = 1400
+RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER = 1
+RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER = 4
+RUN_RESOURCE_GUARD_FAILURE_TYPE = "screeps-rl-simulator-resource-guard-failure"
+RUN_DOCKER_CLEANUP_TIMEOUT_SECONDS = 90
 SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
 OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
 _WORKER_PHASE_DEBUG_DISABLED = False
@@ -386,6 +397,36 @@ def _safe_compose_project_name(value: str) -> str:
     return safe or "rl-sim-worker"
 
 
+def _env_flag_enabled(name: str) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return False
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _effective_run_worker_count(workers: int, variants: Sequence[str]) -> int:
+    if workers <= 0:
+        return 0
+    if not variants:
+        return workers
+    return max(1, min(workers, len(variants)))
+
+
+def _run_worker_project_prefix(run_id: str) -> str:
+    return _safe_compose_project_name(f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}")
+
+
+def _matching_run_worker_container_names(run_id: str, container_names: Sequence[str]) -> list[str]:
+    """Return only Docker container names owned by this simulator run id."""
+    prefix = f"{_run_worker_project_prefix(run_id)}-"
+    matches = []
+    for raw_name in container_names:
+        name = raw_name.lstrip("/")
+        if name.startswith(prefix):
+            matches.append(name)
+    return sorted(set(matches))
+
+
 def validate_run_id_token(value: str) -> str:
     if (
         not value
@@ -426,6 +467,220 @@ def _coerce_int(value: Any) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _read_linux_memory_mib(meminfo_path: Path = Path("/proc/meminfo")) -> JsonObject:
+    """Read stable memory fields from Linux /proc/meminfo in MiB."""
+    try:
+        text = meminfo_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"error": _safe_text(exc, 240)}
+    values: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        key = parts[0].rstrip(":")
+        try:
+            kib = int(parts[1])
+        except ValueError:
+            continue
+        values[key] = kib // 1024
+    return {
+        "memoryTotalMiB": values.get("MemTotal"),
+        "memoryAvailableMiB": values.get("MemAvailable", values.get("MemFree")),
+        "swapFreeMiB": values.get("SwapFree", 0),
+    }
+
+
+def _docker_binary_for_guard() -> str | None:
+    return shutil.which("docker")
+
+
+def _docker_container_names(
+    *,
+    all_containers: bool,
+    docker_binary: str | None = None,
+    timeout: int = 12,
+) -> tuple[list[str], str | None]:
+    docker = docker_binary or _docker_binary_for_guard()
+    if not docker:
+        return [], "docker command not found"
+    command = [docker, "ps"]
+    if all_containers:
+        command.append("-a")
+    command.extend(["--format", "{{.Names}}"])
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], _safe_text(exc, 240)
+    if result.returncode != 0:
+        error_text = result.stderr.strip() or result.stdout.strip() or f"docker ps exited {result.returncode}"
+        return [], _safe_text(error_text, 240)
+    return sorted({line.strip().lstrip("/") for line in result.stdout.splitlines() if line.strip()}), None
+
+
+def _active_simulator_container_groups(container_names: Sequence[str]) -> JsonObject:
+    rl_sim = sorted({name for name in container_names if name.startswith(f"{RUN_WORKER_PREFIX}-")})
+    private_smoke = sorted({name for name in container_names if name.startswith("screeps-private-smoke-")})
+    return {
+        "activeDockerContainerCount": len(container_names),
+        "activeRlSimulatorContainerCount": len(rl_sim),
+        "activePrivateSmokeContainerCount": len(private_smoke),
+        "activeSimulatorContainerCount": len(rl_sim) + len(private_smoke),
+        "activeRlSimulatorContainers": rl_sim[:25],
+        "activePrivateSmokeContainers": private_smoke[:25],
+    }
+
+
+def collect_resource_guard_host_snapshot(
+    *,
+    active_container_names: Sequence[str] | None = None,
+    docker_error: str | None = None,
+) -> JsonObject:
+    """Collect host resource facts used to decide whether a Docker scale run is safe."""
+    memory = _read_linux_memory_mib()
+    if active_container_names is None:
+        active_container_names, docker_error = _docker_container_names(all_containers=False)
+    groups = _active_simulator_container_groups(active_container_names)
+    snapshot: JsonObject = {
+        **memory,
+        "cpuCount": os.cpu_count(),
+        "dockerAvailable": docker_error is None,
+        "dockerError": docker_error,
+        **groups,
+    }
+    available = _coerce_int(snapshot.get("memoryAvailableMiB"))
+    swap = _coerce_int(snapshot.get("swapFreeMiB")) or 0
+    snapshot["memoryAndSwapAvailableMiB"] = available + swap if available is not None else None
+    return snapshot
+
+
+def _resource_guard_override_sources(allow_unsafe_scale: bool) -> list[str]:
+    sources: list[str] = []
+    if allow_unsafe_scale:
+        sources.append("cli:--allow-unsafe-scale")
+    if _env_flag_enabled(RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV):
+        sources.append(f"env:{RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV}")
+    return sources
+
+
+def build_resource_guard_decision(
+    *,
+    run_id: str,
+    workers: int,
+    variants: Sequence[str],
+    allow_unsafe_scale: bool = False,
+    host_snapshot: JsonObject | None = None,
+) -> JsonObject:
+    """Return a redacted, deterministic resource-guard decision for a run request."""
+    effective_workers = _effective_run_worker_count(workers, variants)
+    snapshot = host_snapshot or collect_resource_guard_host_snapshot()
+    active_simulators = _coerce_int(snapshot.get("activeSimulatorContainerCount")) or 0
+    available_mib = _coerce_int(snapshot.get("memoryAndSwapAvailableMiB"))
+    cpu_count = _coerce_int(snapshot.get("cpuCount"))
+    scale_run = workers >= RUN_RESOURCE_GUARD_MIN_WORKERS or effective_workers >= RUN_RESOURCE_GUARD_MIN_WORKERS
+    guarded_workers = max(workers, effective_workers)
+    required_memory_mib = (
+        RUN_RESOURCE_GUARD_HOST_RESERVE_MIB
+        + (guarded_workers * RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB)
+        + (active_simulators * RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB)
+    )
+    native_build_jobs = guarded_workers * RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER
+    historical_jobs = guarded_workers * RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER
+    reasons: list[str] = []
+    warnings: list[str] = []
+    if scale_run:
+        if available_mib is None:
+            reasons.append("host memory/swap availability could not be read")
+        elif available_mib < required_memory_mib:
+            reasons.append(
+                f"workers={workers} effectiveWorkers={effective_workers} requires "
+                f"{required_memory_mib} MiB memory/swap; host reports {available_mib} MiB"
+            )
+        if snapshot.get("dockerAvailable") is False:
+            docker_error = _safe_text(snapshot.get("dockerError") or "docker unavailable", 240)
+            reasons.append(f"active Docker stack check failed: {docker_error}")
+        if active_simulators > 0:
+            reasons.append(f"{active_simulators} active rl-sim/private-smoke Docker container(s) already running")
+        if cpu_count is None:
+            warnings.append("host CPU count could not be read")
+        elif native_build_jobs > max(cpu_count, 1):
+            warnings.append(
+                f"native build jobs={native_build_jobs} can oversubscribe cpuCount={cpu_count}; "
+                "run only when memory headroom is confirmed"
+            )
+    override_sources = _resource_guard_override_sources(allow_unsafe_scale)
+    rejected = bool(reasons)
+    ok = not rejected or bool(override_sources)
+    decision = "allowed"
+    if rejected and override_sources:
+        decision = "allowed-with-override"
+    elif rejected:
+        decision = "rejected"
+    return {
+        "type": "screeps-rl-simulator-resource-guard",
+        "schemaVersion": SCHEMA_VERSION,
+        "ok": ok,
+        "decision": decision,
+        "runId": run_id,
+        "requestedWorkers": workers,
+        "effectiveWorkers": effective_workers,
+        "guardedWorkerEstimate": guarded_workers,
+        "variantCount": len(variants),
+        "scaleRun": scale_run,
+        "scaleWorkerThreshold": RUN_RESOURCE_GUARD_MIN_WORKERS,
+        "reasons": reasons,
+        "warnings": warnings,
+        "override": {
+            "enabled": bool(override_sources),
+            "sources": override_sources,
+        },
+        "host": {
+            "memoryTotalMiB": _coerce_int(snapshot.get("memoryTotalMiB")),
+            "memoryAvailableMiB": _coerce_int(snapshot.get("memoryAvailableMiB")),
+            "swapFreeMiB": _coerce_int(snapshot.get("swapFreeMiB")) or 0,
+            "memoryAndSwapAvailableMiB": available_mib,
+            "cpuCount": cpu_count,
+            "dockerAvailable": bool(snapshot.get("dockerAvailable")),
+            "dockerError": _safe_text(snapshot.get("dockerError"), 240) if snapshot.get("dockerError") else None,
+            "activeDockerContainerCount": _coerce_int(snapshot.get("activeDockerContainerCount")) or 0,
+            "activeRlSimulatorContainerCount": _coerce_int(snapshot.get("activeRlSimulatorContainerCount")) or 0,
+            "activePrivateSmokeContainerCount": _coerce_int(snapshot.get("activePrivateSmokeContainerCount")) or 0,
+            "activeSimulatorContainerCount": active_simulators,
+            "activeRlSimulatorContainers": [
+                _safe_text(name, 160) for name in snapshot.get("activeRlSimulatorContainers", [])[:25]
+            ]
+            if isinstance(snapshot.get("activeRlSimulatorContainers"), list)
+            else [],
+            "activePrivateSmokeContainers": [
+                _safe_text(name, 160) for name in snapshot.get("activePrivateSmokeContainers", [])[:25]
+            ]
+            if isinstance(snapshot.get("activePrivateSmokeContainers"), list)
+            else [],
+        },
+        "estimate": {
+            "hostReserveMiB": RUN_RESOURCE_GUARD_HOST_RESERVE_MIB,
+            "memoryPerWorkerMiB": RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB,
+            "activeStackMemoryMiB": RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB,
+            "requiredMemoryAndSwapMiB": required_memory_mib,
+            "nativeBuildJobsPerWorker": RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER,
+            "nativeBuildParallelJobs": native_build_jobs,
+            "historicalNodeGypJobsPerWorker": RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER,
+            "historicalUnboundedNativeBuildParallelJobs": historical_jobs,
+            "nativeBuildPolicy": (
+                "generated worker Compose sets npm_config_jobs/NPM_CONFIG_JOBS/JOBS/MAKEFLAGS to 1 "
+                "so first-run isolated-vm compilation is bounded per worker"
+            ),
+        },
+    }
 
 
 def _build_run_ports(worker_index: int, host_port_start: int = RUN_HTTP_START) -> tuple[int, int]:
@@ -3359,6 +3614,206 @@ def run_self_test(stdout: TextIO = sys.stdout) -> int:
     return 0
 
 
+def cleanup_exact_run_worker_containers(
+    run_id: str,
+    *,
+    container_names: Sequence[str] | None = None,
+    docker_binary: str | None = None,
+    runner: Any | None = None,
+) -> JsonObject:
+    """Force-remove only Docker containers whose names belong to this run id."""
+    names_error: str | None = None
+    if container_names is None:
+        container_names, names_error = _docker_container_names(all_containers=True, docker_binary=docker_binary)
+    matched = _matching_run_worker_container_names(run_id, container_names)
+    docker = docker_binary or _docker_binary_for_guard()
+    errors: list[str] = []
+    command_summary: list[str] | None = None
+    returncode: int | None = None
+    output_excerpt: str | None = None
+    if names_error:
+        errors.append(f"container listing failed: {_safe_text(names_error, 240)}")
+    if matched:
+        if not docker:
+            errors.append("docker command not found for exact-run cleanup")
+        else:
+            command = [docker, "rm", "-f", *matched]
+            command_summary = [Path(command[0]).name, *command[1:]]
+            run = runner or subprocess.run
+            try:
+                result = run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=RUN_DOCKER_CLEANUP_TIMEOUT_SECONDS,
+                    check=False,
+                )
+                returncode = _coerce_int(getattr(result, "returncode", None))
+                output = "\n".join(
+                    part
+                    for part in (getattr(result, "stdout", ""), getattr(result, "stderr", ""))
+                    if isinstance(part, str) and part
+                )
+                output_excerpt = _safe_text(output, 500) if output else None
+                if returncode not in (None, 0):
+                    errors.append(f"docker rm exited {returncode}: {output_excerpt or 'no output'}")
+            except (OSError, subprocess.SubprocessError) as exc:
+                errors.append(f"docker rm failed: {_safe_text(exc, 240)}")
+    return {
+        "ok": not errors,
+        "runId": run_id,
+        "targetNamePrefix": f"{_run_worker_project_prefix(run_id)}-",
+        "matchedContainers": matched,
+        "removedContainers": matched if matched and not errors else [],
+        "command": command_summary,
+        "returncode": returncode,
+        "outputExcerpt": output_excerpt,
+        "errors": errors,
+    }
+
+
+def _build_run_failure_variant_results(
+    variants: Sequence[str],
+    *,
+    run_id: str,
+    ticks: int,
+    workers: int,
+    room: str,
+    shard: str,
+    branch: str,
+    code_path: Path,
+    map_source_file: Path,
+    error: Any,
+) -> list[JsonObject]:
+    effective_workers = max(1, _effective_run_worker_count(workers, variants))
+    results: list[JsonObject] = []
+    for index, variant_id in enumerate(variants):
+        worker_index = index % effective_workers
+        api_branch = normalize_private_server_code_branch(branch)
+        variant_slug = _safe_filename(variant_id)
+        error_text = _safe_text(error, 480)
+        strategy_variant: JsonObject | None = None
+        try:
+            strategy_variant = strategy_variant_config_by_id(variant_id)
+        except Exception:
+            strategy_variant = {
+                "id": variant_id,
+                "label": variant_id,
+                "rolloutStatus": "unknown",
+                "source": "run failure before variant validation",
+            }
+        result: JsonObject = {
+            "variant_id": variant_id,
+            "variant_run_id": f"{run_id}-{variant_slug}",
+            "worker_id": worker_index,
+            "scenario": _safe_build_scenario_config(
+                f"{run_id}-{variant_slug}",
+                variant_id,
+                room=room,
+                shard=shard,
+                branch=api_branch,
+                ticks=ticks,
+                code_path=code_path,
+                map_source_file=map_source_file,
+            ),
+            "ticks_requested": ticks,
+            "ticks_run": 0,
+            "wall_clock_seconds": 0.0,
+            "ticks_per_second": 0.0,
+            "tick_log": [],
+            "metrics": build_variant_metrics([]),
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "ok": False,
+            "error": error_text,
+            "errors": [error_text],
+            "serverHost": "127.0.0.1",
+            "serverPorts": {},
+            "branch": api_branch,
+            "requestedBranch": branch,
+        }
+        result["strategyVariant"] = strategy_variant
+        result["strategy_variant"] = strategy_variant
+        result["ownedRoomScorecard"] = build_variant_owned_room_scorecard(result)
+        results.append(result)
+    return results
+
+
+def write_run_failure_artifacts(
+    *,
+    run_id: str,
+    out_dir: Path,
+    ticks: int,
+    workers: int,
+    variants: Sequence[str],
+    branch: str,
+    room: str,
+    shard: str,
+    code_path: Path,
+    map_source_file: Path,
+    bot_commit: str | None,
+    phase: str,
+    error: Any,
+    resource_guard: JsonObject | None,
+    cleanup: JsonObject | None,
+) -> JsonObject:
+    """Persist a redacted run failure report and a schema-compatible run summary."""
+    resolved_error = _safe_text(error, 720)
+    variant_results = _build_run_failure_variant_results(
+        variants,
+        run_id=run_id,
+        ticks=ticks,
+        workers=workers,
+        room=room,
+        shard=shard,
+        branch=branch,
+        code_path=code_path,
+        map_source_file=map_source_file,
+        error=resolved_error,
+    )
+    run_dir = out_dir / run_id
+    run_artifact_path = run_dir / "run_summary.json"
+    scorecard_path = run_dir / "owned_room_scorecard.json"
+    failure_path = run_dir / "resource_guard_failure.json"
+    artifact = build_run_artifact(
+        run_id,
+        ticks=ticks,
+        workers=_effective_run_worker_count(workers, variants),
+        variant_results=variant_results,
+        branch=branch,
+        bot_commit=bot_commit,
+        wall_clock_seconds=0.0,
+    )
+    artifact["variants"] = variant_results
+    artifact["resourceGuard"] = resource_guard
+    artifact["cleanup"] = cleanup
+    artifact["failurePhase"] = phase
+    artifact["failureArtifactPath"] = str(failure_path)
+    artifact["ownedRoomScorecard"] = build_run_owned_room_scorecard(run_id, variant_results)
+    artifact["ownedRoomScorecardPath"] = str(scorecard_path)
+    validate_run_artifact(artifact)
+    secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
+    assert_no_secret_leak(artifact, secret_values)
+    report = {
+        "type": RUN_RESOURCE_GUARD_FAILURE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "ok": False,
+        "runId": run_id,
+        "phase": phase,
+        "error": resolved_error,
+        "resourceGuard": resource_guard,
+        "cleanup": cleanup,
+        "safety": safety_metadata(),
+    }
+    assert_no_secret_leak(report, secret_values)
+    write_json_atomic(scorecard_path, artifact["ownedRoomScorecard"])
+    write_json_atomic(run_artifact_path, artifact)
+    write_json_atomic(failure_path, report)
+    artifact["run_artifact_path"] = str(run_artifact_path)
+    return artifact
+
+
 def run_simulator(
     *,
     ticks: int,
@@ -3373,10 +3828,8 @@ def run_simulator(
     code_path: Path = DEFAULT_CODE_PATH,
     map_source_file: Path = DEFAULT_MAP_SOURCE_FILE,
     bot_commit: str | None = None,
+    allow_unsafe_scale: bool = False,
 ) -> JsonObject:
-    if not os.environ.get("STEAM_KEY"):
-        raise RuntimeError("STEAM_KEY environment variable is required for run mode")
-
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
     resolved_map_source = map_source_file.expanduser()
@@ -3386,23 +3839,91 @@ def run_simulator(
         resolved_run_id = validate_run_id_token(run_id or f"{RUN_ID_PREFIX}-{int(time.time())}")
     except ValueError as error:
         raise RuntimeError(str(error)) from error
-    artifact, variants_result = run_variants(
-        variants=variants,
-        ticks=ticks,
-        workers=workers,
-        host_port_start=host_port_start,
-        room=room,
-        shard=shard,
-        branch=api_branch,
-        code_path=resolved_code_path,
-        map_source_file=resolved_map_source,
-        out_dir=resolved_out_dir,
+    resource_guard = build_resource_guard_decision(
         run_id=resolved_run_id,
-        bot_commit=resolved_bot_commit,
+        workers=workers,
+        variants=variants,
+        allow_unsafe_scale=allow_unsafe_scale,
     )
+    if not resource_guard["ok"]:
+        cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
+        write_run_failure_artifacts(
+            run_id=resolved_run_id,
+            out_dir=resolved_out_dir,
+            ticks=ticks,
+            workers=workers,
+            variants=variants,
+            branch=api_branch,
+            room=room,
+            shard=shard,
+            code_path=resolved_code_path,
+            map_source_file=resolved_map_source,
+            bot_commit=resolved_bot_commit,
+            phase="resource-guard",
+            error="resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]),
+            resource_guard=resource_guard,
+            cleanup=cleanup,
+        )
+        raise RuntimeError("resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]))
+    if not os.environ.get("STEAM_KEY"):
+        cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
+        write_run_failure_artifacts(
+            run_id=resolved_run_id,
+            out_dir=resolved_out_dir,
+            ticks=ticks,
+            workers=workers,
+            variants=variants,
+            branch=api_branch,
+            room=room,
+            shard=shard,
+            code_path=resolved_code_path,
+            map_source_file=resolved_map_source,
+            bot_commit=resolved_bot_commit,
+            phase="required-env",
+            error="STEAM_KEY environment variable is required for run mode",
+            resource_guard=resource_guard,
+            cleanup=cleanup,
+        )
+        raise RuntimeError("STEAM_KEY environment variable is required for run mode")
+    try:
+        artifact, variants_result = run_variants(
+            variants=variants,
+            ticks=ticks,
+            workers=workers,
+            host_port_start=host_port_start,
+            room=room,
+            shard=shard,
+            branch=api_branch,
+            code_path=resolved_code_path,
+            map_source_file=resolved_map_source,
+            out_dir=resolved_out_dir,
+            run_id=resolved_run_id,
+            bot_commit=resolved_bot_commit,
+        )
+    except Exception as exc:
+        cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
+        write_run_failure_artifacts(
+            run_id=resolved_run_id,
+            out_dir=resolved_out_dir,
+            ticks=ticks,
+            workers=workers,
+            variants=variants,
+            branch=api_branch,
+            room=room,
+            shard=shard,
+            code_path=resolved_code_path,
+            map_source_file=resolved_map_source,
+            bot_commit=resolved_bot_commit,
+            phase="run-variants",
+            error=exc,
+            resource_guard=resource_guard,
+            cleanup=cleanup,
+        )
+        raise
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"
     scorecard_path = resolved_out_dir / resolved_run_id / "owned_room_scorecard.json"
     artifact["variants"] = variants_result
+    artifact["resourceGuard"] = resource_guard
     _apply_run_summary_fields(artifact, variants_result)
     artifact["ownedRoomScorecard"] = build_run_owned_room_scorecard(resolved_run_id, variants_result)
     artifact["ownedRoomScorecardPath"] = str(scorecard_path)
@@ -3543,6 +4064,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Parallel simulator workers. Default: {DEFAULT_RUN_WORKERS}.",
     )
     run.add_argument(
+        "--allow-unsafe-scale",
+        action="store_true",
+        help=(
+            "Allow a run that the resource guard would otherwise reject. "
+            f"Equivalent env override: {RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV}=1."
+        ),
+    )
+    run.add_argument(
         "--room",
         default=DEFAULT_SIM_ROOM,
         help=f"Target room for reset + spawn. Default: {DEFAULT_SIM_ROOM}.",
@@ -3614,6 +4143,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             code_path=args.code_path,
             map_source_file=args.map_source_file,
             bot_commit=args.bot_commit,
+            allow_unsafe_scale=args.allow_unsafe_scale,
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")

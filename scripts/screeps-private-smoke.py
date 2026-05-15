@@ -42,11 +42,19 @@ REDIS_IMAGE = "redis:7.4.8"
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 CONTAINER_HTTP_PORT = 21025
 CONTAINER_CLI_PORT = 21026
+NATIVE_BUILD_JOB_LIMIT = "1"
+NATIVE_BUILD_ENVIRONMENT = {
+    "JOBS": NATIVE_BUILD_JOB_LIMIT,
+    "MAKEFLAGS": f"-j{NATIVE_BUILD_JOB_LIMIT}",
+    "NPM_CONFIG_JOBS": NATIVE_BUILD_JOB_LIMIT,
+    "npm_config_jobs": NATIVE_BUILD_JOB_LIMIT,
+}
 DEFAULT_HTTP_PORT = CONTAINER_HTTP_PORT
 DEFAULT_CLI_PORT = CONTAINER_CLI_PORT
 MIN_TCP_PORT = 1
 MAX_TCP_PORT = 65535
 LAUNCHER_CLI_RESPONSE_LIMIT = 1400
+MONGO_SUMMARY_OUTPUT_LIMIT = 1000000
 DEFAULT_ROOM = "E1S1"
 DEFAULT_SHARD = "shardX"
 DEFAULT_USERNAME = "smoke"
@@ -485,6 +493,9 @@ cli:
 
 def build_compose_file(cfg: SmokeConfig) -> str:
     """Render the Docker Compose stack used for the private smoke."""
+    native_build_env = "\n".join(
+        f"      {name}: \"{value}\"" for name, value in sorted(NATIVE_BUILD_ENVIRONMENT.items())
+    )
     return f"""services:
   screeps:
     image: {SCREEPS_LAUNCHER_IMAGE}
@@ -497,6 +508,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
     environment:
       MONGO_HOST: mongo
       REDIS_HOST: redis
+{native_build_env}
     depends_on:
       mongo:
         condition: service_healthy
@@ -1267,7 +1279,7 @@ print(JSON.stringify({{
 }}));
 """
     command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
-    result = run_command(command, cfg, timeout=60, output_limit=1000000)
+    result = run_command(command, cfg, timeout=60, output_limit=MONGO_SUMMARY_OUTPUT_LIMIT)
     if result["returncode"] != 0:
         return {"ok": False, "error": result["output_excerpt"]}
     try:
@@ -1659,6 +1671,8 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertIn(f"image: {SCREEPS_LAUNCHER_IMAGE}", compose)
         self.assertIn(f"image: {MONGO_IMAGE}", compose)
         self.assertIn(f"image: {REDIS_IMAGE}", compose)
+        self.assertIn('npm_config_jobs: "1"', compose)
+        self.assertIn('MAKEFLAGS: "-j1"', compose)
 
     def test_custom_host_ports_preserve_container_ports(self) -> None:
         """Custom host bindings should leave Screeps container ports unchanged."""
@@ -2725,7 +2739,7 @@ class SmokeSelfTest(unittest.TestCase):
             result = collect_mongo_summary([], cfg)
         finally:
             globals()["run_command"] = original_run_command
-        self.assertEqual(captured["output_limit"], 12000)
+        self.assertEqual(captured["output_limit"], MONGO_SUMMARY_OUTPUT_LIMIT)
         self.assertTrue(result["ok"])
 
     def test_room_spawn_summary_verifies_expected_owner(self) -> None:
