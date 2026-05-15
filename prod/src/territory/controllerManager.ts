@@ -52,7 +52,22 @@ export interface ControllerManagementPlan {
 }
 
 const CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = MIN_UPGRADER_BODY_COST;
+const CONTROLLER_UPGRADE_SURGE_TARGET = 2;
+const CONTROLLER_UPGRADE_SURGE_MIN_CONTROLLER_LEVEL = 2;
+const CONTROLLER_UPGRADE_SURGE_MAX_CONTROLLER_LEVEL = 3;
+const CONTROLLER_UPGRADE_SURGE_STORED_ENERGY_CAPACITY_MULTIPLIER = 2;
+const CONTROLLER_UPGRADE_SURGE_MIN_STORED_ENERGY = 1_000;
 const MAX_CONTROLLER_LEVEL = 8;
+
+interface ControllerUpgraderDemandContext {
+  competingSpawnDemand: boolean;
+  constructionDemand: boolean;
+  defenseDemand: boolean;
+  energySurplus: boolean;
+  spawnEnergyBufferAvailable: boolean;
+  spawnEnergyFull: boolean;
+  workerFloorMet: boolean;
+}
 
 export function refreshControllerManagement(
   colony: ColonySnapshot,
@@ -118,23 +133,35 @@ export function buildControllerManagementPlan(
   const activeUpgraderCount =
     options.activeUpgraderCount ??
     Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
-  const competingSpawnDemand = options.competingSpawnDemand ?? getWorkerCapacity(roleCounts) < workerTarget;
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const competingSpawnDemand = options.competingSpawnDemand ?? workerCapacity < workerTarget;
   const constructionDemand = options.constructionDemand ?? hasVisibleConstructionDemand(colony.room);
+  const defenseDemand = options.defenseDemand === true;
   const energyBufferHealthy = options.energyBufferHealthy ?? hasControllerUpgradeSpawnEnergy(colony);
+  const hasEnergySurplus = options.hasEnergySurplus ?? hasControllerUpgradeSurplusEnergy(colony);
   const upgradePriority = getControllerUpgradePriority(controller, {
     energyAvailable:
       options.allowReservedSpawnEnergy === true ? colony.energyCapacityAvailable : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
     competingSpawnDemand,
     constructionDemand,
-    defenseDemand: options.defenseDemand,
+    defenseDemand,
     energyBufferHealthy,
-    hasEnergySurplus: options.hasEnergySurplus ?? hasRecordedEnergySurplus(roomName)
+    hasEnergySurplus
   });
   const desiredUpgraderCount = getDesiredControllerUpgraderCount(
     upgradePriority,
     colony,
-    desiredControllerLevel
+    desiredControllerLevel,
+    {
+      competingSpawnDemand,
+      constructionDemand,
+      defenseDemand,
+      energySurplus: hasEnergySurplus,
+      spawnEnergyBufferAvailable: hasControllerUpgradeSpawnEnergyAfterBuffer(colony),
+      spawnEnergyFull: hasFullRoomSpawnEnergy(colony),
+      workerFloorMet: workerCapacity >= workerTarget
+    }
   );
   const plan: ControllerManagementPlan = {
     roomName,
@@ -200,6 +227,20 @@ function hasControllerUpgradeSpawnEnergy(colony: ColonySnapshot): boolean {
     getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
 }
 
+function hasControllerUpgradeSpawnEnergyAfterBuffer(colony: ColonySnapshot): boolean {
+  if (colony.energyCapacityAvailable < CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY) {
+    return false;
+  }
+
+  return getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
+}
+
+function hasFullRoomSpawnEnergy(colony: ColonySnapshot): boolean {
+  const energyAvailable = normalizeNonNegativeInteger(colony.energyAvailable);
+  const energyCapacityAvailable = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
+  return energyCapacityAvailable > 0 && energyAvailable >= energyCapacityAvailable;
+}
+
 function isControllerUpgradeSpawnPriority(priority: ControllerUpgradePriority): boolean {
   return (
     priority === 'rcl1Rush' ||
@@ -212,7 +253,8 @@ function isControllerUpgradeSpawnPriority(priority: ControllerUpgradePriority): 
 function getDesiredControllerUpgraderCount(
   priority: ControllerUpgradePriority,
   colony: ColonySnapshot,
-  desiredControllerLevel: number
+  desiredControllerLevel: number,
+  context: ControllerUpgraderDemandContext
 ): number {
   if (!canMaintainDedicatedControllerUpgrader(colony.room.controller, desiredControllerLevel)) {
     return 0;
@@ -223,12 +265,42 @@ function getDesiredControllerUpgraderCount(
     case 'rclProgress':
     case 'energySurplus':
     case 'steady':
-      return 1;
+      return shouldSurgeControllerUpgraders(priority, colony.room.controller, context)
+        ? CONTROLLER_UPGRADE_SURGE_TARGET
+        : 1;
     case 'downgradeGuard':
     case 'fallback':
     case 'none':
       return 0;
   }
+}
+
+function shouldSurgeControllerUpgraders(
+  priority: ControllerUpgradePriority,
+  controller: StructureController | undefined,
+  context: ControllerUpgraderDemandContext
+): boolean {
+  return (
+    (priority === 'energySurplus' || priority === 'rclProgress') &&
+    context.energySurplus &&
+    context.spawnEnergyFull &&
+    context.spawnEnergyBufferAvailable &&
+    context.workerFloorMet &&
+    !context.competingSpawnDemand &&
+    !context.constructionDemand &&
+    !context.defenseDemand &&
+    isEarlyControllerUpgradeSurgeTarget(controller)
+  );
+}
+
+function isEarlyControllerUpgradeSurgeTarget(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.level === 'number' &&
+    Number.isFinite(controller.level) &&
+    controller.level >= CONTROLLER_UPGRADE_SURGE_MIN_CONTROLLER_LEVEL &&
+    controller.level <= CONTROLLER_UPGRADE_SURGE_MAX_CONTROLLER_LEVEL
+  );
 }
 
 function canMaintainDedicatedControllerUpgrader(
@@ -323,11 +395,153 @@ function findRoomObjects<T>(room: Room, globalName: string): T[] {
   }
 }
 
+function hasControllerUpgradeSurplusEnergy(colony: ColonySnapshot): boolean {
+  return (
+    hasRecordedEnergySurplus(colony.room.name) ||
+    hasRecordedMultiRoomEnergySurplus(colony.room.name, colony.energyCapacityAvailable) ||
+    hasVisibleStoredEnergySurplus(colony)
+  );
+}
+
 function hasRecordedEnergySurplus(roomName: string): boolean {
   return (
     (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.economy?.energySurplus?.rooms?.[roomName]
       ?.surplus === true
   );
+}
+
+function hasRecordedMultiRoomEnergySurplus(roomName: string, energyCapacityAvailable: number): boolean {
+  const state = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.economy?.multiRoomEnergy?.rooms?.[
+    roomName
+  ];
+  return (
+    normalizeNonNegativeInteger(state?.surplusEnergy) >= MIN_UPGRADER_BODY_COST ||
+    normalizeNonNegativeInteger(state?.storedEnergy) >= getStoredEnergySurplusThreshold(energyCapacityAvailable)
+  );
+}
+
+function hasVisibleStoredEnergySurplus(colony: ColonySnapshot): boolean {
+  if (!hasFullRoomSpawnEnergy(colony)) {
+    return false;
+  }
+
+  return getVisibleStoredEnergy(colony.room) >= getStoredEnergySurplusThreshold(colony.energyCapacityAvailable);
+}
+
+function getStoredEnergySurplusThreshold(energyCapacityAvailable: number): number {
+  return Math.max(
+    CONTROLLER_UPGRADE_SURGE_MIN_STORED_ENERGY,
+    normalizeNonNegativeInteger(energyCapacityAvailable) * CONTROLLER_UPGRADE_SURGE_STORED_ENERGY_CAPACITY_MULTIPLIER
+  );
+}
+
+function getVisibleStoredEnergy(room: Room): number {
+  return uniqueRoomObjects([
+    ...findOwnedStoredEnergyStructures(room),
+    ...(getDirectRoomEnergyStructures(room) as Structure[])
+  ])
+    .filter(isControllerUpgradeStoredEnergyStructure)
+    .reduce((total, structure) => total + getStoredEnergy(structure), 0);
+}
+
+function findOwnedStoredEnergyStructures(room: Room): Structure[] {
+  const findConstant = (globalThis as Record<string, unknown>).FIND_MY_STRUCTURES;
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (
+      room.find as unknown as (
+        type: number,
+        options: { filter: (structure: Structure) => boolean }
+      ) => unknown[]
+    )(findConstant, { filter: isControllerUpgradeStoredEnergyStructure });
+    return Array.isArray(result) ? (result as Structure[]).filter(isControllerUpgradeStoredEnergyStructure) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getDirectRoomEnergyStructures(room: Room): unknown[] {
+  const roomWithStores = room as Room & {
+    storage?: unknown;
+    terminal?: unknown;
+  };
+  return [roomWithStores.storage, roomWithStores.terminal].filter(Boolean);
+}
+
+function uniqueRoomObjects<T extends object>(objects: T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const object of objects) {
+    const key = getStableObjectKey(object);
+    if (key.length > 0) {
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+    }
+    unique.push(object);
+  }
+
+  return unique;
+}
+
+function getStableObjectKey(object: object): string {
+  const candidate = object as { id?: unknown; name?: unknown };
+  if (typeof candidate.id === 'string' && candidate.id.length > 0) {
+    return `id:${candidate.id}`;
+  }
+
+  if (typeof candidate.name === 'string' && candidate.name.length > 0) {
+    return `name:${candidate.name}`;
+  }
+
+  return '';
+}
+
+function isControllerUpgradeStoredEnergyStructure(structure: Structure): boolean {
+  const structureType = structure.structureType;
+  return (
+    matchesStructureType(structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structureType, 'STRUCTURE_LINK', 'link') ||
+    matchesStructureType(structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  );
+}
+
+function getStoredEnergy(target: unknown): number {
+  const store = (
+    target as {
+      store?: {
+        getUsedCapacity?: (resource?: ResourceConstant) => number | null;
+        [resource: string]: unknown;
+      };
+    } | null
+  )?.store;
+  const energyResource = getEnergyResource();
+  const usedCapacity = store?.getUsedCapacity?.(energyResource);
+  if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
+    return Math.max(0, Math.floor(usedCapacity));
+  }
+
+  const storedEnergy = store?.[energyResource];
+  return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy)
+    ? Math.max(0, Math.floor(storedEnergy))
+    : 0;
+}
+
+function matchesStructureType(
+  actual: string | undefined,
+  globalName: string,
+  fallback: string
+): boolean {
+  return actual === ((globalThis as Record<string, unknown>)[globalName] ?? fallback);
+}
+
+function getEnergyResource(): ResourceConstant {
+  return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
 }
 
 function persistControllerManagementPlan(plan: ControllerManagementPlan): void {
