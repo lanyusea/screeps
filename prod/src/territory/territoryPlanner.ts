@@ -41,6 +41,7 @@ import {
   isClaimPlanBlockedByHigherPriorityColony,
   pruneLowerPriorityDuplicateClaimPlans
 } from './multiRoomTerritory';
+import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -2565,6 +2566,7 @@ function getAdjacentReserveCandidates(
     const target: TerritoryTargetMemory = { colony: colonyName, roomName, action: 'reserve' };
     if (
       roomName === colonyName ||
+      isConfiguredExpansionScoutOnlyTarget(colonyName, roomName) ||
       existingTargetRooms.has(roomName) ||
       isKnownDeadZoneRoom(roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||

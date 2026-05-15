@@ -4658,6 +4658,43 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('spawns a MOVE-only scout for the W3N9 scout-only W3N8 intel refresh without reserve or claim memory', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W3N9',
+      energyAvailable: 450,
+      energyCapacityAvailable: 550,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W3N9: colony.room }
+    };
+
+    expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_801)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-W3N9-W3N8-968801',
+      memory: {
+        role: 'scout',
+        colony: 'W3N9',
+        territory: {
+          targetRoom: 'W3N8',
+          action: 'scout'
+        }
+      }
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W3N9',
+        targetRoom: 'W3N8',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_801
+      }
+    ]);
+  });
+
   it('spawns a minimal claimer for E17S58 after scout intel and claim capacity are ready', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E17S59',

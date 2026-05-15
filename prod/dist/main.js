@@ -3401,6 +3401,49 @@ function isRecord3(value) {
   return typeof value === "object" && value !== null;
 }
 
+// src/territory/expansionConfig.ts
+var TERRITORY_EXPANSION_SCOUT_TARGETS = [
+  {
+    colony: "W3N9",
+    roomName: "W3N8",
+    nearestOwnedRoom: "W3N9",
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 1,
+    adjacentToOwnedRoom: true,
+    scoutOnly: true
+  },
+  {
+    colony: "W3N9",
+    roomName: "W2N9",
+    nearestOwnedRoom: "W3N9",
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 1,
+    adjacentToOwnedRoom: true,
+    scoutOnly: true
+  },
+  {
+    colony: "E17S59",
+    roomName: "E18S59",
+    nearestOwnedRoom: "E17S59",
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 1,
+    adjacentToOwnedRoom: true
+  },
+  {
+    colony: "E17S59",
+    roomName: "E17S60",
+    nearestOwnedRoom: "E17S58",
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 2,
+    adjacentToOwnedRoom: true
+  }
+];
+function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
+  return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
+    (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
+  );
+}
+
 // src/territory/autoClaim.ts
 var GLOBAL_AUTO_CLAIM_MIN_RCL = globalThis.TERRITORY_AUTO_CLAIM_MIN_RCL;
 var GLOBAL_AUTO_CLAIM_RESERVATION_MIN_TICKS = globalThis.TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS;
@@ -4252,26 +4295,6 @@ function isNonEmptyString4(value) {
 function isRecord5(value) {
   return typeof value === "object" && value !== null;
 }
-
-// src/territory/expansionConfig.ts
-var TERRITORY_EXPANSION_SCOUT_TARGETS = [
-  {
-    colony: "E17S59",
-    roomName: "E18S59",
-    nearestOwnedRoom: "E17S59",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true
-  },
-  {
-    colony: "E17S59",
-    roomName: "E17S60",
-    nearestOwnedRoom: "E17S58",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 2,
-    adjacentToOwnedRoom: true
-  }
-];
 
 // src/territory/roomScouting.ts
 var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
@@ -5301,6 +5324,7 @@ function buildRuntimeExpansionCandidates(colony) {
         ...routeDistance !== void 0 ? { routeDistance } : {},
         ...nearestOwnedDistance.roomName ? { nearestOwnedRoom: nearestOwnedDistance.roomName } : {},
         ...nearestOwnedDistance.distance !== void 0 ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance } : {},
+        ...(configuredScoutTarget == null ? void 0 : configuredScoutTarget.scoutOnly) === true ? { scoutOnly: true } : {},
         ...room ? buildVisibleExpansionCandidateEvidence(room) : scoutIntel ? buildScoutedExpansionCandidateEvidence(scoutIntel) : buildUnseenExpansionCandidateEvidence(roomName, gameTime)
       }
     ];
@@ -5543,7 +5567,8 @@ function scoreExpansionCandidate(input, candidate) {
     ...candidate.hostileCreepCount !== void 0 ? { hostileCreepCount: candidate.hostileCreepCount } : {},
     ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {},
     ...reservation ? { reservation } : {},
-    ...requiresControllerPressure ? { requiresControllerPressure: true } : {}
+    ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
+    ...candidate.scoutOnly === true ? { scoutOnly: true } : {}
   };
 }
 function calculateExpansionScore(input, candidate, evidenceStatus, synergyScore = 0) {
@@ -5767,6 +5792,7 @@ function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) 
     visible: candidate.visible,
     updatedAt: gameTime,
     adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
+    ...candidate.scoutOnly === true ? { scoutOnly: true } : {},
     ...recommendedAction ? { recommendedAction } : {},
     ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
     ...candidate.nearestOwnedRoom ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {},
@@ -5786,6 +5812,9 @@ function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) 
   };
 }
 function getPersistedExpansionCandidateRecommendedAction(candidate) {
+  if (candidate.scoutOnly === true) {
+    return candidate.evidenceStatus === "unavailable" ? void 0 : "scout";
+  }
   if (isViableExpansionCandidate(candidate)) {
     return "claim";
   }
@@ -6303,7 +6332,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
   let order = 0;
   for (const ownedRoomName of ownedRoomNames) {
     for (const adjacentRoomName of getAdjacentRoomNames3(ownedRoomName)) {
-      if (ownedRoomNames.has(adjacentRoomName)) {
+      if (isRuntimeExpansionPlannerControlRoomSkipped(colonyName, adjacentRoomName, ownedRoomNames)) {
         continue;
       }
       const room = rooms[adjacentRoomName];
@@ -6324,7 +6353,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
     }
   }
   for (const room of Object.values(rooms)) {
-    if (!room || !isNonEmptyString9(room.name) || room.name === colonyName || ownedRoomNames.has(room.name)) {
+    if (!room || !isNonEmptyString9(room.name) || isRuntimeExpansionPlannerControlRoomSkipped(colonyName, room.name, ownedRoomNames)) {
       continue;
     }
     const distance = getNearestOwnedRoomDistance2(ownedRoomNames, room.name);
@@ -7248,6 +7277,9 @@ function toRuntimeExpansionPlannerCandidate(colony, room, distance, order, colon
     ),
     ...suitability
   };
+}
+function isRuntimeExpansionPlannerControlRoomSkipped(colonyName, roomName, ownedRoomNames) {
+  return roomName === colonyName || ownedRoomNames.has(roomName) || isConfiguredExpansionScoutOnlyTarget(colonyName, roomName);
 }
 function compareExpansionPlannerCandidates(left, right) {
   return right.score - left.score || right.sourceCount - left.sourceCount || left.distance - right.distance || getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) || left.order - right.order || left.roomName.localeCompare(right.roomName);
@@ -11795,6 +11827,9 @@ function buildRuntimeOccupationCandidates(colonyName) {
     }
   }
   for (const roomName of getAdjacentRoomNames4(colonyName)) {
+    if (isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)) {
+      continue;
+    }
     const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
     const routeDistance = cachedRouteDistance === void 0 ? 1 : cachedRouteDistance;
     upsertOccupationCandidate(candidatesByRoom, {
@@ -14162,7 +14197,7 @@ function selectExpansionTriggerCandidate(colony, report, territoryMemory, gameTi
 function findExpansionTriggerCandidate(colony, report, territoryMemory, config) {
   var _a;
   return (_a = report.candidates.find(
-    (scoredCandidate) => scoredCandidate.evidenceStatus !== "unavailable" && scoredCandidate.score >= config.scoreThreshold && scoredCandidate.preconditions.length === 0 && !isClaimPlanBlockedByHigherPriorityColony({
+    (scoredCandidate) => scoredCandidate.evidenceStatus !== "unavailable" && !isConfiguredExpansionScoutOnlyTarget(colony.room.name, scoredCandidate.roomName) && scoredCandidate.score >= config.scoreThreshold && scoredCandidate.preconditions.length === 0 && !isClaimPlanBlockedByHigherPriorityColony({
       colony,
       targetRoom: scoredCandidate.roomName,
       ...scoredCandidate.routeDistance !== void 0 ? { routeDistance: scoredCandidate.routeDistance } : {},
@@ -14228,7 +14263,7 @@ function shouldDirectClaimScoutedPipeline(pipeline) {
 }
 function isConfiguredAdjacentClaimTarget(colony, targetRoom) {
   return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
-    (target) => target.colony === colony && target.roomName === targetRoom && target.adjacentToOwnedRoom === true && target.nearestOwnedRoomDistance <= 1
+    (target) => target.colony === colony && target.roomName === targetRoom && target.scoutOnly !== true && target.adjacentToOwnedRoom === true && target.nearestOwnedRoomDistance <= 1
   );
 }
 function markPipelineClaimed(pipeline, controllerId, gameTime) {
@@ -16284,7 +16319,7 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
   const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
   return adjacentRooms.flatMap((roomName, order) => {
     const target = { colony: colonyName, roomName, action: "reserve" };
-    if (roomName === colonyName || existingTargetRooms.has(roomName) || isKnownDeadZoneRoom(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime) || isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, "reserve", gameTime)) {
+    if (roomName === colonyName || isConfiguredExpansionScoutOnlyTarget(colonyName, roomName) || existingTargetRooms.has(roomName) || isKnownDeadZoneRoom(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime) || isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, "reserve", gameTime)) {
       return [];
     }
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
@@ -38216,7 +38251,9 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
   var _a, _b, _c;
   const colonyName = colony.room.name;
   const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
-  const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport);
+  const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
+    (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
+  );
   const candidate = (_a = adjacentCandidates.find(
     (scoredCandidate) => !hasBlockingClaimIntentForRoom(scoredCandidate.roomName, context.territoryIntents)
   )) != null ? _a : null;
@@ -40637,7 +40674,7 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
   const ownerUsername = getControllerOwnerUsername12(colony.room.controller);
   const expansionPriorities = getPersistedExpansionCandidatePriorities(colonyName);
   const candidates = getAdjacentRoomNames9(colonyName).flatMap(
-    (roomName, order) => buildReservationCandidate(
+    (roomName, order) => isConfiguredExpansionScoutOnlyTarget(colonyName, roomName) ? [] : buildReservationCandidate(
       colony.room,
       roomName,
       order,
@@ -41185,6 +41222,9 @@ function selectColonyExpansionCandidate(colony) {
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
   const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString34(room.mineralType));
   const candidates = getAdjacentRoomNames10(colony.room.name).flatMap((roomName, order) => {
+    if (isConfiguredExpansionScoutOnlyTarget(colony.room.name, roomName)) {
+      return [];
+    }
     const room = getVisibleRoom18(roomName);
     if (!room && !getScoutIntel3(colony.room.name, roomName)) {
       return [];

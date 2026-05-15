@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
@@ -277,7 +278,7 @@ export function buildRuntimeExpansionPlannerCandidates(
 
   for (const ownedRoomName of ownedRoomNames) {
     for (const adjacentRoomName of getAdjacentRoomNames(ownedRoomName)) {
-      if (ownedRoomNames.has(adjacentRoomName)) {
+      if (isRuntimeExpansionPlannerControlRoomSkipped(colonyName, adjacentRoomName, ownedRoomNames)) {
         continue;
       }
 
@@ -304,8 +305,7 @@ export function buildRuntimeExpansionPlannerCandidates(
     if (
       !room ||
       !isNonEmptyString(room.name) ||
-      room.name === colonyName ||
-      ownedRoomNames.has(room.name)
+      isRuntimeExpansionPlannerControlRoomSkipped(colonyName, room.name, ownedRoomNames)
     ) {
       continue;
     }
@@ -1651,6 +1651,18 @@ function toRuntimeExpansionPlannerCandidate(
     ),
     ...suitability
   };
+}
+
+function isRuntimeExpansionPlannerControlRoomSkipped(
+  colonyName: string,
+  roomName: string,
+  ownedRoomNames: Set<string>
+): boolean {
+  return (
+    roomName === colonyName ||
+    ownedRoomNames.has(roomName) ||
+    isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)
+  );
 }
 
 function compareExpansionPlannerCandidates(
