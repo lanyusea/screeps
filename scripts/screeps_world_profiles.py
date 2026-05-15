@@ -14,6 +14,10 @@ WORLD_PROFILE_ENV = "SCREEPS_WORLD_PROFILE"
 PERSISTENT_PROFILE = "persistent"
 SEASONAL_PROFILE = "seasonal"
 VALID_WORLD_PROFILES = (PERSISTENT_PROFILE, SEASONAL_PROFILE)
+PERSISTENT_DEFAULT_ROOM = "E29N55"
+PERSISTENT_DEFAULT_SPAWN_NAME = "Spawn1"
+PERSISTENT_DEFAULT_SPAWN_X = 17
+PERSISTENT_DEFAULT_SPAWN_Y = 24
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,7 @@ class WorldProfileDefaults:
     name: str
     api_url: str
     shard: str
+    room: str
     monitor_out_dir: Path
     monitor_state_file: Path
     monitor_cache_dir: Path
@@ -32,6 +37,7 @@ PERSISTENT_DEFAULTS = WorldProfileDefaults(
     name=PERSISTENT_PROFILE,
     api_url="https://screeps.com",
     shard="shardX",
+    room=PERSISTENT_DEFAULT_ROOM,
     monitor_out_dir=Path("/root/screeps/runtime-artifacts/screeps-monitor"),
     monitor_state_file=Path("/root/.hermes/screeps-runtime-monitor/state.json"),
     monitor_cache_dir=Path("/root/.hermes/screeps-runtime-monitor/terrain-cache"),
@@ -43,6 +49,7 @@ SEASONAL_DEFAULTS = WorldProfileDefaults(
     name=SEASONAL_PROFILE,
     api_url="https://screeps.com/season",
     shard="shardSeason",
+    room="",
     monitor_out_dir=Path("/root/screeps/runtime-artifacts/seasonal/screeps-monitor"),
     monitor_state_file=Path("/root/.hermes/screeps-seasonal-runtime-monitor/state.json"),
     monitor_cache_dir=Path("/root/.hermes/screeps-seasonal-runtime-monitor/terrain-cache"),

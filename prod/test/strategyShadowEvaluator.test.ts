@@ -112,7 +112,7 @@ describe('strategy shadow evaluator', () => {
           tick: 100,
           rooms: [
             {
-              roomName: 'W3N9',
+              roomName: 'E29N55',
               energyAvailable: 300,
               energyCapacity: 450,
               workerCount: 4

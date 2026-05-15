@@ -13,8 +13,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-CURRENT_ROOM = "W3N9"
-OLD_ROOMS = ("E48S28", "E48S29", "E26S49", "E24S49", "E19S55", "E22S49", "E17S59", "E19S57")
+import screeps_world_profiles as world_profiles
+
+CURRENT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
+OLD_ROOMS = ("W3N9", "E48S28", "E48S29", "E26S49", "E24S49", "E19S55", "E22S49", "E17S59", "E19S57")
 DOMAINS = {
     "Agent OS",
     "Change-control",
@@ -68,13 +70,18 @@ def check_repo_files(root: Path, errors: list[str], warnings: list[str]) -> None
         root / "scripts/screeps_official_deploy.py",
     ]
     for path in operational_files:
-        if path.exists() and CURRENT_ROOM not in path.read_text(errors="ignore"):
+        text = path.read_text(errors="ignore") if path.exists() else ""
+        uses_central_room_profile = (
+            "screeps_world_profiles" in text and "PERSISTENT_DEFAULTS.room" in text
+        )
+        if path.exists() and CURRENT_ROOM not in text and not uses_central_room_profile:
             add(errors, f"current room {CURRENT_ROOM} not found in operational file {path.relative_to(root)}")
 
     for rel in ["docs/ops/rules-registry.md", "docs/ops/cron-and-route-registry.md"]:
         text = (root / rel).read_text(errors="ignore")
         for old in OLD_ROOMS:
-            if old in text and not re.search(rf"{old}.{{0,80}}(historical|superseded|previous|old)|(?:historical|superseded|previous|old).{{0,80}}{old}", text, re.I | re.S):
+            qualifier = "historical|superseded|previous|old|fallback|audit"
+            if old in text and not re.search(rf"{old}.{{0,140}}({qualifier})|(?:{qualifier}).{{0,140}}{old}", text, re.I | re.S):
                 add(errors, f"{rel} mentions {old} without historical/superseded wording")
 
     pr_template = (root / ".github/pull_request_template.md").read_text(errors="ignore")

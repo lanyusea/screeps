@@ -79,18 +79,18 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
   });
 
-  it('continues W3N9 RCL2 extension buildout from four extensions to the fifth while preserving recovery energy', () => {
+  it('continues E29N55 RCL2 extension buildout from four extensions to the fifth while preserving recovery energy', () => {
     const { room, colony } = makeColony({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       controllerLevel: 2,
       energyAvailable: 250,
       energyCapacityAvailable: 500,
       spawnPosition: { x: 35, y: 23 },
       structures: [
-        makeStructure('extension-1', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 22, 'W3N9'),
-        makeStructure('extension-2', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 22, 'W3N9'),
-        makeStructure('extension-3', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 24, 'W3N9'),
-        makeStructure('extension-4', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 24, 'W3N9')
+        makeStructure('extension-1', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 22, 'E29N55'),
+        makeStructure('extension-2', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 22, 'E29N55'),
+        makeStructure('extension-3', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 24, 'E29N55'),
+        makeStructure('extension-4', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 24, 'E29N55')
       ],
       sources: []
     });

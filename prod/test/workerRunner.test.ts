@@ -146,7 +146,7 @@ describe('runWorker', () => {
     expect(withdraw).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY, 50);
   });
 
-  it('withdraws only construction-safe spawn energy below the W3N9 bootstrap buffer margin', () => {
+  it('withdraws only construction-safe spawn energy below the E29N55 bootstrap buffer margin', () => {
     const site = withRangeTo(
       { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
       { spawn1: 1 }
@@ -167,7 +167,7 @@ describe('runWorker', () => {
     } as unknown as StructureSpawn;
     const withdraw = jest.fn().mockReturnValue(0);
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       energyAvailable: 323,
       energyCapacityAvailable: 550,
       controller,
@@ -181,7 +181,7 @@ describe('runWorker', () => {
     } as unknown as Room;
     const creep = {
       name: 'Builder',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -191,7 +191,7 @@ describe('runWorker', () => {
       moveTo: jest.fn()
     } as unknown as Creep;
     const assessment = assessColonySurvival({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       workerCapacity: 1,
       workerTarget: 3,
       hostileCreepCount: 0,
@@ -199,7 +199,7 @@ describe('runWorker', () => {
       controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
     });
     expect(assessment.mode).toBe('BOOTSTRAP');
-    recordColonySurvivalAssessment('W3N9', assessment, 966752);
+    recordColonySurvivalAssessment('E29N55', assessment, 966752);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Builder: creep },
       getObjectById: jest.fn().mockReturnValue(spawn)
@@ -427,7 +427,7 @@ describe('runWorker', () => {
       sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
     } as unknown as StructureController;
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       energyAvailable: 290,
       energyCapacityAvailable: 550,
       controller,
@@ -447,7 +447,7 @@ describe('runWorker', () => {
     } as unknown as Room;
     const creep = {
       name: 'Worker1',
-      memory: { role: 'worker', colony: 'W3N9', task: { type: 'signController', targetId: 'controller1' as Id<StructureController> } },
+      memory: { role: 'worker', colony: 'E29N55', task: { type: 'signController', targetId: 'controller1' as Id<StructureController> } },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -476,13 +476,13 @@ describe('runWorker', () => {
       sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
     } as unknown as StructureController;
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [{ id: 'hostile1' }] : []))
     } as unknown as Room;
     const creep = {
       name: 'Worker1',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -494,8 +494,8 @@ describe('runWorker', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         controllers: {
-          W3N9: {
-            roomName: 'W3N9',
+          E29N55: {
+            roomName: 'E29N55',
             controllerId: 'controller1' as Id<StructureController>,
             signNeeded: true,
             upgradePriority: 'none',
@@ -533,13 +533,13 @@ describe('runWorker', () => {
       progressTotal: 5_000
     } as ConstructionSite;
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       find: jest.fn((type: number) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
     } as unknown as Room;
     const creep = {
       name: 'Worker1',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
@@ -552,8 +552,8 @@ describe('runWorker', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         controllers: {
-          W3N9: {
-            roomName: 'W3N9',
+          E29N55: {
+            roomName: 'E29N55',
             controllerId: 'controller1' as Id<StructureController>,
             signNeeded: true,
             upgradePriority: 'none',
@@ -1735,17 +1735,17 @@ describe('runWorker', () => {
     }
   });
 
-  it('assigns a W3N9 bootstrap builder when controller upgrades leave construction uncovered', () => {
+  it('assigns a E29N55 bootstrap builder when controller upgrades leave construction uncovered', () => {
     const source = {
       id: 'source1',
-      pos: { x: 20, y: 10, roomName: 'W3N9' } as RoomPosition
+      pos: { x: 20, y: 10, roomName: 'E29N55' } as RoomPosition
     } as Source;
     const sourceContainerSite = {
       id: 'source-container-site1',
       structureType: 'container',
       progress: 0,
       progressTotal: 5_000,
-      pos: { x: 21, y: 10, roomName: 'W3N9' } as RoomPosition
+      pos: { x: 21, y: 10, roomName: 'E29N55' } as RoomPosition
     } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -1768,12 +1768,12 @@ describe('runWorker', () => {
       name: 'SourceHarvester',
       memory: {
         role: 'sourceHarvester',
-        sourceHarvester: { sourceId: 'source1' as Id<Source>, colony: 'W3N9' }
+        sourceHarvester: { sourceId: 'source1' as Id<Source>, colony: 'E29N55' }
       },
       room: undefined as unknown as Room
     } as unknown as Creep;
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       energyAvailable: 278,
       energyCapacityAvailable: 300,
       controller,
@@ -1804,7 +1804,7 @@ describe('runWorker', () => {
         name,
         memory: {
           role: 'worker',
-          colony: 'W3N9',
+          colony: 'E29N55',
           task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
         },
         store: {
@@ -1819,12 +1819,12 @@ describe('runWorker', () => {
         moveTo: jest.fn()
       }) as unknown as Creep;
     workers.push(
-      makeWorker('worker-W3N9-1', 50, 0),
-      makeWorker('worker-W3N9-2', 17, 33),
-      makeWorker('worker-W3N9-3', 16, 34)
+      makeWorker('worker-E29N55-1', 50, 0),
+      makeWorker('worker-E29N55-2', 17, 33),
+      makeWorker('worker-E29N55-3', 16, 34)
     );
     const assessment = assessColonySurvival({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       totalCreeps: workers.length,
       workerCapacity: workers.length,
       workerTarget: 6,
@@ -1858,7 +1858,7 @@ describe('runWorker', () => {
       })
     };
     expect(assessment.mode).toBe('BOOTSTRAP');
-    recordColonySurvivalAssessment('W3N9', assessment, 954_381);
+    recordColonySurvivalAssessment('E29N55', assessment, 954_381);
 
     workers.forEach(runWorker);
 
@@ -1867,10 +1867,10 @@ describe('runWorker', () => {
     expect(workers[0].build).toHaveBeenCalledWith(sourceContainerSite);
   });
 
-  it('keeps one W3N9 worker building while other loaded workers sustain a non-imminent downgrade guard', () => {
+  it('keeps one E29N55 worker building while other loaded workers sustain a non-imminent downgrade guard', () => {
     const source = {
       id: 'source1',
-      pos: { x: 20, y: 10, roomName: 'W3N9' } as RoomPosition
+      pos: { x: 20, y: 10, roomName: 'E29N55' } as RoomPosition
     } as Source;
     const sourceContainerSite = {
       id: 'source-container-site1',
@@ -1878,7 +1878,7 @@ describe('runWorker', () => {
       structureType: 'container',
       progress: 2_500,
       progressTotal: 5_000,
-      pos: { x: 21, y: 10, roomName: 'W3N9' } as RoomPosition
+      pos: { x: 21, y: 10, roomName: 'E29N55' } as RoomPosition
     } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -1898,7 +1898,7 @@ describe('runWorker', () => {
     } as unknown as StructureExtension;
     const workers: Creep[] = [];
     const room = {
-      name: 'W3N9',
+      name: 'E29N55',
       energyAvailable: 350,
       energyCapacityAvailable: 450,
       controller,
@@ -1928,7 +1928,7 @@ describe('runWorker', () => {
         name,
         memory: {
           role: 'worker',
-          colony: 'W3N9',
+          colony: 'E29N55',
           task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
         },
         store: {
@@ -1942,7 +1942,7 @@ describe('runWorker', () => {
         upgradeController: jest.fn().mockReturnValue(0),
         moveTo: jest.fn()
       }) as unknown as Creep;
-    workers.push(makeWorker('worker-W3N9-1'), makeWorker('worker-W3N9-2'), makeWorker('worker-W3N9-3'));
+    workers.push(makeWorker('worker-E29N55-1'), makeWorker('worker-E29N55-2'), makeWorker('worker-E29N55-3'));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 960_880,
       creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),

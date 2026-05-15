@@ -3401,43 +3401,119 @@ function isRecord3(value) {
   return typeof value === "object" && value !== null;
 }
 
-// src/territory/expansionConfig.ts
-var TERRITORY_EXPANSION_SCOUT_TARGETS = [
+// src/config/roomSelection.ts
+var ACTIVE_OFFICIAL_ROOM_SELECTION = {
+  branch: "main",
+  shard: "shardX",
+  roomName: "E29N55",
+  spawn: {
+    name: "Spawn1",
+    x: 17,
+    y: 24
+  }
+};
+var OFFICIAL_ROOM_CANDIDATES = [
   {
-    colony: "W3N9",
-    roomName: "W3N8",
-    nearestOwnedRoom: "W3N9",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true,
-    scoutOnly: true
+    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+    status: "active",
+    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
+    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
   },
   {
-    colony: "W3N9",
-    roomName: "W2N9",
-    nearestOwnedRoom: "W3N9",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true,
-    scoutOnly: true
+    shard: "shardX",
+    roomName: "W3N9",
+    status: "fallback",
+    spawn: { name: "Spawn1", x: 35, y: 23 },
+    notes: "Previous official target retained only as a fallback/audit candidate."
   },
   {
-    colony: "E17S59",
-    roomName: "E18S59",
-    nearestOwnedRoom: "E17S59",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true
+    shard: "shardX",
+    roomName: "E19S57",
+    status: "fallback",
+    notes: "Prior recovery candidate from the owner-approved fallback sequence."
   },
   {
-    colony: "E17S59",
-    roomName: "E17S60",
-    nearestOwnedRoom: "E17S58",
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 2,
-    adjacentToOwnedRoom: true
+    shard: "shardX",
+    roomName: "E26S49",
+    status: "fallback",
+    notes: "Prior official room and fallback candidate; not an active default."
+  },
+  {
+    shard: "shardX",
+    roomName: "E17S59",
+    status: "fallback",
+    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
   }
 ];
+var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
+var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
+var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
+var LOGISTICS_ROOM_SELECTION = {
+  corridorRooms: ["E17S58", "E17S59", "E18S59"],
+  safeTransitRooms: ["E17S59"],
+  localFirstEnergyRooms: ["E17S58", "E18S59"],
+  localFirstSourceRoom: "E17S59",
+  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
+};
+var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
+var TERRITORY_EXPANSION_ROOM_SELECTION = {
+  scoutTargets: [
+    {
+      colony: activeRoom,
+      roomName: "E29N54",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: activeRoom,
+      roomName: "E30N55",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E18S59",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E17S60",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 2,
+      adjacentToOwnedRoom: true
+    }
+  ]
+};
+var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
+  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
+  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
+  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
+  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
+  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
+  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
+    target.colony,
+    target.roomName,
+    target.nearestOwnedRoom
+  ])
+]));
+
+// src/territory/expansionConfig.ts
+var TERRITORY_EXPANSION_SCOUT_TARGETS = TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.map((target) => ({ ...target }));
 function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
   return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
     (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
@@ -19879,9 +19955,9 @@ function matchesStructureType13(actual, globalName, fallback) {
 }
 
 // src/economy/localEnergyStrategy.ts
-var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = "E17S58";
-var DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM = "E18S59";
-var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = "E17S59";
+var DEFAULT_LOCAL_FIRST_ENERGY_ROOM = LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0];
+var DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM = LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[1];
+var DEFAULT_LOCAL_FIRST_SOURCE_ROOM = LOGISTICS_ROOM_SELECTION.localFirstSourceRoom;
 var DEFAULT_LOCAL_FIRST_ENERGY_ROOMS = [
   DEFAULT_LOCAL_FIRST_ENERGY_ROOM,
   DEFAULT_E18S59_LOCAL_FIRST_ENERGY_ROOM
@@ -20138,7 +20214,7 @@ function getEnergyResource13() {
 }
 
 // src/economy/multiRoomEnergy.ts
-var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ["E17S58", "E17S59", "E18S59"];
+var MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = LOGISTICS_ROOM_SELECTION.corridorRooms;
 var MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 function buildMultiRoomEnergyState(roomStates, transfers, auditEntries, gameTime) {
   const importsByRoom = sumTransfersByRoom(transfers, "targetRoom");
@@ -20365,7 +20441,7 @@ function roundRatio4(numerator, denominator) {
 }
 
 // src/economy/roomLogistics.ts
-var safeTransitAllowlist = /* @__PURE__ */ new Set(["E17S59"]);
+var safeTransitAllowlist = new Set(LOGISTICS_ROOM_SELECTION.safeTransitRooms);
 function canFindOwnedLogisticsRoute() {
   var _a;
   return typeof ((_a = getGameMap()) == null ? void 0 : _a.findRoute) === "function";
@@ -20768,7 +20844,9 @@ function compareExportRoomsForImporter(left, right, importer, routeContext) {
   return getCorridorExporterPriority(left.roomName, importer.roomName) - getCorridorExporterPriority(right.roomName, importer.roomName) || leftRouteDistance - rightRouteDistance || getRoomEnergyTransferExportLimit(right, importer) - getRoomEnergyTransferExportLimit(left, importer) || compareExportRooms(left, right);
 }
 function getCorridorExporterPriority(sourceRoom, targetRoom) {
-  if (sourceRoom === "E17S59" && targetRoom === "E18S59") {
+  if (LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.some(
+    (route) => route.sourceRoom === sourceRoom && route.targetRoom === targetRoom
+  )) {
     return 0;
   }
   return 1;
@@ -44225,6 +44303,10 @@ function getGameTime43() {
 var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
 var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
 var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
+var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
+  shards: [...ACTIVE_OFFICIAL_SHARDS],
+  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
+};
 var DEFAULT_STRATEGY_REGISTRY = [
   {
     id: "construction-priority.incumbent.v1",
@@ -44235,8 +44317,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
@@ -44271,8 +44352,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       maxRcl: 4,
       notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
@@ -44307,8 +44387,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
     },
@@ -44342,8 +44421,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
     },
@@ -44377,8 +44455,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     owner: { issue: 265 },
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
-      shards: ["shardX"],
-      rooms: ["E19S57"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
       minRcl: 1,
       notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
     },

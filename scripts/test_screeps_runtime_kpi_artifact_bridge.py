@@ -168,7 +168,7 @@ class RuntimeKpiArtifactBridgeTest(unittest.TestCase):
         })
 
     def test_runtime_summary_records_carry_inferred_world_id_metadata(self) -> None:
-        persistent_payload = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "W3N9"}]}
+        persistent_payload = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "E29N55"}]}
         seasonal_path_payload = {"type": "runtime-summary", "tick": 20, "rooms": [{"roomName": "E1S1"}]}
         seasonal_payload = {
             "type": "runtime-summary",
