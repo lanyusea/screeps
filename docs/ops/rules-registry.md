@@ -95,6 +95,16 @@ A meaningful task is not complete until:
 
 Closed/Done issues are not reopened. Repeated or corrected scope gets a new linked issue.
 
+## Automated review feedback triage
+
+CodeRabbit may run with the assertive/aggressive profile to increase review coverage. This does not make every bot finding mandatory. For every active automated PR review body, top-level comment, or review thread:
+
+1. The controller must give Codex the exact finding, PR head SHA, current diff, relevant file context, and this registry/`AGENTS.md` review policy.
+2. Codex must classify the finding before any edit: `FIX`, `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, `ADVISORY_ONLY`, or `OWNER_DECISION`.
+3. Only `FIX` items that meet the project's critical review threshold get code changes, and those changes must be committed by Codex on the PR branch with normal verification.
+4. False-positive, stale/outdated, and advisory findings should be resolved with concise evidence through GitHub review-thread/comment resolution instead of code churn.
+5. A PR is not merge-ready while CodeRabbit/Gemini is pending, while a fresh review body has untriaged actionable language, or while unresolved active review threads remain.
+
 ## Blocked-state rule
 
 An active item is blocked only when all of these are true:
