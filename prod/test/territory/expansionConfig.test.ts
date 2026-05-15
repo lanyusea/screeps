@@ -28,7 +28,7 @@ describe('territory expansion config', () => {
     expect(getRuntimeCurrentRoomScoutOnlyTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
   });
 
-  it('includes current-room scout-only targets when the current room is inferred from an owned spawn', () => {
+  it('does not include inferred current-room scout-only targets without runtime memory initialization', () => {
     const room = makeOwnedRoom('W8N3');
     (globalThis as { Game: Partial<Game> }).Game = {
       rooms: {},
@@ -37,10 +37,10 @@ describe('territory expansion config', () => {
       }
     };
 
-    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
+    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual([]);
   });
 
-  it('includes current-room scout-only targets when the current room is inferred from a visible owned room', () => {
+  it('does not include visible-room scout-only targets without runtime memory initialization', () => {
     const room = makeOwnedRoom('W8N3');
     (globalThis as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -49,7 +49,7 @@ describe('territory expansion config', () => {
       spawns: {}
     };
 
-    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
+    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual([]);
   });
 
   it('merges explicit Memory scout targets with runtime current-room scout-only targets', () => {

@@ -90,7 +90,7 @@ function isRuntimeCurrentRoomScoutTargetsEnabled(colonyName: string): boolean {
   const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
   return (
     memory?.territory?.runtimeCurrentRoomScoutTargetsEnabled === true ||
-    getRuntimeCurrentRoomName() === colonyName
+    memory?.runtime?.currentRoomName === colonyName
   );
 }
 

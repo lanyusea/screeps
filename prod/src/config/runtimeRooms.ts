@@ -8,7 +8,52 @@ export function getRuntimeCurrentRoomName(): string | undefined {
 }
 
 export function getRuntimeOwnedRoomNames(): string[] {
-  const roomNames = new Set<string>(getConfiguredRuntimeOwnedRoomNames());
+  return getSortedUniqueRoomNames([
+    ...getConfiguredRuntimeOwnedRoomNames(),
+    ...getLiveOwnedRoomNames()
+  ]);
+}
+
+export function refreshRuntimeRoomMemory(): void {
+  const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
+  if (!memory) {
+    return;
+  }
+
+  const configuredOwnedRoomNames = getConfiguredRuntimeOwnedRoomNames();
+  const liveOwnedRoomNames = getLiveOwnedRoomNames();
+  const ownedRoomNames = getSortedUniqueRoomNames([
+    ...configuredOwnedRoomNames,
+    ...liveOwnedRoomNames
+  ]);
+  const configuredCurrentRoomName = getConfiguredRuntimeCurrentRoomName();
+  if (!memory.runtime && !configuredCurrentRoomName && ownedRoomNames.length === 0) {
+    return;
+  }
+
+  const runtime: RuntimeConfigMemory = memory.runtime ?? {};
+  memory.runtime = runtime;
+
+  if (ownedRoomNames.length > 0) {
+    runtime.ownedRoomNames = ownedRoomNames;
+  }
+
+  if (
+    configuredCurrentRoomName &&
+    (ownedRoomNames.length === 0 || ownedRoomNames.includes(configuredCurrentRoomName))
+  ) {
+    runtime.currentRoomName = configuredCurrentRoomName;
+    return;
+  }
+
+  const derivedCurrentRoomName = liveOwnedRoomNames[0] ?? ownedRoomNames[0];
+  if (derivedCurrentRoomName) {
+    runtime.currentRoomName = derivedCurrentRoomName;
+  }
+}
+
+function getLiveOwnedRoomNames(): string[] {
+  const roomNames = new Set<string>();
   const game = (globalThis as { Game?: Partial<Pick<Game, 'rooms' | 'spawns'>> }).Game;
 
   for (const room of Object.values(game?.rooms ?? {})) {
@@ -25,6 +70,10 @@ export function getRuntimeOwnedRoomNames(): string[] {
   }
 
   return [...roomNames].sort();
+}
+
+function getSortedUniqueRoomNames(roomNames: readonly string[]): string[] {
+  return [...new Set(roomNames.filter(isNonEmptyString))].sort();
 }
 
 function getConfiguredRuntimeCurrentRoomName(): string | undefined {
