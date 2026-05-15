@@ -949,14 +949,16 @@ function getRoomConstructionDeadlockTicks(room: Room): number {
 }
 
 function ensureRoomRuntimeMemory(room: Room): RoomRuntimeMemory {
-  const roomWithMemory = room as Room & { memory?: RoomMemory };
-  if (!roomWithMemory.memory) {
-    roomWithMemory.memory = {} as RoomMemory;
+  const memoryWithRooms = Memory as Memory & { rooms?: Record<string, RoomMemory> };
+  if (!memoryWithRooms.rooms) {
+    memoryWithRooms.rooms = {};
   }
-  if (!roomWithMemory.memory.runtime) {
-    roomWithMemory.memory.runtime = {};
+
+  const roomMemory = memoryWithRooms.rooms[room.name] ?? (memoryWithRooms.rooms[room.name] = {} as RoomMemory);
+  if (!roomMemory.runtime) {
+    roomMemory.runtime = {};
   }
-  return roomWithMemory.memory.runtime;
+  return roomMemory.runtime;
 }
 
 function normalizeNonNegativeInteger(value: unknown): number {

@@ -33842,14 +33842,16 @@ function getRoomConstructionDeadlockTicks(room) {
   return normalizeNonNegativeInteger14(ensureRoomRuntimeMemory(room).constructionDeadlockTicks);
 }
 function ensureRoomRuntimeMemory(room) {
-  const roomWithMemory = room;
-  if (!roomWithMemory.memory) {
-    roomWithMemory.memory = {};
+  var _a;
+  const memoryWithRooms = Memory;
+  if (!memoryWithRooms.rooms) {
+    memoryWithRooms.rooms = {};
   }
-  if (!roomWithMemory.memory.runtime) {
-    roomWithMemory.memory.runtime = {};
+  const roomMemory = (_a = memoryWithRooms.rooms[room.name]) != null ? _a : memoryWithRooms.rooms[room.name] = {};
+  if (!roomMemory.runtime) {
+    roomMemory.runtime = {};
   }
-  return roomWithMemory.memory.runtime;
+  return roomMemory.runtime;
 }
 function normalizeNonNegativeInteger14(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {

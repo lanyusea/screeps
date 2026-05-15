@@ -1030,6 +1030,40 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('initializes construction deadlock memory through Memory.rooms when room memory is getter-only', () => {
+    const constructionSites = [
+      { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites
+    });
+    const roomName = colony.room.name;
+    delete (Memory.rooms as Record<string, RoomMemory | undefined>)[roomName];
+    Object.defineProperty(colony.room, 'memory', {
+      configurable: true,
+      get: () => Memory.rooms[roomName]
+    });
+
+    expect(() =>
+      emitRuntimeSummary(
+        [colony],
+        [makeWorker({ role: 'worker', colony: roomName }, 50, 'IdleWorker')],
+        [],
+        { persistOccupationRecommendations: false }
+      )
+    ).not.toThrow();
+
+    expect(Memory.rooms[roomName]?.runtime).toEqual({
+      constructionDeadlockTicks: 1,
+      constructionDeadlockUpdatedAt: RUNTIME_SUMMARY_INTERVAL
+    });
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionDeadlockTicks).toBe(1);
+  });
+
   it('reports build block reasons when construction backlog has no build work', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -2130,6 +2164,14 @@ function clearRuntimeTelemetryGlobals(): void {
   delete globals.Memory;
 }
 
+function installRuntimeTelemetryMemory(): void {
+  const globals = globalThis as { Memory?: Partial<Memory> };
+  globals.Memory = {
+    ...globals.Memory,
+    rooms: globals.Memory?.rooms ?? {}
+  };
+}
+
 function makeColony(options: {
   time: number;
   spawn?: {
@@ -2148,6 +2190,7 @@ function makeColony(options: {
   if (options.installGlobals !== false) {
     installRuntimeTelemetryGlobals();
   }
+  installRuntimeTelemetryMemory();
 
   const roomName = options.roomName ?? 'W1N1';
   const room = {
