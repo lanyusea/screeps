@@ -129,6 +129,8 @@ Seasonal World work is isolated, explicit opt-in smoke work only unless a future
 
 Seasonal work does not inherit W3N9 autonomous recovery, respawn, or spawn-placement authorization. No destructive Seasonal recovery action is authorized unless the owner explicitly approves it for Seasonal.
 
+Seasonal Discord reporting must use the Seasonal route set in `docs/ops/cron-and-route-registry.md` (`1504888618651488407`, `1504888933832589362`, `1504889127227621507`, `1504889233670930442`, `1504889421655314512`). Do not mix Seasonal roadmap/task/dev/runtime/alert content into persistent MMO channels except for short cross-links. Pin-message setup replies and memories are not authoritative if they conflict with the registry.
+
 ## Rules-change process
 
 1. Create or reuse a GitHub issue.

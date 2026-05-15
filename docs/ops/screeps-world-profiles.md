@@ -29,6 +29,11 @@ Do not pass API roots such as `https://screeps.com/api` or `https://screeps.com/
 | Runtime monitor state | `/root/.hermes/screeps-runtime-monitor/state.json` | `/root/.hermes/screeps-seasonal-runtime-monitor/state.json` |
 | Runtime monitor terrain cache | `/root/.hermes/screeps-runtime-monitor/terrain-cache/` | `/root/.hermes/screeps-seasonal-runtime-monitor/terrain-cache/` |
 | Deploy health-gate state | `runtime-artifacts/official-screeps-deploy/postdeploy-monitor-state.json` | `runtime-artifacts/seasonal/official-screeps-deploy/postdeploy-monitor-state.json` |
+| Discord roadmap route | persistent/global `#roadmap` | `discord:1504888618651488407` |
+| Discord task route | persistent/global `#task-queue` | `discord:1504888933832589362` |
+| Discord dev/QA route | persistent/global `#dev-log` | `discord:1504889127227621507` |
+| Discord runtime summary route | persistent/global runtime summary route | `discord:1504889233670930442` |
+| Discord runtime alert route | persistent/global runtime alerts route | `discord:1504889421655314512` |
 | Recovery authorization | W3N9 autonomous recovery rules in `docs/ops/rules-registry.md` | No destructive recovery, respawn, or autonomous placement authorization unless explicitly approved for Seasonal |
 
 ## Persistent MMO Invariant
@@ -56,6 +61,7 @@ The current Seasonal goal is a smoke test only:
 3. Use an isolated Seasonal branch, pending final choice between `seasonal-smoke` and `seasonal-main`.
 4. Write evidence and monitor outputs only under `runtime-artifacts/seasonal/...` and `/root/.hermes/screeps-seasonal-runtime-monitor/...`.
 5. Keep persistent deploy, monitor, cron, and recovery automation unchanged.
+6. Report Seasonal work only to the Seasonal Discord routes in `docs/ops/cron-and-route-registry.md`; persistent/general routes may contain only short cross-links when needed.
 
 `scripts/screeps_official_deploy.py` accepts the Seasonal world root for dry-run planning only. Seasonal live deploy is not enabled; its `--deploy` mode remains restricted to the persistent MMO root, `https://screeps.com`, until monitor/evidence/state/cache isolation is complete in a later slice.
 
@@ -79,3 +85,4 @@ Every Seasonal-related change or smoke step must include persistent MMO no-impac
 
 5. Run the narrow script tests and production build/test gate required by the task or PR.
 6. Before any live Seasonal write, verify no command will touch persistent artifact/state/cache paths and no W3N9 recovery or respawn authorization is being applied to Seasonal.
+7. Before marking any Seasonal task Done, verify the corresponding Seasonal Discord route, GitHub Issue/Project item, and QA-agent acceptance evidence all agree.

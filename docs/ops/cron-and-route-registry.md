@@ -15,6 +15,8 @@ This registry keeps the minimum cron/channel contract in one place. Cron prompts
 
 No Seasonal World cron job is active yet. Future Seasonal jobs must use separate names, env selectors, state files, cache directories, and artifact roots, including `SCREEPS_API_URL=https://screeps.com/season`, `SCREEPS_SHARD=shardSeason`, `runtime-artifacts/seasonal/...`, and `/root/.hermes/screeps-seasonal-runtime-monitor/...`. They must preserve the existing persistent MMO jobs and must not reuse persistent monitor state or cache paths.
 
+Seasonal World reporting is also separate from the persistent/general Discord routes. Pin-message confirmations in the Seasonal channels are historical setup chatter; this registry is the durable route source of truth.
+
 ## Discord routes
 
 | Purpose | Target | Notes |
@@ -31,8 +33,13 @@ No Seasonal World cron job is active yet. Future Seasonal jobs must use separate
 | P0 operations | `discord:1497820688843800776` | Owner-action and autonomous-system health blockers. |
 | Gameplay decisions/archive | `discord:1497586175580311654` | Strategy decisions, owner decision requests, Gameplay Evolution archive. |
 | 6h development report | `discord:1497587260835758222:1497833662241181746` | Threaded development report target; preserve thread id. |
+| Seasonal roadmap | `discord:1504888618651488407` | Seasonal World phases, milestones, readiness gates, evidence, next action, and owner decisions only. |
+| Seasonal task queue | `discord:1504888933832589362` | Seasonal GitHub Issue/Project task state and blockers. Done requires QA-agent acceptance. |
+| Seasonal dev log | `discord:1504889127227621507` | Seasonal Codex/dev/test/PR/merge-gate and QA-agent evidence. Persistent MMO may appear only as no-impact proof. |
+| Seasonal runtime summary | `discord:1504889233670930442` | Periodic Seasonal runtime snapshots only: profile/API/shard/rooms/branch/state/KPI/artifact/no-impact note. |
+| Seasonal runtime alerts | `discord:1504889421655314512` | Urgent Seasonal runtime alerts only, using severity/evidence/impact/action/owner-need/next-check fields. |
 
-When using raw IDs and named channels together, this registry is the comparison source. Do not downgrade a thread target to a bare channel.
+When using raw IDs and named channels together, this registry is the comparison source. Do not downgrade a thread target to a bare channel. Do not route Seasonal World routine/status/alert traffic into persistent MMO routes unless the message is an explicit cross-link to the Seasonal channel.
 
 ## Active cron jobs
 
