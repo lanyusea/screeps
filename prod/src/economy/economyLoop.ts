@@ -28,6 +28,7 @@ import {
   type RuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../telemetry/runtimeSummary';
+import { getRuntimeFeatureGates, type RuntimeFeatureGates } from '../runtime/featureGates';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
   ensureRemoteSourceContainersForAssignedHarvesters
@@ -140,10 +141,13 @@ interface CoordinatedSpawnPlan {
 }
 
 export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
+  const featureGates = getRuntimeFeatureGates();
   const creeps = Object.values(Game.creeps);
   balanceStorage();
-  manageTerminalEnergy();
-  if (Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
+  if (featureGates.terminalEnergyTransfers) {
+    manageTerminalEnergy();
+  }
+  if (featureGates.marketTrading && Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();
@@ -281,7 +285,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     transferLinkEnergy(colony.room);
     manageStorage(colony.room);
     refreshRoomEnergySurplusState(colony.room);
-    const labStructures = shouldRunLabManagement(colony.room);
+    const labStructures = shouldRunLabManagement(colony.room, featureGates);
     if (labStructures.length > 0) {
       manageLabs(colony.room, { creeps, labs: labStructures });
     }
@@ -295,7 +299,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
-    if (shouldYieldCreepToLabManager(creep, Game.time)) {
+    if (featureGates.labManagement && shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
 
@@ -433,7 +437,11 @@ function getResourceEnergyConstant(): ResourceConstant {
   return ((globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
 }
 
-function shouldRunLabManagement(room: Room): StructureLab[] {
+function shouldRunLabManagement(room: Room, featureGates: RuntimeFeatureGates): StructureLab[] {
+  if (!featureGates.labManagement) {
+    return [];
+  }
+
   if (room.controller?.my !== true || (room.controller.level ?? 0) < 6) {
     return [];
   }
