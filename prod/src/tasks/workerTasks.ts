@@ -90,6 +90,7 @@ export const LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
 export const BUILDER_STORAGE_WITHDRAW_MIN = 100;
 export const BUILDER_DROPPED_PICKUP_RANGE = 5;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
+const LOW_WORKER_THROUGHPUT_WORKER_COUNT = 3;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -263,6 +264,7 @@ interface HarvestSourceAssignmentLoad {
 
 export interface HarvestSourceSelectionOptions {
   allowPreHarvest?: boolean;
+  ignoreHarvestAssignments?: boolean;
 }
 
 interface WorkerHarvestTaskOptions extends HarvestSourceSelectionOptions {
@@ -826,7 +828,16 @@ function selectMinimumHarvesterAllocationTask(creep: Creep): Extract<CreepTaskMe
     return null;
   }
 
-  return selectWorkerHarvestTask(creep, { allowPreHarvest: false, assignSourceContainer: true });
+  const assignedHarvestTask = selectWorkerHarvestTask(creep, { allowPreHarvest: false, assignSourceContainer: true });
+  if (assignedHarvestTask) {
+    return assignedHarvestTask;
+  }
+
+  if (!shouldForceGenericHarvestForThroughputRecovery(creep)) {
+    return null;
+  }
+
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false, ignoreHarvestAssignments: true });
 }
 
 function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
@@ -835,12 +846,14 @@ function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
   }
 
   const roomCreeps = getSameRoomCreepsIncludingCurrent(creep);
-  if (roomCreeps.some(isAssignedHarvestCreep)) {
+  const workerCreeps = roomCreeps.filter(isWorkerCreep);
+  const hasSpawnExtensionEnergyDeficit = hasRoomSpawnExtensionEnergyDeficit(creep.room);
+  const hasWorkerHarvestCoverage = workerCreeps.some(isAssignedHarvestCreep);
+  const hasDedicatedHarvestCoverage = roomCreeps.some(isDedicatedHarvestCreep);
+  if (hasWorkerHarvestCoverage || (hasDedicatedHarvestCoverage && !hasSpawnExtensionEnergyDeficit)) {
     return false;
   }
 
-  const workerCreeps = roomCreeps.filter(isWorkerCreep);
-  const hasSpawnExtensionEnergyDeficit = hasRoomSpawnExtensionEnergyDeficit(creep.room);
   const hasBuildDeadlockSignal =
     (workerCreeps.length > 1 && roomCreeps.some(isZeroEnergyBuildWorker)) ||
     (workerCreeps.length > 1 && workerCreeps.every(isBuildAssignedWorker));
@@ -852,6 +865,13 @@ function shouldGuaranteeMinimumHarvesterAllocation(creep: Creep): boolean {
     hasBuildDeadlockSignal ||
     hasGenericDeadlockSignal ||
     (isBuildAssignedWorker(creep) && hasSpawnExtensionEnergyDeficit)
+  );
+}
+
+function shouldForceGenericHarvestForThroughputRecovery(creep: Creep): boolean {
+  return (
+    hasLowWorkerThroughputRecoveryPressure(creep) &&
+    !getSameRoomCreepsIncludingCurrent(creep).filter(isWorkerCreep).some(isAssignedHarvestCreep)
   );
 }
 
@@ -876,9 +896,13 @@ function hasRoomSpawnExtensionEnergyDeficit(room: Room): boolean {
 
 function isAssignedHarvestCreep(creep: Creep): boolean {
   const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'harvest';
+}
+
+function isDedicatedHarvestCreep(creep: Creep): boolean {
   return (
-    task?.type === 'harvest' ||
-    (creep.memory?.role === SOURCE_HARVESTER_ROLE && typeof creep.memory.sourceHarvester?.sourceId === 'string')
+    creep.memory?.role === SOURCE_HARVESTER_ROLE &&
+    typeof creep.memory.sourceHarvester?.sourceId === 'string'
   );
 }
 
@@ -1178,6 +1202,15 @@ function selectBootstrapSurvivalSpendingTask(
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: criticalRoadConstructionSite.id });
   }
 
+  const throughputRecoveryConstructionSite = selectLowWorkerThroughputRecoveryConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (throughputRecoveryConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: throughputRecoveryConstructionSite.id });
+  }
+
   return null;
 }
 
@@ -1230,6 +1263,56 @@ function hasOtherSameRoomLoadedBuildWorker(creep: Creep): boolean {
       worker.memory?.task?.type === 'build' &&
       getUsedEnergy(worker) > 0
   );
+}
+
+function selectLowWorkerThroughputRecoveryConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): ConstructionSite | null {
+  if (!hasLowWorkerThroughputRecoveryPressure(creep) || hasOtherSameRoomLoadedBuildWorker(creep)) {
+    return null;
+  }
+
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext }
+  );
+}
+
+function hasLowWorkerThroughputRecoveryPressure(creep: Creep): boolean {
+  const room = creep.room;
+  const controller = room.controller;
+  if (
+    creep.memory?.role !== 'worker' ||
+    controller?.my !== true ||
+    getControllerLevel(controller) > 2 ||
+    shouldGuardControllerDowngrade(controller) ||
+    hasVisibleHostilePresence(room)
+  ) {
+    return false;
+  }
+
+  const energyAvailable = getRoomEnergyAvailable(room);
+  if (energyAvailable === null || energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)) {
+    return false;
+  }
+
+  if (!hasVisibleOwnedConstructionDemand(room)) {
+    return false;
+  }
+
+  return getSameRoomCreepsIncludingCurrent(creep).filter(isWorkerCreep).length <= LOW_WORKER_THROUGHPUT_WORKER_COUNT;
+}
+
+function getControllerLevel(controller: StructureController): number {
+  return typeof controller.level === 'number' && Number.isFinite(controller.level)
+    ? Math.max(0, Math.floor(controller.level))
+    : 0;
 }
 
 function shouldSuppressBootstrapControllerSpending(creep: Creep, recoveryOnlyWorkSuppressed: boolean): boolean {
@@ -3057,10 +3140,15 @@ function canSpendCreepEnergyOnConstructionSite(
       !isExtensionConstructionSite(site) &&
       isCapacityEnablingConstructionSite(site, priorityContext) &&
       checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
+    (carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site)) ||
     (carriedEnergy > 0 &&
       hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&
       isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
   );
+}
+
+function isLowWorkerThroughputRecoveryConstructionAllowed(creep: Creep, site: ConstructionSite): boolean {
+  return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);
 }
 
 function isMissingSpawnRecoveryConstructionSite(room: Room, site: ConstructionSite): boolean {
@@ -7399,7 +7487,7 @@ function selectBestHarvestSource(
   const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectReachableHarvestSources(
     creep,
-    selectAssignableHarvestSources(creep, viableSources, assignmentLoads)
+    selectAssignableHarvestSources(creep, viableSources, assignmentLoads, options)
   );
   if (assignableSources.length === 0) {
     return null;
@@ -7422,10 +7510,11 @@ function selectBestHarvestSource(
 function selectAssignableHarvestSources(
   creep: Creep,
   sources: Source[],
-  assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>
+  assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>,
+  options: HarvestSourceSelectionOptions = {}
 ): Source[] {
   return sources.filter((source) =>
-    isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
+    isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source), options)
   );
 }
 
@@ -7440,8 +7529,13 @@ function selectReachableHarvestSources(creep: Creep, sources: Source[]): Source[
 function isAssignableHarvestSource(
   creep: Creep,
   source: Source,
-  assignmentLoad: HarvestSourceAssignmentLoad
+  assignmentLoad: HarvestSourceAssignmentLoad,
+  options: HarvestSourceSelectionOptions = {}
 ): boolean {
+  if (options.ignoreHarvestAssignments === true) {
+    return true;
+  }
+
   if (isWorkerPreHarvestSource(source)) {
     if (isWorkerAssignedToHarvestSource(creep, source)) {
       return true;

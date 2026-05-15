@@ -1122,6 +1122,7 @@ function shouldBypassSpawnEnergyBuffer(
   return (
     roleCounts.worker === 0 ||
     isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
+    isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) ||
     isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) ||
     isTerritoryControllerSpawnRequest(spawnRequest)
   );
@@ -1138,6 +1139,37 @@ function isBootstrapWorkerRecoverySpawnRequest(
     survivalAssessment.mode === 'BOOTSTRAP' &&
     (roleCounts.worker < survivalAssessment.survivalWorkerFloor ||
       availableEnergy >= BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY)
+  );
+}
+
+function isLocalWorkerRecoverySpawnRequest(
+  spawnRequest: SpawnRequest,
+  availableEnergy: number,
+  bodyCost: number,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  return (
+    spawnRequest.memory.role === 'worker' &&
+    survivalAssessment.mode !== 'DEFENSE' &&
+    !survivalAssessment.hostilePresence &&
+    !survivalAssessment.controllerDowngradeGuard &&
+    isEarlyRclWorkerRecoveryRoom(spawnRequest.spawn.room) &&
+    survivalAssessment.workerCapacity < survivalAssessment.workerTarget &&
+    isRoomCurrentlyBelowSpawnEnergyBuffer(spawnRequest.spawn) &&
+    availableEnergy >= bodyCost
+  );
+}
+
+function isEarlyRclWorkerRecoveryRoom(room: Room): boolean {
+  const controllerLevel = normalizeOptionalNonNegativeInteger(room.controller?.level);
+  return controllerLevel !== undefined && controllerLevel <= 2;
+}
+
+function isRoomCurrentlyBelowSpawnEnergyBuffer(spawn: StructureSpawn): boolean {
+  const currentRoomEnergy = normalizeOptionalNonNegativeInteger(spawn.room?.energyAvailable);
+  return (
+    currentRoomEnergy !== undefined &&
+    currentRoomEnergy < getSpawnEnergyBufferRequirement(spawn.room, [spawn])
   );
 }
 
