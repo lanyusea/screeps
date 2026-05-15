@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shlex
 import statistics
 import sys
 import tempfile
@@ -27,6 +28,8 @@ SUMMARY_TYPE = "screeps-rl-training-generation"
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-training")
 DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
+DEFAULT_STEAM_KEY_ENV_FILE = Path("/root/.secret/.env")
+STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
 REWARD_TIERS = ("territory", "resources", "kills")
 REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -106,6 +109,93 @@ def canonical_hash(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
+
+
+def ensure_steam_key_for_training(
+    *,
+    simulator_runner: SimulatorRunner,
+    env_file: Path | None = None,
+) -> None:
+    """Load STEAM_KEY for real simulator-backed training runs when the shell omitted it."""
+    if os.environ.get("STEAM_KEY"):
+        return
+    configured_env_file = os.environ.get(STEAM_KEY_ENV_FILE_ENV)
+    if env_file is None:
+        if configured_env_file:
+            env_file = Path(configured_env_file)
+        elif simulator_runner is simulator_harness.run_simulator:
+            env_file = DEFAULT_STEAM_KEY_ENV_FILE
+        else:
+            return
+    steam_key = read_steam_key_from_env_file(env_file.expanduser())
+    if steam_key:
+        os.environ["STEAM_KEY"] = steam_key
+
+
+def read_steam_key_from_env_file(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        reason = getattr(error, "strerror", None) or error.__class__.__name__
+        display_path = dataset_export.display_path(path)
+        raise RuntimeError(f"could not read STEAM_KEY env file {display_path}: {reason}") from error
+    steam_key: str | None = None
+    for line in text.splitlines():
+        parsed = parse_steam_key_env_line(line)
+        if parsed is not None:
+            steam_key = parsed
+    if steam_key is None:
+        return None
+    steam_key = steam_key.strip()
+    return steam_key or None
+
+
+def parse_steam_key_env_line(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    export_match = re.match(r"export\s+", stripped)
+    if export_match:
+        stripped = stripped[export_match.end() :].lstrip()
+    match = re.match(r"STEAM_KEY\s*=\s*(.*)\Z", stripped)
+    if not match:
+        return None
+    return parse_env_assignment_value(match.group(1).strip())
+
+
+def parse_env_assignment_value(raw: str) -> str:
+    uncommented = strip_unquoted_env_comment(raw).strip()
+    if not uncommented:
+        return ""
+    if uncommented[0] not in {"'", '"'}:
+        return uncommented
+    try:
+        parsed = shlex.split(uncommented, comments=False, posix=True)
+    except ValueError:
+        return uncommented
+    return parsed[0] if parsed else ""
+
+
+def strip_unquoted_env_comment(raw: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(raw):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char == "#" and (index == 0 or raw[index - 1].isspace()):
+            return raw[:index]
+    return raw
 
 
 def load_experiment_card(path: Path) -> JsonObject:
@@ -505,6 +595,7 @@ def run_training_experiment(
     generated_at: str | None = None,
     registry_path: Path | None = None,
     simulator_runner: SimulatorRunner = simulator_harness.run_simulator,
+    steam_key_env_file: Path | None = None,
     stdout: TextIO | None = None,
 ) -> JsonObject:
     """Run all card variants through the simulator harness and write a JSON report."""
@@ -514,6 +605,7 @@ def run_training_experiment(
     reward_options = reward_options_from_card(card)
     resolved_report_id = report_id or default_report_id(card, variants, config)
     validate_report_id(resolved_report_id)
+    ensure_steam_key_for_training(simulator_runner=simulator_runner, env_file=steam_key_env_file)
 
     simulator_runs = execute_simulator_runs(
         simulator_runner=simulator_runner,
@@ -1573,6 +1665,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Strategy registry TypeScript source. Inline variant parameters still work if this is missing.",
     )
     parser.add_argument(
+        "--steam-key-env-file",
+        type=Path,
+        default=None,
+        help=(
+            "Optional env file to load STEAM_KEY from when it is absent. "
+            f"Defaults to {DEFAULT_STEAM_KEY_ENV_FILE} for real simulator runs; "
+            f"env override: {STEAM_KEY_ENV_FILE_ENV}."
+        ),
+    )
+    parser.add_argument(
         "--print-report",
         action="store_true",
         help="Print the full report instead of the compact generation summary.",
@@ -1588,11 +1690,12 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
             args.out_dir,
             report_id=args.report_id,
             registry_path=args.registry_path,
+            steam_key_env_file=args.steam_key_env_file,
         )
         stdout.write(canonical_json(report if args.print_report else build_generation_summary(report)))
         return 0
     except (RuntimeError, TrainingCardError, OSError) as error:
-        stderr.write(f"error: {error}\n")
+        stderr.write(f"error: {dataset_export.redact_text(str(error))}\n")
         return 2
 
 
