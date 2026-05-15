@@ -61,7 +61,30 @@ Defaults and behavior:
 runtime-artifacts/rl-simulator/<run-id>/run_summary.json
 ```
 
-Run supports `--workers` for parallel execution. Use `--workers 2` as proof of concept; scale to `4` by passing `--workers 4` and ensuring host ports are free.
+Run supports `--workers` for parallel execution. Use `--workers 2` as proof of concept.
+
+Scale runs are resource-guarded before Docker startup. Requests at or above `--workers 3` are checked for available memory plus swap, CPU count, active Docker containers, active `rl-sim-worker-*` containers, active `screeps-private-smoke-*` containers, and estimated native-build pressure. The guard assumes a host reserve plus per-worker private-server stack memory and records the decision in the run artifact. On an approximately 8 GB host, a fresh `--workers 5` run is rejected before containers are started because first-run dependency compilation can otherwise overcommit the host.
+
+Only use the override when the host has been deliberately prepared, for example after warming caches or moving to a larger machine:
+
+```bash
+python3 scripts/screeps_rl_simulator_harness.py run ... --workers 5 --allow-unsafe-scale
+```
+
+The equivalent environment override is:
+
+```bash
+SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE=1
+```
+
+The generated Screeps launcher Compose stack also sets `npm_config_jobs=1`, `NPM_CONFIG_JOBS=1`, `JOBS=1`, and `MAKEFLAGS=-j1`. This bounds first-run `isolated-vm`/`node-gyp` native compilation so a scale run cannot multiply into `workers x node-gyp -j4` compiler jobs. The resource guard still rejects hosts without enough memory headroom because five simultaneous one-job native builds plus five private-server stacks can still be too large for small machines.
+
+If the guard rejects a run, or if the run harness fails before producing normal results, the harness attempts exact-run cleanup only for container names matching `rl-sim-worker-<run-id>-*` and writes redacted failure artifacts under:
+
+```text
+runtime-artifacts/rl-simulator/<run-id>/run_summary.json
+runtime-artifacts/rl-simulator/<run-id>/resource_guard_failure.json
+```
 
 ## Safety Boundary
 
