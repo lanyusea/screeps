@@ -3,7 +3,7 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
-import { shouldSignOccupiedController } from '../territory/controllerSigning';
+import { shouldSignOwnedRoomController } from '../territory/controllerSigning';
 import {
   getControllerUpgradePriority
 } from '../creeps/upgraderRunner';
@@ -298,7 +298,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     ? null
     : selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = territoryWorkSuppressed ? null : selectVisibleTerritoryControllerTask(creep);
-  const controllerSigningTask = territoryWorkSuppressed ? null : selectOwnedRoomControllerSigningTask(creep);
+  const controllerSigningTask = selectOwnedRoomControllerSigningTask(creep);
 
   if (carriedEnergy === 0) {
     if (urgentReservationRenewalTask) {
@@ -307,10 +307,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
     if (isTerritoryControlTask(territoryControllerTask)) {
       return territoryControllerTask;
-    }
-
-    if (controllerSigningTask) {
-      return controllerSigningTask;
     }
 
     const interRoomRecallTask = selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
@@ -426,7 +422,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     if (getFreeEnergyCapacity(creep) > 0) {
-      return selectWorkerLinkEnergyFallbackTask(creep);
+      const linkFallbackTask = selectWorkerLinkEnergyFallbackTask(creep);
+      if (linkFallbackTask) {
+        return linkFallbackTask;
+      }
+    }
+
+    if (controllerSigningTask && !bootstrapNonCriticalWorkSuppressed) {
+      return controllerSigningTask;
     }
 
     return null;
@@ -523,10 +526,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       type: 'transfer',
       targetId: spawnStagingContainerSink.id as Id<AnyStoreStructure>
     };
-  }
-
-  if (controllerSigningTask) {
-    return controllerSigningTask;
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -751,6 +750,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
+  if (controllerSigningTask && !bootstrapNonCriticalWorkSuppressed) {
+    return controllerSigningTask;
+  }
+
   return null;
 }
 
@@ -772,7 +775,7 @@ function selectOwnedRoomControllerSigningTask(
     controller?.my !== true ||
     typeof controller.id !== 'string' ||
     typeof creep.signController !== 'function' ||
-    !shouldSignOccupiedController(controller) ||
+    !shouldSignOwnedRoomController(creep.room, controller) ||
     !hasManagedControllerSigningDemand(creep.room?.name, controller.id)
   ) {
     return null;

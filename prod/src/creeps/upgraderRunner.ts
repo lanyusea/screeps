@@ -1,4 +1,7 @@
-import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
+import {
+  shouldSignOwnedRoomController,
+  signOccupiedControllerIfNeeded
+} from '../territory/controllerSigning';
 import { getStorageEnergyAvailableForWithdrawal } from '../economy/energyBuffer';
 import { isControllerStagingContainer } from '../economy/stagingContainers';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from './roleCounts';
@@ -32,8 +35,14 @@ const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const MIN_DROPPED_UPGRADER_ENERGY = 25;
 
 export function runUpgrader(creep: Creep, controller: StructureController): ScreepsReturnCode {
-  signOccupiedControllerIfNeeded(creep, controller);
+  if (shouldSignOwnedRoomController(getControllerSigningRoom(creep, controller), controller)) {
+    signOccupiedControllerIfNeeded(creep, controller);
+  }
   return creep.upgradeController(controller);
+}
+
+function getControllerSigningRoom(creep: Creep, controller: StructureController): Room | undefined {
+  return controller.room ?? creep.room;
 }
 
 export function runUpgraderCreep(creep: Creep): void {

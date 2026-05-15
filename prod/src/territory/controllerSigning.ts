@@ -14,6 +14,30 @@ export function shouldSignOccupiedController(
   return controller?.my === true && hasMissingOrStaleControllerSignature(controller, gameTime);
 }
 
+export function shouldSignOwnedRoomController(
+  room: Room | null | undefined,
+  controller: StructureController | null | undefined = room?.controller,
+  gameTime: number | null = getGameTime()
+): boolean {
+  return (
+    isOwnedRoomControllerSigningSafe(room, controller) &&
+    shouldSignOccupiedController(controller, gameTime)
+  );
+}
+
+export function isOwnedRoomControllerSigningSafe(
+  room: Room | null | undefined,
+  controller: StructureController | null | undefined = room?.controller
+): boolean {
+  return (
+    Boolean(room) &&
+    controller?.my === true &&
+    room?.controller?.my === true &&
+    room.controller.id === controller.id &&
+    !hasVisibleHostilePresence(room)
+  );
+}
+
 export function shouldSignReservedController(
   controller: StructureController | null | undefined,
   actorUsername: string | undefined,
@@ -31,8 +55,11 @@ export function shouldSignControllerForCreep(
   controller: StructureController | null | undefined,
   gameTime: number | null = getGameTime()
 ): boolean {
+  if (controller?.my === true) {
+    return shouldSignOwnedRoomController(getControllerRoom(creep, controller), controller, gameTime);
+  }
+
   return (
-    shouldSignOccupiedController(controller, gameTime) ||
     shouldSignReservedController(controller, getControllerSigningActorUsername(creep), gameTime)
   );
 }
@@ -125,6 +152,32 @@ function isControllerReservedByActor(
     isNonEmptyString(reservation?.username) &&
     reservation.username === actorUsername
   );
+}
+
+function getControllerRoom(
+  creep: Creep,
+  controller: StructureController | null | undefined
+): Room | undefined {
+  return controller?.room ?? creep.room;
+}
+
+function hasVisibleHostilePresence(room: Room | null | undefined): boolean {
+  return findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length > 0 ||
+    findRoomObjects<AnyStructure>(room, 'FIND_HOSTILE_STRUCTURES').length > 0;
+}
+
+function findRoomObjects<T>(room: Room | null | undefined, globalName: string): T[] {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (!room || typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function isNonEmptyString(value: unknown): value is string {

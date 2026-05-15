@@ -14,6 +14,7 @@ describe('upgrader runner', () => {
       FIND_CONSTRUCTION_SITES: 1,
       FIND_DROPPED_RESOURCES: 2,
       FIND_HOSTILE_CREEPS: 3,
+      FIND_HOSTILE_STRUCTURES: 8,
       FIND_MY_CONSTRUCTION_SITES: 4,
       FIND_MY_STRUCTURES: 5,
       FIND_SOURCES: 6,
@@ -85,7 +86,9 @@ describe('upgrader runner', () => {
     const controller = makeController({
       sign: { username: 'other', text: 'old', time: 1, datetime: new Date('2026-05-07T00:00:00.000Z') }
     });
+    const room = makeRoom({ controller });
     const creep = {
+      room,
       signController: jest.fn().mockReturnValue(0),
       upgradeController: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
@@ -109,7 +112,9 @@ describe('upgrader runner', () => {
         datetime: new Date('2026-05-07T00:00:00.000Z')
       }
     });
+    const room = makeRoom({ controller });
     const creep = {
+      room,
       signController: jest.fn().mockReturnValue(0),
       upgradeController: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
@@ -117,6 +122,26 @@ describe('upgrader runner', () => {
     expect(runUpgrader(creep, controller)).toBe(0);
 
     expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+  });
+
+  it('skips opportunistic controller signing while the owned room is hostile', () => {
+    const controller = makeController({
+      sign: { username: 'other', text: 'old', time: 1, datetime: new Date('2026-05-07T00:00:00.000Z') }
+    });
+    const room = {
+      ...makeRoom({ controller }),
+      find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [{ id: 'hostile1' }] : []))
+    } as unknown as Room;
+    const creep = {
+      room,
+      signController: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+
+    expect(runUpgrader(creep, controller)).toBe(0);
+
+    expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
   });
 
