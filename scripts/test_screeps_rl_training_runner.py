@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -148,7 +149,122 @@ class MockSimulator:
         }
 
 
+class RequiredSteamKeySimulator(MockSimulator):
+    def __init__(self, results_by_variant: dict[str, JsonObject]) -> None:
+        super().__init__(results_by_variant)
+        self.observed_steam_keys: list[str | None] = []
+
+    def __call__(self, **kwargs: Any) -> JsonObject:
+        self.observed_steam_keys.append(os.environ.get("STEAM_KEY"))
+        if not os.environ.get("STEAM_KEY"):
+            raise RuntimeError("STEAM_KEY environment variable is required for run mode")
+        return super().__call__(**kwargs)
+
+
 class RlTrainingRunnerTest(unittest.TestCase):
+    def test_steam_key_env_var_wins_over_env_file(self) -> None:
+        env_secret = "env-secret-token-123456"
+        file_secret = "file-secret-token-123456"
+        simulator = RequiredSteamKeySimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            env_file = root / "runner.env"
+            write_json(card_path, base_card())
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {"STEAM_KEY": env_secret}, clear=True):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="steam-key-env-wins",
+                    simulator_runner=simulator,
+                    steam_key_env_file=env_file,
+                )
+                self.assertEqual(os.environ.get("STEAM_KEY"), env_secret)
+
+        self.assertEqual(simulator.observed_steam_keys, [env_secret])
+
+    def test_absent_steam_key_loads_from_env_file(self) -> None:
+        file_secret = "file-secret-token-123456"
+        simulator = RequiredSteamKeySimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            env_file = root / "runner.env"
+            write_json(card_path, base_card())
+            env_file.write_text(f"export STEAM_KEY='{file_secret}' # local only\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="steam-key-env-file-load",
+                    simulator_runner=simulator,
+                    steam_key_env_file=env_file,
+                )
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+        self.assertEqual(simulator.observed_steam_keys, [file_secret])
+
+    def test_missing_or_empty_steam_key_env_reports_required_env_error(self) -> None:
+        for case, contents in (("missing", None), ("empty", "STEAM_KEY=\n")):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                env_file = root / "runner.env"
+                write_json(card_path, base_card())
+                if contents is not None:
+                    env_file.write_text(contents, encoding="utf-8")
+                simulator = RequiredSteamKeySimulator({
+                    "baseline": variant_result("baseline", []),
+                    "candidate": variant_result("candidate", []),
+                })
+
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "STEAM_KEY environment variable is required for run mode",
+                    ) as caught:
+                        runner.run_training_experiment(
+                            card_path,
+                            root / "reports",
+                            report_id=f"steam-key-required-{case}",
+                            simulator_runner=simulator,
+                            steam_key_env_file=env_file,
+                        )
+
+                self.assertEqual(str(caught.exception), "STEAM_KEY environment variable is required for run mode")
+                self.assertEqual(simulator.observed_steam_keys, [None])
+
+    def test_main_redacts_steam_key_from_error_output(self) -> None:
+        secret = "steam-secret-token-123456"
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with (
+            mock.patch.dict(os.environ, {"STEAM_KEY": secret}, clear=True),
+            mock.patch.object(
+                runner,
+                "run_training_experiment",
+                side_effect=RuntimeError(f"simulator echoed {secret}"),
+            ),
+        ):
+            exit_code = runner.main(["--experiment-card", "card.json"], stdout=stdout, stderr=stderr)
+
+        self.assertEqual(exit_code, 2)
+        self.assertNotIn(secret, stdout.getvalue())
+        self.assertNotIn(secret, stderr.getvalue())
+        self.assertIn("[REDACTED]", stderr.getvalue())
+
     def test_lexicographic_reward_makes_territory_win_beat_resource_win(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         resource_win = variant_result(
