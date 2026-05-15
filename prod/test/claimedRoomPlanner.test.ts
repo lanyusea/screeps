@@ -79,6 +79,32 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
   });
 
+  it('continues W3N9 RCL2 extension buildout from four extensions to the fifth while preserving recovery energy', () => {
+    const { room, colony } = makeColony({
+      roomName: 'W3N9',
+      controllerLevel: 2,
+      energyAvailable: 250,
+      energyCapacityAvailable: 500,
+      spawnPosition: { x: 35, y: 23 },
+      structures: [
+        makeStructure('extension-1', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 22, 'W3N9'),
+        makeStructure('extension-2', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 22, 'W3N9'),
+        makeStructure('extension-3', TEST_GLOBALS.STRUCTURE_EXTENSION, 34, 24, 'W3N9'),
+        makeStructure('extension-4', TEST_GLOBALS.STRUCTURE_EXTENSION, 36, 24, 'W3N9')
+      ],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyReserved).toBe(50);
+    expect(result.energyAvailable - result.energyReserved).toBe(200);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(33, 21, STRUCTURE_EXTENSION);
+  });
+
   it('plans source containers before source-to-spawn roads in claimed rooms', () => {
     const { room, colony } = makeColony({
       controllerLevel: 2,
@@ -255,6 +281,7 @@ interface MakeColonyOptions {
   energyCapacityAvailable?: number;
   roomName?: string;
   controllerPosition?: TestPosition;
+  spawnPosition?: TestPosition;
   includeSpawn?: boolean;
   sources: Source[];
   structures?: Structure[];
@@ -323,7 +350,7 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
     name: 'Spawn1',
     room,
     structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
-    pos: makeRoomPosition({ x: 25, y: 25 }, roomName)
+    pos: makeRoomPosition(options.spawnPosition ?? { x: 25, y: 25 }, roomName)
   } as unknown as StructureSpawn;
   const structures = [
     ...(options.includeSpawn === false ? [] : [spawn as unknown as Structure]),
