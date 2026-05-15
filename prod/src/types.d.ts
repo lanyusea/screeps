@@ -706,6 +706,12 @@ declare global {
     cachedExpansionSelection?: RoomExpansionSelectionMemory;
     colonyStage?: RoomColonyStageMemory;
     spawnEnergyBuffer?: RoomSpawnEnergyBufferConfigMemory;
+    runtime?: RoomRuntimeMemory;
+  }
+
+  interface RoomRuntimeMemory {
+    constructionDeadlockTicks?: number;
+    constructionDeadlockUpdatedAt?: number;
   }
 
   interface RoomSpawnEnergyBufferConfigMemory {

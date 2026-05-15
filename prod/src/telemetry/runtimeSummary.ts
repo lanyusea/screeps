@@ -249,6 +249,8 @@ interface RuntimeRoomSummary {
   workerAssignmentBlockedWorkers?: RuntimeWorkerAssignmentBlockedWorkerDetail[];
   spawnStatus: RuntimeSpawnStatus[];
   taskCounts: WorkerTaskCounts;
+  constructionSiteCount: number;
+  constructionDeadlockTicks: number;
   behavior?: RuntimeBehaviorSummary;
   structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
@@ -375,6 +377,8 @@ interface RuntimeProductiveEnergySummary {
   buildCarriedEnergy: number;
   repairCarriedEnergy: number;
   upgradeCarriedEnergy: number;
+  constructionSiteCount: number;
+  constructionDeadlockTicks: number;
   pendingBuildProgress: number;
   repairBacklogHits: number;
   buildBlockedReason?: RuntimeBuildBlockedReason;
@@ -670,6 +674,7 @@ export function emitRuntimeSummary(
     tick,
     cachedEventMetricsTick
   );
+  refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
   if (!emitsSummary) {
     return undefined;
   }
@@ -769,6 +774,8 @@ function summarizeRoom(
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
   }
   const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
+  const taskCounts = countWorkerTasks(colonyWorkers);
+  const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
 
   return {
     roomName: colony.room.name,
@@ -778,7 +785,9 @@ function summarizeRoom(
     workerCount: colonyWorkers.length,
     ...summarizeWorkerAssignmentBlockedRoomFields(resources.productiveEnergy),
     spawnStatus: colony.spawns.map(summarizeSpawn),
-    taskCounts: countWorkerTasks(colonyWorkers),
+    taskCounts,
+    constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
+    constructionDeadlockTicks,
     ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, getGameTime()),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
@@ -900,6 +909,61 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
   }
 
   return counts;
+}
+
+function refreshConstructionDeadlockTelemetry(
+  colonies: ColonySnapshot[],
+  creepsByColony: Map<string, Creep[]>,
+  tick: number
+): void {
+  for (const colony of colonies) {
+    const colonyWorkers = (creepsByColony.get(colony.room.name) ?? []).filter((creep) => creep.memory.role === 'worker');
+    const taskCounts = countWorkerTasks(colonyWorkers);
+    const constructionSiteCount = (findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? []).length;
+    updateRoomConstructionDeadlockTicks(colony.room, taskCounts, constructionSiteCount, tick);
+  }
+}
+
+function updateRoomConstructionDeadlockTicks(
+  room: Room,
+  taskCounts: WorkerTaskCounts,
+  constructionSiteCount: number,
+  tick: number
+): number {
+  const runtimeMemory = ensureRoomRuntimeMemory(room);
+  const previousTicks = normalizeNonNegativeInteger(runtimeMemory.constructionDeadlockTicks);
+  const previousUpdatedAt = normalizeNonNegativeInteger(runtimeMemory.constructionDeadlockUpdatedAt);
+
+  if (previousUpdatedAt === tick) {
+    return previousTicks;
+  }
+
+  const nextTicks = taskCounts.build === 0 && constructionSiteCount > 0 ? previousTicks + 1 : 0;
+  runtimeMemory.constructionDeadlockTicks = nextTicks;
+  runtimeMemory.constructionDeadlockUpdatedAt = tick;
+  return nextTicks;
+}
+
+function getRoomConstructionDeadlockTicks(room: Room): number {
+  return normalizeNonNegativeInteger(ensureRoomRuntimeMemory(room).constructionDeadlockTicks);
+}
+
+function ensureRoomRuntimeMemory(room: Room): RoomRuntimeMemory {
+  const roomWithMemory = room as Room & { memory?: RoomMemory };
+  if (!roomWithMemory.memory) {
+    roomWithMemory.memory = {} as RoomMemory;
+  }
+  if (!roomWithMemory.memory.runtime) {
+    roomWithMemory.memory.runtime = {};
+  }
+  return roomWithMemory.memory.runtime;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.floor(value);
 }
 
 function isWorkerTaskType(taskType: string | undefined): taskType is WorkerTaskType {
@@ -1866,6 +1930,8 @@ function summarizeProductiveEnergy(
 
   return {
     ...productiveAssignments,
+    constructionSiteCount: constructionSites.length,
+    constructionDeadlockTicks: getRoomConstructionDeadlockTicks(colony.room),
     pendingBuildProgress,
     repairBacklogHits,
     ...(buildBlockedReason ? { buildBlockedReason } : {}),

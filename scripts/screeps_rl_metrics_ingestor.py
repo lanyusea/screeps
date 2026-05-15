@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS runtime_room_metrics (
   build_carried_energy REAL,
   build_blocked_reason TEXT,
   construction_site_count REAL,
+  construction_deadlock_ticks REAL,
   extension_count REAL,
   extension_capacity_contribution REAL,
   path_finding_failures REAL,
@@ -410,6 +411,16 @@ METRIC_DEFINITIONS = [
         "promotion_rule": "Repeated nonzero value with no build progress promotes construction issue.",
     },
     {
+        "metric_name": "construction.deadlock_ticks",
+        "category": "construction/infrastructure",
+        "purpose": "Track consecutive ticks where a room has construction sites but zero build assignments.",
+        "source_artifacts": "#runtime-summary constructionDeadlockTicks",
+        "directionality": "lower is better",
+        "interpretation": ">=100 ticks is a P1 construction deadlock; >=500 ticks is a P0 critical deadlock.",
+        "missing_coverage_behavior": "Leave historical rows NULL and fall back to build/backlog stall findings.",
+        "promotion_rule": "Promote to P1 at 100 consecutive ticks and P0 at 500 consecutive ticks.",
+    },
+    {
         "metric_name": "construction.build_task_count",
         "category": "construction/infrastructure",
         "purpose": "Track workers assigned to build tasks.",
@@ -625,6 +636,7 @@ RUNTIME_ROOM_METRIC_COLUMNS = {
     "build_carried_energy": "REAL",
     "build_blocked_reason": "TEXT",
     "construction_site_count": "REAL",
+    "construction_deadlock_ticks": "REAL",
     "extension_count": "REAL",
     "extension_capacity_contribution": "REAL",
     "path_finding_failures": "REAL",
@@ -968,6 +980,7 @@ def record_runtime_room_metrics(
     build_carried_energy: float | None,
     build_blocked_reason: str | None,
     construction_site_count: float | None,
+    construction_deadlock_ticks: float | None,
     extension_count: float | None,
     extension_capacity_contribution: float | None,
     path_finding_failures: float | None,
@@ -992,13 +1005,13 @@ def record_runtime_room_metrics(
         """
         INSERT OR IGNORE INTO runtime_room_metrics (
           tick, shard, room_name, pending_build_progress, build_carried_energy,
-          build_blocked_reason, construction_site_count, extension_count,
+          build_blocked_reason, construction_site_count, construction_deadlock_ticks, extension_count,
           extension_capacity_contribution, path_finding_failures, destination_blocked,
           worker_load_trip_energy_mean, worker_load_trip_energy_min,
           cpu_used, cpu_bucket, rcl_level, stored_energy,
           source_artifact, evidence_json, dedupe_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             tick,
@@ -1008,6 +1021,7 @@ def record_runtime_room_metrics(
             build_carried_energy,
             build_blocked_reason,
             construction_site_count,
+            construction_deadlock_ticks,
             extension_count,
             extension_capacity_contribution,
             path_finding_failures,
@@ -1538,6 +1552,7 @@ def process_runtime_room(
     construction_backlog = construction_backlog_progress(room)
     pending_build_progress = pending_build_progress_value(room)
     construction_site_count = construction_site_count_value(room)
+    construction_deadlock_ticks = construction_deadlock_ticks_value(room)
     build_blocked_reason = build_blocked_reason_value(room)
     extension_count = extension_count_value(room)
     extension_capacity_contribution = extension_capacity_contribution_value(room)
@@ -1566,6 +1581,7 @@ def process_runtime_room(
         build_carried_energy=build_carried_energy,
         build_blocked_reason=build_blocked_reason,
         construction_site_count=construction_site_count,
+        construction_deadlock_ticks=construction_deadlock_ticks,
         extension_count=extension_count,
         extension_capacity_contribution=extension_capacity_contribution,
         path_finding_failures=path_finding_failures,
@@ -1628,6 +1644,19 @@ def process_runtime_room(
         shard,
         room_name,
         {},
+    )
+    record_number_if_present(
+        conn,
+        "construction.deadlock_ticks",
+        construction_deadlock_ticks,
+        source_artifact,
+        tick,
+        shard,
+        room_name,
+        {
+            "buildTaskCount": build_tasks,
+            "constructionSiteCount": construction_site_count,
+        },
     )
     record_number_if_present(
         conn,
@@ -1931,6 +1960,19 @@ def construction_site_count_value(room: dict[str, object]) -> float | None:
         if isinstance(value, list):
             return float(len(value))
     return None
+
+
+def construction_deadlock_ticks_value(room: dict[str, object]) -> float | None:
+    return first_number(
+        room,
+        (
+            ("constructionDeadlockTicks",),
+            ("resources", "productiveEnergy", "constructionDeadlockTicks"),
+            ("resources", "constructionDeadlockTicks"),
+            ("construction", "constructionDeadlockTicks"),
+            ("construction_deadlock_ticks",),
+        ),
+    ) or find_first_number_by_keys(room, ("constructionDeadlockTicks", "construction_deadlock_ticks"))
 
 
 def build_blocked_reason_value(room: dict[str, object]) -> str | None:
@@ -2858,6 +2900,7 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                   SUM(COALESCE(pending_build_progress, 0)) AS pending_build_progress,
                   SUM(COALESCE(build_carried_energy, 0)) AS build_carried_energy,
                   SUM(COALESCE(construction_site_count, 0)) AS construction_site_count,
+                  MAX(construction_deadlock_ticks) AS construction_deadlock_ticks,
                   SUM(COALESCE(extension_count, 0)) AS extension_count,
                   SUM(COALESCE(extension_capacity_contribution, 0)) AS extension_capacity_contribution,
                   SUM(COALESCE(path_finding_failures, 0)) AS path_finding_failures,
@@ -2883,6 +2926,7 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
                 "pendingBuildProgress": runtime_room_row["pending_build_progress"],
                 "buildCarriedEnergy": runtime_room_row["build_carried_energy"],
                 "constructionSiteCount": runtime_room_row["construction_site_count"],
+                "constructionDeadlockTicks": runtime_room_row["construction_deadlock_ticks"],
                 "extensionCount": runtime_room_row["extension_count"],
                 "extensionCapacityContribution": runtime_room_row["extension_capacity_contribution"],
                 "pathFindingFailures": runtime_room_row["path_finding_failures"],
@@ -2924,6 +2968,7 @@ def summarize_database(db_path: Path, output_format: str = "text") -> str:
         lines.append(f"  pendingBuildProgress: {runtime_room_row['pending_build_progress']}")
         lines.append(f"  buildCarriedEnergy: {runtime_room_row['build_carried_energy']}")
         lines.append(f"  constructionSiteCount: {runtime_room_row['construction_site_count']}")
+        lines.append(f"  constructionDeadlockTicks: {runtime_room_row['construction_deadlock_ticks']}")
         lines.append(f"  extensionCount: {runtime_room_row['extension_count']}")
         lines.append(f"  extensionCapacityContribution: {runtime_room_row['extension_capacity_contribution']}")
         lines.append(f"  pathFindingFailures: {runtime_room_row['path_finding_failures']}")

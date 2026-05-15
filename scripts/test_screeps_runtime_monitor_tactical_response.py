@@ -410,6 +410,84 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertTrue(report["silent"])
         self.assertEqual(report["triggers"], [])
 
+    def test_construction_deadlock_metric_alerts_at_p1_and_escalates_to_p0(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 0,
+                    "progressTotal": 50,
+                },
+            }
+        )
+        runtime_room = {
+            "roomName": "E26S49",
+            "taskCounts": {"harvest": 1, "upgrade": 1, "build": 0, "transfer": 0},
+            "constructionSiteCount": 1,
+            "pendingBuildProgress": 50,
+            "buildCarriedEnergy": 0,
+            "constructionDeadlockTicks": monitor.CONSTRUCTION_DEADLOCK_P1_TICKS,
+        }
+
+        first_emitted, first_suppressed, first_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(first_suppressed, [])
+        self.assertEqual([reason["kind"] for reason in first_emitted], [monitor.CONSTRUCTION_DEADLOCK_KIND])
+        self.assertEqual(first_emitted[0]["priority"], "P1")
+        self.assertEqual(first_emitted[0]["severity"], "high")
+        self.assertEqual(first_emitted[0]["constructionDeadlockTicks"], monitor.CONSTRUCTION_DEADLOCK_P1_TICKS)
+
+        critical_room = dict(runtime_room, constructionDeadlockTicks=monitor.CONSTRUCTION_DEADLOCK_P0_TICKS)
+        second_emitted, second_suppressed, _second_state = monitor.evaluate_room_alert(
+            snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+            runtime_room_summary=critical_room,
+        )
+
+        self.assertEqual(second_suppressed, [])
+        self.assertEqual([reason["kind"] for reason in second_emitted], [monitor.CONSTRUCTION_DEADLOCK_KIND])
+        self.assertEqual(second_emitted[0]["priority"], "P0")
+        self.assertEqual(second_emitted[0]["severity"], "critical")
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": second_emitted,
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertEqual(report["categories"], [monitor.CONSTRUCTION_DEADLOCK_KIND])
+        trigger = report["triggers"][0]
+        self.assertEqual(trigger["priority"], "P0")
+        self.assertEqual(trigger["metadata"]["metric"], "constructionDeadlockTicks")
+        self.assertEqual(trigger["metadata"]["thresholds"], {"P0": 500, "P1": 100})
+
     def test_clean_no_alert_expansion_bootstrap_without_spawn_stays_silent(self) -> None:
         report = monitor.build_tactical_response_report(EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE)
 
@@ -794,14 +872,17 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 355)
         self.assertEqual(payload["rooms"][0]["resources"]["workerCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["sourceCount"], 1)
+        self.assertEqual(payload["rooms"][0]["taskCounts"]["build"], 1)
         self.assertEqual(payload["rooms"][0]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["buildCarriedEnergy"], 61)
+        self.assertEqual(payload["rooms"][0]["constructionDeadlockTicks"], 0)
         self.assertEqual(payload["rooms"][0]["constructionSiteCount"], 1)
         self.assertEqual(payload["rooms"][0]["extensionCount"], 1)
         self.assertEqual(payload["rooms"][0]["extensionCapacityContribution"], 50)
         self.assertEqual(payload["rooms"][0]["structures"]["extensionCount"], 1)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["pendingBuildProgress"], 125)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["buildCarriedEnergy"], 61)
+        self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 0)
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionSiteCount"], 1)
         self.assertNotIn("buildBlockedReason", payload["rooms"][0]["resources"]["productiveEnergy"])
         self.assertNotIn("behavior", payload["rooms"][0])
@@ -876,10 +957,12 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
 
         self.assertEqual(payload["rooms"][0]["buildBlockedReason"], "worker_assignment_gap")
+        self.assertEqual(payload["rooms"][0]["constructionDeadlockTicks"], 1)
         self.assertEqual(
             payload["rooms"][0]["resources"]["productiveEnergy"]["buildBlockedReason"],
             "worker_assignment_gap",
         )
+        self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
 
     def test_runtime_summary_payload_includes_worker_dispatch_diagnostics(self) -> None:
         snapshot = monitor.RoomSnapshot(

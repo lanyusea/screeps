@@ -104,6 +104,8 @@ describe('runtime telemetry summaries', () => {
             repair: 0,
             upgrade: 0
           },
+          constructionSiteCount: 0,
+          constructionDeadlockTicks: 0,
           structures: {
             towerCount: 0,
             rampartCount: 0,
@@ -139,6 +141,8 @@ describe('runtime telemetry summaries', () => {
               buildCarriedEnergy: 0,
               repairCarriedEnergy: 0,
               upgradeCarriedEnergy: 0,
+              constructionSiteCount: 0,
+              constructionDeadlockTicks: 0,
               pendingBuildProgress: 0,
               repairBacklogHits: 0,
               buildBlockedReason: 'no_construction_sites',
@@ -767,7 +771,8 @@ describe('runtime telemetry summaries', () => {
     }
 
     expect(logSpy).not.toHaveBeenCalled();
-    expect(roomFind).not.toHaveBeenCalled();
+    expect(roomFind).toHaveBeenCalledTimes(RUNTIME_SUMMARY_INTERVAL - 1);
+    expect(roomFind.mock.calls.every(([findType]) => findType === TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES)).toBe(true);
     expect(getEventLog).not.toHaveBeenCalled();
     expect(worker.memory.refillTelemetry).toMatchObject({
       current: {
@@ -911,9 +916,117 @@ describe('runtime telemetry summaries', () => {
       buildCarriedEnergy: 40,
       repairCarriedEnergy: 20,
       upgradeCarriedEnergy: 10,
+      constructionSiteCount: 2,
+      constructionDeadlockTicks: 0,
       pendingBuildProgress: 95,
       repairBacklogHits: 14100,
       controllerProgressRemaining: 43766
+    });
+  });
+
+  it('tracks construction deadlock ticks and resets on build assignment or cleared sites', () => {
+    const constructionSites = [
+      { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites
+    });
+    const idleWorker = makeWorker({ role: 'worker', colony: 'W1N1' }, 50, 'IdleWorker');
+
+    emitRuntimeSummary([colony], [idleWorker], [], { persistOccupationRecommendations: false });
+
+    let payload = parseLoggedSummary();
+    let [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionSiteCount).toBe(1);
+    expect(room.constructionDeadlockTicks).toBe(1);
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
+      constructionSiteCount: 1,
+      constructionDeadlockTicks: 1,
+      pendingBuildProgress: 50,
+      buildCarriedEnergy: 0
+    });
+
+    logSpy.mockClear();
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = RUNTIME_SUMMARY_INTERVAL + 1;
+    emitRuntimeSummary(
+      [colony],
+      [idleWorker],
+      [
+        {
+          type: 'spawn',
+          roomName: 'W1N1',
+          spawnName: 'Spawn1',
+          creepName: 'worker-W1N1-event',
+          role: 'worker',
+          result: 0 as ScreepsReturnCode
+        }
+      ],
+      { persistOccupationRecommendations: false }
+    );
+
+    payload = parseLoggedSummary();
+    [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionDeadlockTicks).toBe(2);
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionDeadlockTicks).toBe(2);
+
+    logSpy.mockClear();
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = RUNTIME_SUMMARY_INTERVAL + 2;
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker(
+          { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'extension-site' as Id<ConstructionSite> } },
+          50,
+          'Builder'
+        )
+      ],
+      [
+        {
+          type: 'spawn',
+          roomName: 'W1N1',
+          spawnName: 'Spawn1',
+          creepName: 'worker-W1N1-event',
+          role: 'worker',
+          result: 0 as ScreepsReturnCode
+        }
+      ],
+      { persistOccupationRecommendations: false }
+    );
+
+    payload = parseLoggedSummary();
+    [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({ build: 1 });
+    expect(room.constructionDeadlockTicks).toBe(0);
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.constructionDeadlockTicks).toBe(0);
+
+    logSpy.mockClear();
+    constructionSites.length = 0;
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = RUNTIME_SUMMARY_INTERVAL + 3;
+    emitRuntimeSummary(
+      [colony],
+      [idleWorker],
+      [
+        {
+          type: 'spawn',
+          roomName: 'W1N1',
+          spawnName: 'Spawn1',
+          creepName: 'worker-W1N1-event',
+          role: 'worker',
+          result: 0 as ScreepsReturnCode
+        }
+      ],
+      { persistOccupationRecommendations: false }
+    );
+
+    payload = parseLoggedSummary();
+    [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.constructionSiteCount).toBe(0);
+    expect(room.constructionDeadlockTicks).toBe(0);
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
+      constructionSiteCount: 0,
+      constructionDeadlockTicks: 0
     });
   });
 
