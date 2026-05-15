@@ -17,7 +17,7 @@ import {
   type RoomScoutingTarget
 } from './roomScouting';
 import {
-  TERRITORY_EXPANSION_SCOUT_TARGETS,
+  getTerritoryExpansionScoutTargets,
   type TerritoryExpansionScoutTargetConfig
 } from './expansionConfig';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
@@ -500,7 +500,7 @@ function getConfiguredExpansionScoutTargets(
   colonyName: string,
   ownedRoomNames: Set<string>
 ): TerritoryExpansionScoutTargetConfig[] {
-  return TERRITORY_EXPANSION_SCOUT_TARGETS.filter(
+  return getTerritoryExpansionScoutTargets(colonyName).filter(
     (target) => target.colony === colonyName && ownedRoomNames.has(target.nearestOwnedRoom)
   );
 }

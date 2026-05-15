@@ -4,6 +4,7 @@ import {
   scoreExpansionCandidates,
   selectExpansionScoutTargets
 } from '../../src/territory/expansionScoring';
+import { installLegacyE17S59ExpansionScoutTargets } from '../helpers/runtimeRoomConfig';
 
 describe('configured territory expansion scoring', () => {
   beforeEach(() => {
@@ -14,6 +15,7 @@ describe('configured territory expansion scoring', () => {
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installLegacyE17S59ExpansionScoutTargets();
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 

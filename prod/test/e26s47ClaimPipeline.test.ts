@@ -2,6 +2,10 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { refreshExpansionExecutorIntent } from '../src/territory/expansionExecutor';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
+import {
+  installE17S60ExpansionScoutTarget,
+  makeE17S60ExpansionScoutTarget
+} from './helpers/runtimeRoomConfig';
 
 describe('E17S60 claim pipeline', () => {
   beforeEach(() => {
@@ -193,8 +197,10 @@ describe('E17S60 claim pipeline', () => {
           createdBy: 'nextExpansionScoring',
           controllerId: 'controller-e17s60' as Id<StructureController>
         }
-      ]
+      ],
+      expansionScoutTargets: [makeE17S60ExpansionScoutTarget()]
     };
+    setE18S59UnavailableScoutIntel(854);
 
     expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 854)).toEqual({
       spawn: colony.spawns[0],
@@ -313,9 +319,11 @@ function setGame(colony: ColonySnapshot, gameTime: number): void {
       })
     } as unknown as GameMap
   };
+  installE17S60ExpansionScoutTarget();
 }
 
 function setE17S60ScoutIntel(intel: TerritoryScoutIntelMemory): void {
+  installE17S60ExpansionScoutTarget();
   Memory.territory = {
     ...(Memory.territory ?? {}),
     scoutIntel: {

@@ -73,18 +73,18 @@ describe('room selection config', () => {
 
   it('keeps configured production room literals out of business modules', () => {
     const sourceRoot = path.resolve(__dirname, '../../src');
-    const configFile = path.join(sourceRoot, 'config', 'roomSelection.ts');
     const offenders: string[] = [];
 
     for (const filePath of collectTypeScriptFiles(sourceRoot)) {
-      if (filePath === configFile) {
+      const relativePath = path.relative(sourceRoot, filePath).split(path.sep).join('/');
+      if (relativePath.startsWith('config/')) {
         continue;
       }
 
       const text = fs.readFileSync(filePath, 'utf8');
       for (const roomLiteral of PRODUCTION_ROOM_SELECTION_LITERAL_NAMES) {
         if (hasQuotedLiteral(text, roomLiteral)) {
-          offenders.push(`${path.relative(sourceRoot, filePath)} contains ${roomLiteral}`);
+          offenders.push(`${relativePath} contains ${roomLiteral}`);
         }
       }
     }

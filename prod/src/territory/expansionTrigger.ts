@@ -22,7 +22,7 @@ import {
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import {
-  TERRITORY_EXPANSION_SCOUT_TARGETS,
+  getTerritoryExpansionScoutTargets,
   isConfiguredExpansionScoutOnlyTarget
 } from './expansionConfig';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
@@ -509,7 +509,7 @@ function shouldDirectClaimScoutedPipeline(pipeline: TerritoryExpansionPipelineMe
 }
 
 function isConfiguredAdjacentClaimTarget(colony: string, targetRoom: string): boolean {
-  return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
+  return getTerritoryExpansionScoutTargets(colony).some(
     (target) =>
       target.colony === colony &&
       target.roomName === targetRoom &&

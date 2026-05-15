@@ -1,3 +1,5 @@
+import { refreshRuntimeRoomMemory } from '../config/runtimeRooms';
+
 export const MEMORY_SCHEMA_VERSION = 1;
 
 export function initializeMemory(): void {
@@ -8,6 +10,8 @@ export function initializeMemory(): void {
   if (!Memory.creeps) {
     Memory.creeps = {};
   }
+
+  refreshRuntimeRoomMemory();
 }
 
 export function cleanupDeadCreepMemory(): void {

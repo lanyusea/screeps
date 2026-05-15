@@ -6,7 +6,7 @@ import {
   isTerritoryScoutIntelFresh,
   recordVisibleRoomScoutIntel
 } from './scoutIntel';
-import { TERRITORY_EXPANSION_SCOUT_TARGETS } from './expansionConfig';
+import { getTerritoryExpansionScoutTargets } from './expansionConfig';
 
 const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
 const TERRAIN_SCAN_MIN = 2;
@@ -175,7 +175,7 @@ export function getConfiguredExpansionRoomScoutingTargets(
     return [];
   }
 
-  return TERRITORY_EXPANSION_SCOUT_TARGETS.flatMap((target) => {
+  return getTerritoryExpansionScoutTargets(colonyName).flatMap((target) => {
     if (
       target.colony !== colonyName ||
       target.roomName === colonyName ||

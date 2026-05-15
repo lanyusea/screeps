@@ -27,6 +27,7 @@ import {
   TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
 } from '../src/territory/autoClaim';
 import type { AutonomousExpansionClaimEvaluation } from '../src/territory/claimExecutor';
+import { installE18S59ExpansionScoutTarget } from './helpers/runtimeRoomConfig';
 
 describe('planTerritoryIntent', () => {
   beforeEach(() => {
@@ -229,6 +230,7 @@ describe('planTerritoryIntent', () => {
         }
       }
     };
+    installE18S59ExpansionScoutTarget();
 
     expect(
       planTerritoryIntent(
