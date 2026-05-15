@@ -469,6 +469,7 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
     incumbent_ids: set[str] = set()
     ranking_diff_count = 0
     changed_top_count = 0
+    ranking_context_count = 0
     for report in model_reports:
         if not isinstance(report, dict):
             continue
@@ -478,6 +479,7 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
             candidate_ids.add(report["candidateStrategyId"])
         if isinstance(report.get("incumbentStrategyId"), str):
             incumbent_ids.add(report["incumbentStrategyId"])
+        ranking_context_count += int(report["rankingContextCount"]) if is_number(report.get("rankingContextCount")) else 0
         ranking_diffs = report.get("rankingDiffs") if isinstance(report.get("rankingDiffs"), list) else []
         ranking_diff_count += int(report["rankingDiffCount"]) if is_number(report.get("rankingDiffCount")) else len(ranking_diffs)
         changed_top_count += (
@@ -493,6 +495,7 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
         "enabled": raw.get("enabled") if isinstance(raw.get("enabled"), bool) else None,
         "artifactCount": number_or_none(raw.get("artifactCount")),
         "modelReportCount": len(model_reports),
+        "rankingContextCount": ranking_context_count,
         "rankingDiffCount": ranking_diff_count,
         "changedTopCount": changed_top_count,
         "families": sorted(families),

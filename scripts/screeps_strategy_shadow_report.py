@@ -292,6 +292,7 @@ def sanitize_report(
     dist_path: Path,
 ) -> JsonObject:
     model_reports = sanitize_model_reports(evaluator_report.get("modelReports"), max_ranking_diff_samples)
+    ranking_context_count = sum(number_or_zero(report.get("rankingContextCount")) for report in model_reports)
     ranking_diff_count = sum(number_or_zero(report.get("rankingDiffCount")) for report in model_reports)
     changed_top_count = sum(number_or_zero(report.get("changedTopCount")) for report in model_reports)
     warnings = bounded_warnings(evaluator_report.get("warnings"), max_warning_count)
@@ -344,6 +345,7 @@ def sanitize_report(
         ),
         "rankingDiffCount": ranking_diff_count,
         "changedTopCount": changed_top_count,
+        "rankingContextCount": ranking_context_count,
         "kpiSummary": sanitize_kpi_summary(evaluator_report.get("kpi")),
         "modelReports": model_reports,
         "warnings": warnings[:max_warning_count],
@@ -454,6 +456,7 @@ def sanitize_model_reports(raw_model_reports: Any, max_ranking_diff_samples: int
                 "family": sanitize_text(raw_report.get("family"), max_bytes=80),
                 "incumbentStrategyId": sanitize_text(raw_report.get("incumbentStrategyId"), max_bytes=120),
                 "candidateStrategyId": sanitize_text(raw_report.get("candidateStrategyId"), max_bytes=120),
+                "rankingContextCount": number_or_zero(raw_report.get("rankingContextCount")),
                 "rankingDiffCount": len(raw_diffs),
                 "changedTopCount": changed_top_count,
                 "rankingDiffsTruncated": len(raw_diffs) > len(diff_samples),
@@ -542,6 +545,7 @@ def build_generation_summary(report: JsonObject, report_path: Path, scan: datase
         "artifactCount": report["artifactCount"],
         "parsedRuntimeArtifactCount": len(scan.records),
         "modelReportCount": report["modelReportCount"],
+        "rankingContextCount": report["rankingContextCount"],
         "rankingDiffCount": report["rankingDiffCount"],
         "changedTopCount": report["changedTopCount"],
         "candidateStrategyIds": report["candidateStrategyIds"],
@@ -765,6 +769,7 @@ def build_json_summary(report_summary: JsonObject, wall_seconds: float) -> JsonO
         "artifactCount": report_summary.get("artifactCount"),
         "parsedRuntimeArtifactCount": report_summary.get("parsedRuntimeArtifactCount"),
         "modelReportCount": report_summary.get("modelReportCount"),
+        "rankingContextCount": report_summary.get("rankingContextCount"),
         "rankingDiffCount": report_summary.get("rankingDiffCount"),
         "changedTopCount": report_summary.get("changedTopCount"),
         "warnings": report_summary.get("warnings", []),

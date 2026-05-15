@@ -307,6 +307,7 @@ class RlDatasetExportTest(unittest.TestCase):
                     "incumbentStrategyId": "construction-priority.incumbent.v1",
                     "candidateStrategyId": "construction-priority.territory-shadow.v1",
                     "family": "construction-priority",
+                    "rankingContextCount": 3,
                     "rankingDiffs": [{"changedTop": True}, {"changedTop": False}],
                 }
             ],
@@ -334,6 +335,7 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(source_index["strategyShadowReportCount"], 1)
         shadow_metadata = run_manifest["strategy"]["shadowReports"][0]
         self.assertEqual(shadow_metadata["families"], ["construction-priority"])
+        self.assertEqual(shadow_metadata["rankingContextCount"], 3)
         self.assertEqual(shadow_metadata["rankingDiffCount"], 2)
         self.assertEqual(shadow_metadata["changedTopCount"], 1)
         self.assertNotIn("warnings", shadow_metadata)

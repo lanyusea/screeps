@@ -54,6 +54,7 @@ export interface StrategyShadowModelReport {
   incumbentStrategyId: string;
   candidateStrategyId: string;
   family: StrategyModelFamily;
+  rankingContextCount: number;
   rankingDiffs: StrategyRankingDiff[];
 }
 
@@ -173,7 +174,11 @@ export function evaluateStrategyShadowReplay(
       candidate.rolloutStatus === 'incumbent'
         ? candidate
         : injectStrategyVariance(candidate, { ...resolvedVarianceConfig, strategyOverrides: undefined }, evaluationTimestamp);
-    modelReports.push(evaluateModelPair(artifacts, incumbent, evaluatedCandidate));
+    const modelReport = evaluateModelPair(artifacts, incumbent, evaluatedCandidate);
+    if (artifacts.length > 0 && modelReport.rankingContextCount === 0) {
+      warnings.push(`no ranking contexts evaluated for ${modelReport.family}; input artifacts may lack strategy candidates`);
+    }
+    modelReports.push(modelReport);
   }
 
   return {
@@ -288,9 +293,11 @@ function evaluateModelPair(
   candidate: StrategyRegistryEntry
 ): StrategyShadowModelReport {
   const rankingDiffs: StrategyRankingDiff[] = [];
+  let rankingContextCount = 0;
 
   artifacts.forEach((artifact, artifactIndex) => {
     const rankingGroups = buildRankingGroups(artifact, artifactIndex, candidate.family);
+    rankingContextCount += rankingGroups.length;
     for (const group of rankingGroups) {
       const incumbentRanking = scoreRankingItems(group.items, incumbent);
       const candidateRanking = scoreRankingItems(group.items, candidate);
@@ -305,6 +312,7 @@ function evaluateModelPair(
     incumbentStrategyId: incumbent.id,
     candidateStrategyId: candidate.id,
     family: candidate.family,
+    rankingContextCount,
     rankingDiffs
   };
 }
