@@ -94,12 +94,16 @@ RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB = 1400
 RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER = 1
 RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER = 4
 RUN_RESOURCE_GUARD_FAILURE_TYPE = "screeps-rl-simulator-resource-guard-failure"
+RUN_SCALE_VALIDATION_PLAN_TYPE = "screeps-rl-simulator-scale-validation-plan"
+RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS = 5
+RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE = 0.8
 RUN_SETUP_FAILURE_TYPE = "screeps-rl-simulator-setup-failure"
 RUN_FAILURE_TYPE = "screeps-rl-simulator-run-failure"
 RUN_DOCKER_CLEANUP_TIMEOUT_SECONDS = 90
 SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
 OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
 _WORKER_PHASE_DEBUG_DISABLED = False
+SCALE_ENVIRONMENT_VARIANT_RE = re.compile(r"^(?P<base>.+)\.scale-env-(?P<index>\d{2,})$")
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
 HARNESS_BINARY_FILE_EXTENSIONS = (
     ".bmp",
@@ -311,8 +315,74 @@ def available_strategy_variants(discovered: Sequence[str]) -> list[str]:
     return variants
 
 
+def scale_environment_base_variant_id(variant_id: str) -> str:
+    """Return the strategy variant backing a generated scale-environment row."""
+    match = SCALE_ENVIRONMENT_VARIANT_RE.fullmatch(variant_id)
+    return match.group("base") if match else variant_id
+
+
+def scale_environment_index(variant_id: str) -> int | None:
+    """Return the one-based scale-environment index encoded in a generated row id."""
+    match = SCALE_ENVIRONMENT_VARIANT_RE.fullmatch(variant_id)
+    if not match:
+        return None
+    try:
+        return int(match.group("index"))
+    except ValueError:
+        return None
+
+
+def expand_scale_environment_variants(variant_ids: Sequence[str], environment_count: int | None) -> list[str]:
+    """Return unique simulator rows for a requested concurrent environment count.
+
+    The run harness historically mapped concurrency to strategy variant rows. A
+    scale proof may need five private-server environments while only comparing
+    the two default construction-priority variants, so this expansion creates
+    unique environment row ids backed by the selected base variants.
+    """
+    variants = [variant_id for variant_id in variant_ids if isinstance(variant_id, str) and variant_id]
+    if environment_count is None:
+        return list(variants)
+    if environment_count <= 0:
+        raise ValueError("environment_count must be a positive integer")
+    if not variants:
+        raise ValueError("at least one strategy variant is required")
+    if environment_count == len(variants):
+        return list(variants)
+    width = max(2, len(str(environment_count)))
+    return [
+        f"{variants[index % len(variants)]}.scale-env-{index + 1:0{width}d}"
+        for index in range(environment_count)
+    ]
+
+
 def strategy_variant_config_by_id(variant_id: str) -> JsonObject:
     """Return bounded public config for a strategy variant id."""
+    base_variant_id = scale_environment_base_variant_id(variant_id)
+    if base_variant_id != variant_id:
+        base_config = strategy_variant_config_by_id(base_variant_id)
+        environment_index = scale_environment_index(variant_id)
+        base_label = base_config.get("label") if isinstance(base_config.get("label"), str) else base_variant_id
+        config = copy.deepcopy(base_config)
+        config["id"] = variant_id
+        config["label"] = (
+            f"{base_label} scale environment {environment_index}"
+            if environment_index is not None
+            else f"{base_label} scale environment"
+        )
+        config["sourceVariantId"] = base_variant_id
+        config["scaleEnvironment"] = {
+            "enabled": True,
+            "environmentIndex": environment_index,
+            "baseVariantId": base_variant_id,
+            "purpose": "unique simulator environment row for concurrent E2 scale validation",
+        }
+        config["safety"] = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        return config
     for config in DEFAULT_STRATEGY_VARIANT_CONFIGS:
         if config.get("id") == variant_id:
             return copy.deepcopy(config)
@@ -607,6 +677,132 @@ def _resource_guard_override_sources(allow_unsafe_scale: bool) -> list[str]:
     return sources
 
 
+def _required_resource_guard_memory_mib(worker_count: int, active_simulators: int) -> int:
+    return (
+        RUN_RESOURCE_GUARD_HOST_RESERVE_MIB
+        + (max(0, worker_count) * RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB)
+        + (max(0, active_simulators) * RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB)
+    )
+
+
+def _max_resource_guard_workers_for_memory(available_mib: int | None, active_simulators: int) -> int | None:
+    if available_mib is None:
+        return None
+    worker_budget = available_mib - RUN_RESOURCE_GUARD_HOST_RESERVE_MIB - (
+        max(0, active_simulators) * RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB
+    )
+    if worker_budget < RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB:
+        return 0
+    return max(0, worker_budget // RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB)
+
+
+def _memory_gap_mib(required_mib: int, available_mib: int | None) -> int | None:
+    if available_mib is None:
+        return None
+    return max(0, required_mib - available_mib)
+
+
+def build_scale_validation_plan(
+    *,
+    run_id: str,
+    requested_workers: int,
+    effective_workers: int,
+    variants: Sequence[str],
+    host_snapshot: JsonObject,
+    min_concurrent_environments: int = 0,
+) -> JsonObject:
+    """Build deterministic resource and sizing guidance for an E2 scale proof."""
+    active_simulators = _coerce_int(host_snapshot.get("activeSimulatorContainerCount")) or 0
+    available_mib = _coerce_int(host_snapshot.get("memoryAndSwapAvailableMiB"))
+    target = max(0, min_concurrent_environments)
+    target_worker_count = max(target, requested_workers, effective_workers)
+    required_now = _required_resource_guard_memory_mib(target_worker_count, active_simulators)
+    required_after_cleanup = _required_resource_guard_memory_mib(target_worker_count, 0)
+    max_workers_now = _max_resource_guard_workers_for_memory(available_mib, active_simulators)
+    max_workers_after_cleanup = _max_resource_guard_workers_for_memory(available_mib, 0)
+    min_successful = math.ceil(target * RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE) if target else None
+    target_concurrency_met = True if target == 0 else effective_workers >= target
+    docker_available = host_snapshot.get("dockerAvailable") is not False
+    active_clean = active_simulators == 0
+    memory_ok_now = available_mib is not None and available_mib >= required_now
+    memory_ok_after_cleanup = available_mib is not None and available_mib >= required_after_cleanup
+    recommendations: list[str] = []
+    if target and not target_concurrency_met:
+        recommendations.append(
+            f"request at least {target} effective simulator environment row(s); "
+            f"use --scale-environments {target} when reusing base variants"
+        )
+    if active_simulators > 0:
+        recommendations.append(
+            f"stop {active_simulators} active rl-sim/private-smoke Docker container(s) before the scale proof"
+        )
+    if available_mib is None:
+        recommendations.append("rerun on a Linux host/window where memory and swap availability can be read")
+    elif not memory_ok_after_cleanup:
+        recommendations.append(
+            f"prepare at least {required_after_cleanup} MiB memory/swap after cleanup "
+            f"(current after-cleanup gap {required_after_cleanup - available_mib} MiB)"
+        )
+    elif active_simulators > 0:
+        recommendations.append("after cleanup, rerun the same scale proof on this host")
+    if not docker_available:
+        docker_error = _safe_text(host_snapshot.get("dockerError") or "docker unavailable", 240)
+        recommendations.append(f"restore Docker availability before running the proof: {docker_error}")
+
+    return {
+        "type": RUN_SCALE_VALIDATION_PLAN_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "runId": run_id,
+        "requestedWorkers": requested_workers,
+        "effectiveWorkers": effective_workers,
+        "variantCount": len(variants),
+        "minConcurrentEnvironments": target,
+        "targetWorkerCountForEstimate": target_worker_count,
+        "targetConcurrencyMet": target_concurrency_met,
+        "successCriteria": {
+            "minimumSuccessRate": RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE if target else None,
+            "minimumSuccessfulEnvironments": min_successful,
+            "minimumRequestedTicksPerEnvironment": 1 if target else None,
+            "brokenPipeAllowed": False,
+        },
+        "capacity": {
+            "currentMaxWorkers": max_workers_now,
+            "afterCleanupMaxWorkers": max_workers_after_cleanup,
+            "memoryEligibleNow": memory_ok_now,
+            "memoryEligibleAfterCleanup": memory_ok_after_cleanup,
+            "canProveTargetNow": bool(target_concurrency_met and active_clean and memory_ok_now and docker_available),
+            "canProveTargetAfterCleanup": bool(target_concurrency_met and memory_ok_after_cleanup and docker_available),
+        },
+        "memory": {
+            "availableMiB": available_mib,
+            "requiredNowMiB": required_now,
+            "requiredAfterCleanupMiB": required_after_cleanup,
+            "additionalNowMiB": _memory_gap_mib(required_now, available_mib),
+            "additionalAfterCleanupMiB": _memory_gap_mib(required_after_cleanup, available_mib),
+            "estimatedCleanupReliefMiB": active_simulators * RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB,
+            "hostReserveMiB": RUN_RESOURCE_GUARD_HOST_RESERVE_MIB,
+            "memoryPerWorkerMiB": RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB,
+            "activeStackMemoryMiB": RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB,
+        },
+        "cleanup": {
+            "activeSimulatorContainerCount": active_simulators,
+            "activeRlSimulatorContainerCount": _coerce_int(host_snapshot.get("activeRlSimulatorContainerCount")) or 0,
+            "activePrivateSmokeContainerCount": _coerce_int(host_snapshot.get("activePrivateSmokeContainerCount")) or 0,
+            "activeRlSimulatorContainers": [
+                _safe_text(name, 160) for name in host_snapshot.get("activeRlSimulatorContainers", [])[:25]
+            ]
+            if isinstance(host_snapshot.get("activeRlSimulatorContainers"), list)
+            else [],
+            "activePrivateSmokeContainers": [
+                _safe_text(name, 160) for name in host_snapshot.get("activePrivateSmokeContainers", [])[:25]
+            ]
+            if isinstance(host_snapshot.get("activePrivateSmokeContainers"), list)
+            else [],
+        },
+        "recommendations": recommendations,
+    }
+
+
 def build_resource_guard_decision(
     *,
     run_id: str,
@@ -614,6 +810,7 @@ def build_resource_guard_decision(
     variants: Sequence[str],
     allow_unsafe_scale: bool = False,
     host_snapshot: JsonObject | None = None,
+    min_concurrent_environments: int = 0,
 ) -> JsonObject:
     """Return a redacted, deterministic resource-guard decision for a run request."""
     effective_workers = _effective_run_worker_count(workers, variants)
@@ -621,18 +818,32 @@ def build_resource_guard_decision(
     active_simulators = _coerce_int(snapshot.get("activeSimulatorContainerCount")) or 0
     available_mib = _coerce_int(snapshot.get("memoryAndSwapAvailableMiB"))
     cpu_count = _coerce_int(snapshot.get("cpuCount"))
-    scale_run = workers >= RUN_RESOURCE_GUARD_MIN_WORKERS or effective_workers >= RUN_RESOURCE_GUARD_MIN_WORKERS
-    guarded_workers = max(workers, effective_workers)
-    required_memory_mib = (
-        RUN_RESOURCE_GUARD_HOST_RESERVE_MIB
-        + (guarded_workers * RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB)
-        + (active_simulators * RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB)
+    required_min_workers = max(0, min_concurrent_environments)
+    scale_run = (
+        workers >= RUN_RESOURCE_GUARD_MIN_WORKERS
+        or effective_workers >= RUN_RESOURCE_GUARD_MIN_WORKERS
+        or required_min_workers >= RUN_RESOURCE_GUARD_MIN_WORKERS
     )
+    guarded_workers = max(workers, effective_workers, required_min_workers)
+    required_memory_mib = _required_resource_guard_memory_mib(guarded_workers, active_simulators)
     native_build_jobs = guarded_workers * RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER
     historical_jobs = guarded_workers * RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER
+    scale_validation = build_scale_validation_plan(
+        run_id=run_id,
+        requested_workers=workers,
+        effective_workers=effective_workers,
+        variants=variants,
+        host_snapshot=snapshot,
+        min_concurrent_environments=required_min_workers,
+    )
     reasons: list[str] = []
     warnings: list[str] = []
     if scale_run:
+        if required_min_workers > 0 and effective_workers < required_min_workers:
+            reasons.append(
+                f"effectiveWorkers={effective_workers} does not satisfy "
+                f"minConcurrentEnvironments={required_min_workers}"
+            )
         if available_mib is None:
             reasons.append("host memory/swap availability could not be read")
         elif available_mib < required_memory_mib:
@@ -715,6 +926,7 @@ def build_resource_guard_decision(
                 "so first-run isolated-vm compilation is bounded per worker"
             ),
         },
+        "scaleValidation": scale_validation,
     }
 
 
@@ -3922,6 +4134,64 @@ def write_run_failure_artifacts(
     return artifact
 
 
+def build_scale_validation_report(
+    *,
+    run_id: str,
+    workers: int,
+    variants: Sequence[str],
+    allow_unsafe_scale: bool = False,
+    min_concurrent_environments: int = RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS,
+    host_snapshot: JsonObject | None = None,
+) -> JsonObject:
+    """Return a no-Docker scale preflight report for scheduling E2 proof runs."""
+    resource_guard = build_resource_guard_decision(
+        run_id=run_id,
+        workers=workers,
+        variants=variants,
+        allow_unsafe_scale=allow_unsafe_scale,
+        host_snapshot=host_snapshot,
+        min_concurrent_environments=min_concurrent_environments,
+    )
+    return {
+        "type": RUN_SCALE_VALIDATION_PLAN_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "ok": resource_guard["ok"],
+        "decision": resource_guard["decision"],
+        "runId": run_id,
+        "workerCount": workers,
+        "variantCount": len(variants),
+        "variants": list(variants),
+        "resourceGuard": resource_guard,
+        "scaleValidation": resource_guard["scaleValidation"],
+        "safety": safety_metadata(),
+    }
+
+
+def write_scale_validation_report(
+    *,
+    out_dir: Path,
+    run_id: str,
+    workers: int,
+    variants: Sequence[str],
+    allow_unsafe_scale: bool = False,
+    min_concurrent_environments: int = RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS,
+) -> JsonObject:
+    """Write a deterministic scale preflight report without starting Docker."""
+    report = build_scale_validation_report(
+        run_id=run_id,
+        workers=workers,
+        variants=variants,
+        allow_unsafe_scale=allow_unsafe_scale,
+        min_concurrent_environments=min_concurrent_environments,
+    )
+    report_path = out_dir.expanduser() / run_id / "scale_validation_plan.json"
+    secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
+    assert_no_secret_leak(report, secret_values)
+    write_json_atomic(report_path, report)
+    report["planArtifactPath"] = str(report_path)
+    return report
+
+
 def run_simulator(
     *,
     ticks: int,
@@ -3937,6 +4207,7 @@ def run_simulator(
     map_source_file: Path = DEFAULT_MAP_SOURCE_FILE,
     bot_commit: str | None = None,
     allow_unsafe_scale: bool = False,
+    min_concurrent_environments: int = 0,
 ) -> JsonObject:
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
@@ -3952,6 +4223,7 @@ def run_simulator(
         workers=workers,
         variants=variants,
         allow_unsafe_scale=allow_unsafe_scale,
+        min_concurrent_environments=min_concurrent_environments,
     )
     if not resource_guard["ok"]:
         cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
@@ -4146,6 +4418,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run.add_argument(
+        "--scale-environments",
+        type=positive_int,
+        default=None,
+        help=(
+            "Expand selected base variants into this many unique simulator environment rows for scale "
+            "validation. Useful for proving 5 concurrent environments with fewer distinct strategies."
+        ),
+    )
+    run.add_argument(
+        "--min-concurrent-environments",
+        type=positive_int,
+        default=None,
+        help=(
+            "Require at least this many effective concurrent simulator environment rows before Docker startup. "
+            "Defaults to --scale-environments when that option is set."
+        ),
+    )
+    run.add_argument(
         "--bot-commit",
         default=None,
         help=f"Bot bundle commit recorded in run artifacts. Default: auto-detect git HEAD, then {DEFAULT_BOT_COMMIT}.",
@@ -4209,6 +4499,64 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAP_SOURCE_FILE,
         help=f"Map source JSON path. Default: {DEFAULT_MAP_SOURCE_FILE}.",
     )
+
+    plan_scale = subparsers.add_parser(
+        "plan-scale",
+        help="Preflight an E2 scale-validation run without starting Docker or requiring secrets.",
+    )
+    plan_scale.add_argument(
+        "--run-id",
+        type=parse_run_id_token,
+        default="rl-e2-scale-plan",
+        help="Plan artifact id. Default: rl-e2-scale-plan.",
+    )
+    plan_scale.add_argument(
+        "--out-dir",
+        type=Path,
+        default=DEFAULT_RUN_OUT_DIR,
+        help=f"Plan output root. Default: {DEFAULT_RUN_OUT_DIR}.",
+    )
+    plan_scale.add_argument(
+        "--variants",
+        action="append",
+        default=[],
+        help=(
+            "Comma-separated base strategy variants. Defaults to construction-priority incumbent and "
+            "container-prioritized shadow. Repeatable."
+        ),
+    )
+    plan_scale.add_argument(
+        "--scale-environments",
+        type=positive_int,
+        default=RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS,
+        help=(
+            "Number of unique simulator environment rows to plan. "
+            f"Default: {RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS}."
+        ),
+    )
+    plan_scale.add_argument(
+        "--min-concurrent-environments",
+        type=positive_int,
+        default=RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS,
+        help=(
+            "Minimum effective concurrent environments required for the plan. "
+            f"Default: {RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS}."
+        ),
+    )
+    plan_scale.add_argument(
+        "--workers",
+        type=positive_int,
+        default=RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS,
+        help=f"Parallel simulator workers to plan. Default: {RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS}.",
+    )
+    plan_scale.add_argument(
+        "--allow-unsafe-scale",
+        action="store_true",
+        help=(
+            "Record the unsafe-scale override in the plan. "
+            f"Equivalent env override: {RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV}=1."
+        ),
+    )
     return parser
 
 
@@ -4238,6 +4586,8 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
         if not hasattr(args, "variants"):
             raise RuntimeError("run command requires --variants or no-argument default to registry")
         variants = normalize_variants(args.variants, available_strategy_variants(discover_strategy_variants()))
+        variants = expand_scale_environment_variants(variants, args.scale_environments)
+        min_concurrent_environments = args.min_concurrent_environments or args.scale_environments or 0
         summary = run_simulator(
             ticks=args.ticks,
             workers=args.workers,
@@ -4252,6 +4602,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             map_source_file=args.map_source_file,
             bot_commit=args.bot_commit,
             allow_unsafe_scale=args.allow_unsafe_scale,
+            min_concurrent_environments=min_concurrent_environments,
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")
@@ -4260,6 +4611,20 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             return 1
         overall_ok = all(isinstance(variant, dict) and variant.get("ok", False) for variant in variant_results)
         return 0 if overall_ok else 1
+    if args.command == "plan-scale":
+        variants = normalize_variants(args.variants, available_strategy_variants(discover_strategy_variants()))
+        variants = expand_scale_environment_variants(variants, args.scale_environments)
+        report = write_scale_validation_report(
+            out_dir=args.out_dir,
+            run_id=args.run_id,
+            workers=args.workers,
+            variants=variants,
+            allow_unsafe_scale=args.allow_unsafe_scale,
+            min_concurrent_environments=args.min_concurrent_environments,
+        )
+        stdout.write(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True))
+        stdout.write("\n")
+        return 0 if report.get("decision") == "allowed" else 1
     raise AssertionError(f"unhandled command: {args.command}")
 
 
