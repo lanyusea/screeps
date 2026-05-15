@@ -898,6 +898,7 @@ declare global {
     visible: boolean;
     updatedAt: number;
     adjacentToOwnedRoom: boolean;
+    scoutOnly?: boolean;
     recommendedAction?: TerritoryExpansionCandidateRecommendedAction;
     routeDistance?: number;
     nearestOwnedRoom?: string;

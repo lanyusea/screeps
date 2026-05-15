@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export type OccupationRecommendationAction = 'occupy' | 'reserve' | 'scout';
@@ -463,6 +464,10 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
   }
 
   for (const roomName of getAdjacentRoomNames(colonyName)) {
+    if (isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)) {
+      continue;
+    }
+
     const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
     const routeDistance = cachedRouteDistance === undefined ? 1 : cachedRouteDistance;
     upsertOccupationCandidate(candidatesByRoom, {

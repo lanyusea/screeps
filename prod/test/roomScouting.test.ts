@@ -219,6 +219,52 @@ describe('room scouting', () => {
       }
     ]);
   });
+
+  it('requests only scout intents for W3N9 adjacent expansion intel refresh targets', () => {
+    const colony = makeColony('W3N9');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 968_800,
+      rooms: {
+        W3N9: colony.room
+      }
+    };
+
+    const result = refreshConfiguredExpansionRoomScouting(colony, 968_800);
+
+    expect(result.records).toEqual([
+      {
+        colony: 'W3N9',
+        roomName: 'W3N8',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      },
+      {
+        colony: 'W3N9',
+        roomName: 'W2N9',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      }
+    ]);
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W3N9',
+        targetRoom: 'W3N8',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      },
+      {
+        colony: 'W3N9',
+        targetRoom: 'W2N9',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      }
+    ]);
+  });
 });
 
 function makeColony(roomName = 'W1N1'): ColonySnapshot {

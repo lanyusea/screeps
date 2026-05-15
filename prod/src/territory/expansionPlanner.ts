@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
@@ -277,7 +278,10 @@ export function buildRuntimeExpansionPlannerCandidates(
 
   for (const ownedRoomName of ownedRoomNames) {
     for (const adjacentRoomName of getAdjacentRoomNames(ownedRoomName)) {
-      if (ownedRoomNames.has(adjacentRoomName)) {
+      if (
+        ownedRoomNames.has(adjacentRoomName) ||
+        isConfiguredExpansionScoutOnlyTarget(colonyName, adjacentRoomName)
+      ) {
         continue;
       }
 

@@ -1,5 +1,6 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { recordClaimedRoomBootstrapStage } from '../colony/colonyStage';
+import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import {
   TERRITORY_CONTROLLER_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
@@ -439,7 +440,9 @@ function evaluateAutonomousExpansionClaim(
 ): AutonomousExpansionClaimEvaluation {
   const colonyName = colony.room.name;
   const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
-  const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport);
+  const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
+    (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
+  );
   const candidate =
     adjacentCandidates.find(
       (scoredCandidate) => !hasBlockingClaimIntentForRoom(scoredCandidate.roomName, context.territoryIntents)

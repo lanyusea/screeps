@@ -96,6 +96,7 @@ export interface ExpansionCandidateScore {
   hostileStructureCount?: number;
   reservation?: ExpansionReservationEvidence;
   requiresControllerPressure?: boolean;
+  scoutOnly?: boolean;
 }
 
 export interface ExpansionScoringInput {
@@ -135,6 +136,7 @@ export interface ExpansionCandidateInput {
   mineral?: ExpansionMineralEvidence;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
+  scoutOnly?: boolean;
 }
 
 export interface ExpansionMineralEvidence {
@@ -483,6 +485,7 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
         ...(nearestOwnedDistance.distance !== undefined
           ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance }
           : {}),
+        ...(configuredScoutTarget?.scoutOnly === true ? { scoutOnly: true } : {}),
         ...(room
           ? buildVisibleExpansionCandidateEvidence(room)
           : scoutIntel
@@ -803,7 +806,8 @@ function scoreExpansionCandidate(
       ? { hostileStructureCount: candidate.hostileStructureCount }
       : {}),
     ...(reservation ? { reservation } : {}),
-    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {})
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
+    ...(candidate.scoutOnly === true ? { scoutOnly: true } : {})
   };
 }
 
@@ -1189,6 +1193,7 @@ function toPersistedExpansionCandidateMemory(
     visible: candidate.visible,
     updatedAt: gameTime,
     adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
+    ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
     ...(recommendedAction ? { recommendedAction } : {}),
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
     ...(candidate.nearestOwnedRoom ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {}),
@@ -1217,6 +1222,10 @@ function toPersistedExpansionCandidateMemory(
 function getPersistedExpansionCandidateRecommendedAction(
   candidate: ExpansionCandidateScore
 ): PersistedExpansionCandidateRecommendedAction | undefined {
+  if (candidate.scoutOnly === true) {
+    return candidate.evidenceStatus === 'unavailable' ? undefined : 'scout';
+  }
+
   if (isViableExpansionCandidate(candidate)) {
     return 'claim';
   }

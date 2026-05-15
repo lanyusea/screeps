@@ -21,7 +21,10 @@ import {
 } from './scoutIntel';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
-import { TERRITORY_EXPANSION_SCOUT_TARGETS } from './expansionConfig';
+import {
+  TERRITORY_EXPANSION_SCOUT_TARGETS,
+  isConfiguredExpansionScoutOnlyTarget
+} from './expansionConfig';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
@@ -403,6 +406,7 @@ function findExpansionTriggerCandidate(
   return report.candidates.find(
     (scoredCandidate) =>
       scoredCandidate.evidenceStatus !== 'unavailable' &&
+      !isConfiguredExpansionScoutOnlyTarget(colony.room.name, scoredCandidate.roomName) &&
       scoredCandidate.score >= config.scoreThreshold &&
       scoredCandidate.preconditions.length === 0 &&
       !isClaimPlanBlockedByHigherPriorityColony({
@@ -509,6 +513,7 @@ function isConfiguredAdjacentClaimTarget(colony: string, targetRoom: string): bo
     (target) =>
       target.colony === colony &&
       target.roomName === targetRoom &&
+      target.scoutOnly !== true &&
       target.adjacentToOwnedRoom === true &&
       target.nearestOwnedRoomDistance <= 1
   );

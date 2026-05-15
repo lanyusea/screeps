@@ -319,6 +319,57 @@ describe('expansion executor', () => {
     ]);
   });
 
+  it('does not convert fresh W3N9 scout-only expansion intel into claim or reserve automation', () => {
+    const colony = makeColony({ roomName: 'W3N9' });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W3N9>W3N8': makeScoutIntel('W3N9', 'W3N8', 968_700),
+          'W3N9>W2N9': makeScoutIntel('W3N9', 'W2N9', 968_700)
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 968_900,
+      rooms: {
+        W3N9: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({})),
+        findRoute: jest.fn(() => [{ exit: 1, room: 'next' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+    setSafeHomeThreat('W3N9', 968_900);
+
+    expect(refreshExpansionExecutorIntent(colony, 968_900)).toEqual({
+      status: 'skipped',
+      colony: 'W3N9',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(Memory.territory?.expansionPipelines).toEqual({});
+    expect(Memory.territory?.expansionCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          colony: 'W3N9',
+          roomName: 'W3N8',
+          evidenceStatus: 'sufficient',
+          recommendedAction: 'scout',
+          scoutOnly: true
+        }),
+        expect.objectContaining({
+          colony: 'W3N9',
+          roomName: 'W2N9',
+          evidenceStatus: 'sufficient',
+          recommendedAction: 'scout',
+          scoutOnly: true
+        })
+      ])
+    );
+  });
+
   it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {
     const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     Memory.territory = {
@@ -434,6 +485,38 @@ function makeExpansionRoom(
       return [];
     })
   } as unknown as Room;
+}
+
+function makeScoutIntel(
+  colony: string,
+  roomName: string,
+  updatedAt: number
+): TerritoryScoutIntelMemory {
+  return {
+    colony,
+    roomName,
+    updatedAt,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false
+    },
+    sourceIds: [`source-${roomName}-0`, `source-${roomName}-1`],
+    sourceCount: 2,
+    sourcePositions: [
+      { id: `source-${roomName}-0`, x: 10, y: 20, accessPoints: 8 },
+      { id: `source-${roomName}-1`, x: 20, y: 30, accessPoints: 8 }
+    ],
+    sourceAccessPoints: 8,
+    controllerSourceRange: 12,
+    terrain: {
+      walkableRatio: 1,
+      swampRatio: 0,
+      wallRatio: 0
+    },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0
+  };
 }
 
 function makeSources(roomName: string, count: number): Source[] {
