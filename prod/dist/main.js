@@ -23371,6 +23371,14 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
+  const bootstrapConstructionSite = selectBootstrapSurvivalConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (bootstrapConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: bootstrapConstructionSite.id });
+  }
   const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
     creep,
     constructionSites,
@@ -23380,6 +23388,33 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: criticalRoadConstructionSite.id });
   }
   return null;
+}
+function selectBootstrapSurvivalConstructionSite(creep, constructionSites, constructionReservationContext) {
+  if (getUsedEnergy2(creep) <= 0 || hasOtherSameRoomLoadedBuildWorker(creep)) {
+    return null;
+  }
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    (site) => isBootstrapSurvivalConstructionSite(site, priorityContext),
+    { priorityContext }
+  );
+}
+function isBootstrapSurvivalConstructionSite(site, priorityContext) {
+  return isSpawnConstructionSite(site) || isCapacityEnablingConstructionSite(site, priorityContext) || isCriticalRoadLogisticsConstructionSite(site, priorityContext);
+}
+function isCriticalRoadLogisticsConstructionSite(site, priorityContext) {
+  return isRoadConstructionSite2(site) && priorityContext.criticalRoadContext !== void 0 && isCriticalRoadLogisticsWork(site, priorityContext.criticalRoadContext);
+}
+function hasOtherSameRoomLoadedBuildWorker(creep) {
+  return getGameCreeps().some(
+    (worker) => {
+      var _a, _b;
+      return !isSameCreep(worker, creep) && isSameRoomWorker(worker, creep.room) && ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === "build" && getUsedEnergy2(worker) > 0;
+    }
+  );
 }
 function shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed) {
   return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
