@@ -165,7 +165,15 @@ def lfs_pointer_text() -> str:
     )
 
 
-def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, hostile_creeps: int = 0) -> str:
+def runtime_summary_line(
+    *,
+    tick: int,
+    level: int = 3,
+    stored_energy: int = 0,
+    hostile_creeps: int = 0,
+    world_id: str | None = None,
+    world_profile: str | None = None,
+) -> str:
     payload = {
         "type": "runtime-summary",
         "tick": tick,
@@ -193,6 +201,10 @@ def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, h
             }
         ],
     }
+    if world_id is not None:
+        payload["worldId"] = world_id
+    if world_profile is not None:
+        payload["worldProfile"] = world_profile
     return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
 
 
@@ -529,6 +541,60 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(stored_energy["scope"]["targetShard"], "shardX")
         self.assertEqual(stored_energy["scope"]["targetRoom"], "W3N9")
         self.assertEqual(stored_energy["scope"]["observedRooms"], ["E19S57", "W9N9"])
+
+    def test_runtime_artifact_history_filters_by_world_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            persistent_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
+            seasonal_dir = repo_root / "runtime-artifacts" / "seasonal" / "runtime-summary-console"
+            persistent_dir.mkdir(parents=True)
+            seasonal_dir.mkdir(parents=True)
+            (persistent_dir / "runtime-summary-console-20260501T120000Z.log").write_text(
+                runtime_summary_line(tick=100, stored_energy=100),
+                encoding="utf-8",
+            )
+            (seasonal_dir / "runtime-summary-console-20260501T130000Z.log").write_text(
+                runtime_summary_line(tick=200, stored_energy=900),
+                encoding="utf-8",
+            )
+            (persistent_dir / "runtime-summary-console-20260502T120000Z.log").write_text(
+                runtime_summary_line(tick=300, stored_energy=700, world_profile="seasonal"),
+                encoding="utf-8",
+            )
+
+            persistent_history, persistent_status = roadmap.load_runtime_artifact_metric_history(
+                repo_root,
+                "2026-05-02T15:00:00Z",
+                {},
+                paths=[str(repo_root / "runtime-artifacts")],
+            )
+            seasonal_history, seasonal_status = roadmap.load_runtime_artifact_metric_history(
+                repo_root,
+                "2026-05-02T15:00:00Z",
+                {},
+                paths=[str(repo_root / "runtime-artifacts")],
+                world_id="seasonal",
+            )
+
+        persistent_values = [point["value"] for point in persistent_history["stored_energy"]]
+        seasonal_values = [point["value"] for point in seasonal_history["stored_energy"]]
+
+        self.assertEqual(persistent_status["worldId"], "persistent")
+        self.assertEqual(persistent_status["dailyBucketDays"], 1)
+        self.assertEqual(persistent_status["selectedRuntimeSummaryLines"], 1)
+        self.assertEqual(persistent_status["worldIdCounts"], {"persistent": 1, "seasonal": 2})
+        self.assertEqual(persistent_values, [100])
+        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetWorld"], "persistent")
+        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["worldId"], "persistent")
+        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetShard"], "shardX")
+        self.assertEqual(persistent_history["stored_energy"][0]["scope"]["targetRoom"], "W3N9")
+
+        self.assertEqual(seasonal_status["worldId"], "seasonal")
+        self.assertEqual(seasonal_status["dailyBucketDays"], 2)
+        self.assertEqual(seasonal_status["selectedRuntimeSummaryLines"], 2)
+        self.assertEqual(seasonal_values, [900, 700])
+        self.assertEqual(seasonal_history["stored_energy"][0]["scope"]["targetWorld"], "seasonal")
+        self.assertEqual(seasonal_history["stored_energy"][0]["scope"]["worldId"], "seasonal")
 
     def test_counts_only_successful_official_deploy_evidence_json_in_delivery_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

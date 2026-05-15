@@ -167,6 +167,43 @@ class RuntimeKpiArtifactBridgeTest(unittest.TestCase):
             "transferredEnergy": 4,
         })
 
+    def test_runtime_summary_records_carry_inferred_world_id_metadata(self) -> None:
+        persistent_payload = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "W3N9"}]}
+        seasonal_path_payload = {"type": "runtime-summary", "tick": 20, "rooms": [{"roomName": "E1S1"}]}
+        seasonal_payload = {
+            "type": "runtime-summary",
+            "worldProfile": "seasonal",
+            "tick": 30,
+            "rooms": [{"roomName": "E2S2"}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "runtime-artifacts"
+            persistent_path = root / "runtime-summary-console" / "runtime-summary-console-20260501T120000Z.log"
+            seasonal_path = root / "seasonal" / "runtime-summary-console" / "runtime-summary-console-20260501T130000Z.log"
+            explicit_path = root / "runtime-summary-console" / "runtime-summary-console-20260501T140000Z.log"
+            persistent_path.parent.mkdir(parents=True)
+            seasonal_path.parent.mkdir(parents=True)
+            persistent_path.write_text(runtime_line(persistent_payload), encoding="utf-8")
+            seasonal_path.write_text(runtime_line(seasonal_path_payload), encoding="utf-8")
+            explicit_path.write_text(runtime_line(seasonal_payload), encoding="utf-8")
+
+            scan_result = bridge.collect_runtime_summary_lines([str(root)])
+
+        records_by_tick = {}
+        for record in scan_result.records:
+            payload = json.loads(record.line.removeprefix("#runtime-summary "))
+            records_by_tick[payload["tick"]] = record
+
+        self.assertEqual(records_by_tick[10].world_id, "persistent")
+        self.assertEqual(records_by_tick[10].world_id_status, "fallback")
+        self.assertEqual(records_by_tick[20].world_id, "seasonal")
+        self.assertEqual(records_by_tick[20].world_id_status, "path")
+        self.assertEqual(records_by_tick[30].world_id, "seasonal")
+        self.assertEqual(records_by_tick[30].world_id_status, "explicit")
+        self.assertEqual(scan_result.metadata()["worldIdCounts"], {"persistent": 1, "seasonal": 2})
+        self.assertEqual(scan_result.metadata()["worldIdStatusCounts"], {"explicit": 1, "fallback": 1, "path": 1})
+
     def test_human_format_includes_source_and_reducer_summary(self) -> None:
         payload = {"type": "runtime-summary", "tick": 100, "rooms": [{"roomName": "W1N1"}]}
 
