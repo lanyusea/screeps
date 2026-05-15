@@ -789,7 +789,7 @@ function getRuntimeOwnedRoomNames() {
   ]);
 }
 function refreshRuntimeRoomMemory() {
-  var _a, _b;
+  var _a;
   const memory = globalThis.Memory;
   if (!memory) {
     return;
@@ -804,7 +804,7 @@ function refreshRuntimeRoomMemory() {
   if (!memory.runtime && !configuredCurrentRoomName && ownedRoomNames.length === 0) {
     return;
   }
-  const runtime = (_a = memory.runtime) != null ? _a : {};
+  const runtime = isRuntimeConfigMemory(memory.runtime) ? memory.runtime : {};
   memory.runtime = runtime;
   if (ownedRoomNames.length > 0) {
     runtime.ownedRoomNames = ownedRoomNames;
@@ -813,7 +813,7 @@ function refreshRuntimeRoomMemory() {
     runtime.currentRoomName = configuredCurrentRoomName;
     return;
   }
-  const derivedCurrentRoomName = (_b = liveOwnedRoomNames[0]) != null ? _b : ownedRoomNames[0];
+  const derivedCurrentRoomName = (_a = liveOwnedRoomNames[0]) != null ? _a : ownedRoomNames[0];
   if (derivedCurrentRoomName) {
     runtime.currentRoomName = derivedCurrentRoomName;
   }
@@ -837,6 +837,9 @@ function getLiveOwnedRoomNames() {
 }
 function getSortedUniqueRoomNames(roomNames) {
   return [...new Set(roomNames.filter(isNonEmptyString2))].sort();
+}
+function isRuntimeConfigMemory(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function getConfiguredRuntimeCurrentRoomName() {
   var _a, _b;
@@ -3516,13 +3519,10 @@ function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName) {
     return [];
   }
   return [
-    formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate, parsed.verticalDirection, parsed.verticalCoordinate - 1),
-    formatRoomName(
-      parsed.horizontalDirection,
-      parsed.horizontalCoordinate + getEastwardCoordinateOffset(parsed.horizontalDirection),
-      parsed.verticalDirection,
-      parsed.verticalCoordinate
-    )
+    formatRoomName(parsed.x, parsed.y - 1),
+    formatRoomName(parsed.x, parsed.y + 1),
+    formatRoomName(parsed.x - 1, parsed.y),
+    formatRoomName(parsed.x + 1, parsed.y)
   ].filter(isNonEmptyString4);
 }
 function isConfiguredExpansionScoutOnlyTarget(colony, roomName) {
@@ -3575,43 +3575,29 @@ function parseRoomName(roomName) {
     return null;
   }
   return {
-    horizontalDirection: match[1],
-    horizontalCoordinate: Number.parseInt(match[2], 10),
-    verticalDirection: match[3],
-    verticalCoordinate: Number.parseInt(match[4], 10)
+    x: parseAxisCoordinate(match[1], Number.parseInt(match[2], 10)),
+    y: parseAxisCoordinate(match[3], Number.parseInt(match[4], 10))
   };
 }
-function formatRoomName(horizontalDirection, horizontalCoordinate, verticalDirection, verticalCoordinate) {
-  const normalizedHorizontal = normalizeAxisCoordinate(horizontalDirection, horizontalCoordinate);
-  const normalizedVertical = normalizeAxisCoordinate(verticalDirection, verticalCoordinate);
-  if (!normalizedHorizontal || !normalizedVertical) {
+function parseAxisCoordinate(direction, coordinate) {
+  return direction === "E" || direction === "S" ? coordinate : -coordinate - 1;
+}
+function formatRoomName(x, y) {
+  const horizontal = formatAxisCoordinate("E", "W", x);
+  const vertical = formatAxisCoordinate("S", "N", y);
+  if (!horizontal || !vertical) {
     return null;
   }
-  return `${normalizedHorizontal.direction}${normalizedHorizontal.coordinate}${normalizedVertical.direction}${normalizedVertical.coordinate}`;
+  return `${horizontal.direction}${horizontal.coordinate}${vertical.direction}${vertical.coordinate}`;
 }
-function normalizeAxisCoordinate(direction, coordinate) {
+function formatAxisCoordinate(positiveDirection, negativeDirection, coordinate) {
   if (!Number.isFinite(coordinate)) {
     return null;
   }
   if (coordinate >= 0) {
-    return { direction, coordinate };
+    return { direction: positiveDirection, coordinate };
   }
-  return { direction: getOppositeDirection(direction), coordinate: 0 };
-}
-function getOppositeDirection(direction) {
-  switch (direction) {
-    case "E":
-      return "W";
-    case "W":
-      return "E";
-    case "N":
-      return "S";
-    case "S":
-      return "N";
-  }
-}
-function getEastwardCoordinateOffset(direction) {
-  return direction === "E" ? 1 : -1;
+  return { direction: negativeDirection, coordinate: -coordinate - 1 };
 }
 function normalizePositiveDistance(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
@@ -20066,7 +20052,7 @@ var DEFAULT_ROOM_CONFIGS = Object.fromEntries(
     roomName,
     {
       importThreshold: DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD,
-      sourceRooms: DEFAULT_LOCAL_FIRST_SOURCE_ROOM ? [DEFAULT_LOCAL_FIRST_SOURCE_ROOM] : [],
+      sourceRooms: DEFAULT_LOCAL_FIRST_SOURCE_ROOM ? [DEFAULT_LOCAL_FIRST_SOURCE_ROOM] : [roomName],
       harvestCoverageRatio: DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO,
       sourceWorkloadFreshTicks: DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS,
       spawnCollapseEnergyThreshold: DEFAULT_SPAWN_COLLAPSE_ENERGY_THRESHOLD

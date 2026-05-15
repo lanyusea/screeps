@@ -240,7 +240,21 @@ describe('room scouting', () => {
     expect(result.records).toEqual([
       {
         colony: 'E29N55',
+        roomName: 'E29N56',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      },
+      {
+        colony: 'E29N55',
         roomName: 'E29N54',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      },
+      {
+        colony: 'E29N55',
+        roomName: 'E28N55',
         status: 'requested',
         updatedAt: 968_800,
         distance: 1
@@ -257,7 +271,21 @@ describe('room scouting', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      },
+      {
+        colony: 'E29N55',
         targetRoom: 'E29N54',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      },
+      {
+        colony: 'E29N55',
+        targetRoom: 'E28N55',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_800

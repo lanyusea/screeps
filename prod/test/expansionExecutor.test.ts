@@ -368,13 +368,38 @@ describe('expansion executor', () => {
     expect(refreshExpansionExecutorIntent(colony, 968_900)).toEqual({
       status: 'skipped',
       colony: 'E29N55',
-      reason: 'unavailable'
+      reason: 'insufficientEvidence'
     });
     expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E28N55',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_900
+      },
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_900
+      }
+    ]);
     expect(Memory.territory?.expansionPipelines).toEqual({});
     expect(Memory.territory?.expansionCandidates).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          colony: 'E29N55',
+          roomName: 'E29N56',
+          evidenceStatus: 'insufficient-evidence',
+          recommendedAction: 'scout',
+          scoutOnly: true
+        }),
         expect.objectContaining({
           colony: 'E29N55',
           roomName: 'E29N54',
@@ -386,6 +411,13 @@ describe('expansion executor', () => {
           colony: 'E29N55',
           roomName: 'E30N55',
           evidenceStatus: 'sufficient',
+          recommendedAction: 'scout',
+          scoutOnly: true
+        }),
+        expect.objectContaining({
+          colony: 'E29N55',
+          roomName: 'E28N55',
+          evidenceStatus: 'insufficient-evidence',
           recommendedAction: 'scout',
           scoutOnly: true
         })

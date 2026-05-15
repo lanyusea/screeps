@@ -47,13 +47,10 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
   }
 
   return [
-    formatRoomName(parsed.horizontalDirection, parsed.horizontalCoordinate, parsed.verticalDirection, parsed.verticalCoordinate - 1),
-    formatRoomName(
-      parsed.horizontalDirection,
-      parsed.horizontalCoordinate + getEastwardCoordinateOffset(parsed.horizontalDirection),
-      parsed.verticalDirection,
-      parsed.verticalCoordinate
-    )
+    formatRoomName(parsed.x, parsed.y - 1),
+    formatRoomName(parsed.x, parsed.y + 1),
+    formatRoomName(parsed.x - 1, parsed.y),
+    formatRoomName(parsed.x + 1, parsed.y)
   ].filter(isNonEmptyString);
 }
 
@@ -124,10 +121,8 @@ function normalizeExpansionScoutTarget(
 
 function parseRoomName(roomName: string):
   | {
-      horizontalDirection: 'E' | 'W';
-      horizontalCoordinate: number;
-      verticalDirection: 'N' | 'S';
-      verticalCoordinate: number;
+      x: number;
+      y: number;
     }
   | null {
   const match = /^(E|W)(\d+)(N|S)(\d+)$/.exec(roomName);
@@ -136,65 +131,41 @@ function parseRoomName(roomName: string):
   }
 
   return {
-    horizontalDirection: match[1] as 'E' | 'W',
-    horizontalCoordinate: Number.parseInt(match[2], 10),
-    verticalDirection: match[3] as 'N' | 'S',
-    verticalCoordinate: Number.parseInt(match[4], 10)
+    x: parseAxisCoordinate(match[1] as 'E' | 'W', Number.parseInt(match[2], 10)),
+    y: parseAxisCoordinate(match[3] as 'N' | 'S', Number.parseInt(match[4], 10))
   };
 }
 
-function formatRoomName(
-  horizontalDirection: 'E' | 'W',
-  horizontalCoordinate: number,
-  verticalDirection: 'N' | 'S',
-  verticalCoordinate: number
-): string | null {
-  const normalizedHorizontal = normalizeAxisCoordinate(horizontalDirection, horizontalCoordinate);
-  const normalizedVertical = normalizeAxisCoordinate(verticalDirection, verticalCoordinate);
-  if (!normalizedHorizontal || !normalizedVertical) {
+function parseAxisCoordinate(direction: 'E' | 'W' | 'N' | 'S', coordinate: number): number {
+  return direction === 'E' || direction === 'S'
+    ? coordinate
+    : -coordinate - 1;
+}
+
+function formatRoomName(x: number, y: number): string | null {
+  const horizontal = formatAxisCoordinate('E', 'W', x);
+  const vertical = formatAxisCoordinate('S', 'N', y);
+  if (!horizontal || !vertical) {
     return null;
   }
 
-  return `${normalizedHorizontal.direction}${normalizedHorizontal.coordinate}${normalizedVertical.direction}${normalizedVertical.coordinate}`;
+  return `${horizontal.direction}${horizontal.coordinate}${vertical.direction}${vertical.coordinate}`;
 }
 
-function normalizeAxisCoordinate<T extends 'E' | 'W' | 'N' | 'S'>(
-  direction: T,
+function formatAxisCoordinate<PositiveDirection extends 'E' | 'S', NegativeDirection extends 'W' | 'N'>(
+  positiveDirection: PositiveDirection,
+  negativeDirection: NegativeDirection,
   coordinate: number
-): { direction: T; coordinate: number } | { direction: OppositeDirection<T>; coordinate: 0 } | null {
+): { direction: PositiveDirection | NegativeDirection; coordinate: number } | null {
   if (!Number.isFinite(coordinate)) {
     return null;
   }
 
   if (coordinate >= 0) {
-    return { direction, coordinate };
+    return { direction: positiveDirection, coordinate };
   }
-
-  return { direction: getOppositeDirection(direction), coordinate: 0 };
+  return { direction: negativeDirection, coordinate: -coordinate - 1 };
 }
-
-function getOppositeDirection<T extends 'E' | 'W' | 'N' | 'S'>(direction: T): OppositeDirection<T> {
-  switch (direction) {
-    case 'E':
-      return 'W' as OppositeDirection<T>;
-    case 'W':
-      return 'E' as OppositeDirection<T>;
-    case 'N':
-      return 'S' as OppositeDirection<T>;
-    case 'S':
-      return 'N' as OppositeDirection<T>;
-  }
-}
-
-function getEastwardCoordinateOffset(direction: 'E' | 'W'): 1 | -1 {
-  return direction === 'E' ? 1 : -1;
-}
-
-type OppositeDirection<T extends 'E' | 'W' | 'N' | 'S'> =
-  T extends 'E' ? 'W' :
-  T extends 'W' ? 'E' :
-  T extends 'N' ? 'S' :
-  'N';
 
 function normalizePositiveDistance(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value)

@@ -79,7 +79,25 @@ describe('memory schema initialization', () => {
     expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual([
       {
         colony: 'W8N3',
+        roomName: 'W8N4',
+        nearestOwnedRoom: 'W8N3',
+        nearestOwnedRoomDistance: 1,
+        routeDistance: 1,
+        adjacentToOwnedRoom: true,
+        scoutOnly: true
+      },
+      {
+        colony: 'W8N3',
         roomName: 'W8N2',
+        nearestOwnedRoom: 'W8N3',
+        nearestOwnedRoomDistance: 1,
+        routeDistance: 1,
+        adjacentToOwnedRoom: true,
+        scoutOnly: true
+      },
+      {
+        colony: 'W8N3',
+        roomName: 'W9N3',
         nearestOwnedRoom: 'W8N3',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
@@ -97,6 +115,25 @@ describe('memory schema initialization', () => {
       }
     ]);
   });
+
+  it.each([17, ['bad-runtime']])(
+    'sanitizes non-object Memory.runtime during initialization',
+    (runtime) => {
+      const room = makeOwnedRoom('W8N3');
+      (globalThis as unknown as { Memory: Memory }).Memory = ({ runtime } as unknown) as Memory;
+      (globalThis as { Game: Partial<Game> }).Game = {
+        rooms: {},
+        spawns: {
+          Spawn1: makeSpawn('Spawn1', room)
+        }
+      };
+
+      initializeMemory();
+
+      expect(Memory.runtime?.currentRoomName).toBe('W8N3');
+      expect(Memory.runtime?.ownedRoomNames).toEqual(['W8N3']);
+    }
+  );
 
   it('removes memory for creeps no longer present in Game.creeps', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

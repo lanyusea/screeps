@@ -59,7 +59,7 @@ const DEFAULT_ROOM_CONFIGS: Record<string, Omit<LocalEnergyRoomConfig, 'enabled'
     roomName,
     {
       importThreshold: DEFAULT_LOCAL_ENERGY_IMPORT_THRESHOLD,
-      sourceRooms: DEFAULT_LOCAL_FIRST_SOURCE_ROOM ? [DEFAULT_LOCAL_FIRST_SOURCE_ROOM] : [],
+      sourceRooms: DEFAULT_LOCAL_FIRST_SOURCE_ROOM ? [DEFAULT_LOCAL_FIRST_SOURCE_ROOM] : [roomName],
       harvestCoverageRatio: DEFAULT_LOCAL_HARVEST_COVERAGE_RATIO,
       sourceWorkloadFreshTicks: DEFAULT_SOURCE_WORKLOAD_FRESH_TICKS,
       spawnCollapseEnergyThreshold: DEFAULT_SPAWN_COLLAPSE_ENERGY_THRESHOLD

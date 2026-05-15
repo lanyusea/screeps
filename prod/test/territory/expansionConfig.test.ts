@@ -11,7 +11,11 @@ describe('territory expansion config', () => {
   });
 
   it('derives current-room scout-only neighbors from W3N9 without static tactical literals', () => {
-    expect(getCurrentRoomScoutOnlyAdjacentRoomNames('W3N9')).toEqual(['W3N8', 'W2N9']);
+    expect(getCurrentRoomScoutOnlyAdjacentRoomNames('W3N9')).toEqual(['W3N10', 'W3N8', 'W4N9', 'W2N9']);
+  });
+
+  it('derives current-room scout-only neighbors across quadrant edges', () => {
+    expect(getCurrentRoomScoutOnlyAdjacentRoomNames('E0S0')).toEqual(['E0N0', 'E0S1', 'W0S0', 'E1S0']);
   });
 
   it('derives current-room scout-only neighbors from a different runtime room', () => {
@@ -70,11 +74,11 @@ describe('territory expansion config', () => {
         expansionScoutTargets: [
           {
             colony: 'W3N9',
-            roomName: 'W4N9',
+            roomName: 'W5N9',
             nearestOwnedRoom: 'W3N9',
-            nearestOwnedRoomDistance: 1,
-            routeDistance: 1,
-            adjacentToOwnedRoom: true
+            nearestOwnedRoomDistance: 2,
+            routeDistance: 2,
+            adjacentToOwnedRoom: false
           }
         ]
       }
@@ -83,15 +87,33 @@ describe('territory expansion config', () => {
     expect(getTerritoryExpansionScoutTargets('W3N9')).toEqual([
       {
         colony: 'W3N9',
-        roomName: 'W4N9',
+        roomName: 'W5N9',
+        nearestOwnedRoom: 'W3N9',
+        nearestOwnedRoomDistance: 2,
+        routeDistance: 2,
+        adjacentToOwnedRoom: false
+      },
+      {
+        colony: 'W3N9',
+        roomName: 'W3N10',
         nearestOwnedRoom: 'W3N9',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
-        adjacentToOwnedRoom: true
+        adjacentToOwnedRoom: true,
+        scoutOnly: true
       },
       {
         colony: 'W3N9',
         roomName: 'W3N8',
+        nearestOwnedRoom: 'W3N9',
+        nearestOwnedRoomDistance: 1,
+        routeDistance: 1,
+        adjacentToOwnedRoom: true,
+        scoutOnly: true
+      },
+      {
+        colony: 'W3N9',
+        roomName: 'W4N9',
         nearestOwnedRoom: 'W3N9',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
@@ -130,7 +152,25 @@ function makeW8N3ScoutOnlyTargets(): ReturnType<typeof getTerritoryExpansionScou
   return [
     {
       colony: 'W8N3',
+      roomName: 'W8N4',
+      nearestOwnedRoom: 'W8N3',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: 'W8N3',
       roomName: 'W8N2',
+      nearestOwnedRoom: 'W8N3',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: 'W8N3',
+      roomName: 'W9N3',
       nearestOwnedRoom: 'W8N3',
       nearestOwnedRoomDistance: 1,
       routeDistance: 1,

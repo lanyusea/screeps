@@ -31,7 +31,9 @@ export function refreshRuntimeRoomMemory(): void {
     return;
   }
 
-  const runtime: RuntimeConfigMemory = memory.runtime ?? {};
+  const runtime: RuntimeConfigMemory = isRuntimeConfigMemory(memory.runtime)
+    ? memory.runtime
+    : {};
   memory.runtime = runtime;
 
   if (ownedRoomNames.length > 0) {
@@ -74,6 +76,10 @@ function getLiveOwnedRoomNames(): string[] {
 
 function getSortedUniqueRoomNames(roomNames: readonly string[]): string[] {
   return [...new Set(roomNames.filter(isNonEmptyString))].sort();
+}
+
+function isRuntimeConfigMemory(value: unknown): value is RuntimeConfigMemory {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function getConfiguredRuntimeCurrentRoomName(): string | undefined {
