@@ -766,6 +766,12 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     "progress": 1250,
                     "progressTotal": 45000,
                     "ticksToDowngrade": 19876,
+                    "sign": {
+                        "username": "lanyusea",
+                        "text": "by Hermes Screeps Project",
+                        "time": 265600,
+                        "datetime": "2026-05-15T00:00:00.000Z",
+                    },
                     "x": 24,
                     "y": 24,
                 },
@@ -867,6 +873,15 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
         self.assertEqual(payload["rooms"][0]["controller"]["level"], 3)
         self.assertEqual(payload["rooms"][0]["controller"]["progress"], 1250)
+        self.assertEqual(
+            payload["rooms"][0]["controller"]["sign"],
+            {
+                "username": "lanyusea",
+                "text": "by Hermes Screeps Project",
+                "time": 265600,
+                "datetime": "2026-05-15T00:00:00.000Z",
+            },
+        )
         self.assertEqual(payload["rooms"][0]["rclLevel"], 3)
         self.assertEqual(payload["rooms"][0]["storedEnergy"], 355)
         self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 355)
@@ -896,6 +911,30 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(payload["rooms"][0]["cpuBucket"], 9123)
         self.assertEqual(payload["cpu"], {"used": 7.25, "bucket": 9123})
         self.assertEqual(payload["rooms"][0]["combat"]["hostileCreepCount"], 1)
+
+    def test_runtime_summary_payload_reports_null_controller_sign_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={
+                "controller-1": {
+                    "_id": "controller-1",
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "level": 3,
+                }
+            },
+            tick=265631,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        summary = monitor.room_summary(snapshot)
+
+        self.assertIsNone(payload["rooms"][0]["controller"]["sign"])
+        self.assertIsNone(summary["controller"]["sign"])
 
     def test_runtime_summary_artifact_line_is_bridge_compatible(self) -> None:
         snapshot = monitor.RoomSnapshot(

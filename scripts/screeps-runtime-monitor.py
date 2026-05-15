@@ -2999,6 +2999,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "cpuUsed": metrics.cpu_used,
         "cpuBucket": metrics.cpu_bucket,
         "rclLevel": metrics.rcl_level,
+        "controller": metrics.controller_summary,
         "storedEnergy": metrics.stored_energy,
         "energyCapacity": number_value(info.get("energyCapacity") or info.get("energyCapacityAvailable")),
         "energyCapacityAvailable": number_value(info.get("energyCapacityAvailable")),
@@ -3656,6 +3657,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
     if controller is not None:
         for key in ("level", "progress", "progressTotal", "ticksToDowngrade"):
             controller_summary[key] = number_value(controller.get(key))
+        controller_summary["sign"] = controller_sign_summary(controller)
 
     return RoomSummaryMetrics(
         structures=structures,
@@ -3683,6 +3685,29 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         cpu_bucket=snapshot_cpu_bucket(snapshot),
         rcl_level=number_value(controller.get("level")) if controller is not None else None,
     )
+
+
+def controller_sign_summary(controller: dict[str, Any]) -> dict[str, Any] | None:
+    sign = controller.get("sign")
+    if not isinstance(sign, dict):
+        return None
+
+    summary: dict[str, Any] = {
+        "text": sign.get("text") if isinstance(sign.get("text"), str) else None,
+    }
+    username = sign.get("username")
+    if isinstance(username, str):
+        summary["username"] = username
+    user = sign.get("user")
+    if isinstance(user, str):
+        summary["user"] = user
+    time_value = number_value(sign.get("time"))
+    if time_value is not None:
+        summary["time"] = time_value
+    datetime_value = sign.get("datetime")
+    if isinstance(datetime_value, str):
+        summary["datetime"] = datetime_value
+    return summary
 
 
 def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> bool:

@@ -284,6 +284,14 @@ interface RuntimeControllerSummary {
   progress?: number;
   progressTotal?: number;
   ticksToDowngrade?: number;
+  sign: RuntimeControllerSignSummary | null;
+}
+
+interface RuntimeControllerSignSummary {
+  text: string | null;
+  username?: string;
+  time?: number;
+  datetime?: string;
 }
 
 interface RuntimeStructureSnapshotSummary {
@@ -1739,7 +1747,8 @@ function buildControllerSummary(room: Room): { controller?: RuntimeControllerSum
   }
 
   const summary: RuntimeControllerSummary = {
-    level: controller.level
+    level: controller.level,
+    sign: summarizeControllerSign(controller.sign)
   };
 
   if (typeof controller.progress === 'number') {
@@ -1755,6 +1764,32 @@ function buildControllerSummary(room: Room): { controller?: RuntimeControllerSum
   }
 
   return { controller: summary };
+}
+
+function summarizeControllerSign(sign: unknown): RuntimeControllerSignSummary | null {
+  if (!isRecord(sign)) {
+    return null;
+  }
+  const datetime = summarizeControllerSignDatetime(sign.datetime);
+
+  return {
+    text: typeof sign.text === 'string' ? sign.text : null,
+    ...(typeof sign.username === 'string' ? { username: sign.username } : {}),
+    ...(typeof sign.time === 'number' && Number.isFinite(sign.time) ? { time: sign.time } : {}),
+    ...(datetime ? { datetime } : {})
+  };
+}
+
+function summarizeControllerSignDatetime(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString();
+  }
+
+  return undefined;
 }
 
 function summarizeResources(
