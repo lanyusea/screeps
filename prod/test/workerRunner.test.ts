@@ -875,6 +875,89 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts source-container harvesting to build extension capacity with partial carried energy', () => {
+    const source = {
+      id: 'source1',
+      energy: 300,
+      pos: { x: 10, y: 10, roomName: 'E29N55' } as RoomPosition
+    } as Source;
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 3_000,
+      pos: { x: 18, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'E29N55' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [container];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(46),
+        getFreeCapacity: jest.fn().mockReturnValue(4),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'extension-site1' ? 1 : 0))
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      harvest: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'source1' ? source : id === 'extension-site1' ? extensionSite : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(creep.build).toHaveBeenCalledWith(extensionSite);
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.transfer).not.toHaveBeenCalled();
+  });
+
   it('assigns and executes an adjacent claimed-room harvest when it is the closer source', () => {
     const homeSource = { id: 'source-home', energy: 300, pos: { x: 40, y: 40, roomName: 'W1N1' } } as Source;
     const adjacentSource = { id: 'source-adjacent', energy: 300, pos: { x: 2, y: 25, roomName: 'W2N1' } } as Source;
