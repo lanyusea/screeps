@@ -13085,6 +13085,87 @@ describe('selectWorkerTask', () => {
     }
   );
 
+  it('uses post-construction controller sustain energy on active rampart maintenance before upgrading', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-alert-band',
+      'rampart' as StructureConstant,
+      98_301,
+      300_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [rampart]
+    });
+    const creep = {
+      name: 'SustainUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-alert-band' });
+  });
+
+  it('keeps controller sustain upgrading when another worker covers routine barrier maintenance', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-alert-band',
+      'rampart' as StructureConstant,
+      98_301,
+      300_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [rampart]
+    });
+    const repairer = {
+      name: 'Repairer',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        task: { type: 'repair', targetId: 'rampart-alert-band' as Id<Structure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'SustainUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, SustainUpgrader: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('keeps spawn refill before routine barrier maintenance', () => {
     const controller = {
       id: 'controller1',
@@ -13116,6 +13197,41 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps critical infrastructure repair before active rampart maintenance', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const container = makeStructure('container-critical', 'container' as StructureConstant, 500, 2_000);
+    const rampart = makeStructure(
+      'rampart-alert-band',
+      'rampart' as StructureConstant,
+      98_301,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'SustainUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'W3N9',
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        structures: [rampart, container]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
   });
 
   it('reuses the routine barrier maintenance target for workers in the same room tick', () => {

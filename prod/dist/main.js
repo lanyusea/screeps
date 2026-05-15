@@ -22747,7 +22747,7 @@ function getGameTick2() {
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
-var IDLE_RAMPART_REPAIR_HITS_CEILING2 = 1e5;
+var IDLE_RAMPART_REPAIR_HITS_CEILING2 = 12e4;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
 var CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
@@ -23114,6 +23114,13 @@ function selectHeuristicWorkerTask(creep) {
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
+  const controllerSustainBarrierMaintenanceTask = selectControllerSustainBarrierMaintenanceTask(
+    creep,
+    constructionSites
+  );
+  if (controllerSustainBarrierMaintenanceTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainBarrierMaintenanceTask);
+  }
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
@@ -23365,6 +23372,15 @@ function selectControllerSustainUpgradeTask(creep, controller) {
     return null;
   }
   return { type: "upgrade", targetId: controller.id };
+}
+function selectControllerSustainBarrierMaintenanceTask(creep, constructionSites) {
+  var _a, _b;
+  const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
+  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || constructionSites.length > 0 || hasSameRoomWorkerAssignedToTask(creep.room, creep, "repair")) {
+    return null;
+  }
+  const barrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  return barrierMaintenanceTarget ? { type: "repair", targetId: barrierMaintenanceTarget.id } : null;
 }
 function shouldYieldControllerSustainUpgradeToConstruction(creep, sustain) {
   return sustain.homeRoom !== sustain.targetRoom && hasVisibleOwnedConstructionDemand(creep.room);
