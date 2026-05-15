@@ -962,8 +962,8 @@ function shouldPreemptForControllerSigning(
   return (
     selectedTask?.type === 'signController' &&
     !isSameTask(task, selectedTask) &&
-    !isTerritoryControlTask(task) &&
-    !isDedicatedSourceContainerHarvestTask(creep, task)
+    task.type === 'upgrade' &&
+    isOwnedControllerUpgradeTask(creep, task)
   );
 }
 

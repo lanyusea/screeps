@@ -173,6 +173,113 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('does not assign owned controller signing while hostiles are visible', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const room = {
+      name: 'W3N9',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [{ id: 'hostile1' }] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W3N9' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        controllers: {
+          W3N9: {
+            roomName: 'W3N9',
+            controllerId: 'controller1' as Id<StructureController>,
+            signNeeded: true,
+            upgradePriority: 'none',
+            desiredUpgraderCount: 0,
+            activeUpgraderCount: 0,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.signController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps loaded workers on construction before owned controller signing', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const site = {
+      id: 'extension-site1',
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const room = {
+      name: 'W3N9',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W3N9' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        controllers: {
+          W3N9: {
+            roomName: 'W3N9',
+            controllerId: 'controller1' as Id<StructureController>,
+            signNeeded: true,
+            upgradePriority: 'none',
+            desiredUpgraderCount: 0,
+            activeUpgraderCount: 0,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'extension-site1' ? site : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
+    expect(creep.signController).not.toHaveBeenCalled();
+  });
+
   it('routes a post-claim controller sustain upgrader to the claimed room before local work', () => {
     const targetController = { id: 'controller2', my: true } as StructureController;
     const homeRoom = {

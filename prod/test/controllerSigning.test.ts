@@ -3,6 +3,7 @@ import {
   getControllerSigningActorUsername,
   OCCUPIED_CONTROLLER_SIGN_TEXT,
   shouldSignOccupiedController,
+  shouldSignOwnedRoomController,
   shouldSignReservedController,
   signOccupiedControllerIfNeeded,
   signReservedControllerIfNeeded
@@ -12,6 +13,8 @@ describe('controller signing', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number; OK: number }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { OK: number }).OK = 0;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 2;
     (globalThis as unknown as { Game: Partial<Game> }).Game = { time: 1_000 };
   });
 
@@ -83,6 +86,22 @@ describe('controller signing', () => {
 
     expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('does not report safe owned-room signing demand while hostiles are visible', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'other', text: 'not ours', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const hostile = { id: 'hostile1' } as Creep;
+    const room = {
+      controller,
+      find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : []))
+    } as unknown as Room;
+
+    expect(shouldSignOccupiedController(controller)).toBe(true);
+    expect(shouldSignOwnedRoomController(room, controller)).toBe(false);
   });
 
   it('refreshes a correctly signed owned controller after the periodic interval', () => {
