@@ -65,6 +65,30 @@ Run supports `--workers` for parallel execution. Use `--workers 2` as proof of c
 
 Scale runs are resource-guarded before Docker startup. Requests at or above `--workers 3` are checked for available memory plus swap, CPU count, active Docker containers, active `rl-sim-worker-*` containers, active `screeps-private-smoke-*` containers, and estimated native-build pressure. The guard assumes a host reserve plus per-worker private-server stack memory and records the decision in the run artifact. On an approximately 8 GB host, a fresh `--workers 5` run is rejected before containers are started because first-run dependency compilation can otherwise overcommit the host.
 
+For E2 scale validation, preflight the host/window before scheduling a real run:
+
+```bash
+python3 scripts/screeps_rl_simulator_harness.py plan-scale \
+  --run-id rl-e2-scale-preflight \
+  --workers 5 \
+  --scale-environments 5 \
+  --min-concurrent-environments 5
+```
+
+`plan-scale` does not start Docker, require secrets, or contact the official MMO. It writes `runtime-artifacts/rl-simulator/<run-id>/scale_validation_plan.json` and exits non-zero when the requested proof is not currently safe. The plan records the five-environment target, the `>=80%` success criterion (`4/5` environments), active simulator/private-smoke cleanup impact, current and after-cleanup worker capacity, and the memory/swap gap that must be closed before rerunning.
+
+When the host is safe, run the actual proof with the same scale target:
+
+```bash
+python3 scripts/screeps_rl_simulator_harness.py run \
+  --run-id rl-e2-scale-proof \
+  --workers 5 \
+  --scale-environments 5 \
+  --min-concurrent-environments 5
+```
+
+`--scale-environments 5` expands the selected base strategy variants into five unique simulator environment rows. This preserves the `>=5` concurrent-environment requirement even when the default strategy set has only two variants; it does not change live strategy behavior or allow official MMO writes.
+
 Only use the override when the host has been deliberately prepared, for example after warming caches or moving to a larger machine:
 
 ```bash
