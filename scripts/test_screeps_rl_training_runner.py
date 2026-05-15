@@ -460,6 +460,30 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(simulator.calls[0]["run_id"], "rl_exp_with_dots")
 
+    def test_repetitions_use_disjoint_run_ids_and_host_port_ranges(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        simulator = MockSimulator({"baseline": baseline, "candidate": candidate})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["workers"] = 2
+            card["simulation"]["repetitions"] = 3
+            card["simulation"]["host_port_start"] = 24125
+            write_json(card_path, card)
+            runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-rep-ports",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual([call["run_id"] for call in simulator.calls], ["multi-rep-ports-r01", "multi-rep-ports-r02", "multi-rep-ports-r03"])
+        self.assertEqual([call["host_port_start"] for call in simulator.calls], [24125, 24129, 24133])
+
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])

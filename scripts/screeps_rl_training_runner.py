@@ -71,6 +71,7 @@ class SimulationConfig:
     ticks: int
     workers: int
     repetitions: int
+    host_port_start: int
     room: str
     shard: str
     branch: str
@@ -83,6 +84,7 @@ class SimulationConfig:
             "ticks": self.ticks,
             "workers": self.workers,
             "repetitions": self.repetitions,
+            "hostPortStart": self.host_port_start,
             "room": self.room,
             "shard": self.shard,
             "branch": self.branch,
@@ -181,6 +183,11 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("simulation.workers must be a positive integer")
     if "repetitions" in simulation and positive_int_value(simulation["repetitions"]) is None:
         raise TrainingCardError("simulation.repetitions must be a positive integer")
+    if (
+        ("host_port_start" in simulation or "hostPortStart" in simulation)
+        and positive_int_value(simulation.get("host_port_start", simulation.get("hostPortStart"))) is None
+    ):
+        raise TrainingCardError("simulation.host_port_start must be a positive integer")
 
 
 def raw_variant_definitions(card: JsonObject) -> Any:
@@ -419,6 +426,10 @@ def simulation_config_from_card(card: JsonObject) -> SimulationConfig:
         ticks=positive_int_value(simulation.get("ticks")) or simulator_harness.DEFAULT_RUN_TICKS,
         workers=positive_int_value(simulation.get("workers")) or simulator_harness.DEFAULT_RUN_WORKERS,
         repetitions=positive_int_value(simulation.get("repetitions")) or DEFAULT_RUN_REPETITIONS,
+        host_port_start=positive_int_value(
+            simulation.get("host_port_start", simulation.get("hostPortStart"))
+        )
+        or simulator_harness.resolve_run_host_port_start(None),
         room=text_or_none(simulation.get("room")) or simulator_harness.DEFAULT_SIM_ROOM,
         shard=text_or_none(simulation.get("shard")) or simulator_harness.DEFAULT_SIM_SHARD,
         branch=text_or_none(simulation.get("branch")) or simulator_harness.DEFAULT_ACTIVE_WORLD_BRANCH,
@@ -544,8 +555,14 @@ def execute_simulator_runs(
     raw_run_id = text_or_none(card.get("run_id")) or text_or_none(card.get("runId")) or report_id
     base_run_id = normalize_simulator_run_id(raw_run_id)
     runs: list[JsonObject] = []
+    effective_workers = max(1, min(config.workers, len(variant_ids)))
     for repetition in range(config.repetitions):
         run_id = base_run_id if config.repetitions == 1 else f"{base_run_id}-r{repetition + 1:02d}"
+        host_port_start = simulator_repetition_host_port_start(
+            config.host_port_start,
+            repetition,
+            effective_workers,
+        )
         runs.append(
             simulator_runner(
                 ticks=config.ticks,
@@ -553,6 +570,7 @@ def execute_simulator_runs(
                 variants=variant_ids,
                 out_dir=config.simulator_out_dir,
                 run_id=run_id,
+                host_port_start=host_port_start,
                 room=config.room,
                 shard=config.shard,
                 branch=config.branch,
@@ -561,6 +579,20 @@ def execute_simulator_runs(
             )
         )
     return runs
+
+
+def simulator_repetition_host_port_start(base_host_port_start: int, repetition_index: int, effective_workers: int) -> int:
+    if repetition_index < 0:
+        raise ValueError("repetition_index must be non-negative")
+    if effective_workers <= 0:
+        raise ValueError("effective_workers must be a positive integer")
+    host_port_start = base_host_port_start + (
+        repetition_index * effective_workers * simulator_harness.RUN_HTTP_PORT_STEP
+    )
+    last_cli_port = host_port_start + ((effective_workers - 1) * simulator_harness.RUN_HTTP_PORT_STEP) + 1
+    if last_cli_port > 65535:
+        raise RuntimeError(f"simulator repetition host port range exceeds TCP port limit: {last_cli_port}")
+    return host_port_start
 
 
 def normalize_simulator_run_id(raw: str) -> str:
