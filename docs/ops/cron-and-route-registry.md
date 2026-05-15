@@ -45,7 +45,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 
 | Job | ID | Schedule | Delivery | Purpose |
 | --- | --- | --- | --- | --- |
-| Screeps autonomous continuation worker | `f66ed36d7be0` | `13,22,50 * * * *` | `discord:#task-queue` | Dispatcher/reconciler for safe work lanes. Stable workdir: `/root/screeps`. |
+| Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | Dispatcher/reconciler for safe work lanes. Stable workdir: `/root/screeps`. |
 | Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | P0 autonomous-system health monitor. |
 | Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for all owned rooms (auto-discovered via `/api/user/overview`). Include economy KPIs: total resources, energy output/collection, construction progress. |
 | Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for all owned rooms (auto-discovered via `/api/user/overview`); no-alert runs return exactly `[SILENT]`. |
@@ -66,6 +66,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 - Reporter state files and old cron outputs are caches/history, not rules authority.
 - When scanning cron output, ignore prompt/system/skill sections unless explicitly auditing historical prompt drift.
 - Cron runs must not recursively schedule new cron jobs.
+- PR-draining/continuation cron prompts must include the CodeRabbit assertive-mode triage rule: use Codex to classify each automated review finding before choosing a patch or thread/comment resolution, and never merge with pending/untriaged CodeRabbit/Gemini feedback.
 - Cron prompt updates require a pre-change snapshot and post-change `cronjob list` verification.
 - Long-lived recurring Screeps jobs should be configured as `forever` or with a very high repeat horizon. A finite `999` cap on critical recurring jobs is abnormal because it can silently stop automation after enough successful runs.
 - Repo/worktree-manipulating cron jobs must keep a stable current directory. Use `/root/screeps` as the default controller cwd, prefer `git -C <path>` or subshells over persistent `cd`, and return to `/root/screeps` before deleting any linked worktree. The 2026-05-05 continuation-worker incident was caused by a deleted `/root/screeps-worktrees/rl-dataset-gate-409` cwd blocking later terminal/file calls in the same cron run.
