@@ -13087,7 +13087,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
   });
 
-  it('repairs W3N9 active-decay ramparts before a near-term spawn completion reserve', () => {
+  it('repairs W3N9 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -13109,6 +13109,7 @@ describe('selectWorkerTask', () => {
       300_000_000,
       { my: true }
     );
+    const wall = makeStructure('wall-lower-ratio', 'constructedWall' as StructureConstant, 1, 300_000_000);
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_641, {
       my: true
     });
@@ -13118,7 +13119,7 @@ describe('selectWorkerTask', () => {
       energyAvailable: 550,
       energyCapacityAvailable: 550,
       myStructures: [busyFullSpawn as AnyOwnedStructure],
-      structures: [rampart, storage]
+      structures: [rampart, wall, storage]
     });
     const creep = {
       name: 'RclPushUpgrader',

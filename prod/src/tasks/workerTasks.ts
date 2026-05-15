@@ -1068,12 +1068,12 @@ function selectUncoveredRoutineRampartMaintenanceTask(
     return null;
   }
 
-  const barrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
-  if (!barrierMaintenanceTarget || !isRampartRepairTarget(barrierMaintenanceTarget)) {
+  const rampartMaintenanceTarget = selectRoutineRampartMaintenanceRepairTarget(creep);
+  if (!rampartMaintenanceTarget) {
     return null;
   }
 
-  return { type: 'repair', targetId: barrierMaintenanceTarget.id as Id<Structure> };
+  return { type: 'repair', targetId: rampartMaintenanceTarget.id as Id<Structure> };
 }
 
 function shouldYieldControllerSustainUpgradeToConstruction(
@@ -6195,6 +6195,10 @@ function selectRoutineBarrierMaintenanceRepairTarget(creep: Creep): StructureRam
   return getRoutineBarrierMaintenanceRepairTarget(creep.room);
 }
 
+function selectRoutineRampartMaintenanceRepairTarget(creep: Creep): StructureRampart | null {
+  return computeRoutineRampartMaintenanceRepairTarget(creep.room);
+}
+
 function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
   const gameTick = getGameTick();
   const roomName = getRoomName(room);
@@ -6226,11 +6230,7 @@ function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart 
 }
 
 function computeRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
-  if (
-    room.controller?.my !== true ||
-    hasVisibleHostilePresence(room) ||
-    !checkEnergyBufferForConstructionSpending(room)
-  ) {
+  if (!canSelectRoutineBarrierMaintenanceRepairTarget(room)) {
     return null;
   }
 
@@ -6240,6 +6240,27 @@ function computeRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRamp
   }
 
   return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function computeRoutineRampartMaintenanceRepairTarget(room: Room): StructureRampart | null {
+  if (!canSelectRoutineBarrierMaintenanceRepairTarget(room)) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(room).filter(isRoutineRampartMaintenanceRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function canSelectRoutineBarrierMaintenanceRepairTarget(room: Room): boolean {
+  return (
+    room.controller?.my === true &&
+    !hasVisibleHostilePresence(room) &&
+    checkEnergyBufferForConstructionSpending(room)
+  );
 }
 
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
@@ -6348,6 +6369,14 @@ function isRoutineBarrierMaintenanceRepairTarget(
   return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
 }
 
+function isRoutineRampartMaintenanceRepairTarget(structure: AnyStructure): structure is StructureRampart {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    isOwnedRampart(structure) &&
+    !isWorkerRepairTargetComplete(structure)
+  );
+}
+
 function isSafeRepairTargetForWorkerRoom(
   creep: Creep,
   structure: AnyStructure
@@ -6393,10 +6422,6 @@ function isBarrierRepairTarget(structure: AnyStructure): structure is StructureR
     (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) ||
     isWallRepairTarget(structure)
   );
-}
-
-function isRampartRepairTarget(structure: StructureRampart | StructureWall): structure is StructureRampart {
-  return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart');
 }
 
 function isRoadRepairTarget(structure: AnyStructure): structure is StructureRoad {
