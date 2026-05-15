@@ -10546,6 +10546,54 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('uses safe W3N9 construction energy below the bootstrap buffer margin', () => {
+    const site = withRangeTo(
+      { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
+      { spawn1: 1 }
+    );
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 323, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 323,
+      energyCapacityAvailable: 550,
+      structures: [spawn as AnyStructure]
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker', colony: 'W3N9' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const assessment = assessColonySurvival({
+      roomName: 'W3N9',
+      workerCapacity: 1,
+      workerTarget: 3,
+      hostileCreepCount: 0,
+      energyCapacityAvailable: 550,
+      controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
+    });
+    expect(assessment.mode).toBe('BOOTSTRAP');
+    recordColonySurvivalAssessment('W3N9', assessment, 966752);
+    setGameCreeps({ Builder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn1',
+      constructionSiteId: 'extension-site1'
+    });
+  });
+
   it('allows carried construction energy when room energy stays above the construction floor', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;

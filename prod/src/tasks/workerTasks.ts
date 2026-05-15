@@ -35,6 +35,7 @@ import {
   checkEnergyBufferForConstructionSpending,
   checkEnergyBufferForExtensionConstruction,
   getEffectiveRoomEnergyBufferThreshold,
+  getConstructionSpendingEnergyThreshold,
   getStorageEnergyAvailableForWithdrawal,
   getStorageEnergyReserveThreshold,
   hasMinimumWorkerSpawnEnergyForConstruction,
@@ -4315,7 +4316,7 @@ function getSpawnConstructionEnergyAvailableForWithdrawal(
   const constructionBudget = Math.max(
     0,
     roomEnergyAvailable -
-      getEffectiveRoomEnergyBufferThreshold(creep.room) -
+      getConstructionSpendingEnergyThreshold(creep.room) -
       reservationContext.constructionEnergyWithdrawn
   );
   return Math.min(projectedSourceEnergy, constructionBudget, spawnReservationBudget);
