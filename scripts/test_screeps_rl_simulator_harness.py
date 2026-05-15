@@ -1724,6 +1724,7 @@ cli:
             out_dir = root / "runtime-artifacts"
             failure_path = out_dir / "guard-reject" / "resource_guard_failure.json"
             failure_texts: list[str] = []
+            summary_text = ""
             with mock.patch("screeps_rl_simulator_harness.collect_resource_guard_host_snapshot", return_value=snapshot):
                 with mock.patch("screeps_rl_simulator_harness.cleanup_exact_run_worker_containers", return_value=cleanup):
                     with mock.patch("screeps_rl_simulator_harness.run_variants") as run_variants:
@@ -1739,11 +1740,18 @@ cli:
                                     map_source_file=root / "map.json",
                                 )
                             failure_texts.append(failure_path.read_text(encoding="utf-8"))
+                            summary_text = (out_dir / "guard-reject" / "run_summary.json").read_text(encoding="utf-8")
+                            self.assertFalse((out_dir / "guard-reject" / "run_failure.json").exists())
+                            self.assertFalse((out_dir / "guard-reject" / "setup_failure.json").exists())
 
         run_variants.assert_not_called()
         self.assertEqual(failure_texts[0], failure_texts[1])
         failure = json.loads(failure_texts[0])
+        summary = json.loads(summary_text)
+        self.assertEqual(failure["type"], harness.RUN_RESOURCE_GUARD_FAILURE_TYPE)
         self.assertFalse(failure["ok"])
+        self.assertEqual(summary["failurePhase"], "resource-guard")
+        self.assertEqual(summary["failureArtifactPath"], str(failure_path))
         self.assertEqual(failure["resourceGuard"]["decision"], "rejected")
         self.assertEqual(failure["resourceGuard"]["requestedWorkers"], 5)
         self.assertEqual(failure["resourceGuard"]["effectiveWorkers"], 5)
@@ -1759,6 +1767,62 @@ cli:
         self.assertFalse(two_variant_decision["ok"])
         self.assertEqual(two_variant_decision["effectiveWorkers"], 2)
         self.assertEqual(two_variant_decision["guardedWorkerEstimate"], 5)
+
+    def test_run_failure_artifacts_use_phase_specific_paths_and_types(self) -> None:
+        cleanup = {
+            "ok": True,
+            "runId": "non-guard-failure",
+            "targetNamePrefix": "rl-sim-worker-non-guard-failure-",
+            "matchedContainers": [],
+            "removedContainers": [],
+            "command": None,
+            "returncode": None,
+            "outputExcerpt": None,
+            "errors": [],
+        }
+        resource_guard = {
+            "type": "screeps-rl-simulator-resource-guard",
+            "schemaVersion": harness.SCHEMA_VERSION,
+            "ok": True,
+            "decision": "allowed",
+            "reasons": [],
+            "warnings": [],
+        }
+
+        cases = [
+            ("required-env", "setup-failure", "setup_failure.json", harness.RUN_SETUP_FAILURE_TYPE),
+            ("run-variants", "runtime-failure", "run_failure.json", harness.RUN_FAILURE_TYPE),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            out_dir = root / "runtime-artifacts"
+            for phase, run_id, filename, failure_type in cases:
+                artifact = harness.write_run_failure_artifacts(
+                    run_id=run_id,
+                    out_dir=out_dir,
+                    ticks=1,
+                    workers=1,
+                    variants=["baseline"],
+                    branch="activeWorld",
+                    room="E1S1",
+                    shard="shardX",
+                    code_path=root / "main.js",
+                    map_source_file=root / "map.json",
+                    bot_commit=harness.DEFAULT_BOT_COMMIT,
+                    phase=phase,
+                    error=f"{phase} failed",
+                    resource_guard=resource_guard,
+                    cleanup=cleanup,
+                )
+                failure_path = out_dir / run_id / filename
+                failure = read_json(failure_path)
+                summary = read_json(out_dir / run_id / "run_summary.json")
+
+                self.assertEqual(failure["type"], failure_type)
+                self.assertEqual(failure["phase"], phase)
+                self.assertEqual(artifact["failureArtifactPath"], str(failure_path))
+                self.assertEqual(summary["failureArtifactPath"], str(failure_path))
+                self.assertFalse((out_dir / run_id / "resource_guard_failure.json").exists())
 
     def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:
         snapshot = {
@@ -1808,6 +1872,7 @@ cli:
                 "rl-sim-worker-run-1-00-screeps-1",
                 "/rl-sim-worker-run-1-01-mongo-1",
                 "rl-sim-worker-run-10-00-screeps-1",
+                "rl-sim-worker-run-1-extra-00-screeps-1",
                 "rl-sim-worker-run-2-00-screeps-1",
                 "screeps-private-smoke-abcdef12-screeps-1",
             ],
@@ -1832,6 +1897,53 @@ cli:
                     "-f",
                     "rl-sim-worker-run-1-00-screeps-1",
                     "rl-sim-worker-run-1-01-mongo-1",
+                ]
+            ],
+        )
+
+    def test_exact_run_cleanup_preserves_trailing_underscore_before_worker_suffix(self) -> None:
+        commands: list[list[str]] = []
+
+        class Result:
+            returncode = 0
+            stdout = "removed\n"
+            stderr = ""
+
+        def fake_runner(command: list[str], **kwargs: object) -> Result:
+            _ = kwargs
+            commands.append(command)
+            return Result()
+
+        cleanup = harness.cleanup_exact_run_worker_containers(
+            "trial_",
+            container_names=[
+                "rl-sim-worker-trial_-00-screeps-1",
+                "/rl-sim-worker-trial_-01-mongo-1",
+                "rl-sim-worker-trial-00-screeps-1",
+                "rl-sim-worker-trial_-extra-00-screeps-1",
+            ],
+            docker_binary="/usr/bin/docker",
+            runner=fake_runner,
+        )
+
+        self.assertTrue(cleanup["ok"])
+        self.assertEqual(cleanup["targetNamePrefix"], "rl-sim-worker-trial_-")
+        self.assertEqual(
+            cleanup["matchedContainers"],
+            [
+                "rl-sim-worker-trial_-00-screeps-1",
+                "rl-sim-worker-trial_-01-mongo-1",
+            ],
+        )
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "/usr/bin/docker",
+                    "rm",
+                    "-f",
+                    "rl-sim-worker-trial_-00-screeps-1",
+                    "rl-sim-worker-trial_-01-mongo-1",
                 ]
             ],
         )

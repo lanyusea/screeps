@@ -92,6 +92,8 @@ RUN_RESOURCE_GUARD_ACTIVE_STACK_MEMORY_MIB = 1400
 RUN_RESOURCE_GUARD_NATIVE_BUILD_JOBS_PER_WORKER = 1
 RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER = 4
 RUN_RESOURCE_GUARD_FAILURE_TYPE = "screeps-rl-simulator-resource-guard-failure"
+RUN_SETUP_FAILURE_TYPE = "screeps-rl-simulator-setup-failure"
+RUN_FAILURE_TYPE = "screeps-rl-simulator-run-failure"
 RUN_DOCKER_CLEANUP_TIMEOUT_SECONDS = 90
 SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
 OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
@@ -413,16 +415,23 @@ def _effective_run_worker_count(workers: int, variants: Sequence[str]) -> int:
 
 
 def _run_worker_project_prefix(run_id: str) -> str:
-    return _safe_compose_project_name(f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}")
+    sentinel_worker_suffix = "-00"
+    sentinel_project = _safe_compose_project_name(
+        f"{RUN_WORKER_PREFIX}-{_safe_filename(run_id)}{sentinel_worker_suffix}"
+    )
+    if sentinel_project.endswith(sentinel_worker_suffix):
+        return sentinel_project[: -len(sentinel_worker_suffix)]
+    return sentinel_project
 
 
 def _matching_run_worker_container_names(run_id: str, container_names: Sequence[str]) -> list[str]:
     """Return only Docker container names owned by this simulator run id."""
     prefix = f"{_run_worker_project_prefix(run_id)}-"
+    worker_container_pattern = re.compile(rf"^{re.escape(prefix)}\d{{2,}}-")
     matches = []
     for raw_name in container_names:
         name = raw_name.lstrip("/")
-        if name.startswith(prefix):
+        if worker_container_pattern.match(name):
             matches.append(name)
     return sorted(set(matches))
 
@@ -3740,6 +3749,14 @@ def _build_run_failure_variant_results(
     return results
 
 
+def _run_failure_artifact_identity(phase: str) -> tuple[str, str]:
+    if phase == "resource-guard":
+        return RUN_RESOURCE_GUARD_FAILURE_TYPE, "resource_guard_failure.json"
+    if phase == "required-env":
+        return RUN_SETUP_FAILURE_TYPE, "setup_failure.json"
+    return RUN_FAILURE_TYPE, "run_failure.json"
+
+
 def write_run_failure_artifacts(
     *,
     run_id: str,
@@ -3775,7 +3792,8 @@ def write_run_failure_artifacts(
     run_dir = out_dir / run_id
     run_artifact_path = run_dir / "run_summary.json"
     scorecard_path = run_dir / "owned_room_scorecard.json"
-    failure_path = run_dir / "resource_guard_failure.json"
+    failure_type, failure_filename = _run_failure_artifact_identity(phase)
+    failure_path = run_dir / failure_filename
     artifact = build_run_artifact(
         run_id,
         ticks=ticks,
@@ -3796,7 +3814,7 @@ def write_run_failure_artifacts(
     secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
     assert_no_secret_leak(artifact, secret_values)
     report = {
-        "type": RUN_RESOURCE_GUARD_FAILURE_TYPE,
+        "type": failure_type,
         "schemaVersion": SCHEMA_VERSION,
         "ok": False,
         "runId": run_id,
