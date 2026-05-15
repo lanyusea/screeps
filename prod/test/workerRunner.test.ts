@@ -173,6 +173,64 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts an assigned controller sign for emergency harvest during low-energy buildout', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(190), getFreeCapacity: jest.fn().mockReturnValue(110) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const room = {
+      name: 'W3N9',
+      energyAvailable: 290,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W3N9', task: { type: 'signController', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.signController).not.toHaveBeenCalled();
+  });
+
   it('does not assign owned controller signing while hostiles are visible', () => {
     const controller = {
       id: 'controller1',

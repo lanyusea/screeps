@@ -22726,6 +22726,7 @@ var LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
 var BUILDER_STORAGE_WITHDRAW_MIN = 100;
 var BUILDER_DROPPED_PICKUP_RANGE = 5;
 var DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
+var LOW_WORKER_THROUGHPUT_WORKER_COUNT = 3;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -23206,7 +23207,14 @@ function selectMinimumHarvesterAllocationTask(creep) {
   if (!shouldGuaranteeMinimumHarvesterAllocation(creep)) {
     return null;
   }
-  return selectWorkerHarvestTask(creep, { allowPreHarvest: false, assignSourceContainer: true });
+  const assignedHarvestTask = selectWorkerHarvestTask(creep, { allowPreHarvest: false, assignSourceContainer: true });
+  if (assignedHarvestTask) {
+    return assignedHarvestTask;
+  }
+  if (!shouldForceGenericHarvestForThroughputRecovery(creep)) {
+    return null;
+  }
+  return selectWorkerHarvestTask(creep, { allowPreHarvest: false, ignoreHarvestAssignments: true });
 }
 function shouldGuaranteeMinimumHarvesterAllocation(creep) {
   var _a;
@@ -23214,14 +23222,19 @@ function shouldGuaranteeMinimumHarvesterAllocation(creep) {
     return false;
   }
   const roomCreeps = getSameRoomCreepsIncludingCurrent(creep);
-  if (roomCreeps.some(isAssignedHarvestCreep)) {
-    return false;
-  }
   const workerCreeps = roomCreeps.filter(isWorkerCreep);
   const hasSpawnExtensionEnergyDeficit = hasRoomSpawnExtensionEnergyDeficit(creep.room);
+  const hasWorkerHarvestCoverage = workerCreeps.some(isAssignedHarvestCreep);
+  const hasDedicatedHarvestCoverage = roomCreeps.some(isDedicatedHarvestCreep);
+  if (hasWorkerHarvestCoverage || hasDedicatedHarvestCoverage && !hasSpawnExtensionEnergyDeficit) {
+    return false;
+  }
   const hasBuildDeadlockSignal = workerCreeps.length > 1 && roomCreeps.some(isZeroEnergyBuildWorker) || workerCreeps.length > 1 && workerCreeps.every(isBuildAssignedWorker);
   const hasGenericDeadlockSignal = workerCreeps.length > 1 && workerCreeps.every(isAssignedNonHarvestWorker) || hasSpawnExtensionEnergyDeficit && workerCreeps.some(isAssignedNonHarvestWorker);
   return hasBuildDeadlockSignal || hasGenericDeadlockSignal || isBuildAssignedWorker(creep) && hasSpawnExtensionEnergyDeficit;
+}
+function shouldForceGenericHarvestForThroughputRecovery(creep) {
+  return hasLowWorkerThroughputRecoveryPressure(creep) && !getSameRoomCreepsIncludingCurrent(creep).filter(isWorkerCreep).some(isAssignedHarvestCreep);
 }
 function getSameRoomCreepsIncludingCurrent(creep) {
   const roomCreeps = getGameCreeps().filter((candidate) => isInRoom(candidate, creep.room));
@@ -23236,9 +23249,13 @@ function hasRoomSpawnExtensionEnergyDeficit(room) {
   return energyAvailable !== null && energyCapacityAvailable !== null && Math.max(0, energyAvailable) < Math.max(0, energyCapacityAvailable);
 }
 function isAssignedHarvestCreep(creep) {
-  var _a, _b, _c;
+  var _a;
   const task = (_a = creep.memory) == null ? void 0 : _a.task;
-  return (task == null ? void 0 : task.type) === "harvest" || ((_b = creep.memory) == null ? void 0 : _b.role) === SOURCE_HARVESTER_ROLE && typeof ((_c = creep.memory.sourceHarvester) == null ? void 0 : _c.sourceId) === "string";
+  return (task == null ? void 0 : task.type) === "harvest";
+}
+function isDedicatedHarvestCreep(creep) {
+  var _a, _b;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === SOURCE_HARVESTER_ROLE && typeof ((_b = creep.memory.sourceHarvester) == null ? void 0 : _b.sourceId) === "string";
 }
 function isWorkerCreep(creep) {
   var _a;
@@ -23425,6 +23442,14 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
   if (criticalRoadConstructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: criticalRoadConstructionSite.id });
   }
+  const throughputRecoveryConstructionSite = selectLowWorkerThroughputRecoveryConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (throughputRecoveryConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: throughputRecoveryConstructionSite.id });
+  }
   return null;
 }
 function selectBootstrapSurvivalConstructionSite(creep, constructionSites, constructionReservationContext) {
@@ -23453,6 +23478,38 @@ function hasOtherSameRoomLoadedBuildWorker(creep) {
       return !isSameCreep(worker, creep) && isSameRoomWorker(worker, creep.room) && ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === "build" && getUsedEnergy2(worker) > 0;
     }
   );
+}
+function selectLowWorkerThroughputRecoveryConstructionSite(creep, constructionSites, constructionReservationContext) {
+  if (!hasLowWorkerThroughputRecoveryPressure(creep) || hasOtherSameRoomLoadedBuildWorker(creep)) {
+    return null;
+  }
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    () => true,
+    { priorityContext }
+  );
+}
+function hasLowWorkerThroughputRecoveryPressure(creep) {
+  var _a;
+  const room = creep.room;
+  const controller = room.controller;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker" || (controller == null ? void 0 : controller.my) !== true || getControllerLevel(controller) > 2 || shouldGuardControllerDowngrade2(controller) || hasVisibleHostilePresence2(room)) {
+    return false;
+  }
+  const energyAvailable = getRoomEnergyAvailable9(room);
+  if (energyAvailable === null || energyAvailable < MINIMUM_WORKER_SPAWN_ENERGY || energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room)) {
+    return false;
+  }
+  if (!hasVisibleOwnedConstructionDemand(room)) {
+    return false;
+  }
+  return getSameRoomCreepsIncludingCurrent(creep).filter(isWorkerCreep).length <= LOW_WORKER_THROUGHPUT_WORKER_COUNT;
+}
+function getControllerLevel(controller) {
+  return typeof controller.level === "number" && Number.isFinite(controller.level) ? Math.max(0, Math.floor(controller.level)) : 0;
 }
 function shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed) {
   return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
@@ -24637,7 +24694,10 @@ function canSpendWorkerEnergyOnConstructionSite(creep, site) {
 }
 function canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) {
   const carriedEnergy = getUsedEnergy2(creep);
-  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+  return carriedEnergy > 0 && isMissingSpawnRecoveryConstructionSite(creep.room, site) || carriedEnergy > 0 && checkEnergyBufferForConstructionSpending(creep.room) || carriedEnergy > 0 && isExtensionConstructionSite(site) && checkEnergyBufferForExtensionConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && !isExtensionConstructionSite(site) && isCapacityEnablingConstructionSite(site, priorityContext) && checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy) || carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) || carriedEnergy > 0 && hasMinimumWorkerSpawnEnergyForConstruction(creep.room) && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext);
+}
+function isLowWorkerThroughputRecoveryConstructionAllowed(creep, site) {
+  return site.my !== false && hasLowWorkerThroughputRecoveryPressure(creep);
 }
 function isMissingSpawnRecoveryConstructionSite(room, site) {
   return isSpawnConstructionSite(site) && getOwnedSpawnCount(room) === 0;
@@ -27403,7 +27463,7 @@ function selectBestHarvestSource(creep, sources, options = {}) {
   const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectReachableHarvestSources(
     creep,
-    selectAssignableHarvestSources(creep, viableSources, assignmentLoads)
+    selectAssignableHarvestSources(creep, viableSources, assignmentLoads, options)
   );
   if (assignableSources.length === 0) {
     return null;
@@ -27419,9 +27479,9 @@ function selectBestHarvestSource(creep, sources, options = {}) {
   }
   return selectedLoad.source;
 }
-function selectAssignableHarvestSources(creep, sources, assignmentLoads) {
+function selectAssignableHarvestSources(creep, sources, assignmentLoads, options = {}) {
   return sources.filter(
-    (source) => isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
+    (source) => isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source), options)
   );
 }
 function selectReachableHarvestSources(creep, sources) {
@@ -27430,7 +27490,10 @@ function selectReachableHarvestSources(creep, sources) {
   }
   return sources.filter((source) => getHarvestSourceTravelCost(creep, source) !== null);
 }
-function isAssignableHarvestSource(creep, source, assignmentLoad) {
+function isAssignableHarvestSource(creep, source, assignmentLoad, options = {}) {
+  if (options.ignoreHarvestAssignments === true) {
+    return true;
+  }
   if (isWorkerPreHarvestSource(source)) {
     if (isWorkerAssignedToHarvestSource(creep, source)) {
       return true;
@@ -28276,6 +28339,8 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForControllerSigning(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
@@ -28870,6 +28935,12 @@ function shouldPreemptForVisibleTerritoryControllerTask(task, selectedTask) {
 }
 function shouldPreemptForControllerSigning(creep, task, selectedTask) {
   return (selectedTask == null ? void 0 : selectedTask.type) === "signController" && !isSameTask2(task, selectedTask) && task.type === "upgrade" && isOwnedControllerUpgradeTask(creep, task);
+}
+function shouldPreemptControllerSigningForRecovery(task, selectedTask) {
+  return task.type === "signController" && isWorkerRecoveryTask(selectedTask);
+}
+function isWorkerRecoveryTask(task) {
+  return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw" || (task == null ? void 0 : task.type) === "transfer" || (task == null ? void 0 : task.type) === "build" || (task == null ? void 0 : task.type) === "repair";
 }
 function shouldPreemptSpendingTaskForEnergySink(task, selectedTask) {
   if (!isEnergySpendingTask(task)) {
@@ -31121,7 +31192,7 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
   if (!hasStorageSurplus && !postClaimProgression) {
     return null;
   }
-  const controllerLevel = getControllerLevel(controller);
+  const controllerLevel = getControllerLevel2(controller);
   const desiredControllerLevel = (_a = postClaimProgression == null ? void 0 : postClaimProgression.desiredControllerLevel) != null ? _a : MAX_CONTROLLER_LEVEL4;
   if (controllerLevel >= desiredControllerLevel) {
     return null;
@@ -31155,7 +31226,7 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgra
   };
 }
 function getEligibleControllerState(controller) {
-  return controller.my === true && getControllerLevel(controller) < MAX_CONTROLLER_LEVEL4 ? "owned" : null;
+  return controller.my === true && getControllerLevel2(controller) < MAX_CONTROLLER_LEVEL4 ? "owned" : null;
 }
 function getPostClaimControllerUpgradeProgression(homeRoom, targetRoom, controller) {
   var _a, _b, _c;
@@ -31164,7 +31235,7 @@ function getPostClaimControllerUpgradeProgression(homeRoom, targetRoom, controll
     return null;
   }
   const desiredControllerLevel = POST_CLAIM_CONTROLLER_UPGRADE_DESIRED_RCL;
-  return getControllerLevel(controller) < desiredControllerLevel ? { desiredControllerLevel } : null;
+  return getControllerLevel2(controller) < desiredControllerLevel ? { desiredControllerLevel } : null;
 }
 function isPostClaimControllerUpgradeRecord(record, homeRoom, targetRoom) {
   return isRecord25(record) && record.colony === homeRoom && record.roomName === targetRoom && isPostClaimControllerUpgradeStatus(record.status);
@@ -31323,7 +31394,7 @@ function getActiveMultiRoomUpgraderCountCache() {
 function isActiveMultiRoomUpgrader(creep) {
   return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
 }
-function getControllerLevel(controller) {
+function getControllerLevel2(controller) {
   return typeof controller.level === "number" && Number.isFinite(controller.level) ? controller.level : MAX_CONTROLLER_LEVEL4;
 }
 function getControllerTicksToDowngradePlanField(controller) {
@@ -31505,7 +31576,7 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
     };
   }
   const controllerId = controller.id;
-  const controllerLevel = getControllerLevel2(controller);
+  const controllerLevel = getControllerLevel3(controller);
   const desiredControllerLevel = normalizeDesiredControllerLevel(options.desiredControllerLevel);
   const activeUpgraderCount = (_a = options.activeUpgraderCount) != null ? _a : Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
   const competingSpawnDemand = (_b = options.competingSpawnDemand) != null ? _b : getWorkerCapacity(roleCounts) < workerTarget;
@@ -31689,7 +31760,7 @@ function getControllerProgressFields(controller) {
     progressRatio: normalizedProgress / progressTotal
   };
 }
-function getControllerLevel2(controller) {
+function getControllerLevel3(controller) {
   return typeof controller.level === "number" && Number.isFinite(controller.level) ? Math.max(0, Math.min(MAX_CONTROLLER_LEVEL5, Math.floor(controller.level))) : 0;
 }
 function normalizeDesiredControllerLevel(value) {
@@ -31863,7 +31934,7 @@ function getRoomCreepBudget(colony, roleCounts) {
   return {
     roomName: colony.room.name,
     constructionSiteCount: getVisibleConstructionSiteCount(colony.room),
-    controllerLevel: getControllerLevel3(colony.room.controller),
+    controllerLevel: getControllerLevel4(colony.room.controller),
     energyAvailable: normalizeNonNegativeInteger13(colony.energyAvailable),
     energyCapacityAvailable: normalizeNonNegativeInteger13(colony.energyCapacityAvailable),
     effectiveEnergyAvailable: forecast.effectiveEnergyAvailable,
@@ -33043,7 +33114,7 @@ function getEnergyGateRank(gate) {
       return 3;
   }
 }
-function getControllerLevel3(controller) {
+function getControllerLevel4(controller) {
   return typeof (controller == null ? void 0 : controller.level) === "number" ? controller.level : MAX_CONTROLLER_LEVEL6;
 }
 function getStorageBalanceMemory() {
@@ -43335,10 +43406,23 @@ function planSpawnWithEnergyBudget(colony, sourceColony, energyBudget, usedSpawn
   };
 }
 function shouldBypassSpawnEnergyBuffer(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) {
-  return roleCounts.worker === 0 || isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) || isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) || isTerritoryControllerSpawnRequest(spawnRequest);
+  return roleCounts.worker === 0 || isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) || isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) || isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) || isTerritoryControllerSpawnRequest(spawnRequest);
 }
 function isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) {
   return spawnRequest.memory.role === "worker" && survivalAssessment.mode === "BOOTSTRAP" && (roleCounts.worker < survivalAssessment.survivalWorkerFloor || availableEnergy >= BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY);
+}
+function isLocalWorkerRecoverySpawnRequest(spawnRequest, availableEnergy, bodyCost, survivalAssessment) {
+  return spawnRequest.memory.role === "worker" && survivalAssessment.mode !== "DEFENSE" && !survivalAssessment.hostilePresence && !survivalAssessment.controllerDowngradeGuard && isEarlyRclWorkerRecoveryRoom(spawnRequest.spawn.room) && survivalAssessment.workerCapacity < survivalAssessment.workerTarget && isRoomCurrentlyBelowSpawnEnergyBuffer(spawnRequest.spawn) && availableEnergy >= bodyCost;
+}
+function isEarlyRclWorkerRecoveryRoom(room) {
+  var _a;
+  const controllerLevel = normalizeOptionalNonNegativeInteger3((_a = room.controller) == null ? void 0 : _a.level);
+  return controllerLevel !== void 0 && controllerLevel <= 2;
+}
+function isRoomCurrentlyBelowSpawnEnergyBuffer(spawn) {
+  var _a;
+  const currentRoomEnergy = normalizeOptionalNonNegativeInteger3((_a = spawn.room) == null ? void 0 : _a.energyAvailable);
+  return currentRoomEnergy !== void 0 && currentRoomEnergy < getSpawnEnergyBufferRequirement(spawn.room, [spawn]);
 }
 function isTerritoryControllerSpawnRequest(spawnRequest) {
   return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE || spawnRequest.memory.role === TERRITORY_SCOUT_ROLE;

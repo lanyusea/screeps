@@ -106,6 +106,8 @@ export function runWorker(creep: Creep): void {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForControllerSigning(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
@@ -964,6 +966,26 @@ function shouldPreemptForControllerSigning(
     !isSameTask(task, selectedTask) &&
     task.type === 'upgrade' &&
     isOwnedControllerUpgradeTask(creep, task)
+  );
+}
+
+function shouldPreemptControllerSigningForRecovery(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return task.type === 'signController' && isWorkerRecoveryTask(selectedTask);
+}
+
+function isWorkerRecoveryTask(
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' | 'transfer' | 'build' | 'repair' }> {
+  return (
+    task?.type === 'harvest' ||
+    task?.type === 'pickup' ||
+    task?.type === 'withdraw' ||
+    task?.type === 'transfer' ||
+    task?.type === 'build' ||
+    task?.type === 'repair'
   );
 }
 

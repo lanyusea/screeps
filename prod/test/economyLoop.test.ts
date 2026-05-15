@@ -157,6 +157,99 @@ describe('runEconomy', () => {
     );
   });
 
+  it('spawns a local recovery worker below the spawn buffer when W3N9 has three workers and build backlog', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_STRUCTURES: number;
+      FIND_STRUCTURES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_SPAWN: StructureConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 4;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const sourceA = { id: 'sourceA', energy: 300, pos: { x: 10, y: 10, roomName: 'W3N9' } } as Source;
+    const sourceB = { id: 'sourceB', energy: 300, pos: { x: 40, y: 40, roomName: 'W3N9' } } as Source;
+    const sites = Array.from({ length: 7 }, (_, index) => ({ id: `site${index}`, my: true }) as ConstructionSite);
+    const room = {
+      name: 'W3N9',
+      energyAvailable: 290,
+      energyCapacityAvailable: 550,
+      controller: { id: 'controller1', my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [sourceA, sourceB];
+        }
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+          return sites;
+        }
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(190),
+        getFreeCapacity: jest.fn().mockReturnValue(110)
+      },
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const makeWorker = (name: string, energy: number, task?: CreepTaskMemory): Creep => ({
+      name,
+      memory: { role: 'worker', colony: 'W3N9', ...(task ? { task } : {}) },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(energy),
+        getFreeCapacity: jest.fn().mockReturnValue(energy > 0 ? 0 : 50)
+      },
+      room,
+      pos: { getRangeTo: jest.fn().mockReturnValue(5) },
+      harvest: jest.fn().mockReturnValue(OK_CODE),
+      transfer: jest.fn().mockReturnValue(OK_CODE),
+      upgradeController: jest.fn().mockReturnValue(OK_CODE),
+      moveTo: jest.fn()
+    }) as unknown as Creep;
+    const workerA = makeWorker('WorkerA', 50, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> });
+    const workerB = makeWorker('WorkerB', 50, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> });
+    const workerC = makeWorker('WorkerC', 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 140,
+      rooms: { W3N9: room },
+      spawns: { Spawn1: spawn },
+      creeps: { WorkerA: workerA, WorkerB: workerB, WorkerC: workerC },
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'spawn1') {
+          return spawn;
+        }
+        if (id === 'sourceA') {
+          return sourceA;
+        }
+        return room.controller ?? null;
+      })
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W3N9-140', {
+      memory: { role: 'worker', colony: 'W3N9' }
+    });
+  });
+
   it('spawns an emergency bootstrap worker when the energy buffer is satisfied', () => {
     const room = {
       name: 'W1N1',
