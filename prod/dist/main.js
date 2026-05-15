@@ -22810,6 +22810,7 @@ var nearTermSpawnExtensionRefillReserveCache = null;
 var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
 var gameCreepsCache = null;
+var routineBarrierMaintenanceRepairTargetCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
   const heuristicTask = selectHeuristicWorkerTask(creep);
@@ -23149,6 +23150,13 @@ function selectHeuristicWorkerTask(creep) {
   );
   if (constructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id });
+  }
+  const routineBarrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  if (routineBarrierMaintenanceTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: routineBarrierMaintenanceTarget.id
+    });
   }
   const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) : null;
   if (source2ControllerLaneLoadedTask) {
@@ -26563,6 +26571,42 @@ function selectThreatenedBarrierRepairTarget(creep) {
   }
   return repairTargets.sort(compareRepairTargets)[0];
 }
+function selectRoutineBarrierMaintenanceRepairTarget(creep) {
+  return getRoutineBarrierMaintenanceRepairTarget(creep.room);
+}
+function getRoutineBarrierMaintenanceRepairTarget(room) {
+  const gameTick = getGameTick3();
+  const roomName = getRoomName6(room);
+  if (gameTick === null || roomName === null) {
+    return computeRoutineBarrierMaintenanceRepairTarget(room);
+  }
+  const game = getGameReference();
+  if (!routineBarrierMaintenanceRepairTargetCache || routineBarrierMaintenanceRepairTargetCache.tick !== gameTick || routineBarrierMaintenanceRepairTargetCache.game !== game) {
+    routineBarrierMaintenanceRepairTargetCache = {
+      game,
+      roomsByName: /* @__PURE__ */ new Map(),
+      tick: gameTick
+    };
+  }
+  const cachedEntry = routineBarrierMaintenanceRepairTargetCache.roomsByName.get(roomName);
+  if ((cachedEntry == null ? void 0 : cachedEntry.room) === room) {
+    return cachedEntry.target;
+  }
+  const target = computeRoutineBarrierMaintenanceRepairTarget(room);
+  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, target });
+  return target;
+}
+function computeRoutineBarrierMaintenanceRepairTarget(room) {
+  var _a;
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true || hasVisibleHostilePresence2(room) || !checkEnergyBufferForConstructionSpending(room)) {
+    return null;
+  }
+  const repairTargets = findVisibleRoomStructures(room).filter(isRoutineBarrierMaintenanceRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+  return repairTargets.sort(compareRepairTargets)[0];
+}
 function selectCriticalInfrastructureRepairTarget(creep) {
   var _a;
   const visibleStructures = findVisibleRoomStructures(creep.room);
@@ -26631,6 +26675,9 @@ function isSafeRepairTarget(structure) {
   return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
 function isThreatenedBarrierRepairTarget(structure) {
+  return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
+}
+function isRoutineBarrierMaintenanceRepairTarget(structure) {
   return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
 }
 function isSafeRepairTargetForWorkerRoom(creep, structure) {
@@ -26898,7 +26945,7 @@ function hasNonControllerWorkerEnergyDemand(creep) {
   if (constructionSites.length > 0) {
     return true;
   }
-  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null;
+  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
 }
 function isControllerUpgradeSaturated(creep, controller) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {

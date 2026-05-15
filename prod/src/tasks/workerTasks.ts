@@ -234,6 +234,17 @@ interface GameCreepsCache {
   tick: number | null;
 }
 
+interface RoutineBarrierMaintenanceRepairTargetCacheEntry {
+  room: Room;
+  target: StructureRampart | StructureWall | null;
+}
+
+interface RoutineBarrierMaintenanceRepairTargetCache {
+  game: Partial<Game> | undefined;
+  roomsByName: Map<string, RoutineBarrierMaintenanceRepairTargetCacheEntry>;
+  tick: number;
+}
+
 interface ConstructionSiteSelectionOptions {
   priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
   requireReasonableRange?: boolean;
@@ -281,6 +292,7 @@ let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserv
 let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
 let gameCreepsCache: GameCreepsCache | null = null;
+let routineBarrierMaintenanceRepairTargetCache: RoutineBarrierMaintenanceRepairTargetCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
@@ -693,6 +705,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   );
   if (constructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id });
+  }
+
+  const routineBarrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  if (routineBarrierMaintenanceTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: routineBarrierMaintenanceTarget.id as Id<Structure>
+    });
   }
 
   const source2ControllerLaneLoadedTask = controller
@@ -6119,6 +6139,57 @@ function selectThreatenedBarrierRepairTarget(creep: Creep): StructureRampart | S
   return repairTargets.sort(compareRepairTargets)[0];
 }
 
+function selectRoutineBarrierMaintenanceRepairTarget(creep: Creep): StructureRampart | StructureWall | null {
+  return getRoutineBarrierMaintenanceRepairTarget(creep.room);
+}
+
+function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+  const gameTick = getGameTick();
+  const roomName = getRoomName(room);
+  if (gameTick === null || roomName === null) {
+    return computeRoutineBarrierMaintenanceRepairTarget(room);
+  }
+
+  const game = getGameReference();
+  if (
+    !routineBarrierMaintenanceRepairTargetCache ||
+    routineBarrierMaintenanceRepairTargetCache.tick !== gameTick ||
+    routineBarrierMaintenanceRepairTargetCache.game !== game
+  ) {
+    routineBarrierMaintenanceRepairTargetCache = {
+      game,
+      roomsByName: new Map<string, RoutineBarrierMaintenanceRepairTargetCacheEntry>(),
+      tick: gameTick
+    };
+  }
+
+  const cachedEntry = routineBarrierMaintenanceRepairTargetCache.roomsByName.get(roomName);
+  if (cachedEntry?.room === room) {
+    return cachedEntry.target;
+  }
+
+  const target = computeRoutineBarrierMaintenanceRepairTarget(room);
+  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, target });
+  return target;
+}
+
+function computeRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+  if (
+    room.controller?.my !== true ||
+    hasVisibleHostilePresence(room) ||
+    !checkEnergyBufferForConstructionSpending(room)
+  ) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(room).filter(isRoutineBarrierMaintenanceRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
   const visibleStructures = findVisibleRoomStructures(creep.room);
   const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep, visibleStructures);
@@ -6214,6 +6285,12 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
 }
 
 function isThreatenedBarrierRepairTarget(
+  structure: AnyStructure
+): structure is StructureRampart | StructureWall {
+  return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
+}
+
+function isRoutineBarrierMaintenanceRepairTarget(
   structure: AnyStructure
 ): structure is StructureRampart | StructureWall {
   return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
@@ -6644,7 +6721,11 @@ function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
     return true;
   }
 
-  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null;
+  return (
+    selectCriticalInfrastructureRepairTarget(creep) !== null ||
+    selectRepairTarget(creep) !== null ||
+    selectRoutineBarrierMaintenanceRepairTarget(creep) !== null
+  );
 }
 
 function isControllerUpgradeSaturated(creep: Creep, controller: StructureController): boolean {
