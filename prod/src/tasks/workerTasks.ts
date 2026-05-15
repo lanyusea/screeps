@@ -662,6 +662,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const uncoveredRoutineRampartMaintenanceTask = selectUncoveredRoutineRampartMaintenanceTask(
+    creep,
+    constructionSites
+  );
+  if (uncoveredRoutineRampartMaintenanceTask) {
+    return applyMinimumUsefulLoadPolicy(creep, uncoveredRoutineRampartMaintenanceTask);
+  }
+
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
@@ -1050,6 +1058,22 @@ function selectControllerSustainBarrierMaintenanceTask(
   return barrierMaintenanceTarget
     ? { type: 'repair', targetId: barrierMaintenanceTarget.id as Id<Structure> }
     : null;
+}
+
+function selectUncoveredRoutineRampartMaintenanceTask(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): Extract<CreepTaskMemory, { type: 'repair' }> | null {
+  if (constructionSites.length > 0 || hasSameRoomWorkerAssignedToTask(creep.room, creep, 'repair')) {
+    return null;
+  }
+
+  const barrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  if (!barrierMaintenanceTarget || !isRampartRepairTarget(barrierMaintenanceTarget)) {
+    return null;
+  }
+
+  return { type: 'repair', targetId: barrierMaintenanceTarget.id as Id<Structure> };
 }
 
 function shouldYieldControllerSustainUpgradeToConstruction(
@@ -6369,6 +6393,10 @@ function isBarrierRepairTarget(structure: AnyStructure): structure is StructureR
     (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) ||
     isWallRepairTarget(structure)
   );
+}
+
+function isRampartRepairTarget(structure: StructureRampart | StructureWall): structure is StructureRampart {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart');
 }
 
 function isRoadRepairTarget(structure: AnyStructure): structure is StructureRoad {
