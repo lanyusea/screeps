@@ -1880,11 +1880,6 @@ function recordTaskBehavior(
 
 function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: RoomObject): void {
   const range = getAssignedTaskMoveRange(task);
-  if (range === ADJACENT_ACTION_MOVE_RANGE) {
-    creep.moveTo(target);
-    return;
-  }
-
   creep.moveTo(target, { range });
 }
 

@@ -29640,10 +29640,6 @@ function recordTaskBehavior(creep, task, execution) {
 }
 function moveToAssignedTaskTarget(creep, task, target) {
   const range = getAssignedTaskMoveRange(task);
-  if (range === ADJACENT_ACTION_MOVE_RANGE) {
-    creep.moveTo(target);
-    return;
-  }
   creep.moveTo(target, { range });
 }
 function getAssignedTaskMoveRange(task) {
