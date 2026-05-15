@@ -774,6 +774,92 @@ function getGameTime() {
   return (_a = game == null ? void 0 : game.time) != null ? _a : 0;
 }
 
+// src/config/runtimeRooms.ts
+function getRuntimeCurrentRoomName() {
+  const configured = getConfiguredRuntimeCurrentRoomName();
+  if (configured) {
+    return configured;
+  }
+  return getRuntimeOwnedRoomNames()[0];
+}
+function getRuntimeOwnedRoomNames() {
+  return getSortedUniqueRoomNames([
+    ...getConfiguredRuntimeOwnedRoomNames(),
+    ...getLiveOwnedRoomNames()
+  ]);
+}
+function refreshRuntimeRoomMemory() {
+  var _a, _b;
+  const memory = globalThis.Memory;
+  if (!memory) {
+    return;
+  }
+  const configuredOwnedRoomNames = getConfiguredRuntimeOwnedRoomNames();
+  const liveOwnedRoomNames = getLiveOwnedRoomNames();
+  const ownedRoomNames = getSortedUniqueRoomNames([
+    ...configuredOwnedRoomNames,
+    ...liveOwnedRoomNames
+  ]);
+  const configuredCurrentRoomName = getConfiguredRuntimeCurrentRoomName();
+  if (!memory.runtime && !configuredCurrentRoomName && ownedRoomNames.length === 0) {
+    return;
+  }
+  const runtime = (_a = memory.runtime) != null ? _a : {};
+  memory.runtime = runtime;
+  if (ownedRoomNames.length > 0) {
+    runtime.ownedRoomNames = ownedRoomNames;
+  }
+  if (configuredCurrentRoomName && (ownedRoomNames.length === 0 || ownedRoomNames.includes(configuredCurrentRoomName))) {
+    runtime.currentRoomName = configuredCurrentRoomName;
+    return;
+  }
+  const derivedCurrentRoomName = (_b = liveOwnedRoomNames[0]) != null ? _b : ownedRoomNames[0];
+  if (derivedCurrentRoomName) {
+    runtime.currentRoomName = derivedCurrentRoomName;
+  }
+}
+function getLiveOwnedRoomNames() {
+  var _a, _b, _c;
+  const roomNames = /* @__PURE__ */ new Set();
+  const game = globalThis.Game;
+  for (const room of Object.values((_a = game == null ? void 0 : game.rooms) != null ? _a : {})) {
+    if (isVisibleOwnedRoom(room)) {
+      roomNames.add(room.name);
+    }
+  }
+  for (const spawn of Object.values((_b = game == null ? void 0 : game.spawns) != null ? _b : {})) {
+    const roomName = (_c = spawn == null ? void 0 : spawn.room) == null ? void 0 : _c.name;
+    if (isNonEmptyString2(roomName) && isOwnedSpawn(spawn)) {
+      roomNames.add(roomName);
+    }
+  }
+  return [...roomNames].sort();
+}
+function getSortedUniqueRoomNames(roomNames) {
+  return [...new Set(roomNames.filter(isNonEmptyString2))].sort();
+}
+function getConfiguredRuntimeCurrentRoomName() {
+  var _a, _b;
+  const roomName = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.runtime) == null ? void 0 : _b.currentRoomName;
+  return isNonEmptyString2(roomName) ? roomName : void 0;
+}
+function getConfiguredRuntimeOwnedRoomNames() {
+  var _a, _b;
+  const roomNames = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.runtime) == null ? void 0 : _b.ownedRoomNames;
+  return Array.isArray(roomNames) ? roomNames.filter(isNonEmptyString2) : [];
+}
+function isVisibleOwnedRoom(room) {
+  var _a;
+  return ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && isNonEmptyString2(room.name);
+}
+function isOwnedSpawn(spawn) {
+  var _a, _b;
+  return (spawn == null ? void 0 : spawn.my) === true || ((_b = (_a = spawn == null ? void 0 : spawn.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true;
+}
+function isNonEmptyString2(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
 // src/memory/schema.ts
 var MEMORY_SCHEMA_VERSION = 1;
 function initializeMemory() {
@@ -783,6 +869,7 @@ function initializeMemory() {
   if (!Memory.creeps) {
     Memory.creeps = {};
   }
+  refreshRuntimeRoomMemory();
 }
 function cleanupDeadCreepMemory() {
   for (const creepName of Object.keys(Memory.creeps || {})) {
@@ -803,7 +890,7 @@ function getOwnedColonies() {
   }
   for (const spawn of Object.values(Game.spawns)) {
     const room = spawn.room;
-    if (room && isOwnedSpawn(spawn) && !ownedRoomsByName.has(room.name)) {
+    if (room && isOwnedSpawn2(spawn) && !ownedRoomsByName.has(room.name)) {
       ownedRoomsByName.set(room.name, room);
     }
   }
@@ -822,7 +909,7 @@ function buildColonySnapshot(room) {
     )
   };
 }
-function isOwnedSpawn(spawn) {
+function isOwnedSpawn2(spawn) {
   var _a, _b;
   return spawn.my === true || ((_b = (_a = spawn.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true;
 }
@@ -1775,9 +1862,9 @@ function runSafeModeWithResult(room) {
   };
 }
 function getOwnedSpawns(room) {
-  return findOwnedStructures(room).filter(isOwnedSpawn2);
+  return findOwnedStructures(room).filter(isOwnedSpawn3);
 }
-function isOwnedSpawn2(structure) {
+function isOwnedSpawn3(structure) {
   var _a;
   const spawnType = (_a = globalThis.STRUCTURE_SPAWN) != null ? _a : "spawn";
   return structure.structureType === spawnType || structure.structureType === "spawn";
@@ -2784,7 +2871,7 @@ function getMinerThroughputWorkerTarget(room, baseTarget) {
   return Math.min(MAX_WORKER_TARGET, baseTarget + throughput.saturatedSourceCount);
 }
 function recordColonySurvivalAssessment(colonyName, assessment, tick = getGameTime8()) {
-  if (!isNonEmptyString2(colonyName) || tick === null) {
+  if (!isNonEmptyString3(colonyName) || tick === null) {
     return;
   }
   stageAssessmentByColony.set(colonyName, { assessment, tick });
@@ -2804,7 +2891,7 @@ function persistColonyStageAssessment(colony, assessment, tick = getGameTime8())
   };
 }
 function recordClaimedRoomBootstrapStage(roomName, tick = getGameTime8()) {
-  if (!isNonEmptyString2(roomName) || tick === null) {
+  if (!isNonEmptyString3(roomName) || tick === null) {
     return null;
   }
   const room = getVisibleOwnedRoom(roomName);
@@ -2831,7 +2918,7 @@ function recordClaimedRoomBootstrapStage(roomName, tick = getGameTime8()) {
   return assessment;
 }
 function getRecordedColonySurvivalAssessment(colonyName, tick = getGameTime8()) {
-  if (!isNonEmptyString2(colonyName) || tick === null) {
+  if (!isNonEmptyString3(colonyName) || tick === null) {
     return null;
   }
   const cached = stageAssessmentByColony.get(colonyName);
@@ -3065,7 +3152,7 @@ function getGameTime8() {
 function normalizeNonNegativeInteger3(value) {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
-function isNonEmptyString2(value) {
+function isNonEmptyString3(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -3399,53 +3486,6 @@ function matchesStructureType3(actual, globalName, fallback) {
 }
 function isRecord3(value) {
   return typeof value === "object" && value !== null;
-}
-
-// src/config/runtimeRooms.ts
-function getRuntimeCurrentRoomName() {
-  const configured = getConfiguredRuntimeCurrentRoomName();
-  if (configured) {
-    return configured;
-  }
-  return getRuntimeOwnedRoomNames()[0];
-}
-function getRuntimeOwnedRoomNames() {
-  var _a, _b, _c;
-  const roomNames = new Set(getConfiguredRuntimeOwnedRoomNames());
-  const game = globalThis.Game;
-  for (const room of Object.values((_a = game == null ? void 0 : game.rooms) != null ? _a : {})) {
-    if (isVisibleOwnedRoom(room)) {
-      roomNames.add(room.name);
-    }
-  }
-  for (const spawn of Object.values((_b = game == null ? void 0 : game.spawns) != null ? _b : {})) {
-    const roomName = (_c = spawn == null ? void 0 : spawn.room) == null ? void 0 : _c.name;
-    if (isNonEmptyString3(roomName) && isOwnedSpawn3(spawn)) {
-      roomNames.add(roomName);
-    }
-  }
-  return [...roomNames].sort();
-}
-function getConfiguredRuntimeCurrentRoomName() {
-  var _a, _b;
-  const roomName = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.runtime) == null ? void 0 : _b.currentRoomName;
-  return isNonEmptyString3(roomName) ? roomName : void 0;
-}
-function getConfiguredRuntimeOwnedRoomNames() {
-  var _a, _b;
-  const roomNames = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.runtime) == null ? void 0 : _b.ownedRoomNames;
-  return Array.isArray(roomNames) ? roomNames.filter(isNonEmptyString3) : [];
-}
-function isVisibleOwnedRoom(room) {
-  var _a;
-  return ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && isNonEmptyString3(room.name);
-}
-function isOwnedSpawn3(spawn) {
-  var _a, _b;
-  return (spawn == null ? void 0 : spawn.my) === true || ((_b = (_a = spawn == null ? void 0 : spawn.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true;
-}
-function isNonEmptyString3(value) {
-  return typeof value === "string" && value.length > 0;
 }
 
 // src/territory/expansionConfig.ts
