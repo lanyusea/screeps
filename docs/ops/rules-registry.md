@@ -1,6 +1,6 @@
 # Screeps Minimal Rules Registry
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry is the canonical compact rules standard for the two-person Screeps project. It intentionally avoids multi-level governance. The goal is to keep autonomous agents from doing the wrong thing while keeping the system small enough to maintain.
@@ -48,7 +48,8 @@ Canonical Domain values:
 7. `Territory/Economy`
 8. `Gameplay Evolution`
 9. `RL flywheel`
-10. `Docs/process`
+10. `Seasonal World`
+11. `Docs/process`
 
 `roadmap:*` labels are compatibility/search labels. Project `Domain` is the primary machine-readable grouping for Kanban, reports, and Pages domain progress.
 
@@ -121,6 +122,12 @@ This authorization is automatic — no owner approval required. The agent MUST a
 The dead-end condition is checked by the runtime alert cron job (`1df5ef0c3835`, `Screeps runtime room alert text check`). When detected with `room_dead` category and `owned_spawns=0 AND owned_creeps=0`, the alert handler must trigger the recovery sequence above, not just report.
 
 Owner @ notification is still required for: rollback decisions when multiple healthy commits exist, manual respawn when automated recovery fails, and non-recovery strategic decisions.
+
+## Seasonal World current-season smoke rule
+
+Seasonal World work is isolated, explicit opt-in smoke work only unless a future owner decision expands the scope. Seasonal commands must use the Seasonal world root (`https://screeps.com/season`), Seasonal selectors, and isolated artifact/state/cache paths from `docs/ops/screeps-world-profiles.md`.
+
+Seasonal work does not inherit W3N9 autonomous recovery, respawn, or spawn-placement authorization. No destructive Seasonal recovery action is authorized unless the owner explicitly approves it for Seasonal.
 
 ## Rules-change process
 

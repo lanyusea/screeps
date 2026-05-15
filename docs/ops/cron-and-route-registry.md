@@ -1,6 +1,6 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-13
+Last updated: 2026-05-15
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry keeps the minimum cron/channel contract in one place. Cron prompts may embed short self-contained summaries, but their target/cadence/route expectations must match this file.
@@ -10,6 +10,10 @@ This registry keeps the minimum cron/channel contract in one place. Cron prompts
 - Official bot deployment and gameplay target: `main / shardX / W3N9`; `Spawn1` at `(35,23)`.
 - Runtime monitoring and alerting jobs (`befcbb7b2d60`, `1df5ef0c3835`) auto-discover all owned rooms via `/api/user/overview` and are not constrained to the single-room target.
 - Old room references (`E24S49`, `E19S55`, `E22S49`, `E48S28`, `E48S29`, `E26S49`, `E17S59`, `E19S57`) are historical incident/fallback or superseded rooms unless explicitly retargeted by the owner.
+
+## Seasonal smoke note
+
+No Seasonal World cron job is active yet. Future Seasonal jobs must use separate names, env selectors, state files, cache directories, and artifact roots, including `SCREEPS_API_URL=https://screeps.com/season`, `SCREEPS_SHARD=shardSeason`, `runtime-artifacts/seasonal/...`, and `/root/.hermes/screeps-seasonal-runtime-monitor/...`. They must preserve the existing persistent MMO jobs and must not reuse persistent monitor state or cache paths.
 
 ## Discord routes
 

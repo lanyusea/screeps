@@ -28,6 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARTIFACT_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_EVIDENCE_DIR = REPO_ROOT / "runtime-artifacts" / "official-screeps-deploy"
 DEFAULT_API_URL = "https://screeps.com"
+PERSISTENT_WORLD_ROOT = "https://screeps.com"
+SEASONAL_WORLD_ROOT = "https://screeps.com/season"
+OFFICIAL_WORLD_ROOTS = (PERSISTENT_WORLD_ROOT, SEASONAL_WORLD_ROOT)
 DEFAULT_BRANCH = "main"
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "W3N9"
@@ -179,24 +182,42 @@ class ScreepsApi:
 
 
 def normalize_api_url(raw_url: str) -> str:
-    """Normalize and validate the official HTTPS API base URL."""
+    """Normalize and validate an official Screeps world root URL."""
     parsed = urllib.parse.urlparse(raw_url.strip())
-    if parsed.scheme != "https" or parsed.netloc != "screeps.com":
-        raise DeployError("SCREEPS_API_URL must be https://screeps.com for official deploys")
     if parsed.username or parsed.password:
         raise DeployError("SCREEPS_API_URL must not include credentials")
     if parsed.query or parsed.fragment:
         raise DeployError("SCREEPS_API_URL must not include query strings or fragments")
-    if parsed.path.rstrip("/"):
-        raise DeployError("SCREEPS_API_URL must not include path prefixes")
-    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+    official_roots = " or ".join(OFFICIAL_WORLD_ROOTS)
+    if parsed.scheme != "https" or parsed.netloc != "screeps.com":
+        raise DeployError(f"SCREEPS_API_URL must be an official Screeps world root: {official_roots}")
+    path = parsed.path.rstrip("/")
+    if path == "/api" or path.startswith("/api/") or path == "/season/api" or path.startswith("/season/api/"):
+        raise DeployError(
+            "SCREEPS_API_URL must be a Screeps world root, not an API root; "
+            f"use {official_roots}"
+        )
+    if path not in ("", "/season"):
+        raise DeployError(
+            "SCREEPS_API_URL must not include invalid path prefixes; "
+            f"use {official_roots}"
+        )
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
 
 
 def require_https_api_url(api_url: str) -> None:
-    """Reject non-official API URLs before authenticated deploy requests."""
-    parsed = urllib.parse.urlparse(api_url)
-    if parsed.scheme != "https" or parsed.netloc != "screeps.com":
-        raise DeployError("SCREEPS_API_URL must be https://screeps.com for --deploy")
+    """Reject non-official world roots before authenticated deploy requests."""
+    normalize_api_url(api_url)
+
+
+def world_profile_metadata(api_url: str) -> dict[str, str]:
+    """Return non-secret world identity metadata for deploy evidence."""
+    try:
+        world_root = normalize_api_url(api_url)
+    except DeployError:
+        return {"world": "custom", "worldRoot": api_url}
+    world = "seasonal" if world_root == SEASONAL_WORLD_ROOT else "persistent"
+    return {"world": world, "worldRoot": world_root}
 
 
 def validate_selector(name: str, value: str, pattern: re.Pattern[str]) -> str:
@@ -484,6 +505,7 @@ def base_evidence(cfg: DeployConfig, artifact: dict[str, Any]) -> dict[str, Any]
         "git": git_metadata(cfg.repo_root),
         "target": {
             "apiUrl": cfg.api_url,
+            **world_profile_metadata(cfg.api_url),
             "branch": cfg.branch,
             "shard": cfg.shard,
             "room": cfg.room,
