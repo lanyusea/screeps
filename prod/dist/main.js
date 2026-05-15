@@ -26950,7 +26950,13 @@ function shouldUseSurplusForControllerProgress(creep, controller) {
   return false;
 }
 function shouldStandbySurplusWorkerInsteadOfAcquiring(creep, controller) {
-  return (controller == null ? void 0 : controller.my) === true && isControllerUpgradeSaturated(creep, controller) && !hasNonControllerWorkerEnergyDemand(creep);
+  if ((controller == null ? void 0 : controller.my) !== true || !isControllerUpgradeSaturated(creep, controller)) {
+    return false;
+  }
+  if (hasNonControllerWorkerEnergyDemand(creep)) {
+    return false;
+  }
+  return !hasPostConstructionControllerUpgradeEnergy(creep, controller);
 }
 function hasNonControllerWorkerEnergyDemand(creep) {
   var _a;
@@ -26962,6 +26968,12 @@ function hasNonControllerWorkerEnergyDemand(creep) {
     return true;
   }
   return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
+}
+function hasPostConstructionControllerUpgradeEnergy(creep, controller) {
+  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence2(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
+}
+function isLowRclControllerProgressTarget(controller) {
+  return canLevelUpController2(controller) && controller.level >= 2 && controller.level <= 3;
 }
 function isControllerUpgradeSaturated(creep, controller) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {

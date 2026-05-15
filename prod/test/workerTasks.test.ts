@@ -11827,6 +11827,68 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('withdraws stored energy for post-construction RCL2 controller progress when one worker is already upgrading', () => {
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_399, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 3_900,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [storage]
+    });
+    const creep = {
+      name: 'PostConstructionWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      PostConstructionWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-surplus' });
+  });
+
+  it('keeps emergency spawn refill before post-construction stored-surplus controller upgrading', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_399, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'LoadedWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 550,
+        myStructures: [spawn as AnyOwnedStructure],
+        structures: [storage]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
   it('lets an empty surplus worker acquire energy for safe barrier maintenance', () => {
     const controller = {
       id: 'controller1',
