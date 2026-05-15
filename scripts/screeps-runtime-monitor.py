@@ -50,6 +50,7 @@ EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
+ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
 WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
     "name",
     "task",
@@ -1456,6 +1457,20 @@ def runtime_construction_site_count(room: dict[str, Any] | None) -> int | float 
     return None
 
 
+def runtime_assigned_worker_task_count(room: dict[str, Any]) -> int | float:
+    task_counts = as_dict(room.get("taskCounts"))
+    return sum(number_value(task_counts.get(task_name)) or 0 for task_name in ASSIGNED_WORKER_TASK_NAMES)
+
+
+def runtime_worker_assignment_recovered(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    worker_count = number_value(room.get("workerCount"))
+    if worker_count is not None and worker_count <= 0:
+        return False
+    return runtime_assigned_worker_task_count(room) > 0
+
+
 def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
     return {
         "kind": EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND,
@@ -1483,10 +1498,12 @@ def worker_assignment_gap_active(
     runtime_room: dict[str, Any] | None,
     metrics: RoomSummaryMetrics,
 ) -> tuple[bool, str | None, int | float]:
-    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
         site_count = len(metrics.construction_sites)
+    if runtime_worker_assignment_recovered(runtime_room):
+        return False, None, site_count
+    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
     return blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON and site_count > 0, blocked_reason, site_count
 
 
@@ -3072,7 +3089,11 @@ def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
     room_ref = room.get("room")
     if isinstance(room_ref, str) and room_ref == ref.key:
         return True
-    return runtime_summary_room_name(room) == ref.room and runtime_summary_room_shard(room) == ref.shard
+    room_name = runtime_summary_room_name(room)
+    shard = runtime_summary_room_shard(room)
+    if room_name != ref.room:
+        return False
+    return shard is None or shard == ref.shard
 
 
 def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:

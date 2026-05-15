@@ -1239,6 +1239,144 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
             self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
 
+    def test_room_only_console_summary_clears_stale_worker_assignment_gap(self) -> None:
+        console_payload = {
+            "type": "runtime-summary",
+            "tick": 995540,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "energyBufferHealth": {"currentEnergy": 300, "threshold": 227, "healthy": True},
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
+                    "constructionSiteCount": 11,
+                    "constructionDeadlockTicks": 0,
+                    "buildBlockedReason": None,
+                    "resources": {
+                        "productiveEnergy": {
+                            "constructionSiteCount": 11,
+                            "constructionDeadlockTicks": 0,
+                            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                        }
+                    },
+                }
+            ],
+        }
+        monitor_payload = {
+            "type": "runtime-summary",
+            "tick": 995544,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "constructionSiteCount": 11,
+                    "constructionDeadlockTicks": 1,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260515T234005Z.log").write_text(
+                "#runtime-summary " + json.dumps(console_payload) + "\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "runtime-summary-monitor-20260515T234012Z.log").write_text(
+                "#runtime-summary " + json.dumps(monitor_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertEqual(runtime_room["taskCounts"]["harvest"], 2)
+        self.assertEqual(runtime_room["constructionDeadlockTicks"], 0)
+        self.assertIsNone(runtime_room["buildBlockedReason"])
+
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 17,
+                        "y": 24,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "extension1": {
+                        "type": "extension",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 18,
+                        "y": 24,
+                        "hits": 1000,
+                        "hitsMax": 1000,
+                    },
+                    "ctrl": {
+                        "type": "controller",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "level": 2,
+                        "x": 5,
+                        "y": 36,
+                    },
+                    "worker-1": {"type": "creep", "my": True, "owner": {"username": "lanyusea"}, "name": "worker-1"},
+                    "worker-2": {"type": "creep", "my": True, "owner": {"username": "lanyusea"}, "name": "worker-2"},
+                    "worker-3": {"type": "creep", "my": True, "owner": {"username": "lanyusea"}, "name": "worker-3"},
+                    "site1": {
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "road",
+                        "progress": 0,
+                        "progressTotal": 50,
+                        "x": 19,
+                        "y": 24,
+                    },
+                }
+            ),
+            tick=995546,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+            expected_owner="lanyusea",
+        )
+        previous_state = {
+            "baseline_established": True,
+            "owner": "lanyusea",
+            "rule_counts": {
+                monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: {
+                    "start_tick": 988884,
+                    "last_tick": 995520,
+                    "consecutive_ticks": 6636,
+                }
+            },
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous_state,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
     def test_runtime_summary_loader_ignores_behavior_only_pathing_totals(self) -> None:
         payload = {
             "type": "runtime-summary",
