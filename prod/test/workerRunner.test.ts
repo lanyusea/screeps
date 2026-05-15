@@ -1464,6 +1464,113 @@ describe('runWorker', () => {
     expect(workers[0].build).toHaveBeenCalledWith(sourceContainerSite);
   });
 
+  it('keeps one W3N9 worker building while other loaded workers sustain a non-imminent downgrade guard', () => {
+    const source = {
+      id: 'source1',
+      pos: { x: 20, y: 10, roomName: 'W3N9' } as RoomPosition
+    } as Source;
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      my: true,
+      structureType: 'container',
+      progress: 2_500,
+      progressTotal: 5_000,
+      pos: { x: 21, y: 10, roomName: 'W3N9' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS - 27
+    } as StructureController;
+    const extension = {
+      id: 'extension1',
+      my: true,
+      structureType: 'extension',
+      spawning: null,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      }
+    } as unknown as StructureExtension;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'W3N9',
+      energyAvailable: 350,
+      energyCapacityAvailable: 450,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [sourceContainerSite];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [extension as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (name: string): Creep =>
+      ({
+        name,
+        memory: {
+          role: 'worker',
+          colony: 'W3N9',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(16),
+          getFreeCapacity: jest.fn().mockReturnValue(34),
+          getCapacity: jest.fn().mockReturnValue(50)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(12) },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(0),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(makeWorker('worker-W3N9-1'), makeWorker('worker-W3N9-2'), makeWorker('worker-W3N9-3'));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 960_880,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'source-container-site1') {
+          return sourceContainerSite;
+        }
+
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        if (id === 'extension1') {
+          return extension;
+        }
+
+        return id === 'source1' ? source : null;
+      })
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(assignedTasks.filter((task) => task === 'build')).toHaveLength(1);
+    expect(assignedTasks.filter((task) => task === 'upgrade')).toHaveLength(2);
+    expect(workers[0].memory.task).toEqual({ type: 'build', targetId: 'source-container-site1' });
+    expect(workers[0].build).toHaveBeenCalledWith(sourceContainerSite);
+    expect(workers[1].upgradeController).toHaveBeenCalledWith(controller);
+    expect(workers[2].upgradeController).toHaveBeenCalledWith(controller);
+  });
+
   it('keeps the RCL2 downgrade guard above upgrade preemption', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {

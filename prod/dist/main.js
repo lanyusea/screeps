@@ -23457,13 +23457,36 @@ function shouldGuardControllerDowngradeForWorkerLoad(creep, controller) {
   if (!shouldGuardControllerDowngrade2(controller)) {
     return false;
   }
-  if (!getLowLoadWorkerEnergyContext(creep)) {
-    return true;
+  if (shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller)) {
+    return false;
   }
-  return isControllerDowngradeImminentForLowLoadReturn(controller);
+  return !getLowLoadWorkerEnergyContext(creep) || isControllerDowngradeImminentForLowLoadReturn(controller);
 }
 function isControllerDowngradeImminentForLowLoadReturn(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade < LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS;
+}
+function shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller) {
+  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && !isControllerDowngradeImminentForLowLoadReturn(controller) && getUsedEnergy2(creep) > 0 && getActiveWorkParts2(creep) > 0 && hasOtherLoadedWorkerUpgradingController(creep, controller) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") && hasSpendableConstructionBacklog(creep);
+}
+function hasOtherLoadedWorkerUpgradingController(creep, controller) {
+  return getSameRoomLoadedWorkers(creep).some(
+    (worker) => !isSameCreep(worker, creep) && getActiveWorkParts2(worker) > 0 && isUpgradingController(worker, controller)
+  );
+}
+function hasSpendableConstructionBacklog(creep) {
+  var _a;
+  if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof ((_a = creep.room) == null ? void 0 : _a.find) !== "function") {
+    return false;
+  }
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+  if (constructionSites.length === 0) {
+    return false;
+  }
+  const constructionReservationContext = createConstructionReservationContext(creep.room);
+  const priorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  return constructionSites.some(
+    (site) => site.my !== false && hasUnreservedConstructionProgress(creep, site, constructionReservationContext) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext)
+  );
 }
 function getLowLoadWorkerEnergyContext(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
