@@ -22836,6 +22836,9 @@ function selectHeuristicWorkerTask(creep) {
       if (minimumHarvesterTask2) {
         return minimumHarvesterTask2;
       }
+      if (controllerSigningTask && !bootstrapNonCriticalWorkSuppressed) {
+        return controllerSigningTask;
+      }
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;

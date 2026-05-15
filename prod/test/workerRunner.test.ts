@@ -22,6 +22,28 @@ function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Reco
   };
 }
 
+function makeControllerSigningMemory(
+  roomName: string,
+  controllerId: Id<StructureController>,
+  signNeeded = true
+): Partial<Memory> {
+  return {
+    territory: {
+      controllers: {
+        [roomName]: {
+          roomName,
+          controllerId,
+          signNeeded,
+          upgradePriority: 'none',
+          desiredUpgraderCount: 0,
+          activeUpgraderCount: 0,
+          updatedAt: 100
+        }
+      }
+    }
+  };
+}
+
 describe('runWorker', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; ERR_NOT_ENOUGH_RESOURCES: number; ERR_INVALID_TARGET: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_LINK: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
@@ -240,6 +262,153 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'signController', targetId: 'controller1' });
     expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('prioritizes unsigned owned controller signing before routine harvesting', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = { id: 'controller1', my: true } as unknown as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory =
+      makeControllerSigningMemory('W1N1', 'controller1' as Id<StructureController>);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : source))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'signController', targetId: 'controller1' });
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('prioritizes replacing a wrong owned controller signature before routine harvesting', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory =
+      makeControllerSigningMemory('W1N1', 'controller1' as Id<StructureController>);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : source))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'signController', targetId: 'controller1' });
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat owned controller signing when the required text is already present', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: {
+        username: 'me',
+        text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+        time: 100,
+        datetime: '2026-05-08T00:00:00.000Z'
+      }
+    } as unknown as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory =
+      makeControllerSigningMemory('W1N1', 'controller1' as Id<StructureController>);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : source))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.signController).not.toHaveBeenCalled();
+  });
+
+  it('falls back safely when a worker cannot issue controller signs', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = { id: 'controller1', my: true } as unknown as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory =
+      makeControllerSigningMemory('W1N1', 'controller1' as Id<StructureController>);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : source))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.harvest).toHaveBeenCalledWith(source);
   });
 
   it('preempts an assigned controller sign for emergency harvest during low-energy buildout', () => {
