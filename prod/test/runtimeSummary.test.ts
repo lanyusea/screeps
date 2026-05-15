@@ -1084,6 +1084,49 @@ describe('runtime telemetry summaries', () => {
     );
   });
 
+  it('counts visible same-room workers when colony memory is missing', () => {
+    const constructionSite = {
+      id: 'extension-site',
+      structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+      progress: 0,
+      progressTotal: 50
+    };
+    const builder = makeWorker(
+      { role: 'worker', task: { type: 'build', targetId: 'extension-site' as Id<ConstructionSite> } },
+      30,
+      'worker-E29N55-994364'
+    );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      includeEventLog: false,
+      creeps: [builder],
+      constructionSites: [constructionSite]
+    });
+    (builder as Creep & { room: Room }).room = colony.room;
+
+    emitRuntimeSummary([colony], [builder]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerCount).toBe(1);
+    expect(room.taskCounts).toMatchObject({
+      build: 1,
+      harvest: 0,
+      none: 0,
+      repair: 0,
+      transfer: 0,
+      upgrade: 0
+    });
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).toMatchObject({
+      assignedWorkerCount: 1,
+      buildCarriedEnergy: 30
+    });
+    expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy).not.toHaveProperty(
+      'buildBlockedReason'
+    );
+  });
+
   it('reports spawn reservation detail for a construction assignment gap with room buffer energy', () => {
     const spawn = {
       id: 'spawn1',
