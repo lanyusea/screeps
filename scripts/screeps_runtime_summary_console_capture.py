@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable, TextIO
 
 import screeps_runtime_kpi_reducer as reducer
+import screeps_world_profiles as world_profiles
 
 
 DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
@@ -32,6 +33,7 @@ API_URL_ENV = "SCREEPS_API_URL"
 CONSOLE_CHANNELS_ENV = "SCREEPS_CONSOLE_CHANNELS"
 LIVE_TIMEOUT_ENV = "SCREEPS_CONSOLE_CAPTURE_TIMEOUT_SECONDS"
 LIVE_MAX_MESSAGES_ENV = "SCREEPS_CONSOLE_CAPTURE_MAX_MESSAGES"
+WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
 SAFE_ARTIFACT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
@@ -454,13 +456,43 @@ def render_human(result: PersistResult) -> str:
     return rendered
 
 
+def env_default(name: str, default: str) -> str:
+    return os.environ[name] if name in os.environ else default
+
+
+def apply_world_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    profile = world_profiles.resolve_world_profile(getattr(args, "world_profile", None), os.environ)
+    args.world_profile = profile.name
+    if getattr(args, "out_dir", None) is None:
+        args.out_dir = env_default(OUT_DIR_ENV, str(profile.console_capture_out_dir))
+    if getattr(args, "out_file", None) is None and OUT_FILE_ENV in os.environ:
+        args.out_file = os.environ[OUT_FILE_ENV]
+    if getattr(args, "api_url", None) is None:
+        args.api_url = env_default(API_URL_ENV, profile.api_url)
+    return args
+
+
+class WorldProfileArgumentParser(argparse.ArgumentParser):
+    def parse_args(
+        self,
+        args: list[str] | None = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> argparse.Namespace:
+        parsed = super().parse_args(args, namespace)
+        try:
+            return apply_world_profile_defaults(parsed)
+        except ValueError as exc:
+            self.error(str(exc))
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = WorldProfileArgumentParser(
         description=(
             "Persist only exact-prefix Screeps #runtime-summary console lines into a local artifact "
             "that the KPI artifact bridge can scan."
         ),
     )
+    world_profiles.add_world_profile_argument(parser)
     parser.add_argument(
         "inputs",
         nargs="*",
@@ -468,12 +500,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out-dir",
-        default=os.environ.get(OUT_DIR_ENV, str(DEFAULT_OUT_DIR)),
+        default=None,
         help=f"Artifact directory. Default: ${OUT_DIR_ENV} or {DEFAULT_OUT_DIR}.",
     )
     parser.add_argument(
         "--out-file",
-        default=os.environ.get(OUT_FILE_ENV),
+        default=None,
         help=f"Exact artifact file path. Overrides --out-dir and --artifact-name. May also be set with ${OUT_FILE_ENV}.",
     )
     parser.add_argument(
@@ -496,7 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get(API_URL_ENV, DEFAULT_API_URL),
+        default=None,
         help=f"Screeps API base URL for live capture. Default: ${API_URL_ENV} or {DEFAULT_API_URL}.",
     )
     parser.add_argument(

@@ -8,9 +8,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("screeps-runtime-monitor.py")
+sys.path.insert(0, str(MODULE_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("screeps_runtime_monitor_script", MODULE_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"could not load {MODULE_PATH}")
@@ -196,6 +198,102 @@ def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot
         owner="owner",
         info={},
     )
+
+
+class WorldProfileDefaultsTest(unittest.TestCase):
+    def test_persistent_profile_preserves_monitor_defaults(self) -> None:
+        self.assertEqual(monitor.DEFAULT_OUT_DIR, Path("/root/screeps/runtime-artifacts/screeps-monitor"))
+        self.assertEqual(monitor.DEFAULT_STATE_FILE, Path("/root/.hermes/screeps-runtime-monitor/state.json"))
+        self.assertEqual(monitor.DEFAULT_CACHE_DIR, Path("/root/.hermes/screeps-runtime-monitor/terrain-cache"))
+        self.assertEqual(
+            monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR,
+            Path("/root/screeps/runtime-artifacts/runtime-summary-console"),
+        )
+
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "token"}, clear=True):
+            summary_args = monitor.build_parser().parse_args(["summary"])
+            alert_args = monitor.build_parser().parse_args(["alert"])
+            ctx = monitor.context_from_env(summary_args.world_profile)
+
+        self.assertEqual(summary_args.world_profile, "persistent")
+        self.assertEqual(Path(summary_args.out_dir), monitor.DEFAULT_OUT_DIR)
+        self.assertEqual(Path(summary_args.runtime_summary_out_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
+        self.assertEqual(alert_args.world_profile, "persistent")
+        self.assertEqual(Path(alert_args.out_dir), monitor.DEFAULT_OUT_DIR)
+        self.assertEqual(Path(alert_args.runtime_summary_dir), monitor.DEFAULT_RUNTIME_SUMMARY_OUT_DIR)
+        self.assertEqual(ctx.base_http, monitor.DEFAULT_API_URL)
+        self.assertEqual(ctx.default_shard, monitor.DEFAULT_SHARD)
+        self.assertEqual(ctx.default_room, monitor.DEFAULT_ROOM)
+        self.assertEqual(ctx.state_file, monitor.DEFAULT_STATE_FILE)
+        self.assertEqual(ctx.cache_dir, monitor.DEFAULT_CACHE_DIR)
+
+    def test_seasonal_profile_isolates_monitor_defaults(self) -> None:
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_AUTH_TOKEN": "token"}, clear=True):
+            summary_args = monitor.build_parser().parse_args(["summary", "--world-profile", "seasonal"])
+            alert_args = monitor.build_parser().parse_args(["alert", "--world-profile", "seasonal"])
+            ctx = monitor.context_from_env(summary_args.world_profile)
+
+        self.assertEqual(summary_args.world_profile, "seasonal")
+        self.assertEqual(Path(summary_args.out_dir), Path("/root/screeps/runtime-artifacts/seasonal/screeps-monitor"))
+        self.assertEqual(
+            Path(summary_args.runtime_summary_out_dir),
+            Path("/root/screeps/runtime-artifacts/seasonal/runtime-summary-console"),
+        )
+        self.assertEqual(alert_args.world_profile, "seasonal")
+        self.assertEqual(Path(alert_args.out_dir), Path("/root/screeps/runtime-artifacts/seasonal/screeps-monitor"))
+        self.assertEqual(
+            Path(alert_args.runtime_summary_dir),
+            Path("/root/screeps/runtime-artifacts/seasonal/runtime-summary-console"),
+        )
+        self.assertEqual(ctx.base_http, "https://screeps.com/season")
+        self.assertEqual(ctx.default_shard, "shardSeason")
+        self.assertEqual(ctx.default_room, monitor.DEFAULT_ROOM)
+        self.assertEqual(ctx.state_file, Path("/root/.hermes/screeps-seasonal-runtime-monitor/state.json"))
+        self.assertEqual(ctx.cache_dir, Path("/root/.hermes/screeps-seasonal-runtime-monitor/terrain-cache"))
+
+    def test_profile_env_and_explicit_overrides_win_for_monitor(self) -> None:
+        with mock.patch.dict(
+            monitor.os.environ,
+            {
+                "SCREEPS_AUTH_TOKEN": "token",
+                "SCREEPS_WORLD_PROFILE": "seasonal",
+                "SCREEPS_API_URL": "https://example.invalid/custom",
+                "SCREEPS_SHARD": "shardCustom",
+                "SCREEPS_MONITOR_STATE_FILE": "/tmp/custom-state.json",
+                "SCREEPS_MONITOR_CACHE_DIR": "/tmp/custom-cache",
+                "SCREEPS_RUNTIME_SUMMARY_DIR": "/tmp/custom-runtime-summary",
+            },
+            clear=True,
+        ):
+            summary_args = monitor.build_parser().parse_args(
+                [
+                    "summary",
+                    "--out-dir",
+                    "/tmp/custom-monitor",
+                    "--runtime-summary-out-dir",
+                    "/tmp/custom-summary-out",
+                ]
+            )
+            alert_args = monitor.build_parser().parse_args(["alert"])
+            ctx = monitor.context_from_env(summary_args.world_profile)
+
+        self.assertEqual(summary_args.world_profile, "seasonal")
+        self.assertEqual(Path(summary_args.out_dir), Path("/tmp/custom-monitor"))
+        self.assertEqual(Path(summary_args.runtime_summary_out_dir), Path("/tmp/custom-summary-out"))
+        self.assertEqual(Path(alert_args.runtime_summary_dir), Path("/tmp/custom-runtime-summary"))
+        self.assertEqual(ctx.base_http, "https://example.invalid/custom")
+        self.assertEqual(ctx.default_shard, "shardCustom")
+        self.assertEqual(ctx.state_file, Path("/tmp/custom-state.json"))
+        self.assertEqual(ctx.cache_dir, Path("/tmp/custom-cache"))
+
+    def test_invalid_monitor_world_profile_is_rejected(self) -> None:
+        with mock.patch.dict(monitor.os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit):
+                monitor.build_parser().parse_args(["summary", "--world-profile", "invalid"])
+
+        with mock.patch.dict(monitor.os.environ, {"SCREEPS_WORLD_PROFILE": "invalid"}, clear=True):
+            with self.assertRaises(SystemExit):
+                monitor.build_parser().parse_args(["summary"])
 
 
 class TacticalResponseBridgeTest(unittest.TestCase):

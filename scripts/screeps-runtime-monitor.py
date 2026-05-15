@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+import screeps_world_profiles as world_profiles
+
 
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/screeps-monitor")
@@ -39,6 +41,7 @@ DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "W3N9"
+WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
@@ -607,7 +610,12 @@ def parse_room_arg(value: str | None, default_shard: str) -> RoomRef | None:
     return RoomRef(shard=default_shard, room=value)
 
 
-def context_from_env() -> RuntimeContext:
+def env_default(name: str, default: str) -> str:
+    return os.environ[name] if name in os.environ else default
+
+
+def context_from_env(world_profile: str | None = None) -> RuntimeContext:
+    profile = world_profiles.resolve_world_profile(world_profile, os.environ)
     token = os.environ.get("SCREEPS_AUTH_TOKEN")
     if not token:
         raise RuntimeError("SCREEPS_AUTH_TOKEN is required for live summary and alert commands")
@@ -618,14 +626,14 @@ def context_from_env() -> RuntimeContext:
         float(os.environ.get("SCREEPS_MONITOR_COLLECTION_RETRY_DELAY_SECONDS", DEFAULT_COLLECTION_RETRY_DELAY_SECONDS)),
     )
     return RuntimeContext(
-        base_http=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL).rstrip("/"),
+        base_http=env_default("SCREEPS_API_URL", profile.api_url).rstrip("/"),
         token=token,
-        default_shard=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD),
+        default_shard=env_default("SCREEPS_SHARD", profile.shard),
         default_room=os.environ.get("SCREEPS_ROOM", DEFAULT_ROOM),
         owner=os.environ.get("SCREEPS_OWNER"),
         owner_id=os.environ.get("SCREEPS_OWNER_ID"),
-        state_file=Path(os.environ.get("SCREEPS_MONITOR_STATE_FILE", str(DEFAULT_STATE_FILE))),
-        cache_dir=Path(os.environ.get("SCREEPS_MONITOR_CACHE_DIR", str(DEFAULT_CACHE_DIR))),
+        state_file=Path(env_default("SCREEPS_MONITOR_STATE_FILE", str(profile.monitor_state_file))),
+        cache_dir=Path(env_default("SCREEPS_MONITOR_CACHE_DIR", str(profile.monitor_cache_dir))),
         debounce_seconds=debounce,
         collection_attempts=collection_attempts,
         collection_retry_delay_seconds=collection_retry_delay_seconds,
@@ -4064,7 +4072,7 @@ def command_health_gate(args: argparse.Namespace) -> int:
 
 
 def command_summary(args: argparse.Namespace) -> int:
-    ctx = context_from_env()
+    ctx = context_from_env(args.world_profile)
     snapshots, warnings = collect_snapshots(ctx, args.room)
     images: list[str] = []
     room_summaries: list[dict[str, Any]] = []
@@ -4100,7 +4108,7 @@ def command_summary(args: argparse.Namespace) -> int:
 
 
 def command_alert(args: argparse.Namespace) -> int:
-    ctx = context_from_env()
+    ctx = context_from_env(args.world_profile)
     snapshots, warnings = collect_snapshots(ctx, args.room)
     runtime_room_summaries = load_latest_runtime_room_summaries(
         Path(args.runtime_summary_dir).expanduser(),
@@ -4186,12 +4194,41 @@ def command_tactical_response(args: argparse.Namespace) -> int:
     return 0
 
 
+def apply_world_profile_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    if not hasattr(args, "world_profile"):
+        return args
+
+    profile = world_profiles.resolve_world_profile(getattr(args, "world_profile", None), os.environ)
+    args.world_profile = profile.name
+    if hasattr(args, "out_dir") and getattr(args, "out_dir") is None:
+        args.out_dir = str(profile.monitor_out_dir)
+    if hasattr(args, "runtime_summary_out_dir") and getattr(args, "runtime_summary_out_dir") is None:
+        args.runtime_summary_out_dir = str(profile.runtime_summary_out_dir)
+    if hasattr(args, "runtime_summary_dir") and getattr(args, "runtime_summary_dir") is None:
+        args.runtime_summary_dir = env_default("SCREEPS_RUNTIME_SUMMARY_DIR", str(profile.runtime_summary_out_dir))
+    return args
+
+
+class WorldProfileArgumentParser(argparse.ArgumentParser):
+    def parse_args(
+        self,
+        args: list[str] | None = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> argparse.Namespace:
+        parsed = super().parse_args(args, namespace)
+        try:
+            return apply_world_profile_defaults(parsed)
+        except ValueError as exc:
+            self.error(str(exc))
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Render Screeps runtime summary and alert monitor images.")
+    parser = WorldProfileArgumentParser(description="Render Screeps runtime summary and alert monitor images.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     def add_live_options(subparser: argparse.ArgumentParser) -> None:
-        subparser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help=f"artifact directory (default: {DEFAULT_OUT_DIR})")
+        world_profiles.add_world_profile_argument(subparser)
+        subparser.add_argument("--out-dir", default=None, help=f"artifact directory (default: {DEFAULT_OUT_DIR})")
         subparser.add_argument("--room", help="optional single room selector, preferably shard/room")
         subparser.add_argument("--format", choices=["json"], default="json", help="output format")
 
@@ -4199,7 +4236,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_live_options(summary)
     summary.add_argument(
         "--runtime-summary-out-dir",
-        default=str(DEFAULT_RUNTIME_SUMMARY_OUT_DIR),
+        default=None,
         help="Directory for reducer-compatible #runtime-summary artifacts written from the same live room snapshot.",
     )
     summary.add_argument(
@@ -4214,7 +4251,7 @@ def build_parser() -> argparse.ArgumentParser:
     alert.add_argument("--force-alert-image", action="store_true", help="render alert-style image even when no alert is emitted")
     alert.add_argument(
         "--runtime-summary-dir",
-        default=os.environ.get("SCREEPS_RUNTIME_SUMMARY_DIR", str(DEFAULT_RUNTIME_SUMMARY_OUT_DIR)),
+        default=None,
         help="Directory containing persisted #runtime-summary console .log artifacts for semantic alert rules.",
     )
     alert.set_defaults(func=command_alert)
