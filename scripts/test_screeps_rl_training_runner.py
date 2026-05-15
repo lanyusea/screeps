@@ -156,7 +156,7 @@ class RequiredSteamKeySimulator(MockSimulator):
 
     def __call__(self, **kwargs: Any) -> JsonObject:
         self.observed_steam_keys.append(os.environ.get("STEAM_KEY"))
-        if not os.environ.get("STEAM_KEY"):
+        if not os.environ.get("STEAM_KEY", "").strip():
             raise RuntimeError("STEAM_KEY environment variable is required for run mode")
         return super().__call__(**kwargs)
 
@@ -210,6 +210,74 @@ class RlTrainingRunnerTest(unittest.TestCase):
                     report_id="steam-key-env-file-load",
                     simulator_runner=simulator,
                     steam_key_env_file=env_file,
+                )
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+        self.assertEqual(simulator.observed_steam_keys, [file_secret])
+
+    def test_whitespace_steam_key_env_loads_from_env_file_without_secret_leak(self) -> None:
+        file_secret = "file-secret-token-123456"
+        simulator = RequiredSteamKeySimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            env_file = root / "runner.env"
+            write_json(card_path, base_card())
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {"STEAM_KEY": "   \t  "}, clear=True):
+                runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="steam-key-whitespace-env-file-load",
+                    simulator_runner=simulator,
+                    steam_key_env_file=env_file,
+                )
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+                report_text = (out_dir / "steam-key-whitespace-env-file-load.json").read_text(encoding="utf-8")
+
+        self.assertEqual(simulator.observed_steam_keys, [file_secret])
+        self.assertNotIn(file_secret, report_text)
+
+    def test_default_real_training_path_loads_steam_key_env_file(self) -> None:
+        file_secret = "default-file-secret-token-123456"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "local.env"
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with (
+                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(runner, "DEFAULT_STEAM_KEY_ENV_FILE", env_file),
+            ):
+                runner.ensure_steam_key_for_training(simulator_runner=runner.simulator_harness.run_simulator)
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+    def test_configured_steam_key_env_file_loads_for_wrapped_training_path(self) -> None:
+        file_secret = "configured-file-secret-token-123456"
+        simulator = RequiredSteamKeySimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            env_file = root / "runner.env"
+            write_json(card_path, base_card())
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {runner.STEAM_KEY_ENV_FILE_ENV: str(env_file)}, clear=True):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="steam-key-configured-env-file-load",
+                    simulator_runner=simulator,
                 )
                 self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
 
