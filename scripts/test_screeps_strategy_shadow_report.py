@@ -188,6 +188,7 @@ class StrategyShadowReportTest(unittest.TestCase):
         self.assertFalse(report["safety"]["memoryWritesAllowed"])
         self.assertFalse(report["safety"]["creepSpawnMarketIntentsAllowed"])
         self.assertEqual(report["artifactCount"], 1)
+        self.assertEqual(report["rankingContextCount"], 2)
         self.assertGreaterEqual(report["rankingDiffCount"], 2)
         self.assertGreaterEqual(report["changedTopCount"], 2)
         self.assertEqual(
@@ -232,6 +233,7 @@ class StrategyShadowReportTest(unittest.TestCase):
         self.assertTrue(report["source"]["artifactLimitApplied"])
         self.assertTrue(any("artifact limit applied" in warning for warning in report["warnings"]))
         for model_report in report["modelReports"]:
+            self.assertEqual(model_report["rankingContextCount"], 2)
             self.assertLessEqual(len(model_report["rankingDiffs"]), 1)
             if model_report["rankingDiffCount"] > 1:
                 self.assertTrue(model_report["rankingDiffsTruncated"])
@@ -273,6 +275,7 @@ class StrategyShadowReportTest(unittest.TestCase):
         self.assertIn("reportPath", cli_output)
         self.assertEqual(summary["strategyShadowReportCount"], 1)
         shadow_metadata = run_manifest["strategy"]["shadowReports"][0]
+        self.assertEqual(shadow_metadata["rankingContextCount"], 2)
         self.assertEqual(shadow_metadata["rankingDiffCount"], 2)
         self.assertEqual(shadow_metadata["changedTopCount"], 2)
         self.assertEqual(

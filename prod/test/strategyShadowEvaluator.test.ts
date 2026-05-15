@@ -35,6 +35,7 @@ describe('strategy shadow evaluator', () => {
     expect(report.kpi.reliability.passed).toBe(true);
 
     const constructionReport = report.modelReports.find((modelReport) => modelReport.family === 'construction-priority');
+    expect(constructionReport?.rankingContextCount).toBe(1);
     expect(constructionReport?.rankingDiffs).toHaveLength(1);
     expect(constructionReport?.rankingDiffs[0]).toMatchObject({
       artifactIndex: 0,
@@ -69,6 +70,7 @@ describe('strategy shadow evaluator', () => {
     const expansionReport = report.modelReports.find(
       (modelReport) => modelReport.family === 'expansion-remote-candidate'
     );
+    expect(expansionReport?.rankingContextCount).toBe(1);
     expect(expansionReport?.rankingDiffs).toHaveLength(1);
     expect(expansionReport?.rankingDiffs[0]).toMatchObject({
       context: 'expansion-remote-candidate',
@@ -100,6 +102,41 @@ describe('strategy shadow evaluator', () => {
     });
 
     expect(first.defaultValues).not.toEqual(second.defaultValues);
+  });
+
+  it('warns when artifacts have no evaluable ranking contexts for a model family', () => {
+    const report = evaluateStrategyShadowReplay({
+      artifacts: [
+        {
+          type: 'runtime-summary',
+          tick: 100,
+          rooms: [
+            {
+              roomName: 'W3N9',
+              energyAvailable: 300,
+              energyCapacity: 450,
+              workerCount: 4
+            }
+          ]
+        }
+      ],
+      config: {
+        enabled: true,
+        candidateStrategyIds: [
+          'construction-priority.territory-shadow.v1',
+          'expansion-remote.territory-shadow.v1'
+        ]
+      }
+    }, { enabled: false });
+
+    expect(report.artifactCount).toBe(1);
+    expect(report.modelReports).toHaveLength(2);
+    expect(report.modelReports.map((modelReport) => modelReport.rankingContextCount)).toEqual([0, 0]);
+    expect(report.modelReports.flatMap((modelReport) => modelReport.rankingDiffs)).toHaveLength(0);
+    expect(report.warnings).toEqual([
+      'no ranking contexts evaluated for construction-priority; input artifacts may lack strategy candidates',
+      'no ranking contexts evaluated for expansion-remote-candidate; input artifacts may lack strategy candidates'
+    ]);
   });
 
   it('keeps incumbent default values even when variance is enabled', () => {
