@@ -25,26 +25,31 @@ describe('territory expansion config', () => {
       }
     };
 
-    expect(getRuntimeCurrentRoomScoutOnlyTargets('W8N3')).toEqual([
-      {
-        colony: 'W8N3',
-        roomName: 'W8N2',
-        nearestOwnedRoom: 'W8N3',
-        nearestOwnedRoomDistance: 1,
-        routeDistance: 1,
-        adjacentToOwnedRoom: true,
-        scoutOnly: true
-      },
-      {
-        colony: 'W8N3',
-        roomName: 'W7N3',
-        nearestOwnedRoom: 'W8N3',
-        nearestOwnedRoomDistance: 1,
-        routeDistance: 1,
-        adjacentToOwnedRoom: true,
-        scoutOnly: true
+    expect(getRuntimeCurrentRoomScoutOnlyTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
+  });
+
+  it('includes current-room scout-only targets when the current room is inferred from an owned spawn', () => {
+    const room = makeOwnedRoom('W8N3');
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {},
+      spawns: {
+        Spawn1: makeSpawn('Spawn1', room)
       }
-    ]);
+    };
+
+    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
+  });
+
+  it('includes current-room scout-only targets when the current room is inferred from a visible owned room', () => {
+    const room = makeOwnedRoom('W8N3');
+    (globalThis as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W8N3: room
+      },
+      spawns: {}
+    };
+
+    expect(getTerritoryExpansionScoutTargets('W8N3')).toEqual(makeW8N3ScoutOnlyTargets());
   });
 
   it('merges explicit Memory scout targets with runtime current-room scout-only targets', () => {
@@ -119,4 +124,27 @@ function makeSpawn(name: string, room: Room): StructureSpawn {
     my: true,
     room
   } as StructureSpawn;
+}
+
+function makeW8N3ScoutOnlyTargets(): ReturnType<typeof getTerritoryExpansionScoutTargets> {
+  return [
+    {
+      colony: 'W8N3',
+      roomName: 'W8N2',
+      nearestOwnedRoom: 'W8N3',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: 'W8N3',
+      roomName: 'W7N3',
+      nearestOwnedRoom: 'W8N3',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    }
+  ];
 }
