@@ -109,7 +109,7 @@ describe('planSpawn', () => {
     spawnPosition?: RoomPosition;
     structures?: AnyStructure[];
     ownedStructures?: AnyOwnedStructure[];
-  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
+  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock } {
     const sources = Array.from(
       { length: sourceCount },
       (_, index) =>
@@ -122,7 +122,7 @@ describe('planSpawn', () => {
       { length: constructionSiteCount },
       (_, index) => ({ id: `site${index}` }) as ConstructionSite
     );
-    const find = jest.fn((type: number) => {
+    const find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
       if (type === FIND_SOURCES) {
         return sources;
       }
@@ -136,7 +136,7 @@ describe('planSpawn', () => {
       }
 
       if (type === FIND_MY_STRUCTURES) {
-        return ownedStructures;
+        return typeof options?.filter === 'function' ? ownedStructures.filter(options.filter) : ownedStructures;
       }
 
       if (type === FIND_STRUCTURES) {
@@ -1314,6 +1314,102 @@ describe('planSpawn', () => {
         }
       }
     });
+  });
+
+  it('spawns a second dedicated low-RCL upgrader when construction is clear and stored energy is surplus', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W3N9',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller-w3n9' as Id<StructureController>,
+        level: 2,
+        progress: 3_000,
+        progressTotal: 45_000
+      } as StructureController,
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
+    });
+
+    expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_333)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W3N9-controller-980333',
+      memory: {
+        role: 'upgrader',
+        colony: 'W3N9',
+        controllerUpgrade: {
+          roomName: 'W3N9',
+          controllerId: 'controller-w3n9',
+          priority: 'energySurplus',
+          assignedAt: 980_333
+        }
+      }
+    });
+  });
+
+  it('keeps worker recovery ahead of surplus low-RCL upgrader surge', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W3N9',
+      sourceCount: 2,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller-w3n9' as Id<StructureController>,
+        level: 2,
+        progress: 3_000,
+        progressTotal: 45_000
+      } as StructureController,
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
+    });
+
+    expect(planSpawn(colony, { worker: 3, upgrader: 1 }, 980_334)).toEqual({
+      spawn,
+      body: SCALED_WORKER_550,
+      name: 'worker-W3N9-980334',
+      memory: { role: 'worker', colony: 'W3N9' }
+    });
+  });
+
+  it('does not spawn surplus low-RCL upgraders while construction demand remains', () => {
+    const { colony } = makeColony({
+      roomName: 'W3N9',
+      constructionSiteCount: 1,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller-w3n9' as Id<StructureController>,
+        level: 2,
+        progress: 3_000,
+        progressTotal: 45_000
+      } as StructureController,
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
+    });
+
+    expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_335)?.memory.role).not.toBe('upgrader');
+  });
+
+  it('does not spawn surplus low-RCL upgraders until spawn energy is full with buffer margin', () => {
+    const { colony } = makeColony({
+      roomName: 'W3N9',
+      energyAvailable: 599,
+      energyCapacityAvailable: 650,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller-w3n9' as Id<StructureController>,
+        level: 3,
+        progress: 3_000,
+        progressTotal: 135_000
+      } as StructureController,
+      ownedStructures: [makeEnergyHaulingStructure('stored-surplus', 'storage', 2_000, 0)]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: { energySurplus: { updatedAt: 980_336, rooms: { W3N9: { surplus: true } as EconomyEnergySurplusRoomMemory } } }
+    };
+
+    expect(planSpawn(colony, { worker: 4, upgrader: 1 }, 980_336)?.memory.role).not.toBe('upgrader');
   });
 
   it('keeps controller-upgrade demand eligible during worker-only follow-up passes', () => {
