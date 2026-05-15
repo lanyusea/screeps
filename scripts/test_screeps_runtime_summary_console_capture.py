@@ -119,7 +119,11 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
 
         self.assertEqual(capture.DEFAULT_OUT_DIR, expected)
         self.assertIn(str(expected.parent), bridge.DEFAULT_INPUT_PATHS)
-        self.assertEqual(Path(capture.build_parser().parse_args([]).out_dir), expected)
+        with mock.patch.dict(capture.os.environ, {}, clear=True):
+            args = capture.build_parser().parse_args([])
+        self.assertEqual(args.world_profile, "persistent")
+        self.assertEqual(Path(args.out_dir), expected)
+        self.assertEqual(args.api_url, capture.DEFAULT_API_URL)
 
         env_override = Path("/tmp/runtime-summary-console-env")
         with mock.patch.dict(capture.os.environ, {capture.OUT_DIR_ENV: str(env_override)}):
@@ -131,6 +135,52 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                 Path(capture.build_parser().parse_args(["--out-dir", str(cli_override)]).out_dir),
                 cli_override,
             )
+
+    def test_seasonal_profile_isolates_console_capture_defaults(self) -> None:
+        with mock.patch.dict(capture.os.environ, {}, clear=True):
+            args = capture.build_parser().parse_args(["--world-profile", "seasonal"])
+
+        self.assertEqual(args.world_profile, "seasonal")
+        self.assertEqual(
+            Path(args.out_dir),
+            Path("/root/screeps/runtime-artifacts/seasonal/runtime-summary-console"),
+        )
+        self.assertEqual(args.api_url, "https://screeps.com/season")
+
+    def test_profile_env_and_explicit_overrides_win_for_console_capture(self) -> None:
+        with mock.patch.dict(
+            capture.os.environ,
+            {
+                "SCREEPS_WORLD_PROFILE": "seasonal",
+                capture.OUT_DIR_ENV: "/tmp/runtime-summary-console-env",
+                capture.API_URL_ENV: "https://example.invalid/custom",
+            },
+            clear=True,
+        ):
+            env_args = capture.build_parser().parse_args([])
+            cli_args = capture.build_parser().parse_args(
+                [
+                    "--out-dir",
+                    "/tmp/runtime-summary-console-cli",
+                    "--api-url",
+                    "https://example.invalid/cli",
+                ]
+            )
+
+        self.assertEqual(env_args.world_profile, "seasonal")
+        self.assertEqual(Path(env_args.out_dir), Path("/tmp/runtime-summary-console-env"))
+        self.assertEqual(env_args.api_url, "https://example.invalid/custom")
+        self.assertEqual(Path(cli_args.out_dir), Path("/tmp/runtime-summary-console-cli"))
+        self.assertEqual(cli_args.api_url, "https://example.invalid/cli")
+
+    def test_invalid_console_capture_world_profile_is_rejected(self) -> None:
+        with mock.patch.dict(capture.os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit):
+                capture.build_parser().parse_args(["--world-profile", "invalid"])
+
+        with mock.patch.dict(capture.os.environ, {"SCREEPS_WORLD_PROFILE": "invalid"}, clear=True):
+            with self.assertRaises(SystemExit):
+                capture.build_parser().parse_args([])
 
     def test_does_not_write_artifact_when_no_summary_lines_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

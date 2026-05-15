@@ -25,6 +25,7 @@ Do not pass API roots such as `https://screeps.com/api` or `https://screeps.com/
 | Deploy artifact | `prod/dist/main.js` | `prod/dist/main.js` built from the same verified source |
 | Deploy evidence | `runtime-artifacts/official-screeps-deploy/` | `runtime-artifacts/seasonal/official-screeps-deploy/` |
 | Routine monitor artifacts | `runtime-artifacts/screeps-monitor/` | `runtime-artifacts/seasonal/screeps-monitor/` |
+| Runtime-summary console artifacts | `runtime-artifacts/runtime-summary-console/` | `runtime-artifacts/seasonal/runtime-summary-console/` |
 | Runtime monitor state | `/root/.hermes/screeps-runtime-monitor/state.json` | `/root/.hermes/screeps-seasonal-runtime-monitor/state.json` |
 | Runtime monitor terrain cache | `/root/.hermes/screeps-runtime-monitor/terrain-cache/` | `/root/.hermes/screeps-seasonal-runtime-monitor/terrain-cache/` |
 | Deploy health-gate state | `runtime-artifacts/official-screeps-deploy/postdeploy-monitor-state.json` | `runtime-artifacts/seasonal/official-screeps-deploy/postdeploy-monitor-state.json` |
@@ -43,6 +44,8 @@ The following defaults are part of the persistent production contract:
 - Runtime monitor state/cache remain under `/root/.hermes/screeps-runtime-monitor/`.
 
 Seasonal commands must set their Seasonal world root, selectors, and state/cache/artifact paths explicitly. They must not rely on persistent defaults.
+
+`scripts/screeps-runtime-monitor.py` live subcommands and `scripts/screeps_runtime_summary_console_capture.py` also accept `SCREEPS_WORLD_PROFILE` or `--world-profile` with values `persistent` or `seasonal`. Omitted or `persistent` preserves the defaults above. Explicit `seasonal` switches only default monitor/capture paths, runtime-summary paths, `SCREEPS_API_URL` fallback, and `SCREEPS_SHARD` fallback to Seasonal values; existing CLI arguments and env overrides such as `SCREEPS_API_URL`, `SCREEPS_SHARD`, `SCREEPS_MONITOR_STATE_FILE`, `SCREEPS_MONITOR_CACHE_DIR`, `SCREEPS_RUNTIME_SUMMARY_DIR`, and `SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_DIR` still win.
 
 ## Seasonal Smoke Contract
 
