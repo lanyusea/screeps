@@ -1589,6 +1589,61 @@ cli:
         self.assertEqual([item["variant_id"] for item in results], ["a", "b"])
         self.assertEqual(artifact["wallClockSeconds"], 1.25)
 
+    def test_run_variants_retries_broken_pipe_with_fresh_worker_lifecycle(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def fake_run_variant(worker_index: int, variant_id: str, **kwargs: object) -> dict[str, object]:
+            calls.append({"worker_index": worker_index, "variant_id": variant_id, **kwargs})
+            if len(calls) == 1:
+                return {
+                    "variant_id": variant_id,
+                    "worker_id": worker_index,
+                    "variant_run_id": f"{kwargs['run_id']}-{variant_id}",
+                    "ticks_run": 0,
+                    "wall_clock_seconds": 0.1,
+                    "tick_log": [],
+                    "ok": False,
+                    "error": "[Errno 32] Broken pipe",
+                    "errors": ["[Errno 32] Broken pipe"],
+                }
+            return {
+                "variant_id": variant_id,
+                "worker_id": worker_index,
+                "variant_run_id": f"{kwargs['run_id']}-{variant_id}",
+                "ticks_run": 1,
+                "wall_clock_seconds": 0.2,
+                "tick_log": [{"tick": 1}],
+                "ok": True,
+            }
+
+        with mock.patch("screeps_rl_simulator_harness._run_variant", side_effect=fake_run_variant):
+            with mock.patch("screeps_rl_simulator_harness.cleanup_exact_run_worker_containers") as cleanup:
+                with mock.patch("screeps_rl_simulator_harness.time.sleep") as sleep:
+                    artifact, results = harness.run_variants(
+                        variants=["baseline"],
+                        ticks=1,
+                        workers=1,
+                        host_port_start=24125,
+                        room="E1S1",
+                        shard="shardX",
+                        branch="activeWorld",
+                        code_path=Path("main.js"),
+                        map_source_file=Path("map.json"),
+                        out_dir=Path("out"),
+                        run_id="bp-run",
+                        bot_commit="0" * 40,
+                    )
+
+        self.assertEqual([call["run_id"] for call in calls], ["bp-run", "bp-run-bp-retry-1"])
+        self.assertEqual([call["host_port_start"] for call in calls], [24125, 24127])
+        cleanup.assert_called_once_with("bp-run", worker_index=0)
+        sleep.assert_called_once_with(harness.RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS)
+        self.assertTrue(results[0]["ok"])
+        self.assertTrue(results[0]["brokenPipeRecovery"]["recovered"])
+        self.assertEqual(results[0]["brokenPipeRecovery"]["attempts"], 2)
+        self.assertEqual(artifact["successful"], 1)
+        self.assertEqual(artifact["failed"], 0)
+
     def test_run_simulator_writes_schema_validated_and_redacted_artifact(self) -> None:
         mock_variant = {
             "variant_id": "baseline",
@@ -1897,6 +1952,55 @@ cli:
                     "-f",
                     "rl-sim-worker-run-1-00-screeps-1",
                     "rl-sim-worker-run-1-01-mongo-1",
+                ]
+            ],
+        )
+
+    def test_exact_run_cleanup_can_target_one_worker_index(self) -> None:
+        commands: list[list[str]] = []
+
+        class Result:
+            returncode = 0
+            stdout = "removed\n"
+            stderr = ""
+
+        def fake_runner(command: list[str], **kwargs: object) -> Result:
+            _ = kwargs
+            commands.append(command)
+            return Result()
+
+        cleanup = harness.cleanup_exact_run_worker_containers(
+            "run-1",
+            worker_index=1,
+            container_names=[
+                "rl-sim-worker-run-1-00-screeps-1",
+                "/rl-sim-worker-run-1-01-mongo-1",
+                "rl-sim-worker-run-1-01-redis-1",
+                "rl-sim-worker-run-10-01-screeps-1",
+            ],
+            docker_binary="/usr/bin/docker",
+            runner=fake_runner,
+        )
+
+        self.assertTrue(cleanup["ok"])
+        self.assertEqual(cleanup["workerIndex"], 1)
+        self.assertEqual(cleanup["targetNamePrefix"], "rl-sim-worker-run-1-01-")
+        self.assertEqual(
+            cleanup["matchedContainers"],
+            [
+                "rl-sim-worker-run-1-01-mongo-1",
+                "rl-sim-worker-run-1-01-redis-1",
+            ],
+        )
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "/usr/bin/docker",
+                    "rm",
+                    "-f",
+                    "rl-sim-worker-run-1-01-mongo-1",
+                    "rl-sim-worker-run-1-01-redis-1",
                 ]
             ],
         )
