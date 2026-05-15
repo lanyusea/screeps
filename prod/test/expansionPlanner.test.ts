@@ -12,6 +12,7 @@ import {
 } from '../src/territory/expansionPlanner';
 import { refreshConfiguredExpansionRoomScouting } from '../src/territory/roomScouting';
 import { planTerritoryIntent, type TerritoryIntentPlan } from '../src/territory/territoryPlanner';
+import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
 
 describe('expansion planner', () => {
   beforeEach(() => {
@@ -469,6 +470,7 @@ describe('expansion planner', () => {
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300
     });
+    installRuntimeCurrentRoom('E29N55');
     installGame(colony, {
       gclLevel: 2,
       exits: { E29N55: { '1': 'E29N54', '7': 'E30N55' } },
@@ -498,6 +500,13 @@ describe('expansion planner', () => {
     expect(scouting.records).toEqual([
       {
         colony: 'E29N55',
+        roomName: 'E29N56',
+        status: 'requested',
+        updatedAt: 968_900,
+        distance: 1
+      },
+      {
+        colony: 'E29N55',
         roomName: 'E29N54',
         status: 'observed',
         updatedAt: 968_900,
@@ -506,6 +515,13 @@ describe('expansion planner', () => {
         controllerPresent: true,
         controllerId: 'controller-E29N54',
         terrainType: 'unknown'
+      },
+      {
+        colony: 'E29N55',
+        roomName: 'E28N55',
+        status: 'requested',
+        updatedAt: 968_900,
+        distance: 1
       },
       {
         colony: 'E29N55',

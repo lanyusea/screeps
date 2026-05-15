@@ -6,6 +6,10 @@ import {
   refreshNearbyRoomScouting,
   refreshAdjacentRoomScouting
 } from '../src/territory/roomScouting';
+import {
+  enableRuntimeCurrentRoomScoutTargets,
+  installE17S60ExpansionScoutTarget
+} from './helpers/runtimeRoomConfig';
 
 describe('room scouting', () => {
   beforeEach(() => {
@@ -183,6 +187,7 @@ describe('room scouting', () => {
         }
       }
     };
+    installE17S60ExpansionScoutTarget();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 300,
       rooms: {
@@ -222,6 +227,7 @@ describe('room scouting', () => {
 
   it('requests only scout intents for E29N55 adjacent expansion intel refresh targets', () => {
     const colony = makeColony('E29N55');
+    enableRuntimeCurrentRoomScoutTargets('E29N55');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 968_800,
       rooms: {
@@ -234,7 +240,21 @@ describe('room scouting', () => {
     expect(result.records).toEqual([
       {
         colony: 'E29N55',
+        roomName: 'E29N56',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      },
+      {
+        colony: 'E29N55',
         roomName: 'E29N54',
+        status: 'requested',
+        updatedAt: 968_800,
+        distance: 1
+      },
+      {
+        colony: 'E29N55',
+        roomName: 'E28N55',
         status: 'requested',
         updatedAt: 968_800,
         distance: 1
@@ -251,7 +271,21 @@ describe('room scouting', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      },
+      {
+        colony: 'E29N55',
         targetRoom: 'E29N54',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 968_800
+      },
+      {
+        colony: 'E29N55',
+        targetRoom: 'E28N55',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_800

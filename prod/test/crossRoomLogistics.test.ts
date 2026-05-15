@@ -143,6 +143,14 @@ describe('cross-room energy logistics', () => {
     });
     installGame([targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -174,6 +182,14 @@ describe('cross-room energy logistics', () => {
     });
     installGame([targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E18S59: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E18S59: {
           updatedAt: 100,
@@ -196,6 +212,31 @@ describe('cross-room energy logistics', () => {
     });
   });
 
+  it.each([
+    ['empty', {}],
+    ['missing enabled', { sourceRooms: ['E17S59'] }]
+  ])('does not enable memory-only local energy config without enabled true: %s', (_label, roomConfig) => {
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E17S58',
+      storageEnergy: 100
+    });
+    installGame([targetRoom], []);
+    Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: roomConfig
+        }
+      }
+    };
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E17S59', storedEnergy: 100 })).toMatchObject({
+      enabled: false,
+      sourceRoomAllowed: false,
+      importThreshold: 0,
+      reason: 'not-managed'
+    });
+  });
+
   it('suppresses routine E17S59 to E17S58 transfers when local harvesting is sufficient', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'E17S59', storageEnergy: 950, energyAvailable: 800 });
     const sourceContainer = makeContainer('E17S58-source-container', 450, 2_000);
@@ -206,6 +247,14 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -240,6 +289,14 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, localFirstRoom, e18s59Room], [makeSpawn('Spawn1', sourceRoom)]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -360,6 +417,7 @@ describe('cross-room energy logistics', () => {
       energyIndependence: {
         rooms: {
           E17S58: {
+            enabled: true,
             importThreshold: 700
           }
         }
@@ -399,6 +457,7 @@ describe('cross-room energy logistics', () => {
       energyIndependence: {
         rooms: {
           E17S58: {
+            enabled: true,
             importThreshold: 700,
             sourceRooms: ['E17S59', 'W1N1']
           }
@@ -433,6 +492,14 @@ describe('cross-room energy logistics', () => {
     targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -474,6 +541,14 @@ describe('cross-room energy logistics', () => {
     targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
     installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,
@@ -595,6 +670,7 @@ describe('cross-room energy logistics', () => {
       energyIndependence: {
         rooms: {
           E17S58: {
+            enabled: true,
             importThreshold: 2_000
           }
         }
@@ -771,6 +847,14 @@ describe('cross-room energy logistics', () => {
     });
     installGame([sourceRoom, targetRoom], []);
     Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E17S58: {
+            enabled: true,
+            sourceRooms: ['E17S59']
+          }
+        }
+      },
       sourceWorkloads: {
         E17S58: {
           updatedAt: 100,

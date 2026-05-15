@@ -1,4 +1,3 @@
-import { LOGISTICS_ROOM_SELECTION } from '../config/roomSelection';
 import { isKnownDeadZoneRoom } from '../defense/deadZone';
 
 export interface LogisticsRoute {
@@ -6,7 +5,7 @@ export interface LogisticsRoute {
   rooms: string[];
 }
 
-export const safeTransitAllowlist = new Set<string>(LOGISTICS_ROOM_SELECTION.safeTransitRooms);
+export const safeTransitAllowlist = new Set<string>();
 
 export function canFindOwnedLogisticsRoute(): boolean {
   return typeof getGameMap()?.findRoute === 'function';
@@ -51,10 +50,18 @@ export function isSafeOwnedRoom(roomName: string): boolean {
 export function isSafeLogisticsTransitRoom(roomName: string): boolean {
   const room = getVisibleRoom(roomName);
   if (!room) {
-    return safeTransitAllowlist.has(roomName) || !isKnownDeadZoneRoom(roomName);
+    return isConfiguredSafeTransitRoom(roomName) || !isKnownDeadZoneRoom(roomName);
   }
 
   return !hasHostilePresence(room);
+}
+
+function isConfiguredSafeTransitRoom(roomName: string): boolean {
+  return (
+    safeTransitAllowlist.has(roomName) ||
+    normalizeStringList((globalThis as { Memory?: Partial<Memory> }).Memory?.economy?.safeTransitAllowlist)
+      .includes(roomName)
+  );
 }
 
 function hasHostilePresence(room: Room): boolean {
@@ -112,4 +119,10 @@ function getGlobalNumber(name: string): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    : [];
 }

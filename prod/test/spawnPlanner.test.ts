@@ -23,6 +23,7 @@ import {
   TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
   TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
 } from '../src/territory/autoClaim';
+import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
 
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
@@ -4869,7 +4870,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('spawns a MOVE-only scout for the E29N55 scout-only E29N54 intel refresh without reserve or claim memory', () => {
+  it('spawns a MOVE-only scout for an E29N55 scout-only intel refresh without reserve or claim memory', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E29N55',
       energyAvailable: 450,
@@ -4877,6 +4878,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installRuntimeCurrentRoom('E29N55');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { E29N55: colony.room }
     };
@@ -4884,12 +4886,12 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_801)).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-E29N55-E29N54-968801',
+      name: 'scout-E29N55-E29N56-968801',
       memory: {
         role: 'scout',
         colony: 'E29N55',
         territory: {
-          targetRoom: 'E29N54',
+          targetRoom: 'E29N56',
           action: 'scout'
         }
       }
@@ -4898,7 +4900,7 @@ describe('planSpawn', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E29N55',
-        targetRoom: 'E29N54',
+        targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_801
