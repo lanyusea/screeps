@@ -42,11 +42,14 @@ interface EnergyHaulingCandidate<T extends RoomObject> {
 export const DEFAULT_ENERGY_HAULING_SOURCE_THRESHOLD = 100;
 export const DEFAULT_ENERGY_HAULING_BACKLOG_THRESHOLD = 500;
 export const DEFAULT_ENERGY_HAULING_MAX_HAULERS = 2;
+export const EARLY_RCL_CONTROLLER_RUNWAY_BACKLOG_THRESHOLD = 250;
 export const ENERGY_HAULER_REPLACEMENT_TICKS = 100;
 const ENERGY_HAULER_CARRY_MOVE_PAIR_COST = 100;
 const MAX_ENERGY_HAULER_CARRY_MOVE_PAIRS = 12;
 const MAX_CREEP_PARTS = 50;
 const STORAGE_DELIVERY_FREE_CAPACITY_FLOOR = 1;
+const EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL = 2;
+const EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL = 3;
 
 export function selectEnergyHaulingSource(
   room: Room,
@@ -123,10 +126,7 @@ export function selectEnergyHaulerSpawnDemand(
     return null;
   }
 
-  const backlogThreshold = getConfiguredEnergyThreshold(
-    options.backlogEnergyThreshold,
-    DEFAULT_ENERGY_HAULING_BACKLOG_THRESHOLD
-  );
+  const backlogThreshold = getEnergyHaulingBacklogThreshold(room, options);
   const backlogEnergy = getEnergyHaulingBacklog(room, options);
   if (backlogEnergy <= backlogThreshold || !hasEnergyHaulingDeliveryCapacity(room)) {
     return null;
@@ -212,6 +212,60 @@ function findEnergyHaulingDeliveryTargets(room: Room): EnergyHaulingDeliveryTarg
 
 function hasEnergyHaulingDeliveryCapacity(room: Room): boolean {
   return findEnergyHaulingDeliveryTargets(room).some((target) => getFreeEnergyCapacity(target) > 0);
+}
+
+function getEnergyHaulingBacklogThreshold(room: Room, options: EnergyHaulingOptions): number {
+  if (options.backlogEnergyThreshold !== undefined) {
+    return getConfiguredEnergyThreshold(options.backlogEnergyThreshold, DEFAULT_ENERGY_HAULING_BACKLOG_THRESHOLD);
+  }
+
+  return shouldUseEarlyRclControllerRunwayThreshold(room)
+    ? EARLY_RCL_CONTROLLER_RUNWAY_BACKLOG_THRESHOLD
+    : DEFAULT_ENERGY_HAULING_BACKLOG_THRESHOLD;
+}
+
+function shouldUseEarlyRclControllerRunwayThreshold(room: Room): boolean {
+  const controllerLevel = normalizeNonNegativeInteger(room.controller?.level ?? 0);
+  return (
+    room.controller?.my === true &&
+    controllerLevel >= EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL &&
+    controllerLevel <= EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL &&
+    !hasVisibleHostilePresence(room) &&
+    !hasVisibleConstructionDemand(room) &&
+    !hasDurableEnergyStore(room) &&
+    hasEarlyRclRunwayDeliveryCapacity(room)
+  );
+}
+
+function hasEarlyRclRunwayDeliveryCapacity(room: Room): boolean {
+  return findEnergyHaulingDeliveryTargets(room).some(
+    (target) =>
+      getFreeEnergyCapacity(target) > 0 &&
+      (isSpawnStructure(target) ||
+        isExtensionStructure(target) ||
+        isTowerStructure(target) ||
+        isControllerStagingContainer(room, target))
+  );
+}
+
+function hasDurableEnergyStore(room: Room): boolean {
+  return Boolean(room.storage) ||
+    Boolean(room.terminal) ||
+    findOwnedStructures(room).some((structure) => isStorageStructure(structure) || isTerminalStructure(structure));
+}
+
+function hasVisibleConstructionDemand(room: Room): boolean {
+  return (
+    findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES').length > 0 ||
+    findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').some((site) => site.my !== false)
+  );
+}
+
+function hasVisibleHostilePresence(room: Room): boolean {
+  return (
+    findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length > 0 ||
+    findRoomObjects<Structure>(room, 'FIND_HOSTILE_STRUCTURES').length > 0
+  );
 }
 
 function countActiveLocalEnergyHaulers(roomName: string): number {
@@ -451,6 +505,20 @@ function findOwnedStructures(room: Room): AnyOwnedStructure[] {
 
   const result = (room.find as unknown as (type: number) => unknown[])(findMyStructures);
   return Array.isArray(result) ? (result as AnyOwnedStructure[]) : [];
+}
+
+function findRoomObjects<T>(room: Room, globalName: string): T[] {
+  const findConstant = getGlobalNumber(globalName);
+  if (findConstant === undefined || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function isContainerStructure(structure: Structure): structure is StructureContainer {

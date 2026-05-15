@@ -11,6 +11,8 @@ describe('energy hauling priority system', () => {
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 1;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 3;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 5;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -111,6 +113,48 @@ describe('energy hauling priority system', () => {
     expect(selectEnergyHaulerSpawnDemand(room, { backlogEnergyThreshold: 700, maxHaulers: 2 })).toBeNull();
   });
 
+  it('reports early RCL controller runway demand below the default backlog threshold', () => {
+    const sourceContainer = makeStoreStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
+    const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);
+    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 35, 23);
+    const room = makeRoom([sourceContainer, controllerContainer], [fullSpawn], {
+      controller: { my: true, level: 2, pos: makePosition(25, 25) } as StructureController,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      time: 1
+    };
+
+    expect(getEnergyHaulingBacklog(room)).toBe(300);
+    expect(selectEnergyHaulerSpawnDemand(room)).toEqual({
+      activeHaulers: 0,
+      backlogEnergy: 300,
+      maxHaulers: 2,
+      roomName: 'W1N1'
+    });
+  });
+
+  it('keeps the default hauler backlog threshold while construction is pending', () => {
+    const sourceContainer = makeStoreStructure('source-container', STRUCTURE_CONTAINER, 300, 1_700, 10, 10);
+    const controllerContainer = makeStoreStructure('controller-stage', STRUCTURE_CONTAINER, 0, 2_000, 24, 25);
+    const fullSpawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 300, 0, 35, 23);
+    const room = makeRoom([sourceContainer, controllerContainer], [fullSpawn], {
+      constructionSites: [{ id: 'extension-site1', my: true } as ConstructionSite],
+      controller: { my: true, level: 2, pos: makePosition(25, 25) } as StructureController,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      time: 1
+    };
+
+    expect(getEnergyHaulingBacklog(room)).toBe(300);
+    expect(selectEnergyHaulerSpawnDemand(room)).toBeNull();
+  });
+
   it('builds carry capacity in proportion to available room energy capacity', () => {
     expect(countBodyParts(buildEnergyHaulerBody(300), 'carry')).toBe(3);
     expect(countBodyParts(buildEnergyHaulerBody(800), 'carry')).toBe(8);
@@ -121,8 +165,9 @@ describe('energy hauling priority system', () => {
 function makeRoom(
   structures: Structure[],
   ownedStructures: AnyOwnedStructure[],
-  overrides: Partial<Room> = {}
+  overrides: Partial<Room> & { constructionSites?: ConstructionSite[] } = {}
 ): Room {
+  const { constructionSites = [], ...roomOverrides } = overrides;
   return {
     name: 'W1N1',
     find: jest.fn((type: number) => {
@@ -138,9 +183,13 @@ function makeRoom(
         return [];
       }
 
+      if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
       return [];
     }),
-    ...overrides
+    ...roomOverrides
   } as unknown as Room;
 }
 
