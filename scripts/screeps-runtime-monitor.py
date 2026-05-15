@@ -39,8 +39,8 @@ DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-
 DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
-DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "W3N9"
+DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
+DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
@@ -605,7 +605,7 @@ def parse_room_arg(value: str | None, default_shard: str) -> RoomRef | None:
     if "/" in value:
         shard, room = value.split("/", 1)
         if not shard or not room:
-            raise ValueError("--room must use shard/room, for example shardX/W3N9")
+            raise ValueError(f"--room must use shard/room, for example {DEFAULT_SHARD}/{DEFAULT_ROOM}")
         return RoomRef(shard=shard, room=room)
     return RoomRef(shard=default_shard, room=value)
 
@@ -629,7 +629,7 @@ def context_from_env(world_profile: str | None = None) -> RuntimeContext:
         base_http=env_default("SCREEPS_API_URL", profile.api_url).rstrip("/"),
         token=token,
         default_shard=env_default("SCREEPS_SHARD", profile.shard),
-        default_room=os.environ.get("SCREEPS_ROOM", DEFAULT_ROOM),
+        default_room=os.environ.get("SCREEPS_ROOM", profile.room or DEFAULT_ROOM),
         owner=os.environ.get("SCREEPS_OWNER"),
         owner_id=os.environ.get("SCREEPS_OWNER_ID"),
         state_file=Path(env_default("SCREEPS_MONITOR_STATE_FILE", str(profile.monitor_state_file))),

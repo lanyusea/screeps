@@ -220,12 +220,12 @@ describe('room scouting', () => {
     ]);
   });
 
-  it('requests only scout intents for W3N9 adjacent expansion intel refresh targets', () => {
-    const colony = makeColony('W3N9');
+  it('requests only scout intents for E29N55 adjacent expansion intel refresh targets', () => {
+    const colony = makeColony('E29N55');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 968_800,
       rooms: {
-        W3N9: colony.room
+        E29N55: colony.room
       }
     };
 
@@ -233,15 +233,15 @@ describe('room scouting', () => {
 
     expect(result.records).toEqual([
       {
-        colony: 'W3N9',
-        roomName: 'W3N8',
+        colony: 'E29N55',
+        roomName: 'E29N54',
         status: 'requested',
         updatedAt: 968_800,
         distance: 1
       },
       {
-        colony: 'W3N9',
-        roomName: 'W2N9',
+        colony: 'E29N55',
+        roomName: 'E30N55',
         status: 'requested',
         updatedAt: 968_800,
         distance: 1
@@ -250,15 +250,15 @@ describe('room scouting', () => {
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
       {
-        colony: 'W3N9',
-        targetRoom: 'W3N8',
+        colony: 'E29N55',
+        targetRoom: 'E29N54',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_800
       },
       {
-        colony: 'W3N9',
-        targetRoom: 'W2N9',
+        colony: 'E29N55',
+        targetRoom: 'E30N55',
         action: 'scout',
         status: 'planned',
         updatedAt: 968_800

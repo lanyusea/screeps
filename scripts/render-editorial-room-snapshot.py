@@ -14,12 +14,13 @@ from collections import Counter
 from pathlib import Path
 
 import websockets
+import screeps_world_profiles as world_profiles
 
 BASE_HTTP = os.environ.get("SCREEPS_API_URL", "https://screeps.com").rstrip("/")
 BASE_WS = BASE_HTTP.replace("https://", "wss://").replace("http://", "ws://")
 TOKEN = os.environ["SCREEPS_AUTH_TOKEN"]
-SHARD = os.environ.get("SCREEPS_SHARD", "shardX")
-ROOM = os.environ.get("SCREEPS_ROOM", "W3N9")
+SHARD = os.environ.get("SCREEPS_SHARD", world_profiles.PERSISTENT_DEFAULTS.shard)
+ROOM = os.environ.get("SCREEPS_ROOM", world_profiles.PERSISTENT_DEFAULTS.room)
 OWNER = os.environ.get("SCREEPS_OWNER", "lanyusea")
 OUT_SVG = Path(f"/root/screeps/docs/process/room-snapshot-editorial-{ROOM}.svg")
 OUT_PNG = OUT_SVG.with_suffix(".png")

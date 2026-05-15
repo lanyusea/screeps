@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import screeps_runtime_kpi_artifact_bridge as runtime_kpi_bridge
 import screeps_runtime_kpi_reducer as runtime_kpi_reducer
+import screeps_world_profiles as world_profiles
 
 
 SCHEMA_VERSION = 1
@@ -35,8 +36,8 @@ PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
 SCREEPS_ROOM_URL_BASE = "https://screeps.com/a/#!/room"
 # AGENTS.md official deployment target; generation env can override it.
-OFFICIAL_SCREEPS_SHARD = "shardX"
-OFFICIAL_SCREEPS_ROOM = "W3N9"
+OFFICIAL_SCREEPS_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
+OFFICIAL_SCREEPS_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 DISCORD_URL = "https://discord.gg/XenFZG9bCE"
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")

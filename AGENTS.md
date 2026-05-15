@@ -5,7 +5,7 @@ This repository builds and operates a Screeps: World bot. Use this file as the c
 ## Mission and operating model
 
 - Target game: Screeps: World official MMO.
-- Current official target: branch `main`, shard `shardX`, room `W3N9`; `Spawn1` was placed at `(35,23)` on 2026-05-14 after the owner-approved W3N9 recovery.
+- Current official target: branch `main`, shard `shardX`, room `E29N55`; `Spawn1` is at `(17,24)` after the owner-approved E29N55 recovery.
 - Project vision: on competition maps, build toward sufficiently large territory first, sufficiently many resources second, and sufficiently many enemy kills third. All roadmap decomposition and priority evaluation must serve that ordered end goal; see `docs/ops/project-vision.md`.
 - Runtime code lives in `prod/`; durable project docs live in `docs/`.
 - Discord is the coordination contract: research, decisions, roadmap, task queue, dev log, runtime summaries, and runtime alerts are mirrored in docs where practical.

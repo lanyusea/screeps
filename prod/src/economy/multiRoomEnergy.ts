@@ -1,6 +1,7 @@
+import { LOGISTICS_ROOM_SELECTION } from '../config/roomSelection';
 import type { RoomStoredEnergyState } from './storageBalancer';
 
-export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = ['E17S58', 'E17S59', 'E18S59'] as const;
+export const MULTI_ROOM_ENERGY_CORRIDOR_ROOMS = LOGISTICS_ROOM_SELECTION.corridorRooms;
 export const MULTI_ROOM_ENERGY_SOURCE_WORKLOAD_MAX_AGE = 50;
 
 export type MultiRoomEnergyTransferAuditStatus = 'planned' | 'suppressed' | 'blocked';

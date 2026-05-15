@@ -23,6 +23,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
+import screeps_world_profiles as world_profiles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARTIFACT_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
@@ -32,8 +34,8 @@ PERSISTENT_WORLD_ROOT = "https://screeps.com"
 SEASONAL_WORLD_ROOT = "https://screeps.com/season"
 OFFICIAL_WORLD_ROOTS = (PERSISTENT_WORLD_ROOT, SEASONAL_WORLD_ROOT)
 DEFAULT_BRANCH = "main"
-DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "W3N9"
+DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
+DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_MONITOR_TIMEOUT_SECONDS = 120
 DEFAULT_ROLLBACK_RECOVERY_TIMEOUT_SECONDS = 300
@@ -1305,7 +1307,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true", help="Verify artifact metadata only; default when --deploy is omitted.")
     mode.add_argument("--deploy", action="store_true", help="Perform authenticated API writes.")
     parser.add_argument("--activate-world", action="store_true", help="Set the deployed branch as activeWorld and verify it by hash.")
-    parser.add_argument("--confirm", help='Required for --deploy, e.g. "deploy main to shardX/W3N9".')
+    parser.add_argument(
+        "--confirm",
+        help=f'Required for --deploy, e.g. "deploy {DEFAULT_BRANCH} to {DEFAULT_SHARD}/{DEFAULT_ROOM}".',
+    )
     parser.add_argument("--api-url", default=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL))
     parser.add_argument("--branch", default=os.environ.get("SCREEPS_BRANCH", DEFAULT_BRANCH))
     parser.add_argument("--shard", default=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD))

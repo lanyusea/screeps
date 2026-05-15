@@ -10193,7 +10193,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: scarceEnergyAvailable,
@@ -10204,7 +10204,7 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'RecoveryWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -10217,9 +10217,9 @@ describe('selectWorkerTask', () => {
       name: 'SourceHarvester',
       memory: {
         role: 'sourceHarvester',
-        colony: 'W3N9',
+        colony: 'E29N55',
         sourceHarvester: {
-          roomName: 'W3N9',
+          roomName: 'E29N55',
           sourceId: 'source1' as Id<Source>,
           containerId: 'source-container1' as Id<StructureContainer>
         }
@@ -10241,7 +10241,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: scarceEnergyAvailable,
@@ -10249,13 +10249,13 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'LoadedWorker',
-      memory: { role: 'worker', colony: 'W3N9', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      memory: { role: 'worker', colony: 'E29N55', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
     } as unknown as Creep;
     const emptyWorker = {
       name: 'EmptyWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
       room
     } as unknown as Creep;
@@ -10269,9 +10269,9 @@ describe('selectWorkerTask', () => {
       time: 100
     };
     recordColonySurvivalAssessment(
-      'W3N9',
+      'E29N55',
       assessColonySurvival({
-        roomName: 'W3N9',
+        roomName: 'E29N55',
         workerCapacity: 3,
         workerTarget: 4,
         energyAvailable: scarceEnergyAvailable,
@@ -10546,7 +10546,7 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('uses safe W3N9 construction energy below the bootstrap buffer margin', () => {
+  it('uses safe E29N55 construction energy below the bootstrap buffer margin', () => {
     const site = withRangeTo(
       { id: 'extension-site1', structureType: 'extension' } as ConstructionSite,
       { spawn1: 1 }
@@ -10559,7 +10559,7 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       constructionSites: [site],
       controller,
       energyAvailable: 323,
@@ -10568,7 +10568,7 @@ describe('selectWorkerTask', () => {
     });
     const creep = {
       name: 'Builder',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -10576,7 +10576,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
     const assessment = assessColonySurvival({
-      roomName: 'W3N9',
+      roomName: 'E29N55',
       workerCapacity: 1,
       workerTarget: 3,
       hostileCreepCount: 0,
@@ -10584,7 +10584,7 @@ describe('selectWorkerTask', () => {
       controller: { my: true, level: 2, ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1 }
     });
     expect(assessment.mode).toBe('BOOTSTRAP');
-    recordColonySurvivalAssessment('W3N9', assessment, 966752);
+    recordColonySurvivalAssessment('E29N55', assessment, 966752);
     setGameCreeps({ Builder: creep });
 
     expect(selectWorkerTask(creep)).toEqual({
@@ -13047,7 +13047,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
   });
 
-  it('repairs W3N9 active-decay ramparts before controller upgrade pressure', () => {
+  it('repairs E29N55 active-decay ramparts before controller upgrade pressure', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -13067,7 +13067,7 @@ describe('selectWorkerTask', () => {
       my: true
     });
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13077,8 +13077,8 @@ describe('selectWorkerTask', () => {
       name: 'RclPushUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+        colony: 'E29N55',
+        controllerUpgrade: { roomName: 'E29N55', controllerId: 'controller1' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13087,7 +13087,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
   });
 
-  it('repairs W3N9 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
+  it('repairs E29N55 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -13114,7 +13114,7 @@ describe('selectWorkerTask', () => {
       my: true
     });
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13125,8 +13125,8 @@ describe('selectWorkerTask', () => {
       name: 'RclPushUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+        colony: 'E29N55',
+        controllerUpgrade: { roomName: 'E29N55', controllerId: 'controller1' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13157,7 +13157,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13168,7 +13168,7 @@ describe('selectWorkerTask', () => {
       name: 'Repairer',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
+        colony: 'E29N55',
         task: { type: 'repair', targetId: 'rampart-active-decay' as Id<Structure> }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
@@ -13176,7 +13176,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     const creep = {
       name: 'ReserveWorker',
-      memory: { role: 'worker', colony: 'W3N9' },
+      memory: { role: 'worker', colony: 'E29N55' },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
     } as unknown as Creep;
@@ -13239,7 +13239,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13249,8 +13249,8 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13274,7 +13274,7 @@ describe('selectWorkerTask', () => {
       { my: true }
     );
     const room = makeWorkerTaskRoom({
-      name: 'W3N9',
+      name: 'E29N55',
       controller,
       energyAvailable: 550,
       energyCapacityAvailable: 550,
@@ -13284,7 +13284,7 @@ describe('selectWorkerTask', () => {
       name: 'Repairer',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
+        colony: 'E29N55',
         task: { type: 'repair', targetId: 'rampart-alert-band' as Id<Structure> }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
@@ -13294,8 +13294,8 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -13357,12 +13357,12 @@ describe('selectWorkerTask', () => {
       name: 'SustainUpgrader',
       memory: {
         role: 'worker',
-        colony: 'W3N9',
-        controllerSustain: { homeRoom: 'W3N9', targetRoom: 'W3N9', role: 'upgrader' }
+        colony: 'E29N55',
+        controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N55', role: 'upgrader' }
       },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({
-        name: 'W3N9',
+        name: 'E29N55',
         controller,
         energyAvailable: 550,
         energyCapacityAvailable: 550,

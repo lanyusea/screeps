@@ -1,3 +1,4 @@
+import { LOGISTICS_ROOM_SELECTION } from '../config/roomSelection';
 import { getTerminalEnergyTarget } from './energySurplus';
 import {
   auditLocalEnergyImport,
@@ -502,7 +503,11 @@ function compareExportRoomsForImporter(
 }
 
 function getCorridorExporterPriority(sourceRoom: string, targetRoom: string): number {
-  if (sourceRoom === 'E17S59' && targetRoom === 'E18S59') {
+  if (
+    LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.some(
+      (route) => route.sourceRoom === sourceRoom && route.targetRoom === targetRoom
+    )
+  ) {
     return 0;
   }
 
