@@ -95,6 +95,30 @@ If nothing is critical, output exactly:
 No critical issues found.
 ```
 
+## Skill 3a — Automated review feedback triage
+
+Use when a PR has CodeRabbit/Gemini comments, review threads, or top-level review bodies, especially while CodeRabbit is in assertive/aggressive mode.
+
+Controller workflow:
+
+1. Re-query the live PR head SHA, checks/statuses, comments, reviews, and GraphQL review threads.
+2. Give Codex the exact finding text, URLs/thread IDs, current diff, relevant file context, and project review severity policy.
+3. Require Codex to classify each finding:
+   - `FIX` — critical and actionable; implement the smallest patch and run verification.
+   - `RESOLVE_FALSE_POSITIVE` — contradicted by current code/tests/Screeps semantics.
+   - `RESOLVE_STALE_OR_OUTDATED` — already fixed on the latest head or no longer applies.
+   - `ADVISORY_ONLY` — style/preference/non-critical optimization that should not churn code.
+   - `OWNER_DECISION` — would change strategy, reward policy, live deployment, secrets, or another owner-controlled choice.
+4. For `FIX`, keep changes in the PR branch, commit with the required Codex author, push, then rerun controller verification and exact-head QA.
+5. For `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, or `ADVISORY_ONLY`, post concise evidence when useful and resolve the GitHub review thread/comment with GraphQL/`gh` after verifying it is safe. Do not add code just to appease a non-critical bot suggestion.
+6. Do not merge while CodeRabbit/Gemini is pending, while a fresh top-level review body contains untriaged actionable language, or while unresolved active review threads remain.
+
+Prompt clause for Codex review-fix runs:
+
+```text
+Triage the automated review feedback first. Not every CodeRabbit/Gemini finding is valid or worth changing. For each finding, classify it as FIX, RESOLVE_FALSE_POSITIVE, RESOLVE_STALE_OR_OUTDATED, ADVISORY_ONLY, or OWNER_DECISION. Only implement FIX items that are critical under AGENTS.md; otherwise explain the evidence the controller should use to resolve the thread/comment without code churn.
+```
+
 ## Skill 4 — Screeps operations/documentation updates
 
 Use for docs, runbooks, and runtime monitor scripts.
@@ -127,6 +151,7 @@ Use for any repository change.
 | New bot behavior under `prod/src` | Screeps TDD implementation |
 | Failing test/build/private-server smoke | Screeps systematic debugging |
 | PR/diff review | Critical-only PR review |
+| CodeRabbit/Gemini PR feedback | Automated review feedback triage |
 | Monitoring/runbook/doc update | Screeps operations/documentation updates |
 | Any branch/PR workflow | Worktree and PR hygiene |
 
@@ -140,3 +165,4 @@ Include these clauses in most Codex prompts for this project:
 - "Run the project verification commands before finishing."
 - "Commit the verified change; do not leave unrelated files staged."
 - "For review, only report critical issues; otherwise say `No critical issues found.`"
+- "For automated review feedback, triage each CodeRabbit/Gemini item before editing; implement only critical `FIX` items and provide evidence for false-positive/stale/advisory resolution."
