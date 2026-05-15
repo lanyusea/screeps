@@ -35360,6 +35360,41 @@ function getGameTime30() {
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }
 
+// src/runtime/featureGates.ts
+function getRuntimeFeatureGates(game = getRuntimeGame()) {
+  var _a, _b;
+  const shardName = normalizeString((_a = game == null ? void 0 : game.shard) == null ? void 0 : _a.name);
+  const shardType = normalizeString((_b = game == null ? void 0 : game.shard) == null ? void 0 : _b.type);
+  const isSeasonal = shardName === "shardSeason" || /season/i.test(shardType != null ? shardType : "");
+  const enabledInPersistent = !isSeasonal;
+  return {
+    cpu: buildCpuMetadata(game == null ? void 0 : game.cpu),
+    isSeasonal,
+    ...shardName ? { shardName } : {},
+    ...shardType ? { shardType } : {},
+    world: isSeasonal ? "seasonal" : "persistent",
+    marketTrading: enabledInPersistent,
+    terminalEnergyTransfers: enabledInPersistent,
+    labManagement: enabledInPersistent
+  };
+}
+function getRuntimeGame() {
+  return globalThis.Game;
+}
+function buildCpuMetadata(cpu) {
+  return {
+    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+  };
+}
+function optionalFiniteNumber(key, value) {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+function normalizeString(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+
 // src/economy/sourceWorkload.ts
 var HARVEST_ENERGY_PER_WORK_PART3 = 2;
 var DEFAULT_SOURCE_ENERGY_CAPACITY3 = 3e3;
@@ -42888,10 +42923,13 @@ var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 function runEconomy(preludeTelemetryEvents = []) {
   var _a, _b, _c, _d;
+  const featureGates = getRuntimeFeatureGates();
   const creeps = Object.values(Game.creeps);
   balanceStorage();
-  manageTerminalEnergy();
-  if (Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
+  if (featureGates.terminalEnergyTransfers) {
+    manageTerminalEnergy();
+  }
+  if (featureGates.marketTrading && Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();
@@ -43015,7 +43053,7 @@ function runEconomy(preludeTelemetryEvents = []) {
     transferEnergy(colony.room);
     manageStorage(colony.room);
     refreshRoomEnergySurplusState(colony.room);
-    const labStructures = shouldRunLabManagement(colony.room);
+    const labStructures = shouldRunLabManagement(colony.room, featureGates);
     if (labStructures.length > 0) {
       manageLabs(colony.room, { creeps, labs: labStructures });
     }
@@ -43027,7 +43065,7 @@ function runEconomy(preludeTelemetryEvents = []) {
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
-    if (shouldYieldCreepToLabManager(creep, Game.time)) {
+    if (featureGates.labManagement && shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
     if (creep.memory.role === "worker") {
@@ -43133,8 +43171,11 @@ function getResourceEnergyConstant() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
-function shouldRunLabManagement(room) {
+function shouldRunLabManagement(room, featureGates) {
   var _a, _b;
+  if (!featureGates.labManagement) {
+    return [];
+  }
   if (((_a = room.controller) == null ? void 0 : _a.my) !== true || ((_b = room.controller.level) != null ? _b : 0) < 6) {
     return [];
   }
