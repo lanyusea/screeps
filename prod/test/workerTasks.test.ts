@@ -13087,6 +13087,105 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
   });
 
+  it('repairs W3N9 active-decay ramparts before a near-term spawn completion reserve when walls also need repair', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 44_500,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const rampart = makeStructure(
+      'rampart-active-decay',
+      'rampart' as StructureConstant,
+      119_801,
+      300_000_000,
+      { my: true }
+    );
+    const wall = makeStructure('wall-lower-ratio', 'constructedWall' as StructureConstant, 1, 300_000_000);
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 4_641, {
+      my: true
+    });
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [busyFullSpawn as AnyOwnedStructure],
+      structures: [rampart, wall, storage]
+    });
+    const creep = {
+      name: 'RclPushUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        controllerUpgrade: { roomName: 'W3N9', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
+  });
+
+  it('keeps near-term refill reserve once another worker covers active rampart maintenance', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const rampart = makeStructure(
+      'rampart-active-decay',
+      'rampart' as StructureConstant,
+      119_801,
+      300_000_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'W3N9',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [busyFullSpawn as AnyOwnedStructure],
+      structures: [rampart]
+    });
+    const repairer = {
+      name: 'Repairer',
+      memory: {
+        role: 'worker',
+        colony: 'W3N9',
+        task: { type: 'repair', targetId: 'rampart-active-decay' as Id<Structure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'ReserveWorker',
+      memory: { role: 'worker', colony: 'W3N9' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, ReserveWorker: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
   it.each([
     ['owned rampart', 'rampart' as StructureConstant, { my: true }, 'rampart-decay'],
     ['constructed wall', 'constructedWall' as StructureConstant, {}, 'wall-decay']
