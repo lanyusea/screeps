@@ -62,6 +62,9 @@ const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const ADJACENT_ACTION_MOVE_RANGE = 1;
+const RANGED_WORK_MOVE_RANGE = 3;
+const EXACT_POSITION_MOVE_RANGE = 0;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 
 interface WorkerTaskSelectionNullLoopState {
@@ -854,7 +857,7 @@ function executeAssignedTask(
   }
 
   if (execution.result === ERR_NOT_IN_RANGE_CODE) {
-    creep.moveTo(target as RoomObject);
+    moveToAssignedTaskTarget(creep, task, target as RoomObject);
     recordCreepBehaviorMove(creep);
   }
 }
@@ -1778,7 +1781,7 @@ function executeHarvestTask(
   }
 
   if (!isInRangeToRoomObject(creep, sourceContainer, 0)) {
-    creep.moveTo(sourceContainer);
+    creep.moveTo(sourceContainer, { range: EXACT_POSITION_MOVE_RANGE });
     return { result: OK_CODE, action: 'move' };
   }
 
@@ -1818,7 +1821,7 @@ function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: Structure
 
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE_CODE) {
-    creep.moveTo(sourceContainer);
+    creep.moveTo(sourceContainer, { range: EXACT_POSITION_MOVE_RANGE });
     return { result: OK_CODE, action: 'move' };
   }
 
@@ -1872,6 +1875,33 @@ function recordTaskBehavior(
 
   if (execution.sourceContainerWithdrawal) {
     recordCreepBehaviorSourceContainerWithdrawal(creep);
+  }
+}
+
+function moveToAssignedTaskTarget(creep: Creep, task: CreepTaskMemory, target: RoomObject): void {
+  const range = getAssignedTaskMoveRange(task);
+  if (range === ADJACENT_ACTION_MOVE_RANGE) {
+    creep.moveTo(target);
+    return;
+  }
+
+  creep.moveTo(target, { range });
+}
+
+function getAssignedTaskMoveRange(task: CreepTaskMemory): number {
+  switch (task.type) {
+    case 'build':
+    case 'repair':
+    case 'upgrade':
+      return RANGED_WORK_MOVE_RANGE;
+    case 'harvest':
+    case 'pickup':
+    case 'withdraw':
+    case 'transfer':
+    case 'claim':
+    case 'reserve':
+    case 'signController':
+      return ADJACENT_ACTION_MOVE_RANGE;
   }
 }
 

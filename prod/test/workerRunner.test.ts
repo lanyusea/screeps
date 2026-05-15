@@ -772,7 +772,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.moveTo).toHaveBeenCalledWith(container);
+    expect(creep.moveTo).toHaveBeenCalledWith(container, { range: 0 });
     expect(creep.harvest).not.toHaveBeenCalled();
     expect(creep.transfer).not.toHaveBeenCalled();
   });
@@ -1266,7 +1266,7 @@ describe('runWorker', () => {
       targetId: 'remote-source',
       sourceContainerAssigned: true
     });
-    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer);
+    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer, { range: 0 });
     expect(creep.harvest).not.toHaveBeenCalled();
   });
 
@@ -1477,7 +1477,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('site1');
     expect(build).toHaveBeenCalledWith(site);
-    expect(moveTo).toHaveBeenCalledWith(site);
+    expect(moveTo).toHaveBeenCalledWith(site, { range: 3 });
   });
 
   it('repairs an existing repair target and moves when not in range', () => {
@@ -1503,7 +1503,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('road1');
     expect(repair).toHaveBeenCalledWith(road);
-    expect(moveTo).toHaveBeenCalledWith(road);
+    expect(moveTo).toHaveBeenCalledWith(road, { range: 3 });
   });
 
   it('upgrades an existing upgrade target and moves when not in range', () => {
@@ -1529,7 +1529,7 @@ describe('runWorker', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('controller1');
     expect(upgradeController).toHaveBeenCalledWith(controller);
-    expect(moveTo).toHaveBeenCalledWith(controller);
+    expect(moveTo).toHaveBeenCalledWith(controller, { range: 3 });
   });
 
   it('signs an incorrectly signed owned upgrade target while upgrading it', () => {
