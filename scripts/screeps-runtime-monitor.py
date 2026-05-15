@@ -76,6 +76,13 @@ ENERGY_BUFFER_UNHEALTHY_ROUTES = [
     {"issue": "#906", "topic": "metric_taxonomy"},
     {"issue": "#907", "topic": "reward_decisions"},
 ]
+CONSTRUCTION_DEADLOCK_KIND = "construction_deadlock_ticks"
+CONSTRUCTION_DEADLOCK_P1_TICKS = 100
+CONSTRUCTION_DEADLOCK_P0_TICKS = 500
+CONSTRUCTION_DEADLOCK_ROUTES = [
+    {"issue": "#906", "topic": "gameplay_behavior_metric"},
+    {"issue": "#1025", "topic": "construction_deadlock_ticks"},
+]
 
 ROOM_SIZE = 50
 TERRAIN_CELLS = ROOM_SIZE * ROOM_SIZE
@@ -242,6 +249,17 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
             "routes_to": ENERGY_BUFFER_UNHEALTHY_ROUTES,
         },
     },
+    CONSTRUCTION_DEADLOCK_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "constructionDeadlockTicks",
+            "related_issues": ["#906", "#1025"],
+            "thresholds": {"P1": CONSTRUCTION_DEADLOCK_P1_TICKS, "P0": CONSTRUCTION_DEADLOCK_P0_TICKS},
+            "routes_to": CONSTRUCTION_DEADLOCK_ROUTES,
+        },
+    },
     "worker_idle_collapse": {
         "severity": "high",
         "decision": "codex_hotfix_or_owner_action",
@@ -288,6 +306,7 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "runtime_deadlock": ["runtime_deadlock"],
     "resource_crisis": ["resource_crisis"],
     "energy_buffer_unhealthy": ["energy_buffer_unhealthy"],
+    CONSTRUCTION_DEADLOCK_KIND: [CONSTRUCTION_DEADLOCK_KIND],
     "worker_idle_collapse": ["worker_idle_collapse"],
     "private_smoke_failed_phase": ["private_smoke_failure"],
     "private_smoke_runtime_failure": ["private_smoke_failure"],
@@ -454,10 +473,12 @@ class RoomSummaryMetrics:
     structures: list[dict[str, Any]]
     controller_summary: dict[str, Any]
     owned_creep_objects: list[dict[str, Any]]
+    task_counts: dict[str, int]
     construction_sites: list[dict[str, Any]]
     pending_build_progress: int | float
     build_carried_energy: int | float
     build_blocked_reason: str | None
+    construction_deadlock_ticks: int | float
     extension_count: int
     extension_capacity_contribution: int | float
     stored_energy: int | float
@@ -1127,6 +1148,15 @@ def energy_buffer_route_metadata() -> dict[str, Any]:
     }
 
 
+def construction_deadlock_metadata() -> dict[str, Any]:
+    return {
+        "metric": "constructionDeadlockTicks",
+        "related_issues": [str(route["issue"]) for route in CONSTRUCTION_DEADLOCK_ROUTES],
+        "thresholds": {"P1": CONSTRUCTION_DEADLOCK_P1_TICKS, "P0": CONSTRUCTION_DEADLOCK_P0_TICKS},
+        "routes_to": [dict(route) for route in CONSTRUCTION_DEADLOCK_ROUTES],
+    }
+
+
 def format_energy_value(value: int | float | None) -> str:
     if value is None:
         return "unknown"
@@ -1195,6 +1225,115 @@ def detect_energy_buffer_unhealthy_reason(
         upgrade_count,
         buffer_health,
     )
+
+
+def runtime_construction_deadlock_ticks(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("constructionDeadlockTicks",),
+        ("resources", "productiveEnergy", "constructionDeadlockTicks"),
+        ("construction", "constructionDeadlockTicks"),
+        ("construction_deadlock_ticks",),
+    )
+
+
+def runtime_pending_build_progress(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("pendingBuildProgress",),
+        ("resources", "productiveEnergy", "pendingBuildProgress"),
+        ("resources", "pendingBuildProgress"),
+        ("construction", "pendingBuildProgress"),
+    )
+
+
+def runtime_build_carried_energy(room: dict[str, Any] | None) -> int | float | None:
+    if not isinstance(room, dict):
+        return None
+    return first_number_value(
+        room,
+        ("buildCarriedEnergy",),
+        ("resources", "productiveEnergy", "buildCarriedEnergy"),
+        ("resources", "buildCarriedEnergy"),
+        ("construction", "buildCarriedEnergy"),
+    )
+
+
+def build_construction_deadlock_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+    deadlock_ticks: int | float,
+) -> dict[str, Any]:
+    priority = "P0" if deadlock_ticks >= CONSTRUCTION_DEADLOCK_P0_TICKS else "P1"
+    severity = "critical" if priority == "P0" else "high"
+    construction_site_count = runtime_construction_site_count(runtime_room)
+    if construction_site_count is None:
+        construction_site_count = len(metrics.construction_sites)
+    build_count = runtime_task_count(runtime_room or {}, "build")
+    if build_count is None:
+        build_count = metrics.task_counts.get("build")
+    pending_build_progress = runtime_pending_build_progress(runtime_room)
+    if pending_build_progress is None:
+        pending_build_progress = metrics.pending_build_progress
+    build_carried_energy = runtime_build_carried_energy(runtime_room)
+    if build_carried_energy is None:
+        build_carried_energy = metrics.build_carried_energy
+    task_counts = dict(as_dict(runtime_room.get("taskCounts")) if isinstance(runtime_room, dict) else metrics.task_counts)
+    threshold = CONSTRUCTION_DEADLOCK_P0_TICKS if priority == "P0" else CONSTRUCTION_DEADLOCK_P1_TICKS
+    return {
+        "kind": CONSTRUCTION_DEADLOCK_KIND,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": severity,
+        "priority": priority,
+        "constructionDeadlockTicks": deadlock_ticks,
+        "threshold": threshold,
+        "p1_threshold": CONSTRUCTION_DEADLOCK_P1_TICKS,
+        "p0_threshold": CONSTRUCTION_DEADLOCK_P0_TICKS,
+        "build": build_count,
+        "task_counts": task_counts,
+        "constructionSiteCount": construction_site_count,
+        "pendingBuildProgress": pending_build_progress,
+        "buildCarriedEnergy": build_carried_energy,
+        "metadata": construction_deadlock_metadata(),
+        "message": (
+            f"{CONSTRUCTION_DEADLOCK_KIND} in {ref.key}: constructionDeadlockTicks="
+            f"{format_energy_value(deadlock_ticks)} with build={format_energy_value(build_count)} and "
+            f"constructionSiteCount={format_energy_value(construction_site_count)}."
+        ),
+        "signature": f"{CONSTRUCTION_DEADLOCK_KIND}:{priority}:{ref.key}",
+    }
+
+
+def detect_construction_deadlock_reason(
+    ref: RoomRef,
+    runtime_room: dict[str, Any] | None,
+    metrics: RoomSummaryMetrics,
+) -> dict[str, Any] | None:
+    deadlock_ticks = runtime_construction_deadlock_ticks(runtime_room)
+    if deadlock_ticks is None:
+        deadlock_ticks = metrics.construction_deadlock_ticks
+    if deadlock_ticks < CONSTRUCTION_DEADLOCK_P1_TICKS:
+        return None
+
+    construction_site_count = runtime_construction_site_count(runtime_room)
+    if construction_site_count is None:
+        construction_site_count = len(metrics.construction_sites)
+    if construction_site_count <= 0:
+        return None
+
+    build_count = runtime_task_count(runtime_room or {}, "build")
+    if build_count is None:
+        build_count = metrics.task_counts.get("build")
+    if build_count != 0:
+        return None
+
+    return build_construction_deadlock_reason(ref, runtime_room, metrics, deadlock_ticks)
 
 
 def build_worker_idle_collapse_reason(
@@ -1569,6 +1708,14 @@ def evaluate_room_alert(
     rule_counts[WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND] = worker_assignment_gap_state
     if worker_assignment_gap_candidate is not None:
         detected.append(worker_assignment_gap_candidate)
+
+    construction_deadlock_candidate = detect_construction_deadlock_reason(
+        snapshot.ref,
+        runtime_room_summary,
+        current_metrics,
+    )
+    if construction_deadlock_candidate is not None:
+        detected.append(construction_deadlock_candidate)
 
     previous_energy_buffer_unhealthy_count = number_value(rule_counts.get(ENERGY_BUFFER_UNHEALTHY_KIND)) or 0
     energy_buffer_unhealthy_candidate = detect_energy_buffer_unhealthy_reason(
@@ -2079,7 +2226,9 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
         categories.append("telemetry_silence")
     if "exception" in lowered_kind or "exception" in message:
         categories.append("runtime_exception")
-    if "deadlock" in lowered_kind or "deadlock" in message or "no-progress" in message:
+    if (
+        "deadlock" in lowered_kind or "deadlock" in message or "no-progress" in message
+    ) and CONSTRUCTION_DEADLOCK_KIND not in categories:
         categories.append("runtime_deadlock")
     if "resource" in lowered_kind and "crisis" in lowered_kind:
         categories.append("resource_crisis")
@@ -2108,6 +2257,13 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
 
 def category_severity(category: str, reason: dict[str, Any]) -> str:
     severity = str(tactical_rule(category)["severity"])
+    reason_severity = reason.get("severity")
+    if (
+        isinstance(reason_severity, str)
+        and reason_severity in TACTICAL_SEVERITY_RANK
+        and TACTICAL_SEVERITY_RANK[reason_severity] > TACTICAL_SEVERITY_RANK.get(severity, 0)
+    ):
+        severity = reason_severity
     if category == "downgrade_risk":
         ticks = number_from_reason(reason, "ticks_to_downgrade", "ticksToDowngrade", "remaining_ticks", "remainingTicks")
         if ticks is not None and ticks <= 2000:
@@ -2830,8 +2986,10 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "owner": snapshot.owner,
         "expected_owner": snapshot.expected_owner,
         "expected_owner_id": snapshot.expected_owner_id,
+        "taskCounts": metrics.task_counts,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
@@ -3140,6 +3298,19 @@ def worker_load_efficiency(owned_creeps: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
+def worker_task_counts(owned_creeps: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0}
+    for creep in owned_creeps:
+        if not is_worker_creep(creep):
+            continue
+        task_type = creep_task_type(creep)
+        if task_type in counts and task_type != "none":
+            counts[task_type] += 1
+        else:
+            counts["none"] += 1
+    return counts
+
+
 def string_value(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
@@ -3427,6 +3598,23 @@ def build_blocked_reason(
     return "worker_assignment_gap"
 
 
+def construction_deadlock_ticks(
+    snapshot: RoomSnapshot,
+    task_counts: dict[str, int],
+    construction_site_count: int,
+) -> int | float:
+    explicit = first_number_value(
+        snapshot.info,
+        ("constructionDeadlockTicks",),
+        ("resources", "productiveEnergy", "constructionDeadlockTicks"),
+        ("construction", "constructionDeadlockTicks"),
+        ("construction_deadlock_ticks",),
+    )
+    if explicit is not None:
+        return explicit
+    return 1 if task_counts.get("build", 0) == 0 and construction_site_count > 0 else 0
+
+
 def snapshot_cpu_used(snapshot: RoomSnapshot) -> int | float | None:
     return first_number_value(
         snapshot.info,
@@ -3459,6 +3647,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         )
     ]
     construction_sites = owned_construction_sites(snapshot)
+    task_counts = worker_task_counts(owned_creep_objects)
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
     extension_count, extension_capacity_contribution = room_extension_metrics(structures, snapshot.owner)
@@ -3472,6 +3661,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         structures=structures,
         controller_summary=controller_summary,
         owned_creep_objects=owned_creep_objects,
+        task_counts=task_counts,
         construction_sites=construction_sites,
         pending_build_progress=pending_build_progress,
         build_carried_energy=build_carried_energy,
@@ -3480,6 +3670,11 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
             pending_build_progress,
             len(construction_sites),
             build_carried_energy,
+        ),
+        construction_deadlock_ticks=construction_deadlock_ticks(
+            snapshot,
+            task_counts,
+            len(construction_sites),
         ),
         extension_count=extension_count,
         extension_capacity_contribution=extension_capacity_contribution,
@@ -3519,6 +3714,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     productive_energy = {
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "constructionSiteCount": len(metrics.construction_sites),
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
@@ -3527,8 +3723,10 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     summary = {
         "roomName": snapshot.ref.room,
         "shard": snapshot.ref.shard,
+        "taskCounts": metrics.task_counts,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
+        "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
@@ -4408,6 +4606,53 @@ def command_self_test(_args: argparse.Namespace) -> int:
             report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [gap_reason]})
             self.assertEqual(report["severity"], "critical")
             self.assertEqual(report["categories"], [WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND])
+
+        def test_construction_deadlock_ticks_alerts_and_escalates(self) -> None:
+            snapshot = self.make_snapshot(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "site1": {
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                }
+            )
+            runtime_room = {
+                "roomName": "E1N1",
+                "taskCounts": {"harvest": 1, "upgrade": 1, "build": 0, "transfer": 0},
+                "constructionSiteCount": 1,
+                "pendingBuildProgress": 50,
+                "buildCarriedEnergy": 0,
+                "constructionDeadlockTicks": CONSTRUCTION_DEADLOCK_P0_TICKS,
+            }
+
+            emitted, suppressed, _next_state = evaluate_room_alert(
+                snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+                runtime_room_summary=runtime_room,
+            )
+
+            self.assertEqual(suppressed, [])
+            reason = next(reason for reason in emitted if reason["kind"] == CONSTRUCTION_DEADLOCK_KIND)
+            self.assertEqual(reason["priority"], "P0")
+            self.assertEqual(reason["severity"], "critical")
+            report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [reason]})
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["categories"], [CONSTRUCTION_DEADLOCK_KIND])
 
         def test_worker_idle_collapse_alerts_on_second_consecutive_detection(self) -> None:
             snapshot = self.make_snapshot(

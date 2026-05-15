@@ -96,6 +96,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
             "build_carried_energy",
             "build_blocked_reason",
             "construction_site_count",
+            "construction_deadlock_ticks",
             "extension_count",
             "extension_capacity_contribution",
             "path_finding_failures",
@@ -195,6 +196,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                         "buildCarriedEnergy": 0,
                         "buildBlockedReason": "worker_assignment_gap",
                         "constructionSiteCount": 2,
+                        "constructionDeadlockTicks": 125,
                         "extensionCount": 0,
                         "extensionCapacityContribution": 0,
                         "behavior": {
@@ -250,7 +252,7 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 row = conn.execute(
                     """
                     SELECT pending_build_progress, build_carried_energy, construction_site_count,
-                           build_blocked_reason, extension_count, extension_capacity_contribution,
+                           construction_deadlock_ticks, build_blocked_reason, extension_count, extension_capacity_contribution,
                            path_finding_failures, destination_blocked,
                            worker_load_trip_energy_mean, worker_load_trip_energy_min,
                            cpu_used, cpu_bucket, rcl_level, stored_energy
@@ -261,9 +263,13 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 ).fetchone()
             summary = json.loads(ingestor.summarize_database(db_path, output_format="json"))
 
-            self.assertEqual(row, (700.0, 0.0, 2.0, "worker_assignment_gap", 0.0, 0.0, 2.0, 1.0, 7.0, 5.0, 6.25, 8123.0, 3.0, 800.0))
+            self.assertEqual(
+                row,
+                (700.0, 0.0, 2.0, 125.0, "worker_assignment_gap", 0.0, 0.0, 2.0, 1.0, 7.0, 5.0, 6.25, 8123.0, 3.0, 800.0),
+            )
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["pendingBuildProgress"], 700.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["constructionSiteCount"], 2.0)
+            self.assertEqual(summary["latestRuntimeRoomMetrics"]["constructionDeadlockTicks"], 125.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["pathFindingFailures"], 2.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["workerLoadTripEnergyMin"], 5.0)
             self.assertEqual(summary["latestRuntimeRoomMetrics"]["minCpuBucket"], 8123.0)
@@ -273,6 +279,15 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                     "metric_observations",
                     "WHERE metric_name = ?",
                     ("construction.site_count",),
+                ),
+                1,
+            )
+            self.assertEqual(
+                fetch_count(
+                    db_path,
+                    "metric_observations",
+                    "WHERE metric_name = ?",
+                    ("construction.deadlock_ticks",),
                 ),
                 1,
             )
