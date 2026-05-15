@@ -11827,6 +11827,44 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('lets an empty surplus worker acquire energy for safe barrier maintenance', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const source = makeSource('source1', 20, 20);
+    const wall = makeStructure(
+      'wall-decay',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 299,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      sources: [source],
+      structures: [wall]
+    });
+    const creep = {
+      name: 'SurplusWorker',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      SurplusWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('keeps saturated surplus workers hauling container energy to spawn refill', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
       pos: makeRoomPosition(10, 10)
@@ -12945,6 +12983,108 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
+  });
+
+  it.each([
+    ['owned rampart', 'rampart' as StructureConstant, { my: true }, 'rampart-decay'],
+    ['constructed wall', 'constructedWall' as StructureConstant, {}, 'wall-decay']
+  ])(
+    'repairs a decaying %s before managed controller upgrade when the room buffer is healthy',
+    (_label, structureType, extra, targetId) => {
+      const controller = {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController;
+      const barrier = makeStructure(
+        targetId,
+        structureType,
+        IDLE_RAMPART_REPAIR_HITS_CEILING - 299,
+        300_000_000,
+        extra
+      );
+      const room = makeWorkerTaskRoom({
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        structures: [barrier]
+      });
+      const creep = {
+        memory: {
+          role: 'worker',
+          controllerUpgrade: { roomName: 'W1N1', controllerId: 'controller1' }
+        },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      } as unknown as Creep;
+
+      expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId });
+    }
+  );
+
+  it('keeps spawn refill before routine barrier maintenance', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const rampart = makeStructure(
+      'rampart-decay',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 299,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      memory: {
+        role: 'worker',
+        controllerUpgrade: { roomName: 'W1N1', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 550,
+        myStructures: [spawn as AnyOwnedStructure],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps managed controller upgrade when barrier maintenance would spend below the construction floor', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-decay',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 299,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      memory: {
+        role: 'worker',
+        controllerUpgrade: { roomName: 'W1N1', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: 299,
+        energyCapacityAvailable: 550,
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('prioritizes barrier repair in threatened rooms before ordinary repair work', () => {

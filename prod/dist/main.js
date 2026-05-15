@@ -23150,6 +23150,13 @@ function selectHeuristicWorkerTask(creep) {
   if (constructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id });
   }
+  const routineBarrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
+  if (routineBarrierMaintenanceTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: routineBarrierMaintenanceTarget.id
+    });
+  }
   const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) : null;
   if (source2ControllerLaneLoadedTask) {
     return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
@@ -26563,6 +26570,17 @@ function selectThreatenedBarrierRepairTarget(creep) {
   }
   return repairTargets.sort(compareRepairTargets)[0];
 }
+function selectRoutineBarrierMaintenanceRepairTarget(creep) {
+  var _a;
+  if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true || hasVisibleHostilePresence2(creep.room) || !checkEnergyBufferForConstructionSpending(creep.room)) {
+    return null;
+  }
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isRoutineBarrierMaintenanceRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+  return repairTargets.sort(compareRepairTargets)[0];
+}
 function selectCriticalInfrastructureRepairTarget(creep) {
   var _a;
   const visibleStructures = findVisibleRoomStructures(creep.room);
@@ -26631,6 +26649,9 @@ function isSafeRepairTarget(structure) {
   return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
 function isThreatenedBarrierRepairTarget(structure) {
+  return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
+}
+function isRoutineBarrierMaintenanceRepairTarget(structure) {
   return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
 }
 function isSafeRepairTargetForWorkerRoom(creep, structure) {
@@ -26898,7 +26919,7 @@ function hasNonControllerWorkerEnergyDemand(creep) {
   if (constructionSites.length > 0) {
     return true;
   }
-  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null;
+  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
 }
 function isControllerUpgradeSaturated(creep, controller) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {
