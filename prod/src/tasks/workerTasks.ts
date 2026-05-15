@@ -6476,10 +6476,10 @@ function hasRoutineRepairAssignmentCapacity(creep: Creep, structure: RepairableW
 }
 
 function hasOtherWorkerAssignedToRepairTarget(creep: Creep, structure: RepairableWorkerStructure): boolean {
-  return getGameCreeps().some(
+  return getRoomOwnedCreeps(creep.room).some(
     (worker) =>
       !isSameCreep(worker, creep) &&
-      isSameRoomWorker(worker, creep.room) &&
+      worker.memory?.role === 'worker' &&
       isWorkerAssignedToRepairTarget(worker, structure)
   );
 }

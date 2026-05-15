@@ -26794,8 +26794,11 @@ function hasRoutineRepairAssignmentCapacity(creep, structure) {
   return isWorkerAssignedToRepairTarget(creep, structure) || !hasOtherWorkerAssignedToRepairTarget(creep, structure);
 }
 function hasOtherWorkerAssignedToRepairTarget(creep, structure) {
-  return getGameCreeps().some(
-    (worker) => !isSameCreep(worker, creep) && isSameRoomWorker(worker, creep.room) && isWorkerAssignedToRepairTarget(worker, structure)
+  return getRoomOwnedCreeps(creep.room).some(
+    (worker) => {
+      var _a;
+      return !isSameCreep(worker, creep) && ((_a = worker.memory) == null ? void 0 : _a.role) === "worker" && isWorkerAssignedToRepairTarget(worker, structure);
+    }
   );
 }
 function isWorkerAssignedToRepairTarget(worker, structure) {
