@@ -82,6 +82,8 @@ RUN_PORT_SCAN_ATTEMPTS = 2048
 RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
 RUN_WORKER_PREFIX = "rl-sim-worker"
+RUN_BROKEN_PIPE_MAX_RETRIES = 1
+RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV = "SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE"
@@ -375,6 +377,20 @@ def _safe_text(value: Any, max_len: int = 320) -> str:
     return text[:max_len]
 
 
+def _text_mentions_broken_pipe(value: Any) -> bool:
+    text = str(value).lower()
+    return "broken pipe" in text or "errno 32" in text
+
+
+def _variant_result_mentions_broken_pipe(result: JsonObject) -> bool:
+    if _text_mentions_broken_pipe(result.get("error")):
+        return True
+    errors = result.get("errors")
+    if isinstance(errors, list):
+        return any(_text_mentions_broken_pipe(error) for error in errors)
+    return False
+
+
 def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]", "-", value)
     safe = re.sub(r"-+", "-", safe).strip("-.")
@@ -424,10 +440,20 @@ def _run_worker_project_prefix(run_id: str) -> str:
     return sentinel_project
 
 
-def _matching_run_worker_container_names(run_id: str, container_names: Sequence[str]) -> list[str]:
+def _matching_run_worker_container_names(
+    run_id: str,
+    container_names: Sequence[str],
+    *,
+    worker_index: int | None = None,
+) -> list[str]:
     """Return only Docker container names owned by this simulator run id."""
     prefix = f"{_run_worker_project_prefix(run_id)}-"
-    worker_container_pattern = re.compile(rf"^{re.escape(prefix)}\d{{2,}}-")
+    if worker_index is None:
+        worker_container_pattern = re.compile(rf"^{re.escape(prefix)}\d{{2,}}-")
+    else:
+        if worker_index < 0:
+            return []
+        worker_container_pattern = re.compile(rf"^{re.escape(prefix)}{worker_index:02d}-")
     matches = []
     for raw_name in container_names:
         name = raw_name.lstrip("/")
@@ -2625,6 +2651,40 @@ def _run_worker_assignments(
     return buckets
 
 
+def _broken_pipe_retry_run_id(run_id: str, attempt: int) -> str:
+    return run_id if attempt == 0 else f"{run_id}-bp-retry-{attempt}"
+
+
+def _broken_pipe_retry_host_port_start(host_port_start: int, worker_count: int, attempt: int) -> int:
+    if worker_count <= 0:
+        raise RuntimeError("worker count must be a positive integer")
+    retry_host_port_start = host_port_start + (attempt * worker_count * RUN_HTTP_PORT_STEP)
+    last_cli_port = retry_host_port_start + ((worker_count - 1) * RUN_HTTP_PORT_STEP) + 1
+    if last_cli_port > 65535:
+        raise RuntimeError(f"simulator retry host port range exceeds TCP port limit: {last_cli_port}")
+    return retry_host_port_start
+
+
+def _annotate_broken_pipe_recovery(
+    result: JsonObject,
+    *,
+    retry_errors: Sequence[str],
+    attempts: int,
+) -> JsonObject:
+    if not retry_errors:
+        return result
+    result["brokenPipeRecovery"] = {
+        "triggered": True,
+        "attempts": attempts,
+        "maxRetries": RUN_BROKEN_PIPE_MAX_RETRIES,
+        "recovered": result.get("ok") is True,
+        "errors": list(retry_errors),
+    }
+    if result.get("ok") is True:
+        result["recoveredErrors"] = list(retry_errors)
+    return result
+
+
 def run_variants(
     *,
     variants: Sequence[str],
@@ -2661,14 +2721,24 @@ def run_variants(
         results: list[JsonObject] = []
         for variant_id in assigned_variants:
             variant_start = time.time()
+            retry_errors: list[str] = []
             try:
-                results.append(
-                    _run_variant(
+                result: JsonObject | None = None
+                attempts_made = 0
+                for attempt in range(RUN_BROKEN_PIPE_MAX_RETRIES + 1):
+                    attempts_made = attempt + 1
+                    attempt_run_id = _broken_pipe_retry_run_id(run_id, attempt)
+                    attempt_host_port_start = _broken_pipe_retry_host_port_start(
+                        host_port_start,
+                        normalized_workers,
+                        attempt,
+                    )
+                    result = _run_variant(
                         worker_index=worker_id,
                         variant_id=variant_id,
-                        run_id=run_id,
+                        run_id=attempt_run_id,
                         worker_count=normalized_workers,
-                        host_port_start=host_port_start,
+                        host_port_start=attempt_host_port_start,
                         ticks=ticks,
                         room=room,
                         shard=shard,
@@ -2676,6 +2746,20 @@ def run_variants(
                         code_path=code_path,
                         map_source_file=map_source_file,
                         out_dir=out_dir,
+                    )
+                    if result.get("ok") is True or not _variant_result_mentions_broken_pipe(result):
+                        break
+                    retry_errors.append(_safe_text(result.get("error") or result.get("errors"), 480))
+                    cleanup_exact_run_worker_containers(attempt_run_id, worker_index=worker_id)
+                    if attempt < RUN_BROKEN_PIPE_MAX_RETRIES:
+                        time.sleep(RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS)
+                if result is None:
+                    raise RuntimeError("worker did not produce a variant result")
+                results.append(
+                    _annotate_broken_pipe_recovery(
+                        result,
+                        retry_errors=retry_errors,
+                        attempts=attempts_made,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 - keep one result row per requested variant
@@ -3626,6 +3710,7 @@ def run_self_test(stdout: TextIO = sys.stdout) -> int:
 def cleanup_exact_run_worker_containers(
     run_id: str,
     *,
+    worker_index: int | None = None,
     container_names: Sequence[str] | None = None,
     docker_binary: str | None = None,
     runner: Any | None = None,
@@ -3634,7 +3719,7 @@ def cleanup_exact_run_worker_containers(
     names_error: str | None = None
     if container_names is None:
         container_names, names_error = _docker_container_names(all_containers=True, docker_binary=docker_binary)
-    matched = _matching_run_worker_container_names(run_id, container_names)
+    matched = _matching_run_worker_container_names(run_id, container_names, worker_index=worker_index)
     docker = docker_binary or _docker_binary_for_guard()
     errors: list[str] = []
     command_summary: list[str] | None = None
@@ -3672,7 +3757,12 @@ def cleanup_exact_run_worker_containers(
     return {
         "ok": not errors,
         "runId": run_id,
-        "targetNamePrefix": f"{_run_worker_project_prefix(run_id)}-",
+        "workerIndex": worker_index,
+        "targetNamePrefix": (
+            f"{_run_worker_project_prefix(run_id)}-{worker_index:02d}-"
+            if worker_index is not None and worker_index >= 0
+            else f"{_run_worker_project_prefix(run_id)}-"
+        ),
         "matchedContainers": matched,
         "removedContainers": matched if matched and not errors else [],
         "command": command_summary,
