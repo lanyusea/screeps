@@ -9,7 +9,6 @@ import json
 import math
 import os
 import re
-import shlex
 import statistics
 import sys
 import tempfile
@@ -19,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence, TextIO
 
 import screeps_rl_dataset_export as dataset_export
+import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
 
 
@@ -28,7 +28,7 @@ SUMMARY_TYPE = "screeps-rl-training-generation"
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-training")
 DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
-DEFAULT_STEAM_KEY_ENV_FILE = Path("/root/.secret/.env")
+DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
 REWARD_TIERS = ("territory", "resources", "kills")
 REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -119,83 +119,43 @@ def ensure_steam_key_for_training(
     """Load STEAM_KEY for real simulator-backed training runs when the shell omitted it."""
     if os.environ.get("STEAM_KEY"):
         return
-    configured_env_file = os.environ.get(STEAM_KEY_ENV_FILE_ENV)
-    if env_file is None:
-        if configured_env_file:
-            env_file = Path(configured_env_file)
-        elif simulator_runner is simulator_harness.run_simulator:
-            env_file = DEFAULT_STEAM_KEY_ENV_FILE
-        else:
-            return
-    steam_key = read_steam_key_from_env_file(env_file.expanduser())
-    if steam_key:
-        os.environ["STEAM_KEY"] = steam_key
+    if (
+        env_file is None
+        and not os.environ.get(STEAM_KEY_ENV_FILE_ENV)
+        and simulator_runner is not simulator_harness.run_simulator
+    ):
+        return
+    screeps_secret_env.ensure_env_value_from_file(
+        "STEAM_KEY",
+        env_file=env_file,
+        override_env_var=STEAM_KEY_ENV_FILE_ENV,
+        default_env_file=DEFAULT_STEAM_KEY_ENV_FILE,
+    )
 
 
 def read_steam_key_from_env_file(path: Path) -> str | None:
     try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    except OSError as error:
-        reason = getattr(error, "strerror", None) or error.__class__.__name__
+        return screeps_secret_env.read_env_value_from_file(path, "STEAM_KEY")
+    except RuntimeError as error:
         display_path = dataset_export.display_path(path)
-        raise RuntimeError(f"could not read STEAM_KEY env file {display_path}: {reason}") from error
-    steam_key: str | None = None
-    for line in text.splitlines():
-        parsed = parse_steam_key_env_line(line)
-        if parsed is not None:
-            steam_key = parsed
-    if steam_key is None:
-        return None
-    steam_key = steam_key.strip()
-    return steam_key or None
+        message = str(error).replace(str(path), display_path)
+        raise RuntimeError(message) from error
 
 
 def parse_steam_key_env_line(line: str) -> str | None:
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
+    parsed = screeps_secret_env.parse_env_assignment_line(line)
+    if parsed is None:
         return None
-    export_match = re.match(r"export\s+", stripped)
-    if export_match:
-        stripped = stripped[export_match.end() :].lstrip()
-    match = re.match(r"STEAM_KEY\s*=\s*(.*)\Z", stripped)
-    if not match:
-        return None
-    return parse_env_assignment_value(match.group(1).strip())
+    key, value = parsed
+    return value if key == "STEAM_KEY" else None
 
 
 def parse_env_assignment_value(raw: str) -> str:
-    uncommented = strip_unquoted_env_comment(raw).strip()
-    if not uncommented:
-        return ""
-    if uncommented[0] not in {"'", '"'}:
-        return uncommented
-    try:
-        parsed = shlex.split(uncommented, comments=False, posix=True)
-    except ValueError:
-        return uncommented
-    return parsed[0] if parsed else ""
+    return screeps_secret_env.parse_env_assignment_value(raw)
 
 
 def strip_unquoted_env_comment(raw: str) -> str:
-    quote: str | None = None
-    escaped = False
-    for index, char in enumerate(raw):
-        if quote:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            continue
-        if char == "#" and (index == 0 or raw[index - 1].isspace()):
-            return raw[:index]
-    return raw
+    return screeps_secret_env.strip_unquoted_env_comment(raw)
 
 
 def load_experiment_card(path: Path) -> JsonObject:

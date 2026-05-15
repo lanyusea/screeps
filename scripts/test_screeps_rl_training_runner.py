@@ -215,6 +215,45 @@ class RlTrainingRunnerTest(unittest.TestCase):
 
         self.assertEqual(simulator.observed_steam_keys, [file_secret])
 
+    def test_default_real_training_path_loads_steam_key_env_file(self) -> None:
+        file_secret = "default-file-secret-token-123456"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "local.env"
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with (
+                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(runner, "DEFAULT_STEAM_KEY_ENV_FILE", env_file),
+            ):
+                runner.ensure_steam_key_for_training(simulator_runner=runner.simulator_harness.run_simulator)
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+    def test_configured_steam_key_env_file_loads_for_wrapped_training_path(self) -> None:
+        file_secret = "configured-file-secret-token-123456"
+        simulator = RequiredSteamKeySimulator({
+            "baseline": variant_result("baseline", []),
+            "candidate": variant_result("candidate", []),
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            env_file = root / "runner.env"
+            write_json(card_path, base_card())
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+
+            with mock.patch.dict(os.environ, {runner.STEAM_KEY_ENV_FILE_ENV: str(env_file)}, clear=True):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="steam-key-configured-env-file-load",
+                    simulator_runner=simulator,
+                )
+                self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+        self.assertEqual(simulator.observed_steam_keys, [file_secret])
+
     def test_missing_or_empty_steam_key_env_reports_required_env_error(self) -> None:
         for case, contents in (("missing", None), ("empty", "STEAM_KEY=\n")):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:

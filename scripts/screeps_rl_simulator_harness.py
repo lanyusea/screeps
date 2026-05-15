@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Sequence, TextIO
 
 import screeps_rl_dataset_export as dataset_export
+import screeps_secret_env
 
 
 def _load_runtime_monitor_module():
@@ -96,6 +97,8 @@ RUN_RESOURCE_GUARD_HISTORICAL_NODE_GYP_JOBS_PER_WORKER = 4
 RUN_RESOURCE_GUARD_FAILURE_TYPE = "screeps-rl-simulator-resource-guard-failure"
 RUN_SCALE_VALIDATION_PLAN_TYPE = "screeps-rl-simulator-scale-validation-plan"
 RUN_SCALE_VALIDATION_DEFAULT_MIN_ENVIRONMENTS = 5
+DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
+STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
 RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE = 0.8
 RUN_SETUP_FAILURE_TYPE = "screeps-rl-simulator-setup-failure"
 RUN_FAILURE_TYPE = "screeps-rl-simulator-run-failure"
@@ -4208,6 +4211,7 @@ def run_simulator(
     bot_commit: str | None = None,
     allow_unsafe_scale: bool = False,
     min_concurrent_environments: int = 0,
+    steam_key_env_file: Path | None = None,
 ) -> JsonObject:
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
@@ -4245,6 +4249,7 @@ def run_simulator(
             cleanup=cleanup,
         )
         raise RuntimeError("resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]))
+    ensure_steam_key_for_simulator_run(env_file=steam_key_env_file)
     if not os.environ.get("STEAM_KEY"):
         cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
         write_run_failure_artifacts(
@@ -4313,6 +4318,16 @@ def run_simulator(
     write_json_atomic(run_artifact_path, artifact)
     artifact["run_artifact_path"] = str(run_artifact_path)
     return artifact
+
+
+def ensure_steam_key_for_simulator_run(env_file: Path | None = None) -> None:
+    """Load STEAM_KEY from the local secret env file before the simulator required-env gate."""
+    screeps_secret_env.ensure_env_value_from_file(
+        "STEAM_KEY",
+        env_file=env_file,
+        override_env_var=STEAM_KEY_ENV_FILE_ENV,
+        default_env_file=DEFAULT_STEAM_KEY_ENV_FILE,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -4499,6 +4514,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAP_SOURCE_FILE,
         help=f"Map source JSON path. Default: {DEFAULT_MAP_SOURCE_FILE}.",
     )
+    run.add_argument(
+        "--steam-key-env-file",
+        type=Path,
+        default=None,
+        help=(
+            "Optional env file to load STEAM_KEY from when it is absent. "
+            f"Defaults to {DEFAULT_STEAM_KEY_ENV_FILE}; env override: {STEAM_KEY_ENV_FILE_ENV}."
+        ),
+    )
 
     plan_scale = subparsers.add_parser(
         "plan-scale",
@@ -4603,6 +4627,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
             bot_commit=args.bot_commit,
             allow_unsafe_scale=args.allow_unsafe_scale,
             min_concurrent_environments=min_concurrent_environments,
+            steam_key_env_file=args.steam_key_env_file,
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")
