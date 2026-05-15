@@ -1792,6 +1792,67 @@ cli:
         self.assertEqual(summary["runId"], "env-file-load")
         self.assertNotIn(file_secret, output_text)
 
+    def test_run_simulator_loads_whitespace_steam_key_from_configured_env_file(self) -> None:
+        file_secret = "harness-file-secret-token-123456"
+        mock_variant = {
+            "variant_id": "baseline",
+            "variant_run_id": "whitespace-env-file-load-baseline",
+            "ticks_requested": 1,
+            "ticks_run": 1,
+            "wall_clock_seconds": 0.1,
+            "tick_log": [],
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "ok": True,
+        }
+        run_artifact = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "whitespace-env-file-load",
+            "harness_version": harness.HARNESS_VERSION,
+            "botCommit": harness.DEFAULT_BOT_COMMIT,
+            "safety": {"liveEffect": False},
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "official_mmo_writes_allowed": False,
+            "variants": [mock_variant],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            env_file = root / "local.env"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            env_file.write_text(f"STEAM_KEY={file_secret}\n", encoding="utf-8")
+            out_dir = root / "runtime-artifacts"
+
+            with mock.patch.dict(
+                os.environ,
+                {"STEAM_KEY": " \t  ", harness.STEAM_KEY_ENV_FILE_ENV: str(env_file)},
+                clear=True,
+            ):
+                with mock.patch(
+                    "screeps_rl_simulator_harness.run_variants",
+                    return_value=(run_artifact, [mock_variant]),
+                ):
+                    summary = harness.run_simulator(
+                        ticks=1,
+                        workers=1,
+                        variants=["baseline"],
+                        out_dir=out_dir,
+                        run_id="whitespace-env-file-load",
+                        code_path=code_path,
+                        map_source_file=map_path,
+                    )
+                    output_text = (out_dir / "whitespace-env-file-load" / "run_summary.json").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertEqual(os.environ.get("STEAM_KEY"), file_secret)
+
+        self.assertEqual(summary["runId"], "whitespace-env-file-load")
+        self.assertNotIn(file_secret, output_text)
+
     def test_run_simulator_does_not_overwrite_existing_steam_key_from_env_file(self) -> None:
         env_secret = "harness-env-secret-token-123456"
         file_secret = "harness-file-secret-token-123456"

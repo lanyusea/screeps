@@ -4250,7 +4250,7 @@ def run_simulator(
         )
         raise RuntimeError("resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]))
     ensure_steam_key_for_simulator_run(env_file=steam_key_env_file)
-    if not os.environ.get("STEAM_KEY"):
+    if not os.environ.get("STEAM_KEY", "").strip():
         cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
         write_run_failure_artifacts(
             run_id=resolved_run_id,

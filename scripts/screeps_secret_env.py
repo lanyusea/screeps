@@ -21,9 +21,10 @@ def ensure_env_value_from_file(
     default_env_file: Path = DEFAULT_LOCAL_SECRET_ENV_FILE,
     environ: MutableMapping[str, str] | None = None,
 ) -> bool:
-    """Set one env value from an env file only when the current value is absent or empty."""
+    """Set one env value from an env file only when the current value is absent or blank."""
     env = environ if environ is not None else os.environ
-    if env.get(name):
+    existing = env.get(name)
+    if existing is not None and existing.strip():
         return False
     path = resolve_env_file(
         env_file=env_file,

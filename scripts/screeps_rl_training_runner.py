@@ -117,7 +117,7 @@ def ensure_steam_key_for_training(
     env_file: Path | None = None,
 ) -> None:
     """Load STEAM_KEY for real simulator-backed training runs when the shell omitted it."""
-    if os.environ.get("STEAM_KEY"):
+    if os.environ.get("STEAM_KEY", "").strip():
         return
     if (
         env_file is None
