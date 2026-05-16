@@ -50,6 +50,9 @@ EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
+WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
+RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
+RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
 BUILD_BLOCKED_REASON_PATHS = (
     ("buildBlockedReason",),
@@ -1504,6 +1507,23 @@ def runtime_worker_assignment_gap_recovered(room: dict[str, Any] | None) -> bool
     return not runtime_reports_worker_assignment_gap(room) and runtime_worker_assignment_recovered(room)
 
 
+def runtime_summary_room_tick(room: dict[str, Any] | None) -> int | None:
+    if not isinstance(room, dict):
+        return None
+    return tick_number(room.get(RUNTIME_SUMMARY_TICK_METADATA_KEY))
+
+
+def runtime_worker_assignment_gap_recovery_is_fresh(
+    room: dict[str, Any] | None,
+    current_tick_value: Any,
+) -> bool:
+    current_tick = tick_number(current_tick_value)
+    room_tick = runtime_summary_room_tick(room)
+    if current_tick is None or room_tick is None:
+        return False
+    return room_tick + WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE >= current_tick
+
+
 def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
     return {
         "kind": EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND,
@@ -1530,14 +1550,21 @@ def detect_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSu
 def worker_assignment_gap_active(
     runtime_room: dict[str, Any] | None,
     metrics: RoomSummaryMetrics,
+    current_tick_value: Any,
 ) -> tuple[bool, str | None, int | float]:
+    metrics_site_count = len(metrics.construction_sites)
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
-        site_count = len(metrics.construction_sites)
+        site_count = metrics_site_count
     blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
     if runtime_reports_worker_assignment_gap(runtime_room):
         blocked_reason = WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
     elif runtime_worker_assignment_gap_recovered(runtime_room):
+        if (
+            metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+            and not runtime_worker_assignment_gap_recovery_is_fresh(runtime_room, current_tick_value)
+        ):
+            return metrics_site_count > 0, metrics.build_blocked_reason, metrics_site_count
         return False, None, site_count
     return blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON and site_count > 0, blocked_reason, site_count
 
@@ -1600,7 +1627,11 @@ def detect_worker_assignment_gap_sustained_reason(
     previous_rule_state: Any,
     current_tick_value: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
-    active, blocked_reason, construction_site_count = worker_assignment_gap_active(runtime_room, metrics)
+    active, blocked_reason, construction_site_count = worker_assignment_gap_active(
+        runtime_room,
+        metrics,
+        current_tick_value,
+    )
     current_tick = tick_number(current_tick_value)
     if not active or current_tick is None:
         return None, 0
@@ -3238,6 +3269,17 @@ def runtime_summary_candidate_key(
     )
 
 
+def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room: dict[str, Any]) -> dict[str, Any]:
+    result = dict(room)
+    tick = runtime_summary_payload_tick(payload)
+    if tick is not None:
+        result[RUNTIME_SUMMARY_TICK_METADATA_KEY] = tick
+    timestamp = runtime_summary_artifact_timestamp(path)
+    if timestamp is not None:
+        result[RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY] = timestamp
+    return result
+
+
 def load_latest_runtime_room_summaries(
     runtime_summary_dir: Path,
     refs: list[RoomRef],
@@ -3283,7 +3325,7 @@ def load_latest_runtime_room_summaries(
                     candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
                     if candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
                         continue
-                    result[ref.key] = room
+                    result[ref.key] = runtime_summary_room_with_metadata(payload, path, room)
                     result_keys[ref.key] = candidate_key
                     break
 

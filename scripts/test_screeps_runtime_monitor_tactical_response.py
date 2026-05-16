@@ -1419,6 +1419,8 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(runtime_room["constructionDeadlockTicks"], 0)
         self.assertIsNone(runtime_room.get("buildBlockedReason"))
         self.assertNotIn("buildBlockedReason", runtime_room["resources"]["productiveEnergy"])
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY], 995548)
+        self.assertIn(monitor.RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY, runtime_room)
 
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),
@@ -1494,6 +1496,54 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
         self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
+    def test_stale_recovered_summary_does_not_clear_newer_worker_assignment_gap(self) -> None:
+        console_payload = {
+            "type": "runtime-summary",
+            "tick": 995548,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
+                    "constructionSiteCount": 0,
+                    "constructionDeadlockTicks": 0,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260515T234020Z.log").write_text(
+                "#runtime-summary " + json.dumps(console_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY], 995548)
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 995500, "last_tick": 995600, "consecutive_ticks": 100},
+            995650,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(reason["constructionSiteCount"], 1)
+        self.assertEqual(next_state["consecutive_ticks"], 150)
 
     def test_live_productive_energy_worker_assignment_gap_stays_active_with_other_tasks(self) -> None:
         runtime_room = {
