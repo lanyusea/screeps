@@ -414,19 +414,65 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('keeps stale E29N55 scout-only expansion intel out of reserve planning', () => {
-    const colony = makeSafeColony({ roomName: 'E29N55' });
+  it('keeps stale E29N56 scout-only expansion intel out of reserve planning', () => {
+    const globals = globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      STRUCTURE_TOWER: StructureConstant;
+    };
+    globals.FIND_STRUCTURES = 10;
+    globals.STRUCTURE_TOWER = 'tower';
+    const roomName = 'E29N55';
+    const structures = [
+      makeStructure('Spawn1', 'spawn', 17, 24, roomName, true),
+      makeStructure('spawn-rampart', 'rampart', 17, 24, roomName, true),
+      makeStructure('spawn-wall-a', 'constructedWall', 16, 23, roomName),
+      makeStructure('spawn-wall-b', 'constructedWall', 18, 23, roomName),
+      makeStructure('spawn-wall-c', 'constructedWall', 16, 25, roomName),
+      makeStructure('spawn-wall-d', 'constructedWall', 18, 25, roomName),
+      makeStructure('tower1', 'tower', 20, 20, roomName, true)
+    ];
+    const room = {
+      name: roomName,
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      find: jest.fn((findType: number) => {
+        if (findType === globals.FIND_STRUCTURES || findType === FIND_MY_STRUCTURES) {
+          return structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [
+        {
+          name: 'Spawn1',
+          room,
+          spawning: null,
+          pos: makeRoomPosition(17, 24, roomName)
+        } as StructureSpawn
+      ],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    };
     const gameTime = 6_700;
     const staleIntelUpdatedAt = gameTime - TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS - 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       runtime: {
-        currentRoomName: 'E29N55'
+        currentRoomName: roomName
       },
       territory: {
         scoutIntel: {
-          'E29N55>E29N54': makeScoutIntel('E29N54', staleIntelUpdatedAt, {
-            colony: 'E29N55',
-            controller: { id: 'controller-E29N54' as Id<StructureController>, my: false }
+          'E29N55>E29N56': makeScoutIntel('E29N56', staleIntelUpdatedAt, {
+            colony: roomName,
+            controller: { id: 'controller-E29N56' as Id<StructureController>, my: false }
           })
         }
       }
@@ -434,7 +480,7 @@ describe('planTerritoryIntent', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: gameTime,
       rooms: {
-        E29N55: colony.room
+        E29N55: room
       },
       map: {
         describeExits: jest.fn(() => ({}))
@@ -445,7 +491,7 @@ describe('planTerritoryIntent', () => {
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, gameTime)
     ).toEqual({
       colony: 'E29N55',
-      targetRoom: 'E29N54',
+      targetRoom: 'E29N56',
       action: 'scout'
     });
     expect(Memory.territory?.targets).toBeUndefined();
@@ -455,7 +501,7 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'E29N55',
-        targetRoom: 'E29N54',
+        targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
         updatedAt: gameTime

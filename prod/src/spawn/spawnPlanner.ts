@@ -72,6 +72,10 @@ import {
 } from '../territory/multiRoomUpgrader';
 import { NEXT_EXPANSION_TARGET_CREATOR } from '../territory/expansionScoring';
 import {
+  getPassiveScoutOnlyTargetRooms,
+  isPassiveScoutGateOpen
+} from '../territory/passiveScoutGate';
+import {
   buildControllerUpgradeCreepMemory,
   selectControllerUpgradeSpawnDemand
 } from '../territory/controllerManager';
@@ -1452,17 +1456,30 @@ function getTerritoryIntentPlanningOptions(
     };
   }
 
-  return shouldPlanLocalStableTerritoryScout(context) ? { scoutOnly: true } : null;
+  if (!shouldPlanLocalStableTerritoryScout(context)) {
+    return null;
+  }
+
+  const scoutOnlyTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
+  return {
+    scoutOnly: true,
+    ...(scoutOnlyTargetRooms.length > 0 ? { scoutOnlyTargetRooms } : {})
+  };
 }
 
 function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boolean {
+  const passiveScoutTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
   return (
     context.survival.mode === 'LOCAL_STABLE' &&
     !context.survival.suppressionReasons.includes('defenseFloor') &&
     context.options.workersOnly !== true &&
     context.workerCapacity >= context.workerTarget &&
     context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST &&
-    context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST
+    context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST &&
+    (passiveScoutTargetRooms.length === 0 ||
+      passiveScoutTargetRooms.some((targetRoom) =>
+        isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
+      ))
   );
 }
 

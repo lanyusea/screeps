@@ -468,7 +468,8 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       roomName: 'E29N55',
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      structures: makeE29N55ReadyStructures()
     });
     installRuntimeCurrentRoom('E29N55');
     installGame(colony, {
@@ -504,49 +505,8 @@ describe('expansion planner', () => {
         status: 'requested',
         updatedAt: 968_900,
         distance: 1
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E29N54',
-        status: 'observed',
-        updatedAt: 968_900,
-        distance: 1,
-        sourceCount: 2,
-        controllerPresent: true,
-        controllerId: 'controller-E29N54',
-        terrainType: 'unknown'
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E28N55',
-        status: 'requested',
-        updatedAt: 968_900,
-        distance: 1
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E30N55',
-        status: 'observed',
-        updatedAt: 968_900,
-        distance: 1,
-        sourceCount: 2,
-        controllerPresent: true,
-        controllerId: 'controller-E30N55',
-        terrainType: 'unknown'
       }
     ]);
-    expect(Memory.territory?.scoutIntel?.['E29N55>E29N54']).toMatchObject({
-      colony: 'E29N55',
-      roomName: 'E29N54',
-      updatedAt: 968_900,
-      sourceCount: 2
-    });
-    expect(Memory.territory?.scoutIntel?.['E29N55>E30N55']).toMatchObject({
-      colony: 'E29N55',
-      roomName: 'E30N55',
-      updatedAt: 968_900,
-      sourceCount: 2
-    });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
       (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
@@ -1611,7 +1571,8 @@ function makeColony({
   controllerLevel = 3,
   hostileCreepCount = 0,
   hostileStructureCount = 0,
-  spawns = [makeActiveSpawn(`spawn-${roomName}`)]
+  spawns = [makeActiveSpawn(`spawn-${roomName}`)],
+  structures = []
 }: {
   roomName?: string;
   energyAvailable?: number;
@@ -1620,6 +1581,7 @@ function makeColony({
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   spawns?: StructureSpawn[];
+  structures?: AnyStructure[];
 } = {}): { colony: ColonySnapshot } {
   const room = {
     name: roomName,
@@ -1644,6 +1606,9 @@ function makeColony({
           id: `home-hostile-structure-${index}`
         }));
       }
+      if (findType === FIND_STRUCTURES) {
+        return structures;
+      }
 
       return [];
     })
@@ -1657,6 +1622,33 @@ function makeColony({
       energyCapacityAvailable
     }
   };
+}
+
+function makeE29N55ReadyStructures(): AnyStructure[] {
+  return [
+    makeStructure('spawn1', 'spawn', 17, 24, true),
+    makeStructure('spawn-rampart', 'rampart', 17, 24, true),
+    makeStructure('spawn-wall-a', 'constructedWall', 16, 23),
+    makeStructure('spawn-wall-b', 'constructedWall', 18, 23),
+    makeStructure('spawn-wall-c', 'constructedWall', 16, 25),
+    makeStructure('spawn-wall-d', 'constructedWall', 18, 25),
+    makeStructure('tower1', 'tower', 20, 20, true)
+  ];
+}
+
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): AnyStructure {
+  return {
+    id,
+    structureType,
+    my,
+    pos: { x, y, roomName: 'E29N55' } as RoomPosition
+  } as AnyStructure;
 }
 
 function makeActiveSpawn(name: string): StructureSpawn {

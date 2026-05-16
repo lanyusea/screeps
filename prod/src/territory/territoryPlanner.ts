@@ -132,6 +132,7 @@ export interface TerritoryIntentPlanningOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
   scoutOnly?: boolean;
+  scoutOnlyTargetRooms?: readonly string[];
 }
 
 export interface RemoteMiningSetupOptions {
@@ -142,6 +143,7 @@ interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
   scoutOnly?: boolean;
+  scoutOnlyTargetRooms?: readonly string[];
 }
 
 interface MemoryRecord {
@@ -1224,6 +1226,7 @@ function selectTerritoryTarget(
         routeDistanceLookupContext
       ),
       ...getConfiguredExpansionScoutCandidates(
+        colony,
         colonyName,
         colonyOwnerUsername,
         territoryMemory,
@@ -1405,7 +1408,11 @@ function filterTerritoryCandidatesForPlanningOptions(
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
   if (options.scoutOnly === true) {
-    return candidates.filter((candidate) => candidate.intentAction === 'scout');
+    const scoutCandidates = candidates.filter((candidate) => candidate.intentAction === 'scout');
+    const targetRooms = options.scoutOnlyTargetRooms;
+    return targetRooms && targetRooms.length > 0
+      ? scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName))
+      : scoutCandidates;
   }
 
   if (options.controllerPressureOnly === true) {
@@ -1756,6 +1763,7 @@ function getConfiguredTerritoryCandidates(
 }
 
 function getConfiguredExpansionScoutCandidates(
+  colony: ColonySnapshot,
   colonyName: string,
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
@@ -1764,7 +1772,7 @@ function getConfiguredExpansionScoutCandidates(
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget[] {
   const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
-  return getConfiguredExpansionRoomScoutingTargets(colonyName, gameTime).flatMap((target, order) => {
+  return getConfiguredExpansionRoomScoutingTargets(colony, gameTime).flatMap((target, order) => {
     if (
       configuredTargetRooms.has(target.roomName) ||
       hasRunnableTerritoryIntentForTarget(intents, colonyName, target.roomName, gameTime) ||

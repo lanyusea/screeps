@@ -17,6 +17,8 @@ describe('room scouting', () => {
     (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 2;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 6;
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
@@ -30,6 +32,8 @@ describe('room scouting', () => {
     delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { FIND_STRUCTURES?: number }).FIND_STRUCTURES;
+    delete (globalThis as { FIND_MY_STRUCTURES?: number }).FIND_MY_STRUCTURES;
     delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
     delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
@@ -225,8 +229,12 @@ describe('room scouting', () => {
     ]);
   });
 
-  it('requests only scout intents for E29N55 adjacent expansion intel refresh targets', () => {
-    const colony = makeColony('E29N55');
+  it('keeps the E29N56 configured scout request closed before E29N55 reaches RCL3 tower readiness', () => {
+    const colony = makeColony('E29N55', {
+      controllerLevel: 2,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550
+    });
     enableRuntimeCurrentRoomScoutTargets('E29N55');
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 968_800,
@@ -237,33 +245,35 @@ describe('room scouting', () => {
 
     const result = refreshConfiguredExpansionRoomScouting(colony, 968_800);
 
+    expect(result.records).toEqual([]);
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('requests only a scout intent for E29N56 after E29N55 reaches RCL3 tower readiness', () => {
+    const colony = makeColony('E29N55', {
+      controllerLevel: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      structures: makeE29N55ReadyStructures()
+    });
+    colony.spawns = [makeSpawn('Spawn1', colony.room)];
+    enableRuntimeCurrentRoomScoutTargets('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 968_801,
+      rooms: {
+        E29N55: colony.room
+      }
+    };
+
+    const result = refreshConfiguredExpansionRoomScouting(colony, 968_801);
+
     expect(result.records).toEqual([
       {
         colony: 'E29N55',
         roomName: 'E29N56',
         status: 'requested',
-        updatedAt: 968_800,
-        distance: 1
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E29N54',
-        status: 'requested',
-        updatedAt: 968_800,
-        distance: 1
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E28N55',
-        status: 'requested',
-        updatedAt: 968_800,
-        distance: 1
-      },
-      {
-        colony: 'E29N55',
-        roomName: 'E30N55',
-        status: 'requested',
-        updatedAt: 968_800,
+        updatedAt: 968_801,
         distance: 1
       }
     ]);
@@ -274,47 +284,46 @@ describe('room scouting', () => {
         targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
-        updatedAt: 968_800
-      },
-      {
-        colony: 'E29N55',
-        targetRoom: 'E29N54',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_800
-      },
-      {
-        colony: 'E29N55',
-        targetRoom: 'E28N55',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_800
-      },
-      {
-        colony: 'E29N55',
-        targetRoom: 'E30N55',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_800
+        updatedAt: 968_801
       }
     ]);
   });
 });
 
-function makeColony(roomName = 'W1N1'): ColonySnapshot {
+function makeColony(
+  roomName = 'W1N1',
+  {
+    controllerLevel = 3,
+    energyAvailable = 650,
+    energyCapacityAvailable = 650,
+    structures = []
+  }: {
+    controllerLevel?: number;
+    energyAvailable?: number;
+    energyCapacityAvailable?: number;
+    structures?: AnyStructure[];
+  } = {}
+): ColonySnapshot {
   const room = {
     name: roomName,
-    energyAvailable: 650,
-    energyCapacityAvailable: 650,
+    energyAvailable,
+    energyCapacityAvailable,
     controller: {
       id: `controller-${roomName}`,
       my: true,
-      level: 3,
-      owner: { username: 'me' }
+      level: controllerLevel,
+      owner: { username: 'me' },
+      ticksToDowngrade: 10_000
     } as StructureController,
-    find: jest.fn(() => [])
+    find: jest.fn((findType: number) => {
+      if (findType === FIND_MY_STRUCTURES || findType === FIND_STRUCTURES) {
+        return structures;
+      }
+
+      return [];
+    })
   } as unknown as Room;
-  return { room, spawns: [], energyAvailable: 650, energyCapacityAvailable: 650 };
+  return { room, spawns: [], energyAvailable, energyCapacityAvailable };
 }
 
 function makeRoom(
@@ -352,4 +361,41 @@ function makeRoom(
 
 function makeTerrain(get: (x: number, y: number) => number = () => 0): RoomTerrain {
   return { get: jest.fn(get) } as unknown as RoomTerrain;
+}
+
+function makeSpawn(name: string, room: Room): StructureSpawn {
+  return {
+    name,
+    room,
+    my: true,
+    spawning: null,
+    pos: { x: 17, y: 24, roomName: room.name } as RoomPosition
+  } as StructureSpawn;
+}
+
+function makeE29N55ReadyStructures(): AnyStructure[] {
+  return [
+    makeStructure('spawn1', 'spawn', 17, 24, true),
+    makeStructure('spawn-rampart', 'rampart', 17, 24, true),
+    makeStructure('spawn-wall-a', 'constructedWall', 16, 23),
+    makeStructure('spawn-wall-b', 'constructedWall', 18, 23),
+    makeStructure('spawn-wall-c', 'constructedWall', 16, 25),
+    makeStructure('spawn-wall-d', 'constructedWall', 18, 25),
+    makeStructure('tower1', 'tower', 20, 20, true)
+  ];
+}
+
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): AnyStructure {
+  return {
+    id,
+    structureType,
+    my,
+    pos: { x, y, roomName: 'E29N55' } as RoomPosition
+  } as AnyStructure;
 }

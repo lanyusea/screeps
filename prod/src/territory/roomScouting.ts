@@ -7,6 +7,7 @@ import {
   recordVisibleRoomScoutIntel
 } from './scoutIntel';
 import { getTerritoryExpansionScoutTargets } from './expansionConfig';
+import { isPassiveScoutGateOpen } from './passiveScoutGate';
 
 const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
 const TERRAIN_SCAN_MIN = 2;
@@ -179,6 +180,7 @@ export function getConfiguredExpansionRoomScoutingTargets(
     if (
       target.colony !== colonyName ||
       target.roomName === colonyName ||
+      !isPassiveScoutGateOpen(colony, target.roomName, gameTime) ||
       !shouldRefreshConfiguredExpansionScoutTarget(colonyName, target.roomName, gameTime)
     ) {
       return [];

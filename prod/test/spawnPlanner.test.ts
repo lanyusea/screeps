@@ -4870,7 +4870,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('spawns a MOVE-only scout for an E29N55 scout-only intel refresh without reserve or claim memory', () => {
+  it('keeps the E29N56 scout-only lane closed at the current E29N55 RCL2 no-tower state', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E29N55',
       energyAvailable: 450,
@@ -4883,10 +4883,79 @@ describe('planSpawn', () => {
       rooms: { E29N55: colony.room }
     };
 
-    expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_801)).toEqual({
+    expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_801)).toBeNull();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(spawn.name).toBe('Spawn1');
+  });
+
+  it('spawns a MOVE-only scout for E29N56 after E29N55 reaches RCL3 tower-ready safety', () => {
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
+    const { colony, spawn } = makeColony({
+      roomName: 'E29N55',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: 10_000,
+        pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
+      } as StructureController,
+      structures: [
+        {
+          id: 'spawn1',
+          structureType: 'spawn',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-rampart',
+          structureType: 'rampart',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-a',
+          structureType: 'constructedWall',
+          pos: { x: 16, y: 23, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-b',
+          structureType: 'constructedWall',
+          pos: { x: 18, y: 23, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-c',
+          structureType: 'constructedWall',
+          pos: { x: 16, y: 25, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall-d',
+          structureType: 'constructedWall',
+          pos: { x: 18, y: 25, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'tower1',
+          structureType: 'tower',
+          my: true,
+          pos: { x: 20, y: 20, roomName: 'E29N55' }
+        } as AnyStructure
+      ]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installRuntimeCurrentRoom('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { E29N55: colony.room }
+    };
+
+    expect(
+      planSpawn(colony, { worker: 6, sourceHarvester: 1, claimer: 0, claimersByTargetRoom: {} }, 968_803)
+    ).toEqual({
       spawn,
       body: ['move'],
-      name: 'scout-E29N55-E29N56-968801',
+      name: 'scout-E29N55-E29N56-968803',
       memory: {
         role: 'scout',
         colony: 'E29N55',
@@ -4903,7 +4972,7 @@ describe('planSpawn', () => {
         targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
-        updatedAt: 968_801
+        updatedAt: 968_803
       }
     ]);
   });
