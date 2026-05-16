@@ -205,6 +205,14 @@ The scheduler runs these phases in order on every invocation:
 5. **Maximize safe parallelism without starvation.** Claim executable `Ready` issues up to capacity using the anti-starvation scheduling contract above: hard P0 incidents first; otherwise the guarded weighted cycle, P2 credit, 24-hour forced-P2 rule, and P1 domain-fairness layer. A 24-hour forced-P2 promotion is subordinate only to hard P0 and cannot be deferred by same-domain P1 gating, normal P1 sequencing, or PR-drain preference when the P2 item has an executable action. For P1, compute oldest executable Ready issue by Domain and serve an aged non-gameplay/owner-visible P1 before creating another new same-domain gameplay lane when the gameplay floor is already satisfied. Within each eligible priority bucket, prefer game-goal work in the order territory > resources > kills, then non-blocking foundation. Default assumption: different roadmap submodules are non-conflicting and should run in parallel via separate worktrees unless a concrete file/runtime/resource conflict is observed.
 6. **Refresh owner-visible state.** Update Issue/Project `Evidence` and `Next action`, write concise scheduler checkpoint output, and trigger/allow typed reporters to refresh roadmap/task views from GitHub state.
 
+Before the scheduler reports a run complete, run the PM defect tripwire against the final report/checkpoint text:
+
+```bash
+python3 scripts/check_scheduler_report_tripwire.py <scheduler-report.txt>
+```
+
+If the tripwire finds P0/P1 action-item, follow-up, blocker, defect, or gap prose without a same-item GitHub issue reference, the scheduler must stop completion reporting, create or update the GitHub issue and Project `screeps` fields, then rerun the check with the issue reference in the report item.
+
 #### Parallelism and conflict policy
 
 Default capacity targets:
