@@ -702,6 +702,55 @@ describe('runtime construction priority report', () => {
     expect(hasBuildItem(saturated.candidates, 'build tower defense')).toBe(false);
     expect(hasBuildItem(pendingSecondTower.candidates, 'build tower defense')).toBe(false);
   });
+
+  it('prioritizes RCL3 extension capacity after first tower readiness until the RCL3 cap', () => {
+    const report = buildRuntimeConstructionPriorityReport(
+      makeRuntimeColony({
+        controllerLevel: 3,
+        energyCapacityAvailable: 550,
+        ownedStructures: [
+          makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+          makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 21, 20),
+          ...Array.from({ length: 5 }, (_, index) =>
+            makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 22 + index, 20)
+          )
+        ]
+      }).colony,
+      [
+        { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+        { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+        { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+        { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+      ]
+    );
+    const extension = scoreByName(report.candidates, 'build extension capacity');
+
+    expect(report.nextPrimary?.buildItem).toBe('build extension capacity');
+    expect(extension.factors.urgency).toBeGreaterThan(0);
+    expect(extension.score).toBeGreaterThan(scoreFor(report.candidates, 'build source containers'));
+    expect(extension.score).toBeGreaterThan(scoreFor(report.candidates, 'build source/controller roads'));
+  });
+
+  it('does not plan another RCL3 extension candidate when pending extension work reaches the cap', () => {
+    const report = buildRuntimeConstructionPriorityReport(
+      makeRuntimeColony({
+        controllerLevel: 3,
+        energyCapacityAvailable: 800,
+        ownedStructures: [
+          makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+          makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 21, 20),
+          ...Array.from({ length: 9 }, (_, index) =>
+            makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 22 + index, 20)
+          )
+        ],
+        ownedConstructionSites: [makeConstructionSite('extension-site', TEST_GLOBALS.STRUCTURE_EXTENSION, 31, 20)]
+      }).colony,
+      [{ memory: { role: 'worker', colony: 'W1N1' } } as Creep]
+    );
+
+    expect(hasBuildItem(report.candidates, 'finish extension site')).toBe(true);
+    expect(hasBuildItem(report.candidates, 'build extension capacity')).toBe(false);
+  });
 });
 
 describe('post-claim construction room detection', () => {
