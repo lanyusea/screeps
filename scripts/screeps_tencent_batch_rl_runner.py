@@ -2,9 +2,10 @@
 """Run bounded Screeps RL training on a Tencent Cloud ASG batch worker.
 
 This controller-side tool keeps the ASG at desired=0 by default, scales one
-worker for a single offline/private training job, copies a redacted repo bundle
-and local STEAM_KEY env file over SSH, collects artifacts, and always attempts to
-scale the ASG back to zero.
+worker for offline/private training, copies a redacted repo bundle and local
+STEAM_KEY env file over SSH, collects artifacts, and always attempts to scale
+the ASG back to zero. Multi-worker RL scale proof requests are bounded to
+multiple concurrent simulator environments on that single paid ASG worker.
 
 No secret values are printed or persisted in controller summaries.
 """
@@ -14,6 +15,7 @@ import argparse
 import base64
 import datetime as dt
 import json
+import math
 import os
 import re
 import shlex
@@ -39,6 +41,8 @@ DEFAULT_CONTROLLER_IP = "43.128.104.34/32"
 DEFAULT_WORKER_USER = "screeps-batch"
 DEFAULT_REMOTE_BASE = "/opt/screeps-batch/jobs"
 DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
+MAX_SCALE_PROOF_WORKERS = 16
+SCALE_PROOF_SUCCESS_RATE = 0.8
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
 SSH_CONNECT_OPTIONS = (
     "-o", "BatchMode=yes",
@@ -244,6 +248,9 @@ class Controller:
     def experiment_card_path(self) -> Path:
         return self.artifact_dir / "experiment_card.json"
 
+    def scale_proof_spec_path(self) -> Path:
+        return self.artifact_dir / "scale_proof_spec.json"
+
     def run(self) -> None:
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         validate_static_inputs(self.args, self.run_id)
@@ -351,6 +358,7 @@ class Controller:
         # Apply bounded-run overrides after generation; keep schema-valid fields.
         payload = json.loads(card.read_text(encoding="utf-8"))
         simulation = payload.setdefault("simulation", {})
+        scale_environments = resolve_scale_environment_count(self.args)
         simulation.update({
             "ticks": self.args.ticks,
             "workers": self.args.workers,
@@ -364,6 +372,12 @@ class Controller:
             # .git, so git check-ignore cannot prove safety there.
             "simulator_out_dir": f"{self.remote_dir}/simulator-artifacts",
         })
+        if scale_environments is not None:
+            simulation.update({
+                "scale_environments": scale_environments,
+                "min_concurrent_environments": scale_environments,
+                "scale_proof_mode": "single_tencent_asg_worker_multi_environment",
+            })
         if self.args.variant:
             payload["strategy_variants"] = self.args.variant
         payload["run_id"] = self.run_id
@@ -374,6 +388,36 @@ class Controller:
             timeout=60,
         )
         self.result["experimentCard"] = {"path": str(card), "createdAt": created_at, "cardId": payload.get("card_id")}
+        if scale_environments is not None:
+            self.write_scale_proof_spec(scale_environments=scale_environments, experiment_card=payload)
+
+    def write_scale_proof_spec(self, *, scale_environments: int, experiment_card: dict[str, Any]) -> None:
+        started = time.time()
+        spec_path = self.scale_proof_spec_path()
+        spec = build_scale_proof_spec(
+            args=self.args,
+            run_id=self.run_id,
+            artifact_dir=self.artifact_dir,
+            experiment_card_path=self.experiment_card_path(),
+            scale_environments=scale_environments,
+            experiment_card=experiment_card,
+        )
+        spec_path.write_text(canonical_json(spec), encoding="utf-8")
+        self.result["scaleProofSpec"] = {
+            "path": str(spec_path),
+            "mode": spec["scaleProof"]["mode"],
+            "requestedWorkers": self.args.workers,
+            "scaleEnvironments": scale_environments,
+            "minimumSuccessfulEnvironments": spec["scaleProof"]["successCriteria"]["minimumSuccessfulEnvironments"],
+        }
+        self.record_step(
+            "write_scale_proof_spec",
+            started,
+            True,
+            path=str(spec_path),
+            workers=self.args.workers,
+            scaleEnvironments=scale_environments,
+        )
 
     def describe_asg_instances(self) -> list[dict[str, Any]]:
         filters = json.dumps([{"Name": "auto-scaling-group-id", "Values": [self.args.asg_id]}])
@@ -574,8 +618,10 @@ print(json.dumps({
   'changedTopCount': d.get('changedTopCount'),
   'warnings': d.get('warnings'),
   'simulation': d.get('simulation'),
+  'scaleValidation': d.get('scaleValidation'),
   'liveEffect': d.get('liveEffect'),
   'officialMmoWrites': d.get('officialMmoWrites'),
+  'officialMmoWritesAllowed': d.get('officialMmoWritesAllowed'),
 }, indent=2, sort_keys=True))
 PY
 """.strip()
@@ -640,6 +686,10 @@ tar -czf remote-artifacts.tar.gz \
         artifact_count = data.get("artifactCount")
         if not isinstance(artifact_count, int) or artifact_count <= 0:
             raise BatchRunError(f"remote training artifactCount invalid: {artifact_count!r}")
+        scale_environments = resolve_scale_environment_count(self.args)
+        scale_validation = data.get("scaleValidation")
+        if scale_environments is not None:
+            validate_scale_proof_result(scale_validation, scale_environments)
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
@@ -649,6 +699,7 @@ tar -czf remote-artifacts.tar.gz \
             "ranking": data.get("ranking"),
             "warnings": data.get("warnings"),
             "simulation": data.get("simulation"),
+            "scaleValidation": scale_validation,
         }
 
     def describe_asg_group_summary(self) -> dict[str, Any]:
@@ -1064,6 +1115,90 @@ def bash_lc(script: str) -> str:
     return "bash -lc " + shlex.quote(f"printf %s {shlex.quote(encoded)} | base64 -d | bash")
 
 
+def resolve_scale_environment_count(args: argparse.Namespace) -> int | None:
+    explicit = getattr(args, "scale_environments", None)
+    if explicit is not None:
+        return explicit
+    workers = getattr(args, "workers", 1)
+    return workers if workers > 1 else None
+
+
+def minimum_successful_environments(environment_count: int) -> int:
+    return math.ceil(environment_count * SCALE_PROOF_SUCCESS_RATE)
+
+
+def build_scale_proof_spec(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    artifact_dir: Path,
+    experiment_card_path: Path,
+    scale_environments: int,
+    experiment_card: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "type": "screeps-tencent-batch-rl-scale-proof-spec",
+        "schemaVersion": 1,
+        "runId": run_id,
+        "artifactDir": str(artifact_dir),
+        "experimentCardPath": str(experiment_card_path),
+        "experimentCard": {
+            "cardId": experiment_card.get("card_id"),
+            "status": experiment_card.get("status"),
+            "safety": experiment_card.get("safety"),
+        },
+        "scaleProof": {
+            "mode": "single_tencent_asg_worker_multi_environment",
+            "requestedWorkers": args.workers,
+            "scaleEnvironments": scale_environments,
+            "minConcurrentEnvironments": scale_environments,
+            "successCriteria": {
+                "minimumSuccessRate": SCALE_PROOF_SUCCESS_RATE,
+                "minimumSuccessfulEnvironments": minimum_successful_environments(scale_environments),
+            },
+            "remoteRunnerContract": {
+                "trainingRunner": "scripts/screeps_rl_training_runner.py",
+                "simulatorHarness": "scripts/screeps_rl_simulator_harness.py",
+                "cardSimulationFields": {
+                    "workers": args.workers,
+                    "scale_environments": scale_environments,
+                    "min_concurrent_environments": scale_environments,
+                },
+            },
+        },
+        "asg": {
+            "autoScalingGroupId": args.asg_id,
+            "desiredCapacityDuringRun": 1,
+            "cleanupDesiredCapacity": 0,
+        },
+        "safety": {
+            "status": "shadow",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "billingGuardBeforeScale": True,
+            "sshControllerOnlyExpected": args.controller_ip,
+            "secretsPrinted": False,
+        },
+    }
+
+
+def validate_scale_proof_result(raw: Any, expected_environments: int) -> None:
+    if not isinstance(raw, dict):
+        raise BatchRunError("remote training report missing scaleValidation for multi-worker proof")
+    total = raw.get("totalEnvironments")
+    successful = raw.get("successfulEnvironments")
+    minimum = raw.get("minimumSuccessfulEnvironments")
+    if not isinstance(total, int) or total < expected_environments:
+        raise BatchRunError(f"scale proof environment count invalid: {total!r} < {expected_environments}")
+    if not isinstance(minimum, int):
+        minimum = minimum_successful_environments(expected_environments)
+    if not isinstance(successful, int) or successful < minimum:
+        raise BatchRunError(f"scale proof success count invalid: {successful!r} < {minimum}")
+    if raw.get("ok") is not True:
+        raise BatchRunError("scale proof did not satisfy success criteria")
+
+
 def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
     if not RUN_ID_RE.fullmatch(run_id):
         raise BatchRunError("run id must be lowercase and contain only letters, numbers, dot, underscore, hyphen")
@@ -1076,8 +1211,14 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
         path = Path(path_text)
         if not path.exists():
             raise BatchRunError(f"{path_label} path does not exist: {path}")
-    if args.workers != 1:
-        raise BatchRunError("this bounded validation runner only supports --workers 1")
+    if args.workers < 1 or args.workers > MAX_SCALE_PROOF_WORKERS:
+        raise BatchRunError(f"workers must be between 1 and {MAX_SCALE_PROOF_WORKERS}")
+    scale_environments = resolve_scale_environment_count(args)
+    if scale_environments is not None:
+        if scale_environments < 1 or scale_environments > MAX_SCALE_PROOF_WORKERS:
+            raise BatchRunError(f"scale environments must be between 1 and {MAX_SCALE_PROOF_WORKERS}")
+        if args.workers < scale_environments:
+            raise BatchRunError("workers must be at least scale environments for concurrent scale proof")
     if args.repetitions < 1 or args.ticks < 1:
         raise BatchRunError("ticks and repetitions must be positive")
     if not args.controller_ip.endswith("/32"):
@@ -1141,7 +1282,7 @@ def create_repo_bundle(package: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run a bounded Screeps RL training job on one Tencent ASG worker.")
+    parser = argparse.ArgumentParser(description="Run bounded Screeps RL training on one Tencent ASG worker.")
     parser.add_argument("command", choices=("run-single", "preflight"))
     parser.add_argument("--run-id", default=default_run_id())
     parser.add_argument("--region", default=DEFAULT_REGION)
@@ -1158,6 +1299,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--training-approach", default="bandit", choices=("bandit", "evolutionary", "policy_gradient"))
     parser.add_argument("--ticks", type=int, default=50)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--scale-environments",
+        type=int,
+        default=None,
+        help="Unique concurrent simulator environment rows for scale proof. Defaults to --workers when --workers > 1.",
+    )
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--host-port-start", type=int, default=24125)
     parser.add_argument("--variant", action="append", help="Strategy variant id; repeat to override generated card variants.")

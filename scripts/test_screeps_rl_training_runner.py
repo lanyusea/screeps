@@ -916,6 +916,37 @@ export const STRATEGY_REGISTRY = [
             for right_ports in reserved_ports_by_repetition[left_index + 1 :]:
                 self.assertTrue(left_ports.isdisjoint(right_ports))
 
+    def test_scale_environment_card_expands_variants_and_records_success_threshold(self) -> None:
+        expanded_ids = runner.simulator_harness.expand_scale_environment_variants(["baseline", "candidate"], 5)
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in expanded_ids
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["workers"] = 5
+            card["simulation"]["scale_environments"] = 5
+            card["simulation"]["min_concurrent_environments"] = 5
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="scale-env-proof",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["variants"], expanded_ids)
+        self.assertEqual(simulator.calls[0]["workers"], 5)
+        self.assertEqual(simulator.calls[0]["min_concurrent_environments"], 5)
+        self.assertTrue(report["scaleValidation"]["ok"])
+        self.assertEqual(report["scaleValidation"]["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(report["scaleValidation"]["successfulEnvironments"], 5)
+        self.assertEqual(report["simulation"]["scaleEnvironments"], 5)
+
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
