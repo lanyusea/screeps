@@ -421,6 +421,43 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         self.assertEqual(controller.result["trainingReport"]["scaleValidation"]["successfulEnvironments"], 4)
 
+    def test_scale_proof_result_rejects_malformed_remote_counts(self) -> None:
+        valid = {
+            "ok": True,
+            "totalEnvironments": 5,
+            "successfulEnvironments": 4,
+            "minimumSuccessfulEnvironments": 4,
+        }
+        runner.validate_scale_proof_result(valid, 5)
+
+        cases = [
+            (
+                "inflated-total",
+                {"totalEnvironments": 9, "successfulEnvironments": 9},
+                "scale proof environment count",
+            ),
+            (
+                "successes-above-total",
+                {"successfulEnvironments": 6},
+                "scale proof success count",
+            ),
+            (
+                "minimum-above-total",
+                {"minimumSuccessfulEnvironments": 6},
+                "scale proof minimum success count",
+            ),
+            (
+                "minimum-below-zero",
+                {"minimumSuccessfulEnvironments": -1},
+                "scale proof minimum success count",
+            ),
+        ]
+        for name, updates, pattern in cases:
+            with self.subTest(name=name):
+                malformed = {**valid, **updates}
+                with self.assertRaisesRegex(runner.BatchRunError, pattern):
+                    runner.validate_scale_proof_result(malformed, 5)
+
     def test_safe_extract_tar_rejects_traversal_and_special_entries(self) -> None:
         cases = [
             ("../escape", lambda tar: add_file(tar, "../escape")),

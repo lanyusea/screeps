@@ -1190,14 +1190,22 @@ def validate_scale_proof_result(raw: Any, expected_environments: int) -> None:
     successful = raw.get("successfulEnvironments")
     reported_minimum = raw.get("minimumSuccessfulEnvironments")
     local_minimum = minimum_successful_environments(expected_environments)
-    if not isinstance(total, int) or total < expected_environments:
-        raise BatchRunError(f"scale proof environment count invalid: {total!r} < {expected_environments}")
+    if not isinstance(total, int) or total != expected_environments:
+        raise BatchRunError(
+            f"scale proof environment count invalid: {total!r} must equal {expected_environments}"
+        )
+    if isinstance(reported_minimum, int) and not 0 <= reported_minimum <= total:
+        raise BatchRunError(
+            f"scale proof minimum success count invalid: {reported_minimum!r} outside 0..{total}"
+        )
     minimum = (
         max(local_minimum, reported_minimum)
         if isinstance(reported_minimum, int)
         else local_minimum
     )
-    if not isinstance(successful, int) or successful < minimum:
+    if not isinstance(successful, int) or not 0 <= successful <= total:
+        raise BatchRunError(f"scale proof success count invalid: {successful!r} outside 0..{total}")
+    if successful < minimum:
         raise BatchRunError(f"scale proof success count invalid: {successful!r} < {minimum}")
     if raw.get("ok") is not True:
         raise BatchRunError("scale proof did not satisfy success criteria")
