@@ -133,6 +133,7 @@ export interface TerritoryIntentPlanningOptions {
   followUpOnly?: boolean;
   scoutOnly?: boolean;
   scoutOnlyTargetRooms?: readonly string[];
+  blockedScoutTargetRooms?: readonly string[];
 }
 
 export interface RemoteMiningSetupOptions {
@@ -144,6 +145,7 @@ interface TerritoryTargetSelectionOptions {
   followUpOnly?: boolean;
   scoutOnly?: boolean;
   scoutOnlyTargetRooms?: readonly string[];
+  blockedScoutTargetRooms?: readonly string[];
 }
 
 interface MemoryRecord {
@@ -1408,10 +1410,15 @@ function filterTerritoryCandidatesForPlanningOptions(
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
   if (options.scoutOnly === true) {
-    const scoutCandidates = candidates.filter((candidate) => candidate.intentAction === 'scout');
+    let scoutCandidates = candidates.filter((candidate) => candidate.intentAction === 'scout');
     const targetRooms = options.scoutOnlyTargetRooms;
-    return targetRooms && targetRooms.length > 0
-      ? scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName))
+    if (targetRooms && targetRooms.length > 0) {
+      scoutCandidates = scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName));
+    }
+
+    const blockedTargetRooms = options.blockedScoutTargetRooms;
+    return blockedTargetRooms && blockedTargetRooms.length > 0
+      ? scoutCandidates.filter((candidate) => !blockedTargetRooms.includes(candidate.target.roomName))
       : scoutCandidates;
   }
 

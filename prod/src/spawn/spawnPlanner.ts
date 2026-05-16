@@ -1460,26 +1460,27 @@ function getTerritoryIntentPlanningOptions(
     return null;
   }
 
-  const scoutOnlyTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
+  const blockedScoutTargetRooms = getClosedPassiveScoutOnlyTargetRooms(context);
   return {
     scoutOnly: true,
-    ...(scoutOnlyTargetRooms.length > 0 ? { scoutOnlyTargetRooms } : {})
+    ...(blockedScoutTargetRooms.length > 0 ? { blockedScoutTargetRooms } : {})
   };
 }
 
 function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boolean {
-  const passiveScoutTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
   return (
     context.survival.mode === 'LOCAL_STABLE' &&
     !context.survival.suppressionReasons.includes('defenseFloor') &&
     context.options.workersOnly !== true &&
     context.workerCapacity >= context.workerTarget &&
     context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST &&
-    context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST &&
-    (passiveScoutTargetRooms.length === 0 ||
-      passiveScoutTargetRooms.some((targetRoom) =>
-        isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
-      ))
+    context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST
+  );
+}
+
+function getClosedPassiveScoutOnlyTargetRooms(context: SpawnPlanningContext): readonly string[] {
+  return getPassiveScoutOnlyTargetRooms(context.colony.room.name).filter(
+    (targetRoom) => !isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
   );
 }
 

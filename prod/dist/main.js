@@ -16800,9 +16800,13 @@ function shouldPreferCoveredActionableCandidateOverExpansionScout(readyCandidate
 }
 function filterTerritoryCandidatesForPlanningOptions(candidates, options) {
   if (options.scoutOnly === true) {
-    const scoutCandidates = candidates.filter((candidate) => candidate.intentAction === "scout");
+    let scoutCandidates = candidates.filter((candidate) => candidate.intentAction === "scout");
     const targetRooms = options.scoutOnlyTargetRooms;
-    return targetRooms && targetRooms.length > 0 ? scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName)) : scoutCandidates;
+    if (targetRooms && targetRooms.length > 0) {
+      scoutCandidates = scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName));
+    }
+    const blockedTargetRooms = options.blockedScoutTargetRooms;
+    return blockedTargetRooms && blockedTargetRooms.length > 0 ? scoutCandidates.filter((candidate) => !blockedTargetRooms.includes(candidate.target.roomName)) : scoutCandidates;
   }
   if (options.controllerPressureOnly === true) {
     const pressureCandidates = candidates.filter(isControllerPressureCandidate);
@@ -33698,17 +33702,19 @@ function getTerritoryIntentPlanningOptions(context) {
   if (!shouldPlanLocalStableTerritoryScout(context)) {
     return null;
   }
-  const scoutOnlyTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
+  const blockedScoutTargetRooms = getClosedPassiveScoutOnlyTargetRooms(context);
   return {
     scoutOnly: true,
-    ...scoutOnlyTargetRooms.length > 0 ? { scoutOnlyTargetRooms } : {}
+    ...blockedScoutTargetRooms.length > 0 ? { blockedScoutTargetRooms } : {}
   };
 }
 function shouldPlanLocalStableTerritoryScout(context) {
-  const passiveScoutTargetRooms = getPassiveScoutOnlyTargetRooms(context.colony.room.name);
-  return context.survival.mode === "LOCAL_STABLE" && !context.survival.suppressionReasons.includes("defenseFloor") && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST && (passiveScoutTargetRooms.length === 0 || passiveScoutTargetRooms.some(
-    (targetRoom) => isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
-  ));
+  return context.survival.mode === "LOCAL_STABLE" && !context.survival.suppressionReasons.includes("defenseFloor") && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST;
+}
+function getClosedPassiveScoutOnlyTargetRooms(context) {
+  return getPassiveScoutOnlyTargetRooms(context.colony.room.name).filter(
+    (targetRoom) => !isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
+  );
 }
 function planControllerUpgradeSurplusSpawn(context) {
   if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
