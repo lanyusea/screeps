@@ -409,6 +409,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             data = json.loads(report.read_text(encoding="utf-8"))
             data["scaleValidation"]["ok"] = True
+            data["scaleValidation"]["minimumSuccessfulEnvironments"] = 1
+            report.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(runner.BatchRunError, "scale proof success count"):
+                controller.verify_remote_training_report()
+
+            data["scaleValidation"]["ok"] = True
             data["scaleValidation"]["successfulEnvironments"] = 4
             report.write_text(json.dumps(data), encoding="utf-8")
             controller.verify_remote_training_report()

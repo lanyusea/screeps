@@ -1188,11 +1188,15 @@ def validate_scale_proof_result(raw: Any, expected_environments: int) -> None:
         raise BatchRunError("remote training report missing scaleValidation for multi-worker proof")
     total = raw.get("totalEnvironments")
     successful = raw.get("successfulEnvironments")
-    minimum = raw.get("minimumSuccessfulEnvironments")
+    reported_minimum = raw.get("minimumSuccessfulEnvironments")
+    local_minimum = minimum_successful_environments(expected_environments)
     if not isinstance(total, int) or total < expected_environments:
         raise BatchRunError(f"scale proof environment count invalid: {total!r} < {expected_environments}")
-    if not isinstance(minimum, int):
-        minimum = minimum_successful_environments(expected_environments)
+    minimum = (
+        max(local_minimum, reported_minimum)
+        if isinstance(reported_minimum, int)
+        else local_minimum
+    )
     if not isinstance(successful, int) or successful < minimum:
         raise BatchRunError(f"scale proof success count invalid: {successful!r} < {minimum}")
     if raw.get("ok") is not True:
