@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -328,7 +329,7 @@ def expand_scale_environment_strategy_variants(
         expanded.append(
             StrategyVariant(
                 id=variant_id,
-                parameters=dict(base.parameters),
+                parameters=copy.deepcopy(base.parameters),
                 family=base.family,
                 rollout_status=base.rollout_status,
                 source=base.source,
@@ -784,8 +785,12 @@ def build_scale_validation_summary(
     for index, run in enumerate(simulator_runs):
         variants = run.get("variants") if isinstance(run, dict) else None
         rows = [item for item in variants if isinstance(item, dict)] if isinstance(variants, list) else []
-        successful = sum(1 for item in rows if item.get("ok") is True)
-        total = len(rows)
+        env_success: dict[str, bool] = {}
+        for item in rows:
+            environment_id = scale_validation_environment_id(item)
+            env_success[environment_id] = env_success.get(environment_id, False) or item.get("ok") is True
+        successful = sum(1 for ok in env_success.values() if ok)
+        total = len(env_success)
         total_environments += total
         successful_environments += successful
         run_summaries.append({
@@ -805,6 +810,61 @@ def build_scale_validation_summary(
         "repetitions": len(run_summaries),
         "perRun": run_summaries,
     }
+
+
+def scale_validation_environment_id(variant: JsonObject) -> str:
+    """Return a stable per-run environment id for scale-proof row counting."""
+    for key in ("environmentId", "envId", "environment", "slot"):
+        if key in variant and usable_environment_id_value(variant[key]):
+            return f"{key}:{stable_identity_text(variant[key])}"
+
+    for container in scale_validation_environment_containers(variant):
+        for key in (
+            "environmentId",
+            "envId",
+            "environment",
+            "slot",
+            "environmentIndex",
+            "environment_index",
+            "index",
+        ):
+            if key in container and usable_environment_id_value(container[key]):
+                return f"{key}:{stable_identity_text(container[key])}"
+
+    for key in ("variant_id", "variantId", "id"):
+        value = variant.get(key)
+        if isinstance(value, str) and value:
+            return f"{key}:{value}"
+
+    return "row:" + stable_identity_text(variant)
+
+
+def usable_environment_id_value(value: Any) -> bool:
+    return value is not None and not (isinstance(value, str) and not value)
+
+
+def scale_validation_environment_containers(variant: JsonObject) -> list[JsonObject]:
+    containers: list[JsonObject] = []
+    for key in ("scaleEnvironment", "scale_environment"):
+        value = variant.get(key)
+        if isinstance(value, dict):
+            containers.append(value)
+    for key in ("strategyVariant", "strategy_variant"):
+        value = variant.get(key)
+        if not isinstance(value, dict):
+            continue
+        for nested_key in ("scaleEnvironment", "scale_environment"):
+            nested = value.get(nested_key)
+            if isinstance(nested, dict):
+                containers.append(nested)
+    return containers
+
+
+def stable_identity_text(value: Any) -> str:
+    try:
+        return canonical_hash(value)
+    except (TypeError, ValueError):
+        return hashlib.sha256(repr(value).encode("utf-8")).hexdigest()
 
 
 def build_training_report(
