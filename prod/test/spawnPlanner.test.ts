@@ -4952,6 +4952,7 @@ describe('planSpawn', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { E29N55: colony.room }
     };
+    installRuntimeCurrentRoom('E29N55');
 
     expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_804)).toEqual({
       spawn,
