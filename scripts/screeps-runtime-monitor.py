@@ -44,6 +44,7 @@ DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
 RAMPART_DECAY_HITS_PER_EVENT = 300
 RAMPART_DECAY_EVENT_TICKS = 100
+RAMPART_DECAY_RECENT_HOSTILE_TICKS = RAMPART_DECAY_EVENT_TICKS
 RAMPART_SAFE_DECAY_HITS_FLOOR = 10_000
 RAMPART_CRITICAL_DAMAGE_DELTA = 5_000
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
@@ -1709,13 +1710,40 @@ def expected_rampart_decay_delta(previous_room_state: dict[str, Any], current_ti
     return decay_events * RAMPART_DECAY_HITS_PER_EVENT
 
 
+def previous_room_state_has_recent_visible_hostiles(
+    previous_room_state: dict[str, Any], current_tick_value: Any
+) -> bool:
+    current_tick = tick_number(current_tick_value)
+    previous_tick = tick_number(previous_room_state.get("tick"))
+    previous_visible_hostiles = previous_room_state.get("visible_hostile_creeps")
+    had_visible_hostiles = (
+        not isinstance(previous_visible_hostiles, bool)
+        and isinstance(previous_visible_hostiles, (int, float))
+        and previous_visible_hostiles > 0
+    )
+
+    last_visible_hostile_tick = tick_number(previous_room_state.get("last_visible_hostile_tick"))
+    if last_visible_hostile_tick is None and had_visible_hostiles:
+        last_visible_hostile_tick = previous_tick
+    if last_visible_hostile_tick is None:
+        return False
+
+    if current_tick is None:
+        current_tick = previous_tick
+    if current_tick is None:
+        return True
+    if current_tick < last_visible_hostile_tick:
+        return False
+    return current_tick - last_visible_hostile_tick <= RAMPART_DECAY_RECENT_HOSTILE_TICKS
+
+
 def is_expected_safe_rampart_decay_reason(
     reason: dict[str, Any],
     previous_room_state: dict[str, Any],
     current_tick_value: Any,
     has_visible_hostiles: bool,
 ) -> bool:
-    if has_visible_hostiles:
+    if has_visible_hostiles or previous_room_state_has_recent_visible_hostiles(previous_room_state, current_tick_value):
         return False
     if alert_reason_kind(reason) != "structure_damage":
         return False
@@ -1729,7 +1757,7 @@ def is_expected_safe_rampart_decay_reason(
         return False
 
     return (
-        current_hits >= RAMPART_SAFE_DECAY_HITS_FLOOR
+        current_hits > RAMPART_SAFE_DECAY_HITS_FLOOR
         and 0 < delta <= expected_rampart_decay_delta(previous_room_state, current_tick_value)
     )
 
@@ -1754,11 +1782,15 @@ def build_next_room_state(
     now: int,
     owned_creeps: int,
     owned_spawns: int,
+    visible_hostile_creeps: int,
 ) -> dict[str, Any]:
     structures = previous_structures if should_preserve_previous_baseline(previous_structures, current_structures, detected) else current_structures
     previous_owner = previous_room_state.get("owner")
     owner = snapshot.owner or (previous_owner if should_preserve_previous_baseline(previous_structures, current_structures, detected) else None)
-    return {
+    last_visible_hostile_tick = (
+        snapshot.tick if visible_hostile_creeps > 0 else previous_room_state.get("last_visible_hostile_tick")
+    )
+    next_state = {
         "baseline_established": True,
         "observed_at": now,
         "tick": snapshot.tick,
@@ -1771,7 +1803,11 @@ def build_next_room_state(
         "structures": structures,
         "alerts": alerts,
         "rule_counts": rule_counts,
+        "visible_hostile_creeps": visible_hostile_creeps,
     }
+    if last_visible_hostile_tick is not None:
+        next_state["last_visible_hostile_tick"] = last_visible_hostile_tick
+    return next_state
 
 
 def evaluate_room_alert(
@@ -1959,6 +1995,7 @@ def evaluate_room_alert(
         now,
         current_owned_creeps,
         current_owned_spawns,
+        len(visible_hostiles),
     )
     return emitted, suppressed, next_state
 
