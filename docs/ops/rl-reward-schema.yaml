@@ -93,7 +93,11 @@ components:
     validation:
       metric: constructionDeadlockTicks
       threshold_lt: 100
-      scorecard: "#924 candidate-vs-baseline"
+      scorecard: "#924-compatible candidate-vs-baseline"
+      minimum_duration_hours: 8
+      window: "per-room non-overlapping 5-minute qualifying windows where constructionSiteCount > 0"
+      aggregation: "maximum constructionDeadlockTicks per room/window"
+      requirement: "candidate max below 100 in every room/window and no regression versus baseline"
     rollback:
       spawn_refill_regression: true
       controller_downgrade_regression: true

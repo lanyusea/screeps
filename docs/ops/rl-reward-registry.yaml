@@ -199,8 +199,8 @@ entries:
       windows, without bypassing higher-priority survival and resource gates.
     validation_criteria:
       - "Run historical shadow reward replay on windows where constructionSiteCount > 0."
-      - "#924 candidate-vs-baseline scorecard shows the penalized candidate ranks construction-assigning policies above build-zero policies under comparable safety, territory, and resource evidence."
-      - "constructionDeadlockTicks stays below 100 and does not regress versus baseline in qualifying windows."
+      - "A future generated #924-compatible candidate-vs-baseline scorecard artifact over the same 8-hour historical shadow replay horizon shows the penalized candidate ranks construction-assigning policies above build-zero policies under comparable safety, territory, and resource evidence; #924 is the source scorecard contract and its closure is not acceptance for #1024."
+      - "For every room and every non-overlapping 5-minute qualifying window where constructionSiteCount > 0, use maximum constructionDeadlockTicks per room/window; the candidate max stays below 100 in every room/window and does not regress versus baseline."
       - "Build progress, built progress, or buildCarriedEnergy improves versus baseline."
       - "Worker count, spawn/refill throughput, controller downgrade safety, CPU bucket, reliability, territory, and resource metrics do not regress versus baseline."
       - "Validation artifacts preserve liveEffect=false, officialMmoWrites=false, and officialMmoWritesAllowed=false."
@@ -208,7 +208,7 @@ entries:
       - "Reject or reduce the penalty if workers over-prioritize construction at the expense of spawn/refill throughput."
       - "Reject or reduce the penalty if controller downgrade safety or necessary upgrade progress regresses."
       - "Reject or gate the penalty if it punishes valid no-build behavior during energy starvation or no-valid-builder windows."
-      - "Reject the candidate if the #924 scorecard reports reliability, territory, resource, or CPU regression not explicitly accepted by owner review."
+      - "Reject the candidate if the #924-compatible scorecard reports reliability, territory, resource, or CPU regression not explicitly accepted by owner review."
     linked_github_issue: "https://github.com/lanyusea/screeps/issues/1024"
     related_github_issues:
       - "https://github.com/lanyusea/screeps/issues/907"
@@ -228,7 +228,7 @@ entries:
       spawnIntentControl: false
       constructionIntentControl: false
       marketIntentControl: false
-    decision_record: "docs/ops/examples/rl-reward-decisions/RD-0004-construction-backlog-build-zero.json"
+    decision_record: "docs/ops/examples/rl-reward-decisions/RD-V3-004-constructionNeglectPenalty.json"
     notes: "This proposed registry entry does not authorize live reward defaults or official MMO writes."
 
   - id: "RRD-2026-05-13-003"

@@ -70,7 +70,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 | `RD-0001-defense-construction` | `proposed` | missing or late defense construction | needs metric evidence; not accepted | #907, #906 |
 | `RD-0002-worker-load-efficiency` | `proposed` | tiny-load returns such as 2/50 energy | needs metric evidence; not accepted | #907, #906 |
 | `RD-0003-stuck-actionless-creeps` | `proposed` | stuck/actionless creeps | needs metric evidence; not accepted | #907, #906 |
-| `RD-0004-construction-backlog-build-zero` | `proposed` | `build=0` with construction backlog | needs offline/shadow replay plus #924 scorecard; not accepted | #1024, #907, #906, #924 |
+| `RD-V3-004-constructionNeglectPenalty` | `proposed` | `build=0` with construction backlog | needs offline/shadow replay plus future #924-compatible scorecard artifact; not accepted | #1024, #907, #906, #924 |
 | `RD-0005-expansion-without-spawn` | `proposed` | claim/expansion room with 0 spawns after grace window | needs metric evidence; not accepted | #907, #906 |
 | `RD-0006-metric-and-reliability-gates` | `proposed` | CPU, reliability, or missing metrics | needs metric evidence; not accepted | #907, #906 |
 
@@ -106,7 +106,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 - Evidence needed: idle/actionless ticks, repeated position evidence, action result codes, task memory, target validity, CPU bucket.
 - Acceptance status: not accepted; proposal only.
 
-### RD-0004-construction-backlog-build-zero
+### RD-V3-004-constructionNeglectPenalty
 
 - State: `proposed`
 - Linked issue: https://github.com/lanyusea/screeps/issues/1024
@@ -115,7 +115,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 - Linked scorecard gate: https://github.com/lanyusea/screeps/issues/924
 - Problem: `build=0` while construction backlog exists can block territory and resource progression; issue #1024 records `build=0` with `constructionSiteCount=10` across ticks 917318-918948 and frozen `pendingBuildProgress` near 13200.
 - Possible Act choice: add a shadow/offline `construction_neglect_penalty` when `constructionSiteCount > 0` and `taskCounts.build == 0`, with negative reward proportional to construction site count.
-- Evidence needed: historical shadow replay, construction-deadlock tick counts, build assignment distribution, build progress or build-carried energy, spawn/refill health, controller downgrade safety, and a #924 candidate-vs-baseline scorecard.
+- Evidence needed: historical shadow replay, construction-deadlock tick counts, build assignment distribution, build progress or build-carried energy, spawn/refill health, controller downgrade safety, and a future generated #924-compatible candidate-vs-baseline scorecard artifact. Issue #924 is the source scorecard contract; its closure is not acceptance for #1024.
 - Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize learned-policy live writes.
 - Acceptance status: not accepted; proposal only.
 
