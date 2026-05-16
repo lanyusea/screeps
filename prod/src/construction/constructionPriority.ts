@@ -186,6 +186,7 @@ const CONTROLLER_DOWNGRADE_WARNING_TICKS = 10_000;
 const EARLY_ENERGY_CAPACITY_TARGET = 550;
 const RCL2_EXTENSION_BOOTSTRAP_STORED_ENERGY_THRESHOLD = 500;
 const RCL2_EXTENSION_BOOTSTRAP_POINTS = 30;
+const RCL3_EXTENSION_GROWTH_PRESSURE = 0.7;
 const SPAWN_ENERGY_CAPACITY_FALLBACK = 300;
 const EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL: Record<number, number> = {
   1: 0,
@@ -1604,7 +1605,7 @@ function scoreExtensionBootstrapWeight(
     return 0;
   }
 
-  const rclCapacityTarget = getSpawnEnergyCapacity() + extensionLimit * getExtensionEnergyCapacityForRcl(roomState.rcl);
+  const rclCapacityTarget = getSpawnExtensionEnergyCapacityTarget(roomState.rcl, extensionLimit);
   if (energyCapacity >= rclCapacityTarget) {
     return 0;
   }
@@ -1897,7 +1898,32 @@ function getEnergyBottleneckPressure(roomState: ConstructionPriorityRoomState): 
     return 0.65;
   }
 
+  if (hasRcl3ExtensionGrowthOpportunity(roomState, energyCapacity)) {
+    return RCL3_EXTENSION_GROWTH_PRESSURE;
+  }
+
   return 0;
+}
+
+function hasRcl3ExtensionGrowthOpportunity(
+  roomState: ConstructionPriorityRoomState,
+  energyCapacity: number
+): boolean {
+  if (roomState.rcl !== 3 || (roomState.towerCount ?? 0) <= 0) {
+    return false;
+  }
+
+  const extensionLimit = getControllerExtensionLimitForRcl(roomState.rcl);
+  const extensionCount = roomState.extensionCount;
+  if (
+    extensionLimit <= 0 ||
+    typeof extensionCount !== 'number' ||
+    extensionCount >= extensionLimit
+  ) {
+    return false;
+  }
+
+  return energyCapacity < getSpawnExtensionEnergyCapacityTarget(roomState.rcl, extensionLimit);
 }
 
 function getControllerExtensionLimitForRcl(rcl: number): number {
@@ -1924,6 +1950,10 @@ function getExtensionEnergyCapacityForRcl(rcl: number): number {
   );
 
   return configuredCapacity ?? EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL[rcl] ?? 0;
+}
+
+function getSpawnExtensionEnergyCapacityTarget(rcl: number, extensionLimit: number): number {
+  return getSpawnEnergyCapacity() + extensionLimit * getExtensionEnergyCapacityForRcl(rcl);
 }
 
 function getRepairDecayPressure(roomState: ConstructionPriorityRoomState): number {
@@ -2108,7 +2138,7 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
     candidates.push(createCandidateForBuildType('spawn', state));
   }
 
-  if (extensionLimit > 0 && (state.extensionCount ?? 0) < extensionLimit) {
+  if (extensionLimit > 0 && getExistingAndPendingBuildCount(state, 'STRUCTURE_EXTENSION', 'extension') < extensionLimit) {
     candidates.push(createCandidateForBuildType('extension', state));
   }
 
@@ -2147,12 +2177,28 @@ function getExistingAndPendingBuildCount(
   const existingStructures = countStructuresByType(state.ownedStructures, globalName, fallback);
   const existingCount =
     existingStructures ??
-    (globalName === 'STRUCTURE_TOWER' && fallback === 'tower' ? state.towerCount ?? 0 : 0);
+    getFallbackRuntimeStructureCount(state, globalName, fallback);
   const pendingCount = (state.ownedConstructionSites ?? []).filter((site) =>
     matchesStructureType(String(site.structureType), globalName, fallback)
   ).length;
 
   return existingCount + pendingCount;
+}
+
+function getFallbackRuntimeStructureCount(
+  state: RuntimeConstructionPriorityState,
+  globalName: StructureConstantName,
+  fallback: string
+): number {
+  if (globalName === 'STRUCTURE_TOWER' && fallback === 'tower') {
+    return state.towerCount ?? 0;
+  }
+
+  if (globalName === 'STRUCTURE_EXTENSION' && fallback === 'extension') {
+    return state.extensionCount ?? 0;
+  }
+
+  return 0;
 }
 
 function buildRemoteLogisticsCandidates(state: RuntimeConstructionPriorityState): ConstructionBuildCandidate[] {
