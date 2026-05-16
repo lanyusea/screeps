@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -83,9 +84,11 @@ class SimulationConfig:
     code_path: Path
     map_source_file: Path
     simulator_out_dir: Path
+    scale_environments: int | None = None
+    min_concurrent_environments: int | None = None
 
     def to_json(self) -> JsonObject:
-        return {
+        payload: JsonObject = {
             "ticks": self.ticks,
             "workers": self.workers,
             "repetitions": self.repetitions,
@@ -97,6 +100,11 @@ class SimulationConfig:
             "mapSourceFile": str(self.map_source_file),
             "simulatorOutDir": str(self.simulator_out_dir),
         }
+        if self.scale_environments is not None:
+            payload["scaleEnvironments"] = self.scale_environments
+        if self.min_concurrent_environments is not None:
+            payload["minConcurrentEnvironments"] = self.min_concurrent_environments
+        return payload
 
 
 def utc_now_iso() -> str:
@@ -243,6 +251,13 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("simulation.ticks must be a positive integer")
     if "workers" in simulation and positive_int_value(simulation["workers"]) is None:
         raise TrainingCardError("simulation.workers must be a positive integer")
+    for field, aliases in (
+        ("scale_environments", ("scale_environments", "scaleEnvironments")),
+        ("min_concurrent_environments", ("min_concurrent_environments", "minConcurrentEnvironments")),
+    ):
+        value = first_present(simulation, aliases)
+        if value is not None and positive_int_value(value) is None:
+            raise TrainingCardError(f"simulation.{field} must be a positive integer")
     if "repetitions" in simulation and positive_int_value(simulation["repetitions"]) is None:
         raise TrainingCardError("simulation.repetitions must be a positive integer")
     if (
@@ -267,6 +282,13 @@ def raw_mapping(value: Any, label: str) -> JsonObject:
     return value
 
 
+def first_present(raw: JsonObject, keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in raw:
+            return raw[key]
+    return None
+
+
 def load_strategy_variants(card: JsonObject, registry_path: Path | None = None) -> list[StrategyVariant]:
     """Resolve strategy variants from the TS registry and inline card definitions."""
     registry = load_strategy_registry(registry_path or simulator_harness.DEFAULT_STRATEGY_REGISTRY_PATH)
@@ -279,6 +301,42 @@ def load_strategy_variants(card: JsonObject, registry_path: Path | None = None) 
         seen.add(variant.id)
         variants.append(variant)
     return variants
+
+
+def expand_scale_environment_strategy_variants(
+    variants: Sequence[StrategyVariant],
+    environment_count: int | None,
+) -> list[StrategyVariant]:
+    """Clone strategy metadata into unique simulator rows for scale validation."""
+    if environment_count is None:
+        return list(variants)
+    expanded_ids = simulator_harness.expand_scale_environment_variants(
+        [variant.id for variant in variants],
+        environment_count,
+    )
+    variants_by_id = {variant.id: variant for variant in variants}
+    expanded: list[StrategyVariant] = []
+    for variant_id in expanded_ids:
+        base_id = simulator_harness.scale_environment_base_variant_id(variant_id)
+        base = variants_by_id.get(base_id)
+        if base is None:
+            raise TrainingCardError(f"scale environment base variant {base_id!r} was not found")
+        if variant_id == base.id:
+            expanded.append(base)
+            continue
+        environment_index = simulator_harness.scale_environment_index(variant_id)
+        suffix = f" scale environment {environment_index}" if environment_index is not None else " scale environment"
+        expanded.append(
+            StrategyVariant(
+                id=variant_id,
+                parameters=copy.deepcopy(base.parameters),
+                family=base.family,
+                rollout_status=base.rollout_status,
+                source=base.source,
+                title=(base.title + suffix) if base.title else None,
+            )
+        )
+    return expanded
 
 
 def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> StrategyVariant:
@@ -506,6 +564,12 @@ def simulation_config_from_card(card: JsonObject) -> SimulationConfig:
             or text_or_none(simulation.get("simulatorOutDir"))
             or simulator_harness.DEFAULT_RUN_OUT_DIR
         ),
+        scale_environments=positive_int_value(
+            simulation.get("scale_environments", simulation.get("scaleEnvironments"))
+        ),
+        min_concurrent_environments=positive_int_value(
+            simulation.get("min_concurrent_environments", simulation.get("minConcurrentEnvironments"))
+        ),
     )
 
 
@@ -576,6 +640,7 @@ def run_training_experiment(
     card = load_experiment_card(card_path)
     variants = load_strategy_variants(card, registry_path=registry_path)
     config = simulation_config_from_card(card)
+    variants = expand_scale_environment_strategy_variants(variants, config.scale_environments)
     reward_options = reward_options_from_card(card)
     resolved_report_id = report_id or default_report_id(card, variants, config)
     validate_report_id(resolved_report_id)
@@ -622,6 +687,7 @@ def execute_simulator_runs(
     base_run_id = normalize_simulator_run_id(raw_run_id)
     runs: list[JsonObject] = []
     effective_workers = max(1, min(config.workers, len(variant_ids)))
+    min_concurrent_environments = config.min_concurrent_environments or config.scale_environments or 0
     for repetition in range(config.repetitions):
         run_id = base_run_id if config.repetitions == 1 else f"{base_run_id}-r{repetition + 1:02d}"
         host_port_start = simulator_repetition_host_port_start(
@@ -642,6 +708,7 @@ def execute_simulator_runs(
                 branch=config.branch,
                 code_path=config.code_path,
                 map_source_file=config.map_source_file,
+                min_concurrent_environments=min_concurrent_environments,
             )
         )
     return runs
@@ -704,6 +771,102 @@ def unsafe_simulator_flags(payload: JsonObject, label: str) -> list[str]:
     return unsafe
 
 
+def build_scale_validation_summary(
+    simulator_runs: Sequence[JsonObject],
+    config: SimulationConfig,
+) -> JsonObject | None:
+    target = config.min_concurrent_environments or config.scale_environments
+    if target is None:
+        return None
+    minimum_successful = math.ceil(target * simulator_harness.RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE)
+    run_summaries: list[JsonObject] = []
+    total_environments = 0
+    successful_environments = 0
+    for index, run in enumerate(simulator_runs):
+        variants = run.get("variants") if isinstance(run, dict) else None
+        rows = [item for item in variants if isinstance(item, dict)] if isinstance(variants, list) else []
+        env_success: dict[str, bool] = {}
+        for item in rows:
+            environment_id = scale_validation_environment_id(item)
+            env_success[environment_id] = env_success.get(environment_id, False) or item.get("ok") is True
+        successful = sum(1 for ok in env_success.values() if ok)
+        total = len(env_success)
+        total_environments += total
+        successful_environments += successful
+        run_summaries.append({
+            "runId": run.get("runId") if isinstance(run, dict) else f"run[{index}]",
+            "totalEnvironments": total,
+            "successfulEnvironments": successful,
+            "ok": total >= target and successful >= minimum_successful,
+        })
+    return {
+        "ok": bool(run_summaries) and all(item["ok"] for item in run_summaries),
+        "targetEnvironments": target,
+        "minimumSuccessRate": simulator_harness.RUN_SCALE_VALIDATION_TARGET_SUCCESS_RATE,
+        "minimumSuccessfulEnvironments": minimum_successful,
+        "totalEnvironments": total_environments,
+        "successfulEnvironments": successful_environments,
+        "failedEnvironments": total_environments - successful_environments,
+        "repetitions": len(run_summaries),
+        "perRun": run_summaries,
+    }
+
+
+def scale_validation_environment_id(variant: JsonObject) -> str:
+    """Return a stable per-run environment id for scale-proof row counting."""
+    for key in ("environmentId", "envId", "environment", "slot"):
+        if key in variant and usable_environment_id_value(variant[key]):
+            return f"{key}:{stable_identity_text(variant[key])}"
+
+    for container in scale_validation_environment_containers(variant):
+        for key in (
+            "environmentId",
+            "envId",
+            "environment",
+            "slot",
+            "environmentIndex",
+            "environment_index",
+            "index",
+        ):
+            if key in container and usable_environment_id_value(container[key]):
+                return f"{key}:{stable_identity_text(container[key])}"
+
+    for key in ("variant_id", "variantId", "id"):
+        value = variant.get(key)
+        if isinstance(value, str) and value:
+            return f"{key}:{value}"
+
+    return "row:" + stable_identity_text(variant)
+
+
+def usable_environment_id_value(value: Any) -> bool:
+    return value is not None and not (isinstance(value, str) and not value)
+
+
+def scale_validation_environment_containers(variant: JsonObject) -> list[JsonObject]:
+    containers: list[JsonObject] = []
+    for key in ("scaleEnvironment", "scale_environment"):
+        value = variant.get(key)
+        if isinstance(value, dict):
+            containers.append(value)
+    for key in ("strategyVariant", "strategy_variant"):
+        value = variant.get(key)
+        if not isinstance(value, dict):
+            continue
+        for nested_key in ("scaleEnvironment", "scale_environment"):
+            nested = value.get(nested_key)
+            if isinstance(nested, dict):
+                containers.append(nested)
+    return containers
+
+
+def stable_identity_text(value: Any) -> str:
+    try:
+        return canonical_hash(value)
+    except (TypeError, ValueError):
+        return hashlib.sha256(repr(value).encode("utf-8")).hexdigest()
+
+
 def build_training_report(
     *,
     card: JsonObject,
@@ -732,8 +895,9 @@ def build_training_report(
     changed_top_count = 1 if changed_top else 0
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
+    scale_validation = build_scale_validation_summary(simulator_runs, config)
 
-    return {
+    report = {
         "type": REPORT_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "reportId": report_id,
@@ -798,6 +962,9 @@ def build_training_report(
         "kpiSummary": build_kpi_summary(scored_results),
         "warnings": warnings,
     }
+    if scale_validation is not None:
+        report["scaleValidation"] = scale_validation
+    return report
 
 
 def collect_variant_runs(
@@ -1715,7 +1882,7 @@ def write_json_atomic(path: Path, payload: Any) -> None:
 
 
 def build_generation_summary(report: JsonObject) -> JsonObject:
-    return {
+    summary = {
         "ok": True,
         "type": SUMMARY_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -1730,6 +1897,9 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "changedTopCount": report["changedTopCount"],
         "warnings": report["warnings"],
     }
+    if "scaleValidation" in report:
+        summary["scaleValidation"] = report["scaleValidation"]
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:

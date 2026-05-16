@@ -246,7 +246,7 @@ interface GameCreepsCache {
 
 interface RoutineBarrierMaintenanceRepairTargetCacheEntry {
   room: Room;
-  target: StructureRampart | StructureWall | null;
+  targets: Array<StructureRampart | StructureWall>;
 }
 
 interface RoutineBarrierMaintenanceRepairTargetCache {
@@ -6334,18 +6334,18 @@ function selectThreatenedBarrierRepairTarget(creep: Creep): StructureRampart | S
 }
 
 function selectRoutineBarrierMaintenanceRepairTarget(creep: Creep): StructureRampart | StructureWall | null {
-  return getRoutineBarrierMaintenanceRepairTarget(creep.room);
+  return selectAvailableRoutineRepairTarget(creep, getRoutineBarrierMaintenanceRepairTargets(creep.room));
 }
 
 function selectRoutineRampartMaintenanceRepairTarget(creep: Creep): StructureRampart | null {
-  return computeRoutineRampartMaintenanceRepairTarget(creep.room);
+  return selectAvailableRoutineRepairTarget(creep, computeRoutineRampartMaintenanceRepairTargets(creep.room));
 }
 
-function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+function getRoutineBarrierMaintenanceRepairTargets(room: Room): Array<StructureRampart | StructureWall> {
   const gameTick = getGameTick();
   const roomName = getRoomName(room);
   if (gameTick === null || roomName === null) {
-    return computeRoutineBarrierMaintenanceRepairTarget(room);
+    return computeRoutineBarrierMaintenanceRepairTargets(room);
   }
 
   const game = getGameReference();
@@ -6363,38 +6363,45 @@ function getRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart 
 
   const cachedEntry = routineBarrierMaintenanceRepairTargetCache.roomsByName.get(roomName);
   if (cachedEntry?.room === room) {
-    return cachedEntry.target;
+    return cachedEntry.targets;
   }
 
-  const target = computeRoutineBarrierMaintenanceRepairTarget(room);
-  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, target });
-  return target;
+  const targets = computeRoutineBarrierMaintenanceRepairTargets(room);
+  routineBarrierMaintenanceRepairTargetCache.roomsByName.set(roomName, { room, targets });
+  return targets;
 }
 
-function computeRoutineBarrierMaintenanceRepairTarget(room: Room): StructureRampart | StructureWall | null {
+function computeRoutineBarrierMaintenanceRepairTargets(room: Room): Array<StructureRampart | StructureWall> {
   if (!canSelectRoutineBarrierMaintenanceRepairTarget(room)) {
-    return null;
+    return [];
   }
 
   const repairTargets = findVisibleRoomStructures(room).filter(isRoutineBarrierMaintenanceRepairTarget);
   if (repairTargets.length === 0) {
-    return null;
+    return [];
   }
 
-  return repairTargets.sort(compareRepairTargets)[0];
+  return repairTargets.sort(compareRepairTargets);
 }
 
-function computeRoutineRampartMaintenanceRepairTarget(room: Room): StructureRampart | null {
+function computeRoutineRampartMaintenanceRepairTargets(room: Room): StructureRampart[] {
   if (!canSelectRoutineBarrierMaintenanceRepairTarget(room)) {
-    return null;
+    return [];
   }
 
   const repairTargets = findVisibleRoomStructures(room).filter(isRoutineRampartMaintenanceRepairTarget);
   if (repairTargets.length === 0) {
-    return null;
+    return [];
   }
 
-  return repairTargets.sort(compareRepairTargets)[0];
+  return repairTargets.sort(compareRepairTargets);
+}
+
+function selectAvailableRoutineRepairTarget<T extends RepairableWorkerStructure>(
+  creep: Creep,
+  repairTargets: T[]
+): T | null {
+  return repairTargets.find((structure) => hasRoutineRepairAssignmentCapacity(creep, structure)) ?? null;
 }
 
 function canSelectRoutineBarrierMaintenanceRepairTarget(room: Room): boolean {
@@ -6535,7 +6542,7 @@ function isRoutineRepairTargetForWorker(
   }
 
   if (isWorkerBarrierRepairStructure(structure)) {
-    return true;
+    return isUrgentBarrierRepairTarget(structure) || hasRoutineRepairAssignmentCapacity(creep, structure);
   }
 
   return (
@@ -6565,8 +6572,16 @@ function isRoutineRepairTargetWithinOpportunisticRange(
 
 function hasRoutineRepairAssignmentCapacity(creep: Creep, structure: RepairableWorkerStructure): boolean {
   return (
+    isUrgentBarrierRepairTarget(structure) ||
     isWorkerAssignedToRepairTarget(creep, structure) ||
     !hasOtherWorkerAssignedToRepairTarget(creep, structure)
+  );
+}
+
+function isUrgentBarrierRepairTarget(structure: RepairableWorkerStructure): boolean {
+  return (
+    isWorkerBarrierRepairStructure(structure) &&
+    structure.hits < Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING)
   );
 }
 
