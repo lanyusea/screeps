@@ -341,7 +341,9 @@ def expand_scale_environment_variants(variant_ids: Sequence[str], environment_co
     The run harness historically mapped concurrency to strategy variant rows. A
     scale proof may need five private-server environments while only comparing
     the two default construction-priority variants, so this expansion creates
-    unique environment row ids backed by the selected base variants.
+    unique environment row ids backed by the selected base variants. The
+    requested count is a replica budget, not permission to drop selected
+    strategy variants.
     """
     variants = [variant_id for variant_id in variant_ids if isinstance(variant_id, str) and variant_id]
     if environment_count is None:
@@ -350,12 +352,13 @@ def expand_scale_environment_variants(variant_ids: Sequence[str], environment_co
         raise ValueError("environment_count must be a positive integer")
     if not variants:
         raise ValueError("at least one strategy variant is required")
-    if environment_count == len(variants):
+    row_count = max(environment_count, len(variants))
+    if row_count == len(variants):
         return list(variants)
-    width = max(2, len(str(environment_count)))
+    width = max(2, len(str(row_count)))
     return [
         f"{variants[index % len(variants)]}.scale-env-{index + 1:0{width}d}"
-        for index in range(environment_count)
+        for index in range(row_count)
     ]
 
 

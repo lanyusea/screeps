@@ -1007,6 +1007,37 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["scaleValidation"]["successfulEnvironments"], 5)
         self.assertEqual(report["simulation"]["scaleEnvironments"], 5)
 
+    def test_scale_environment_card_preserves_variants_when_scale_count_is_smaller(self) -> None:
+        variant_ids = ["baseline", "candidate", "expansion", "defense", "economy", "remote"]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200 + index)])])
+            for index, variant_id in enumerate(variant_ids)
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card(variant_ids)
+            card["simulation"]["workers"] = 5
+            card["simulation"]["scale_environments"] = 5
+            card["simulation"]["min_concurrent_environments"] = 5
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="scale-env-preserves-all-variants",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["variants"], variant_ids)
+        self.assertEqual(simulator.calls[0]["workers"], 5)
+        self.assertEqual([result["variantId"] for result in report["variantResults"]], variant_ids)
+        self.assertEqual({item["variantId"] for item in report["ranking"]}, set(variant_ids))
+        self.assertTrue(report["scaleValidation"]["ok"])
+        self.assertEqual(report["scaleValidation"]["targetEnvironments"], 5)
+        self.assertEqual(report["scaleValidation"]["totalEnvironments"], len(variant_ids))
+
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
