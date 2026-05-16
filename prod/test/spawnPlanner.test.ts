@@ -141,7 +141,7 @@ describe('planSpawn', () => {
       }
 
       if (type === FIND_STRUCTURES) {
-        return structures;
+        return [...structures, ...ownedStructures];
       }
 
       const hostileCreepsFind = (globalThis as Record<string, unknown>).FIND_HOSTILE_CREEPS;
@@ -4903,19 +4903,27 @@ describe('planSpawn', () => {
         ticksToDowngrade: 10_000,
         pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
       } as StructureController,
-      structures: [
+      ownedStructures: [
         {
           id: 'spawn1',
           structureType: 'spawn',
           my: true,
           pos: { x: 17, y: 24, roomName: 'E29N55' }
-        } as AnyStructure,
+        } as AnyOwnedStructure,
         {
           id: 'spawn-rampart',
           structureType: 'rampart',
           my: true,
           pos: { x: 17, y: 24, roomName: 'E29N55' }
-        } as AnyStructure,
+        } as AnyOwnedStructure,
+        {
+          id: 'tower1',
+          structureType: 'tower',
+          my: true,
+          pos: { x: 20, y: 20, roomName: 'E29N55' }
+        } as AnyOwnedStructure
+      ],
+      structures: [
         {
           id: 'spawn-wall-a',
           structureType: 'constructedWall',
@@ -4935,12 +4943,6 @@ describe('planSpawn', () => {
           id: 'spawn-wall-d',
           structureType: 'constructedWall',
           pos: { x: 18, y: 25, roomName: 'E29N55' }
-        } as AnyStructure,
-        {
-          id: 'tower1',
-          structureType: 'tower',
-          my: true,
-          pos: { x: 20, y: 20, roomName: 'E29N55' }
         } as AnyStructure
       ]
     });
@@ -4991,19 +4993,21 @@ describe('planSpawn', () => {
         ticksToDowngrade: 10_000,
         pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
       } as StructureController,
-      structures: [
+      ownedStructures: [
         {
           id: 'spawn1',
           structureType: 'spawn',
           my: true,
           pos: { x: 17, y: 24, roomName: 'E29N55' }
-        } as AnyStructure,
+        } as AnyOwnedStructure,
         {
           id: 'spawn-rampart',
           structureType: 'rampart',
           my: true,
           pos: { x: 17, y: 24, roomName: 'E29N55' }
-        } as AnyStructure,
+        } as AnyOwnedStructure
+      ],
+      structures: [
         {
           id: 'spawn-wall',
           structureType: 'constructedWall',

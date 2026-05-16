@@ -318,7 +318,11 @@ function makeColony(
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn((findType: number) => {
-      if (findType === FIND_MY_STRUCTURES || findType === FIND_STRUCTURES) {
+      if (findType === FIND_MY_STRUCTURES) {
+        return structures.filter((structure) => (structure as AnyStructure & { my?: boolean }).my === true);
+      }
+
+      if (findType === FIND_STRUCTURES) {
         return structures;
       }
 
@@ -403,7 +407,8 @@ function makeE29N55ReadyStructures(): AnyStructure[] {
     makeStructure('spawn-wall-b', 'constructedWall', 18, 23),
     makeStructure('spawn-wall-c', 'constructedWall', 16, 25),
     makeStructure('spawn-wall-d', 'constructedWall', 18, 25),
-    makeStructure('tower1', 'tower', 20, 20, true)
+    makeStructure('tower1', 'tower', 20, 20, true),
+    makeStructure('invader-tower', 'tower', 21, 20, false)
   ];
 }
 
