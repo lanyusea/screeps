@@ -34318,10 +34318,11 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   }
   const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   const taskCounts = countWorkerTasks(colonyWorkers);
+  const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
   const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
     tick,
     colonyWorkers.length,
-    taskCounts,
+    assignedTaskCount,
     resources.productiveEnergy.assignedWorkerCount
   );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
@@ -34356,18 +34357,18 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
-function summarizeWorkerAssignmentEvidence(tick, workerCount, taskCounts, productiveAssignmentCount) {
+function summarizeWorkerAssignmentEvidence(tick, workerCount, assignedTaskCount, productiveAssignmentCount) {
   return {
     source: "runtime-summary",
     available: true,
     tick,
     workerCount,
-    assignedTaskCount: sumAssignedWorkerTaskCounts(taskCounts),
+    assignedTaskCount,
     productiveAssignmentCount
   };
 }
-function sumAssignedWorkerTaskCounts(taskCounts) {
-  return WORKER_TASK_TYPES.reduce((total, taskType) => total + taskCounts[taskType], 0);
+function countAssignedWorkerTasks(workers) {
+  return workers.reduce((assignedCount, worker) => assignedCount + (getWorkerTaskType(worker) ? 1 : 0), 0);
 }
 function summarizeWorkerAssignmentBlockedRoomFields(productiveEnergy) {
   return {
