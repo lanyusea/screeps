@@ -1297,7 +1297,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
             self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
 
-    def test_room_only_console_summary_clears_stale_worker_assignment_gap(self) -> None:
+    def test_older_room_only_console_summary_does_not_override_newer_monitor_gap(self) -> None:
         console_payload = {
             "type": "runtime-summary",
             "tick": 995540,
@@ -1337,6 +1337,67 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             runtime_dir = Path(temp_dir)
             (runtime_dir / "runtime-summary-console-20260515T234005Z.log").write_text(
+                "#runtime-summary " + json.dumps(console_payload) + "\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "runtime-summary-monitor-20260515T234012Z.log").write_text(
+                "#runtime-summary " + json.dumps(monitor_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertEqual(runtime_room["taskCounts"]["harvest"], 0)
+        self.assertEqual(runtime_room["constructionDeadlockTicks"], 1)
+        self.assertEqual(runtime_room["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+
+    def test_fresh_room_only_console_summary_clears_stale_worker_assignment_gap(self) -> None:
+        console_payload = {
+            "type": "runtime-summary",
+            "tick": 995548,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "energyBufferHealth": {"currentEnergy": 300, "threshold": 227, "healthy": True},
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
+                    "constructionSiteCount": 11,
+                    "constructionDeadlockTicks": 0,
+                    "resources": {
+                        "productiveEnergy": {
+                            "constructionSiteCount": 11,
+                            "constructionDeadlockTicks": 0,
+                        }
+                    },
+                }
+            ],
+        }
+        monitor_payload = {
+            "type": "runtime-summary",
+            "tick": 995544,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "constructionSiteCount": 11,
+                    "constructionDeadlockTicks": 1,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260515T234020Z.log").write_text(
                 "#runtime-summary " + json.dumps(console_payload) + "\n",
                 encoding="utf-8",
             )
@@ -1535,6 +1596,42 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     monitor.RoomRef(shard="shardX", room="E29N55"),
                     monitor.RoomRef(shard="shardSeason", room="E29N55"),
                 ],
+            )
+
+        self.assertEqual(runtime_rooms, {})
+        self.assertEqual(warnings, [])
+
+    def test_room_only_console_summary_does_not_match_payload_cross_shard_collision(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 995550,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 9, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                },
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardSeason",
+                    "workerCount": 2,
+                    "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                },
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260516T000000Z.log").write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
             )
 
         self.assertEqual(runtime_rooms, {})

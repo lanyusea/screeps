@@ -3127,7 +3127,12 @@ def ambiguous_runtime_room_names(refs: list[RoomRef]) -> set[str]:
     return {room for room, shards in shards_by_room.items() if len(shards) > 1}
 
 
-def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef, ambiguous_room_names: set[str]) -> bool:
+def runtime_summary_room_matches(
+    room: dict[str, Any],
+    ref: RoomRef,
+    ambiguous_room_names: set[str],
+    payload_explicit_shards_by_room: dict[str, set[str]] | None = None,
+) -> bool:
     room_ref = room.get("room")
     if isinstance(room_ref, str) and room_ref == ref.key:
         return True
@@ -3137,7 +3142,20 @@ def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef, ambiguous_r
         return False
     if shard is not None:
         return shard == ref.shard
-    return room_name not in ambiguous_room_names
+    if room_name in ambiguous_room_names:
+        return False
+    explicit_shards = (payload_explicit_shards_by_room or {}).get(room_name, set())
+    return not explicit_shards or explicit_shards == {ref.shard}
+
+
+def runtime_summary_explicit_shards_by_room(rooms: list[dict[str, Any]]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for room in rooms:
+        room_name = runtime_summary_room_name(room)
+        shard = runtime_summary_room_shard(room)
+        if room_name is not None and shard is not None:
+            result.setdefault(room_name, set()).add(shard)
+    return result
 
 
 def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
@@ -3174,11 +3192,50 @@ def payload_runtime_rooms(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [room for room in rooms if isinstance(room, dict)]
 
 
+def runtime_summary_artifact_timestamp(path: Path) -> float | None:
+    match = re.search(r"(\d{8}T\d{6}Z)", path.name)
+    if match is not None:
+        try:
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def runtime_summary_log_sort_key(path: Path) -> tuple[bool, float, str]:
+    timestamp = runtime_summary_artifact_timestamp(path)
+    return (timestamp is not None, timestamp if timestamp is not None else -1.0, str(path))
+
+
 def runtime_summary_log_paths(runtime_summary_dir: Path) -> list[Path]:
-    all_paths = list(runtime_summary_dir.glob("*.log"))
-    console_paths = [path for path in all_paths if path.name.startswith("runtime-summary-console-")]
-    paths = console_paths if console_paths else all_paths
-    return sorted(paths, key=lambda path: (path.stat().st_mtime, str(path)), reverse=True)
+    return sorted(runtime_summary_dir.glob("*.log"), key=runtime_summary_log_sort_key, reverse=True)
+
+
+def runtime_summary_payload_tick(payload: dict[str, Any]) -> int | None:
+    return tick_number(payload.get("tick"))
+
+
+def runtime_summary_candidate_key(
+    payload: dict[str, Any],
+    path: Path,
+    line_index: int,
+    room: dict[str, Any],
+) -> tuple[bool, int, bool, float, int, int, str]:
+    tick = runtime_summary_payload_tick(payload)
+    timestamp = runtime_summary_artifact_timestamp(path)
+    explicit_shard_rank = 1 if runtime_summary_room_shard(room) is not None else 0
+    return (
+        tick is not None,
+        tick if tick is not None else -1,
+        timestamp is not None,
+        timestamp if timestamp is not None else -1.0,
+        line_index,
+        explicit_shard_rank,
+        str(path),
+    )
 
 
 def load_latest_runtime_room_summaries(
@@ -3198,6 +3255,7 @@ def load_latest_runtime_room_summaries(
 
     ambiguous_room_names = ambiguous_runtime_room_names([*refs, *(disambiguation_refs or [])])
     result: dict[str, dict[str, Any]] = {}
+    result_keys: dict[str, tuple[bool, int, bool, float, int, int, str]] = {}
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -3205,19 +3263,29 @@ def load_latest_runtime_room_summaries(
             warnings.append(f"runtime-summary artifact unreadable {path.name}: {short_text(exc, 140)}")
             continue
 
-        for line in reversed(lines):
+        for line_index, line in reversed(list(enumerate(lines))):
             payload = parse_runtime_summary_line(line)
             if payload is None:
                 continue
-            for room in payload_runtime_rooms(payload):
+            rooms = payload_runtime_rooms(payload)
+            payload_explicit_shards_by_room = runtime_summary_explicit_shards_by_room(rooms)
+            for room in rooms:
                 if not runtime_summary_room_has_worker_idle_fields(room):
                     continue
                 for ref in refs:
-                    if ref.key in result or not runtime_summary_room_matches(room, ref, ambiguous_room_names):
+                    if not runtime_summary_room_matches(
+                        room,
+                        ref,
+                        ambiguous_room_names,
+                        payload_explicit_shards_by_room,
+                    ):
+                        continue
+                    candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
+                    if candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
                         continue
                     result[ref.key] = room
+                    result_keys[ref.key] = candidate_key
                     break
-            return result
 
     return result
 
