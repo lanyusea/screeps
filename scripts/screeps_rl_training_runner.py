@@ -802,6 +802,7 @@ def collect_variant_runs(
     simulator_runs: Sequence[JsonObject],
     expected_variant_ids: Sequence[str],
 ) -> dict[str, list[JsonObject]]:
+    expected_variant_id_set = set(expected_variant_ids)
     collected: dict[str, list[JsonObject]] = {variant_id: [] for variant_id in expected_variant_ids}
     for run_index, run in enumerate(simulator_runs):
         emitted: dict[str, JsonObject] = {}
@@ -812,13 +813,30 @@ def collect_variant_runs(
                     if not isinstance(raw_variant, dict):
                         continue
                     variant_id = raw_variant.get("variant_id", raw_variant.get("variantId"))
-                    if isinstance(variant_id, str) and variant_id not in emitted:
-                        emitted[variant_id] = raw_variant
+                    if not isinstance(variant_id, str):
+                        continue
+                    run_label = simulator_run_label(run, run_index)
+                    if variant_id not in expected_variant_id_set:
+                        raise RuntimeError(
+                            f"simulator run {run_label} emitted unexpected variant id {variant_id!r}"
+                        )
+                    if variant_id in emitted:
+                        raise RuntimeError(
+                            f"simulator run {run_label} emitted duplicate variant id {variant_id!r}"
+                        )
+                    emitted[variant_id] = raw_variant
         for variant_id in expected_variant_ids:
             collected[variant_id].append(
                 emitted.get(variant_id) or missing_variant_attempt(run, variant_id, run_index)
             )
     return collected
+
+
+def simulator_run_label(run: JsonObject, run_index: int) -> str:
+    run_id = run.get("runId")
+    if isinstance(run_id, str) and run_id:
+        return f"{run_id} (run_index={run_index})"
+    return f"run[{run_index}]"
 
 
 def missing_variant_attempt(run: Any, variant_id: str, run_index: int) -> JsonObject:
@@ -1595,7 +1613,8 @@ def build_report_warnings(results: Sequence[JsonObject], simulator_runs: Sequenc
         excluded_run_count = int(result.get("excludedRunCount", 0))
         if excluded_run_count > 0:
             warnings.append(
-                f"variant {result['variantId']} excluded {excluded_run_count} failed simulator run(s) from reward scoring"
+                f"variant {result['variantId']} excluded {excluded_run_count} failed simulator run(s) "
+                "from sampleCount and non-reliability reward tiers; reliability scored them as 0"
             )
         elif result["sampleCount"] == 0:
             warnings.append(f"variant {result['variantId']} produced no simulator result")

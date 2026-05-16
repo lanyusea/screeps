@@ -618,7 +618,14 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(candidate_result["reward"]["samples"], [[0, None, None, None]])
         self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline"])
         self.assertNotIn("candidate", report["statisticalComparison"]["componentMeans"])
-        self.assertTrue(any("excluded 1 failed simulator run" in warning for warning in report["warnings"]))
+        self.assertTrue(
+            any(
+                "excluded 1 failed simulator run(s) from sampleCount and non-reliability reward tiers; "
+                "reliability scored them as 0" in warning
+                for warning in report["warnings"]
+            )
+        )
+        self.assertFalse(any("from reward scoring" in warning for warning in report["warnings"]))
 
     def test_reward_samples_include_failed_repetition_reliability(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
@@ -716,6 +723,53 @@ export const STRATEGY_REGISTRY = [
         self.assertGreater(ranking_by_variant["candidate"]["rank"], ranking_by_variant["baseline"]["rank"])
         self.assertNotEqual(ranking_by_variant["candidate"]["rewardTuple"][0], 1)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["winner"], "baseline")
+
+    def test_duplicate_or_unexpected_variant_rows_fail_before_report_is_persisted(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        duplicate_baseline = dict(baseline)
+        duplicate_baseline["variant_run_id"] = "run-baseline-duplicate"
+        unexpected = variant_result("intruder", [start, tick(2, [room("W1N1", energy=300)])])
+
+        cases = (
+            (
+                "duplicate-variant-row",
+                [baseline, duplicate_baseline, candidate],
+                r"duplicate-variant-row .*run_index=0.*duplicate variant id 'baseline'",
+            ),
+            (
+                "unexpected-variant-row",
+                [baseline, candidate, unexpected],
+                r"unexpected-variant-row .*run_index=0.*unexpected variant id 'intruder'",
+            ),
+        )
+        for report_id, variants, message_regex in cases:
+            with self.subTest(report_id=report_id), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+
+                class MalformedVariantSimulator:
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        return {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": kwargs["run_id"],
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": variants,
+                        }
+
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, message_regex):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=MalformedVariantSimulator(),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
 
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])
