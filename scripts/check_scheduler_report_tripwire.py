@@ -14,7 +14,7 @@ from typing import Sequence, TextIO
 PRIORITY_RE = re.compile(r"\bP([01])\b|\bpriority:p([01])\b", re.IGNORECASE)
 ANY_PRIORITY_RE = re.compile(r"\bP([0-3])\b|\bpriority:p([0-3])\b", re.IGNORECASE)
 ISSUE_REF_RE = re.compile(
-    r"(?<![\w/])#\d+\b|https://github\.com/[^\s)]+/[^\s)]+/issues/\d+\b",
+    r"(?<![\w/])#\d+\b|https://github\.com/[^\s)]+/[^\s)]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
 )
 HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
@@ -192,14 +192,14 @@ def find_untracked_action_items(path: str, text: str) -> list[Finding]:
 def read_report(path: str, stdin: TextIO) -> str:
     if path == "-":
         return stdin.read()
-    return Path(path).read_text(encoding="utf-8")
+    return Path(path).read_text(encoding="utf-8", errors="replace")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Scan scheduler/report text for P0/P1 action-item prose that is not tied "
-            "to a GitHub issue reference."
+            "to a GitHub issue or pull request reference."
         )
     )
     parser.add_argument(
@@ -236,12 +236,12 @@ def main(
         for finding in findings:
             print(
                 f"ERROR: {finding.path}:{finding.line}: {finding.priority} '{finding.phrase}' "
-                f"needs a same-item GitHub issue reference: {finding.text}",
+                f"needs a same-item GitHub issue or pull request reference: {finding.text}",
                 file=stderr,
             )
         print(
             "Create/update the GitHub issue and Project item first, then link the item with "
-            "#<issue> or a GitHub issue URL before reporting completion.",
+            "#<issue>, a GitHub issue URL, or a GitHub pull request URL before reporting completion.",
             file=stderr,
         )
         return 1

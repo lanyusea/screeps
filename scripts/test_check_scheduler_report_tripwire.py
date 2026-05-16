@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,6 +29,15 @@ class SchedulerReportTripwireTest(unittest.TestCase):
         report = """## P1 next actions
 - #1108 Repair the PM scheduler prose-only completion gap before the next run.
 - https://github.com/lanyusea/screeps/issues/1028 Refresh the no-prose-only gate evidence.
+"""
+
+        findings = tripwire.find_untracked_action_items("report.md", report)
+
+        self.assertEqual(findings, [])
+
+    def test_accepts_pull_request_link_on_same_action_item(self) -> None:
+        report = """## P1 next actions
+- https://github.com/lanyusea/screeps/pull/1118 Repair the PM scheduler prose-only completion gap before the next run.
 """
 
         findings = tripwire.find_untracked_action_items("report.md", report)
@@ -81,6 +91,22 @@ class SchedulerReportTripwireTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("FAIL: scheduler report contains untracked P0/P1", stderr.getvalue())
         self.assertIn("-:1", stderr.getvalue())
+
+    def test_cli_replaces_invalid_utf8_file_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report_path = Path(tmpdir) / "report.md"
+            report_path.write_bytes(
+                b"## P1 next actions\n"
+                b"- #1108 Repair invalid byte \xff in the scheduler report.\n"
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = tripwire.main([str(report_path)], stdout=stdout, stderr=stderr)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("PASS: scheduler report tripwire", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
