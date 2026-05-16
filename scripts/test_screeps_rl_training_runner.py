@@ -916,6 +916,128 @@ export const STRATEGY_REGISTRY = [
             for right_ports in reserved_ports_by_repetition[left_index + 1 :]:
                 self.assertTrue(left_ports.isdisjoint(right_ports))
 
+    def test_scale_environment_expansion_deep_copies_nested_variant_parameters(self) -> None:
+        base = runner.StrategyVariant(
+            id="baseline",
+            parameters={"nested": {"threshold": 1}, "weights": [1, 2]},
+            title="Baseline",
+        )
+
+        expanded = runner.expand_scale_environment_strategy_variants([base], 2)
+        expanded[0].parameters["nested"]["threshold"] = 99
+        expanded[0].parameters["weights"].append(3)
+
+        self.assertEqual([variant.id for variant in expanded], ["baseline.scale-env-01", "baseline.scale-env-02"])
+        self.assertEqual(base.parameters, {"nested": {"threshold": 1}, "weights": [1, 2]})
+        self.assertEqual(expanded[1].parameters, {"nested": {"threshold": 1}, "weights": [1, 2]})
+
+    def test_scale_validation_deduplicates_environment_slots_per_run(self) -> None:
+        card = base_card(["baseline"])
+        card["simulation"]["scale_environments"] = 3
+        config = runner.simulation_config_from_card(card)
+
+        summary = runner.build_scale_validation_summary(
+            [
+                {
+                    "runId": "explicit-env-run",
+                    "variants": [
+                        {"variant_id": "a", "environmentId": "env-a", "ok": False},
+                        {"variant_id": "b", "environmentId": "env-a", "ok": True},
+                        {"variant_id": "c", "environmentId": "env-b", "ok": True},
+                        {"variant_id": "d", "environmentId": "env-c", "ok": True},
+                        {"variant_id": "e", "environmentId": "env-c", "ok": False},
+                    ],
+                },
+                {
+                    "runId": "variant-id-fallback-run",
+                    "variants": [
+                        {"variant_id": "baseline.scale-env-01", "ok": False},
+                        {"variant_id": "baseline.scale-env-01", "ok": True},
+                        {"variant_id": "baseline.scale-env-02", "ok": False},
+                        {"variant_id": "baseline.scale-env-03", "ok": True},
+                        {"variant_id": "baseline.scale-env-03", "ok": False},
+                    ],
+                },
+            ],
+            config,
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["totalEnvironments"], 6)
+        self.assertEqual(summary["successfulEnvironments"], 5)
+        self.assertEqual(summary["failedEnvironments"], 1)
+        self.assertEqual(summary["minimumSuccessfulEnvironments"], 3)
+        self.assertEqual(summary["perRun"][0]["totalEnvironments"], 3)
+        self.assertEqual(summary["perRun"][0]["successfulEnvironments"], 3)
+        self.assertTrue(summary["perRun"][0]["ok"])
+        self.assertEqual(summary["perRun"][1]["totalEnvironments"], 3)
+        self.assertEqual(summary["perRun"][1]["successfulEnvironments"], 2)
+        self.assertFalse(summary["perRun"][1]["ok"])
+
+    def test_scale_environment_card_expands_variants_and_records_success_threshold(self) -> None:
+        expanded_ids = runner.simulator_harness.expand_scale_environment_variants(["baseline", "candidate"], 5)
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in expanded_ids
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["workers"] = 5
+            card["simulation"]["scale_environments"] = 5
+            card["simulation"]["min_concurrent_environments"] = 5
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="scale-env-proof",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["variants"], expanded_ids)
+        self.assertEqual(simulator.calls[0]["workers"], 5)
+        self.assertEqual(simulator.calls[0]["min_concurrent_environments"], 5)
+        self.assertTrue(report["scaleValidation"]["ok"])
+        self.assertEqual(report["scaleValidation"]["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(report["scaleValidation"]["successfulEnvironments"], 5)
+        self.assertEqual(report["simulation"]["scaleEnvironments"], 5)
+
+    def test_scale_environment_card_preserves_variants_when_scale_count_is_smaller(self) -> None:
+        variant_ids = ["baseline", "candidate", "expansion", "defense", "economy", "remote"]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200 + index)])])
+            for index, variant_id in enumerate(variant_ids)
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card(variant_ids)
+            card["simulation"]["workers"] = 5
+            card["simulation"]["scale_environments"] = 5
+            card["simulation"]["min_concurrent_environments"] = 5
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="scale-env-preserves-all-variants",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["variants"], variant_ids)
+        self.assertEqual(simulator.calls[0]["workers"], 5)
+        self.assertEqual([result["variantId"] for result in report["variantResults"]], variant_ids)
+        self.assertEqual({item["variantId"] for item in report["ranking"]}, set(variant_ids))
+        self.assertTrue(report["scaleValidation"]["ok"])
+        self.assertEqual(report["scaleValidation"]["targetEnvironments"], 5)
+        self.assertEqual(report["scaleValidation"]["totalEnvironments"], len(variant_ids))
+
     def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
