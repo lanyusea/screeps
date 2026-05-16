@@ -14081,6 +14081,119 @@ describe('selectWorkerTask', () => {
     expect(totalStructureFinds - firstWorkerStructureFinds).toBeLessThan(firstWorkerStructureFinds);
   });
 
+  it('distributes post-construction routine barrier repairs to uncovered targets', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const firstWall = makeStructure(
+      'wall-a',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1_000,
+      300_000_000
+    );
+    const secondWall = makeStructure(
+      'wall-b',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 900,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [firstWall, secondWall]
+    });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'wall-a' as Id<Structure> });
+    const creep = {
+      name: 'SecondWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, SecondWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'wall-b' });
+  });
+
+  it('keeps a covered post-construction routine barrier from consuming another worker', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const wall = makeStructure(
+      'wall-covered',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1_000,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [wall]
+    });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'wall-covered' as Id<Structure> });
+    const creep = {
+      name: 'SecondWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, SecondWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('preserves threatened barrier repair even when another worker is assigned', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const wall = makeStructure(
+      'wall-threatened',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      name: 'W1N1',
+      structures: [wall]
+    });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'wall-threatened' as Id<Structure> });
+    const creep = {
+      name: 'SecondWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        colonyThreats: {
+          updatedAt: 250,
+          rooms: {
+            W1N1: {
+              roomName: 'W1N1',
+              level: 'hostile_present',
+              updatedAt: 250,
+              hostileCreepCount: 1,
+              hostileStructureCount: 0,
+              damagedCriticalStructureCount: 0
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Repairer: repairer, SecondWorker: creep },
+      time: 250
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'wall-threatened' });
+  });
+
   it('keeps managed controller upgrade when barrier maintenance would spend below the construction floor', () => {
     const controller = {
       id: 'controller1',
