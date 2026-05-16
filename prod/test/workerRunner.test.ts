@@ -2142,7 +2142,7 @@ describe('runWorker', () => {
         pos: { getRangeTo: jest.fn().mockReturnValue(5) },
         room,
         build: jest.fn().mockReturnValue(0),
-        upgradeController: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
         moveTo: jest.fn()
       }) as unknown as Creep;
     workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
@@ -2170,6 +2170,110 @@ describe('runWorker', () => {
     expect(assignedTasks.filter((task) => task === 'upgrade')).toHaveLength(2);
     expect(workers.some((worker) => (worker.build as jest.Mock).mock.calls.length > 0)).toBe(true);
     expect(workers.some((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)).toBe(true);
+    for (const worker of workers.filter((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)) {
+      expect(worker.moveTo).toHaveBeenCalledWith(controller, { range: 3 });
+    }
+  });
+
+  it('keeps E29N55 RCL2 controller progression active after construction clears', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 3_900,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000,
+      pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(550),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const storage = {
+      id: 'storage1',
+      my: true,
+      structureType: 'storage',
+      pos: { x: 19, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(4_760),
+        getFreeCapacity: jest.fn().mockReturnValue(10_000)
+      }
+    } as unknown as StructureStorage;
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn, storage] as unknown as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (index: number): Creep =>
+      ({
+        name: `worker-E29N55-${index}`,
+        memory: { role: 'worker', colony: 'E29N55' },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(0),
+          getCapacity: jest.fn().mockReturnValue(50)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(5) },
+        room,
+        build: jest.fn(),
+        transfer: jest.fn(),
+        upgradeController: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_020_071,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'storage1' ? storage : null;
+      })
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(room.find).toHaveBeenCalledWith(FIND_CONSTRUCTION_SITES);
+    expect(assignedTasks).toEqual(['upgrade', 'upgrade', 'upgrade', 'upgrade']);
+    expect(workers.every((worker) => (worker.upgradeController as jest.Mock).mock.calls.length === 1)).toBe(true);
+    for (const worker of workers) {
+      expect(worker.moveTo).toHaveBeenCalledWith(controller, { range: 3 });
+    }
+    expect(workers.every((worker) => (worker.build as jest.Mock).mock.calls.length === 0)).toBe(true);
+    expect(workers.every((worker) => (worker.transfer as jest.Mock).mock.calls.length === 0)).toBe(true);
   });
 
   it('keeps emergency spawn-extension refill ahead of E29N55 construction backlog balancing', () => {
