@@ -3424,7 +3424,7 @@ def worker_assignment_evidence_available(
 ) -> bool:
     if explicit_blocked_detail is not None or bool(explicit_blocked_workers):
         return True
-    return any(creep_has_assignment_evidence(creep) for creep in owned_creeps)
+    return not owned_creeps or any(creep_has_assignment_evidence(creep) for creep in owned_creeps)
 
 
 def behavior_pathing_totals(source: dict[str, Any]) -> dict[str, int | float]:

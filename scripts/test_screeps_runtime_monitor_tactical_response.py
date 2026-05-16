@@ -1173,6 +1173,65 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         )
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
 
+    def test_runtime_summary_payload_classifies_zero_owned_creep_spawn_deadlock_as_assignment_gap(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn-1": {
+                        "_id": "spawn-1",
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "Spawn1",
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+        summary = monitor.room_summary(snapshot)
+
+        self.assertEqual(summary["owned_spawns"], 1)
+        self.assertEqual(summary["owned_creeps"], 0)
+        self.assertTrue(room["workerAssignmentEvidenceAvailable"])
+        self.assertTrue(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(room["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(productive_energy["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(room["constructionDeadlockTicks"], 1)
+        self.assertEqual(productive_energy["constructionDeadlockTicks"], 1)
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(next_state["consecutive_ticks"], 174)
+
     def test_runtime_summary_payload_does_not_classify_worker_gap_without_assignment_evidence(self) -> None:
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),
