@@ -674,30 +674,38 @@ tar -czf remote-artifacts.tar.gz \
                 timeout=90,
                 check=False,
             )
-            ok = cp.returncode == 0
             last_seen: dict[str, Any] = {}
-            if not ok:
+            if cp.returncode != 0:
                 raise BatchRunError(f"scale_down failed with exit {cp.returncode}: {tail_text(cp.stderr or cp.stdout)}")
-            if ok:
-                deadline = time.time() + self.args.scale_down_timeout_seconds
-                while time.time() < deadline:
-                    try:
-                        group = self.describe_asg_group_summary()
-                    except Exception as error:
-                        group = {"error": type(error).__name__ + ": " + str(error)}
-                    try:
-                        instances = self.describe_asg_instances()
-                    except Exception as error:
-                        instances = [{"error": type(error).__name__ + ": " + str(error)}]
-                    last_seen = {"group": group, "asgInstances": instances}
-                    if (
-                        not instances
-                        and group.get("InstanceCount") in (0, None)
-                        and group.get("InActivityStatus") in (None, "NOT_IN_ACTIVITY")
-                    ):
-                        break
-                    time.sleep(15)
-                self.result["scaleDownLastSeen"] = last_seen
+            deadline = time.time() + self.args.scale_down_timeout_seconds
+            while time.time() < deadline:
+                try:
+                    group = self.describe_asg_group_summary()
+                except Exception as error:
+                    group = {"error": type(error).__name__ + ": " + str(error)}
+                try:
+                    instances = self.describe_asg_instances()
+                except Exception as error:
+                    instances = [{"error": type(error).__name__ + ": " + str(error)}]
+                last_seen = {"group": group, "asgInstances": instances}
+                group_error = isinstance(group, dict) and "error" in group
+                instance_errors = [item for item in instances if isinstance(item, dict) and "error" in item]
+                if (
+                    not group_error
+                    and not instance_errors
+                    and not instances
+                    and group.get("InstanceCount") in (0, None)
+                    and group.get("InActivityStatus") in (None, "NOT_IN_ACTIVITY")
+                ):
+                    ok = True
+                    break
+                time.sleep(15)
+            self.result["scaleDownLastSeen"] = last_seen
+            if not ok:
+                summary = tail_text(canonical_json(last_seen), 1200) if last_seen else "no ASG state observed"
+                failure_reason = f"scale_down timeout: ASG still has instances/activity or describe errors; last_seen={summary}"
+                self.result["scaleDownFailureReason"] = failure_reason
+                raise BatchRunError(failure_reason)
         finally:
             self.record_step("scale_down", started, ok, cp, desiredCapacity=0)
 

@@ -241,7 +241,71 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.steps[-1].name, "scale_down")
         self.assertFalse(controller.steps[-1].ok)
 
-    def test_controller_run_marks_completed_when_scale_down_fails_after_success(self) -> None:
+    def test_scale_down_raises_after_recording_timeout_with_instances_present(self) -> None:
+        args = controller_args()
+        args.scale_down_timeout_seconds = 1
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+
+            with (
+                mock.patch.object(
+                    runner.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(["tccli"], 0, "{}", ""),
+                ),
+                mock.patch.object(
+                    controller,
+                    "describe_asg_group_summary",
+                    return_value={
+                        "DesiredCapacity": 0,
+                        "InstanceCount": 1,
+                        "InServiceInstanceCount": 1,
+                        "InActivityStatus": "IN_ACTIVITY",
+                    },
+                ),
+                mock.patch.object(controller, "describe_asg_instances", return_value=[{"InstanceId": "ins-test"}]),
+                mock.patch.object(runner.time, "time", side_effect=[100.0, 100.0, 100.0, 101.1]),
+                mock.patch.object(runner.time, "sleep", return_value=None),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "scale_down timeout"):
+                    controller.scale_down()
+
+        self.assertEqual(controller.steps[-1].name, "scale_down")
+        self.assertFalse(controller.steps[-1].ok)
+        self.assertEqual(controller.steps[-1].detail["desiredCapacity"], 0)
+        self.assertEqual(controller.result["scaleDownLastSeen"]["asgInstances"], [{"InstanceId": "ins-test"}])
+
+    def test_scale_down_records_success_after_asg_reaches_zero(self) -> None:
+        args = controller_args()
+        args.scale_down_timeout_seconds = 1
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+
+            with (
+                mock.patch.object(
+                    runner.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(["tccli"], 0, "{}", ""),
+                ),
+                mock.patch.object(
+                    controller,
+                    "describe_asg_group_summary",
+                    return_value={
+                        "DesiredCapacity": 0,
+                        "InstanceCount": 0,
+                        "InServiceInstanceCount": 0,
+                        "InActivityStatus": "NOT_IN_ACTIVITY",
+                    },
+                ),
+                mock.patch.object(controller, "describe_asg_instances", return_value=[]),
+                mock.patch.object(runner.time, "time", side_effect=[100.0, 100.0, 100.0]),
+            ):
+                controller.scale_down()
+
+        self.assertEqual(controller.steps[-1].name, "scale_down")
+        self.assertTrue(controller.steps[-1].ok)
+
+    def test_controller_run_marks_completed_scale_down_failed_when_cleanup_times_out(self) -> None:
         class FakeController(runner.Controller):
             def ensure_map_present(self) -> None:
                 pass
@@ -282,18 +346,37 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             def verify_remote_training_report(self) -> None:
                 pass
 
-            def scale_down(self) -> None:
-                raise runner.BatchRunError("scale down denied")
-
         with tempfile.TemporaryDirectory() as temp_dir:
             controller = FakeController(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
-            with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+            with (
+                mock.patch.object(runner, "validate_static_inputs", return_value=None),
+                mock.patch.object(
+                    runner.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(["tccli"], 0, "{}", ""),
+                ),
+                mock.patch.object(
+                    controller,
+                    "describe_asg_group_summary",
+                    return_value={
+                        "DesiredCapacity": 0,
+                        "InstanceCount": 1,
+                        "InServiceInstanceCount": 1,
+                        "InActivityStatus": "IN_ACTIVITY",
+                    },
+                ),
+                mock.patch.object(controller, "describe_asg_instances", return_value=[{"InstanceId": "ins-test"}]),
+                mock.patch.object(runner.time, "time", side_effect=[100.0, 100.0, 100.0, 101.1]),
+                mock.patch.object(runner.time, "sleep", return_value=None),
+            ):
                 controller.run()
 
             summary = json.loads((Path(temp_dir) / "controller-summary.json").read_text(encoding="utf-8"))
         self.assertEqual(controller.final_status, "completed_scale_down_failed")
         self.assertEqual(summary["finalStatus"], "completed_scale_down_failed")
-        self.assertIn("scale down denied", controller.result["scaleDownError"])
+        self.assertIn("scale_down timeout", controller.result["scaleDownError"])
+        self.assertEqual(summary["steps"][-1]["name"], "scale_down")
+        self.assertFalse(summary["steps"][-1]["ok"])
 
     def test_bootstrap_worker_uses_configured_worker_user(self) -> None:
         args = controller_args()
@@ -347,12 +430,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     ]
                 }
 
-        controller = FakeController(args=controller_args(), run_id="run-test", artifact_dir=Path("/tmp/run-test"))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = FakeController(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir) / "run-test")
 
-        failure = controller.latest_scale_out_failure(after_epoch=runner.parse_tencent_activity_time("2026-05-17T00:00:30Z") or 0)
+            failure = controller.latest_scale_out_failure(
+                after_epoch=runner.parse_tencent_activity_time("2026-05-17T00:00:30Z") or 0
+            )
 
-        self.assertIsNotNone(failure)
-        self.assertEqual(failure.get("ActivityId"), "new")
+            self.assertIsNotNone(failure)
+            self.assertEqual(failure.get("ActivityId"), "new")
 
 
 if __name__ == "__main__":
