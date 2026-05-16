@@ -1,9 +1,24 @@
 # Screeps Cron and Route Registry
 
 Last updated: 2026-05-16
-Tracking issue: https://github.com/lanyusea/screeps/issues/620
+Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122
 
-This registry keeps the minimum cron/channel contract in one place. Cron prompts may embed short self-contained summaries, but their target/cadence/route expectations must match this file.
+This registry is the expected-state contract for Screeps/Hermes cron jobs and Discord delivery routes. It is not passive documentation: P0 monitor, scheduler, and acceptance checks must compare live cron metadata against this file with `scripts/check_cron_registry.py`.
+
+## Registry enforcement policy
+
+- The registry uses **方案 1** from the 2026-05-16 owner decision: keep the registry and make it machine/audit enforced.
+- Live cron metadata (`cronjob list` / `~/.hermes/cron/jobs.json`) says what currently exists; this registry says what should exist.
+- A job missing from live metadata, an unexpected recurring live job, wrong cadence, wrong delivery target, wrong provider/model, wrong repeat policy, wrong workdir, or paused expected job is Agent OS drift.
+- Drift is P0 when it affects scheduler, P0 monitor, runtime alerting, owner-decision routing, deploy/runtime safety, or GitHub/Project reconciliation.
+- Old cron outputs and reporter state files are caches/history, not authority.
+- Before changing any live cron definition, create a rollback snapshot of `~/.hermes/cron/jobs.json` and relevant docs; after changing, run `cronjob list` and `python3 scripts/check_cron_registry.py --strict`.
+
+Verification command:
+
+```bash
+python3 scripts/check_cron_registry.py --strict
+```
 
 ## Current target
 
@@ -41,32 +56,54 @@ Seasonal World reporting is also separate from the persistent/general Discord ro
 
 When using raw IDs and named channels together, this registry is the comparison source. Do not downgrade a thread target to a bare channel. Do not route Seasonal World routine/status/alert traffic into persistent MMO routes unless the message is an explicit cross-link to the Seasonal channel.
 
-## Active cron jobs
+## Expected recurring cron jobs
 
-| Job | ID | Schedule | Delivery | Purpose |
-| --- | --- | --- | --- | --- |
-| Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | Dispatcher/reconciler for safe work lanes. Stable workdir: `/root/screeps`. |
-| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | P0 autonomous-system health monitor. |
-| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for all owned rooms (auto-discovered via `/api/user/overview`). Include economy KPIs: total resources, energy output/collection, construction progress. |
-| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for all owned rooms (auto-discovered via `/api/user/overview`); no-alert runs return exactly `[SILENT]`. |
-| Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | Dev log fanout from live repo/cron state. |
-| Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | Research/RL progress fanout. |
-| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout; regenerate and include `runtime-artifacts/rl-dashboard.html` with the roadmap output. |
-| Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | 6h health/progress report. |
-| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | 8h strategy review for current target `E29N55`. |
-| Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | Archive accepted strategy decisions/current strategy. |
-| Screeps RL flywheel steward | `aed8362e4501` | `17 */6 * * *` | `discord:#task-queue` | P1 RL flywheel progress lane. |
+The table below is machine-read by `scripts/check_cron_registry.py`. Keep one job per row and preserve the column names.
+
+Repeat policy values:
+
+- `forever` — live repeat should be `forever`.
+- `high-horizon` — live repeat may show consumed/limit such as `1276/999999`; the limit must remain high enough for effectively always-on infrastructure.
+- `once` — one-shot jobs only; do not use in this recurring table.
+
+| Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
+| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Autonomous-system health monitor and registry-drift detector. |
+| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`. |
+| Screeps owner-decision escalation fanout | `bbc7f783075e` | `3,13,23,33,43,53 * * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P0 | Mirrors fresh unresolved owner-action decisions to the canonical decisions route. |
+| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Runtime summary report/images for all owned rooms. |
+| Screeps console capture (live energy telemetry) | `7ee147327ba6` | `*/30 * * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Local bounded console/energy telemetry collector. |
+| Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Dev log fanout from live repo/cron state. |
+| Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Research/RL progress fanout. |
+| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Roadmap/Pages image fanout; regenerate roadmap and RL dashboard artifacts. |
+| Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
+| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
+| Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
+| Screeps RL flywheel steward | `aed8362e4501` | `17 */6 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
+| Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
+| Screeps RL training execution ledger | `5c869e7d8a1d` | `29 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns. |
+| Screeps RL policy online advantage ledger | `01609968392a` | `43 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
+| Hermes state daily backup | `bf68a3951853` | `0 4 * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | Support | Daily private Hermes-state backup. |
+
+## Transient and retired cron jobs
+
+Transient one-shot jobs must have an expiry condition and tracking issue. They should be removed after execution or after the condition is superseded. A live transient job not listed in the recurring table is still drift unless its issue explicitly says it is active.
+
+| Job | ID | Status | Action |
+| --- | --- | --- | --- |
+| E29N55 postdeploy 15m observation | `6b006603d7fa` | Retired/stale one-shot from E29N55 recovery | Remove after backup; rely on recurring runtime summary/alert and explicit postdeploy artifacts instead. |
 
 ## Cron prompt drift rules
 
 - Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E29N55` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
+- P0 monitor and continuation/scheduler jobs must consult the registry diff before reporting cron health as OK or dispatching unrelated non-urgent work.
 - Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must include the generated `runtime-artifacts/rl-dashboard.html` file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
 - Gameplay Evolution cadence is 8h, not 12h.
-- The P0 monitor should audit this registry's expected jobs and should not treat intentional schedule/debug changes as abnormal unless the current registry says they are unhealthy.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
 - When scanning cron output, ignore prompt/system/skill sections unless explicitly auditing historical prompt drift.
 - Cron runs must not recursively schedule new cron jobs.
 - PR-draining/continuation cron prompts must include the CodeRabbit assertive-mode triage rule: use Codex to classify each automated review finding before choosing a patch or thread/comment resolution, and never merge with pending/untriaged CodeRabbit/Gemini feedback.
 - Cron prompt updates require a pre-change snapshot and post-change `cronjob list` verification.
 - Long-lived recurring Screeps jobs should be configured as `forever` or with a very high repeat horizon. A finite `999` cap on critical recurring jobs is abnormal because it can silently stop automation after enough successful runs.
-- Repo/worktree-manipulating cron jobs must keep a stable current directory. Use `/root/screeps` as the default controller cwd, prefer `git -C <path>` or subshells over persistent `cd`, and return to `/root/screeps` before deleting any linked worktree. The 2026-05-05 continuation-worker incident was caused by a deleted `/root/screeps-worktrees/rl-dataset-gate-409` cwd blocking later terminal/file calls in the same cron run.
+- Repo/worktree-manipulating cron jobs must keep a stable current directory. Use `/root/screeps` as the default controller cwd, prefer `git -C <path>` or subshells over persistent `cd`, and return to `/root/screeps` before deleting any linked worktree.

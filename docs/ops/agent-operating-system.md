@@ -100,6 +100,7 @@ Subagents must not independently update `#decisions`, `#roadmap`, or `#task-queu
 The main agent must maintain an internal operations monitor that checks:
 
 - scheduled jobs exist and are enabled;
+- live cron metadata matches the expected-state contract in `docs/ops/cron-and-route-registry.md`, verified with `python3 scripts/check_cron_registry.py --strict` when repo access is available;
 - continuation worker is running at the expected cadence, or is intentionally paused for maintenance/migration with that pause mirrored in GitHub Project `Status`, `Evidence`, and `Next action`;
 - checkpoint job exists;
 - job delivery targets are still correct;
@@ -198,7 +199,7 @@ The scheduler remains bounded: it must not wait on long-running Codex/QA process
 
 The scheduler runs these phases in order on every invocation:
 
-1. **Reconcile state.** Inspect `cronjob list`, background processes, `/root/.hermes/screeps-agent-registry.json` when present, git worktrees, open PRs, open roadmap issues, and GitHub Project `screeps` fields. Repair stale GitHub state before dispatching new work.
+1. **Reconcile state.** Inspect `cronjob list`, run or consume the cron-registry diff (`python3 scripts/check_cron_registry.py --strict` when available), inspect background processes, `/root/.hermes/screeps-agent-registry.json` when present, git worktrees, open PRs, open roadmap issues, and GitHub Project `screeps` fields. Repair stale GitHub state and hard P0 cron-registry drift before dispatching new work.
 2. **Close ready loops.** If a PR has completed QA, green required checks, resolved/outdated review threads, and the >=15 minute automated review gate, merge it, fast-forward `/root/screeps`, and set the linked issue/PR Project items to `Done` with evidence.
 3. **Handle completed dev agents.** For each finished dev/Codex process, verify commit/authorship, run required checks, push, create or update the PR, add the PR to Project `screeps`, set issue/PR status to `In review`, and dispatch on-demand QA.
 4. **Handle QA results.** If QA returns `PASS`, update the PR/issue Evidence and move the PR to merge-gate watch. If QA returns `REQUEST_CHANGES`, dispatch a review-fix dev/Codex agent and record the blocker.
