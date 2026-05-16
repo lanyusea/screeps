@@ -97,26 +97,27 @@ No critical issues found.
 
 ## Skill 3a — Automated review feedback triage
 
-Use when a PR has CodeRabbit/Gemini comments, review threads, or top-level review bodies, especially while CodeRabbit is in assertive/aggressive mode.
+Use when a PR has CodeRabbit/Gemini comments, review threads, or top-level review bodies, especially while CodeRabbit is in assertive/aggressive mode. Aggressive automated review is for discovery, not automatic implementation: every finding is an allegation until Codex proves it against the latest code and project policy.
 
 Controller workflow:
 
 1. Re-query the live PR head SHA, checks/statuses, comments, reviews, and GraphQL review threads.
-2. Give Codex the exact finding text, URLs/thread IDs, current diff, relevant file context, and project review severity policy.
-3. Require Codex to classify each finding:
-   - `FIX` — critical and actionable; implement the smallest patch and run verification.
+2. Give Codex the exact finding text, URLs/thread IDs, current diff, relevant file context, current test/build status, and project review severity policy.
+3. Require Codex to record for each finding: `source/thread`, `classification`, `criticality`, `evidence`, `action`, and `verification`.
+4. Require Codex to classify each finding:
+   - `FIX` — valid, reasonable, necessary, actionable, and critical; implement the smallest patch and run verification.
    - `RESOLVE_FALSE_POSITIVE` — contradicted by current code/tests/Screeps semantics.
    - `RESOLVE_STALE_OR_OUTDATED` — already fixed on the latest head or no longer applies.
-   - `ADVISORY_ONLY` — style/preference/non-critical optimization that should not churn code.
+   - `ADVISORY_ONLY` — valid or plausible, but non-critical style/preference/optimization/cleanup that should not churn code.
    - `OWNER_DECISION` — would change strategy, reward policy, live deployment, secrets, or another owner-controlled choice.
-4. For `FIX`, keep changes in the PR branch, commit with the required Codex author, push, then rerun controller verification and exact-head QA.
-5. For `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, or `ADVISORY_ONLY`, post concise evidence when useful and resolve the GitHub review thread/comment with GraphQL/`gh` after verifying it is safe. Do not add code just to appease a non-critical bot suggestion.
-6. Do not merge while CodeRabbit/Gemini is pending, while a fresh top-level review body contains untriaged actionable language, or while unresolved active review threads remain.
+5. For `FIX`, keep changes in the PR branch, commit with the required Codex author, push, then rerun controller verification and exact-head QA.
+6. For `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, or `ADVISORY_ONLY`, post concise evidence when useful and resolve the GitHub review thread/comment with GraphQL/`gh` after verifying it is safe. Do not add code just to appease a non-critical bot suggestion.
+7. Do not merge while CodeRabbit/Gemini is pending, while a fresh top-level review body contains untriaged actionable language, or while unresolved active review threads remain.
 
 Prompt clause for Codex review-fix runs:
 
 ```text
-Triage the automated review feedback first. Not every CodeRabbit/Gemini finding is valid or worth changing. For each finding, classify it as FIX, RESOLVE_FALSE_POSITIVE, RESOLVE_STALE_OR_OUTDATED, ADVISORY_ONLY, or OWNER_DECISION. Only implement FIX items that are critical under AGENTS.md; otherwise explain the evidence the controller should use to resolve the thread/comment without code churn.
+Triage the automated review feedback first. Not every CodeRabbit/Gemini finding is valid, reasonable, necessary, or worth changing. For each finding, record `source/thread`, `classification`, `criticality`, `evidence`, `action`, and `verification`, then classify it as FIX, RESOLVE_FALSE_POSITIVE, RESOLVE_STALE_OR_OUTDATED, ADVISORY_ONLY, or OWNER_DECISION. Only implement FIX items that are valid, actionable, and critical under AGENTS.md; otherwise explain the evidence the controller should use to resolve the thread/comment without code churn.
 ```
 
 ## Skill 4 — Screeps operations/documentation updates
