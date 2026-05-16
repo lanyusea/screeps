@@ -1173,7 +1173,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         )
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
 
-    def test_runtime_summary_payload_classifies_zero_owned_creep_spawn_deadlock_as_assignment_gap(self) -> None:
+    def test_runtime_summary_payload_keeps_zero_owned_creeps_assignment_evidence_free(self) -> None:
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),
             terrain="0" * monitor.TERRAIN_CELLS,
@@ -1211,12 +1211,12 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
         self.assertEqual(summary["owned_spawns"], 1)
         self.assertEqual(summary["owned_creeps"], 0)
-        self.assertTrue(room["workerAssignmentEvidenceAvailable"])
-        self.assertTrue(productive_energy["workerAssignmentEvidenceAvailable"])
-        self.assertEqual(room["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
-        self.assertEqual(productive_energy["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
-        self.assertEqual(room["constructionDeadlockTicks"], 1)
-        self.assertEqual(productive_energy["constructionDeadlockTicks"], 1)
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertEqual(productive_energy["constructionDeadlockTicks"], 0)
 
         reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
             snapshot.ref,
@@ -1226,11 +1226,45 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             snapshot.tick,
         )
 
-        self.assertIsNotNone(reason)
-        assert reason is not None
-        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
-        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
-        self.assertEqual(next_state["consecutive_ticks"], 174)
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
+
+    def test_zero_owned_creeps_without_spawn_still_routes_to_room_dead(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+            expected_owner="lanyusea",
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+        )
+        report = monitor.build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": emitted})
+
+        self.assertEqual(suppressed, [])
+        self.assertIn("room_dead", [reason["kind"] for reason in emitted])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
+        self.assertIn("room_dead", report["categories"])
+        self.assertIn("spawn_collapse", report["categories"])
 
     def test_runtime_summary_payload_does_not_classify_worker_gap_without_assignment_evidence(self) -> None:
         snapshot = monitor.RoomSnapshot(
