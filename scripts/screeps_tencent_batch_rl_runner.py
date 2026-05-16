@@ -378,7 +378,7 @@ class Controller:
         )
         return data.get("InstanceSet") or []
 
-    def latest_scale_out_failure(self) -> dict[str, Any] | None:
+    def latest_scale_out_failure(self, *, after_epoch: float) -> dict[str, Any] | None:
         filters = json.dumps([{"Name": "auto-scaling-group-id", "Values": [self.args.asg_id]}])
         data = self.tccli(
             "describe_scaling_activities",
@@ -390,11 +390,16 @@ class Controller:
             timeout=90,
         )
         for activity in data.get("ActivitySet") or []:
-            if activity.get("ActivityType") == "SCALE_OUT" and activity.get("StatusCode") == "FAILED":
-                return activity
+            if activity.get("ActivityType") != "SCALE_OUT" or activity.get("StatusCode") != "FAILED":
+                continue
+            activity_epoch = parse_tencent_activity_time(activity.get("StartTime") or activity.get("EndTime"))
+            if activity_epoch is None or activity_epoch < after_epoch - 5:
+                continue
+            return activity
         return None
 
     def scale_up_and_wait(self) -> None:
+        scale_started = time.time()
         self.tccli(
             "scale_up",
             "as", "ModifyDesiredCapacity",
@@ -428,7 +433,7 @@ class Controller:
                             "state": cvm.get("InstanceState"),
                         }
                         return
-            failure = self.latest_scale_out_failure()
+            failure = self.latest_scale_out_failure(after_epoch=scale_started)
             if failure and not asg_instances:
                 self.result["scaleOutFailure"] = summarize_scale_out_failure(failure)
                 raise BatchRunError("ASG scale-out failed before any worker was created: " + json.dumps(self.result["scaleOutFailure"], ensure_ascii=False)[:2000])
@@ -589,6 +594,26 @@ tar -czf remote-artifacts.tar.gz \
             "simulation": data.get("simulation"),
         }
 
+    def describe_asg_group_summary(self) -> dict[str, Any]:
+        data = self.tccli(
+            "describe_asg_group",
+            "as", "DescribeAutoScalingGroups",
+            "--region", self.args.region,
+            "--AutoScalingGroupIds", json.dumps([self.args.asg_id]),
+            timeout=90,
+        )
+        groups = data.get("AutoScalingGroupSet") or []
+        if not groups:
+            return {}
+        group = groups[0]
+        return {
+            "DesiredCapacity": group.get("DesiredCapacity"),
+            "InstanceCount": group.get("InstanceCount"),
+            "InServiceInstanceCount": group.get("InServiceInstanceCount"),
+            "InActivityStatus": group.get("InActivityStatus"),
+            "AutoScalingGroupStatus": group.get("AutoScalingGroupStatus"),
+        }
+
     def scale_down(self) -> None:
         started = time.time()
         cp: subprocess.CompletedProcess[str] | None = None
@@ -602,16 +627,27 @@ tar -czf remote-artifacts.tar.gz \
                 check=False,
             )
             ok = cp.returncode == 0
+            last_seen: dict[str, Any] = {}
             if ok:
                 deadline = time.time() + self.args.scale_down_timeout_seconds
                 while time.time() < deadline:
                     try:
+                        group = self.describe_asg_group_summary()
+                    except Exception as error:
+                        group = {"error": type(error).__name__ + ": " + str(error)}
+                    try:
                         instances = self.describe_asg_instances()
-                    except Exception:
-                        instances = []
-                    if not instances:
+                    except Exception as error:
+                        instances = [{"error": type(error).__name__ + ": " + str(error)}]
+                    last_seen = {"group": group, "asgInstances": instances}
+                    if (
+                        not instances
+                        and group.get("InstanceCount") in (0, None)
+                        and group.get("InActivityStatus") in (None, "NOT_IN_ACTIVITY")
+                    ):
                         break
                     time.sleep(15)
+                self.result["scaleDownLastSeen"] = last_seen
         finally:
             self.record_step("scale_down", started, ok, cp, desiredCapacity=0)
 
@@ -656,6 +692,15 @@ def unwrap_response(data: Any) -> dict[str, Any]:
     if isinstance(data, dict):
         return data
     return {}
+
+
+def parse_tencent_activity_time(value: Any) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def summarize_scale_out_failure(activity: dict[str, Any]) -> dict[str, Any]:
