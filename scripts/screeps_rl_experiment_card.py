@@ -18,9 +18,16 @@ TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
+DEFAULT_STRATEGY_VARIANTS = (
+    "construction-priority.incumbent.v1",
+    "construction-priority.territory-shadow.v1",
+    "expansion-remote.incumbent.v1",
+    "expansion-remote.territory-shadow.v1",
+)
 
 JsonObject = dict[str, Any]
 
@@ -93,6 +100,20 @@ def safety_block() -> JsonObject:
     }
 
 
+def simulation_block() -> JsonObject:
+    return {
+        "branch": "$activeWorld",
+        "code_path": "prod/dist/main.js",
+        "map_source_file": "maps/map-0b6758af.json",
+        "repetitions": 1,
+        "room": "E1S1",
+        "shard": "shardX",
+        "simulator_out_dir": "runtime-artifacts/rl-simulator",
+        "ticks": 50,
+        "workers": 1,
+    }
+
+
 def build_card(
     *,
     dataset_run_id: str,
@@ -110,11 +131,18 @@ def build_card(
     card = {
         "card_id": f"rl-exp-{dataset_run_id}-{commit_prefix}",
         "code_commit": code_commit.lower(),
+        "conservative_actions_only": True,
         "created_at": created_at,
         "dataset_run_id": dataset_run_id,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "ood_rejection": True,
         "reward_model": reward_model(),
         "safety": safety_block(),
+        "simulation": simulation_block(),
         "status": "shadow",
+        "strategy_variants": list(DEFAULT_STRATEGY_VARIANTS),
         "training_approach": training_approach,
     }
     validate_card(card)
@@ -168,6 +196,8 @@ def validate_card(raw: Any) -> None:
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
+    validate_strategy_variants(raw.get("strategy_variants"))
+    validate_simulation(raw.get("simulation"))
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -216,6 +246,48 @@ def validate_reward_model(raw: Any) -> None:
         raise CardValidationError("reward_model weights must be strictly lexicographic")
     if raw.get("scalar_weighted_sum_authorized") is not False:
         raise CardValidationError("reward_model.scalar_weighted_sum_authorized must be false")
+
+
+def validate_strategy_variants(raw: Any) -> None:
+    if not isinstance(raw, list) or len(raw) == 0:
+        raise CardValidationError("strategy_variants must contain at least one registry id or inline variant")
+    for index, item in enumerate(raw):
+        if isinstance(item, str):
+            validate_strategy_id(item, f"strategy_variants[{index}]")
+            continue
+        if not isinstance(item, dict):
+            raise CardValidationError(f"strategy_variants[{index}] must be a string or JSON object")
+        variant_id = item.get("id")
+        if not isinstance(variant_id, str) or not variant_id:
+            raise CardValidationError(f"strategy_variants[{index}].id must be a non-empty string")
+        validate_strategy_id(variant_id, f"strategy_variants[{index}].id")
+
+
+def validate_strategy_id(value: str, label: str) -> None:
+    if not STRATEGY_ID_RE.fullmatch(value) or value in {".", ".."}:
+        raise CardValidationError(f"{label} may contain only letters, numbers, dot, colon, underscore, and hyphen")
+
+
+def validate_simulation(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError("simulation must be a JSON object")
+    for field in ("ticks", "workers", "repetitions"):
+        if positive_int(raw.get(field)) is None:
+            raise CardValidationError(f"simulation.{field} must be a positive integer")
+    if "host_port_start" in raw and positive_int(raw.get("host_port_start")) is None:
+        raise CardValidationError("simulation.host_port_start must be a positive integer")
+    for field in ("room", "shard", "branch", "code_path", "map_source_file", "simulator_out_dir"):
+        value = raw.get(field)
+        if not isinstance(value, str) or not value:
+            raise CardValidationError(f"simulation.{field} must be a non-empty string")
+
+
+def positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
 
 
 def write_output(payload: Any, output: Path | None, stdout: TextIO) -> None:
