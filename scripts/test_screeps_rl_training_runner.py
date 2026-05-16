@@ -615,10 +615,56 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(candidate_result["sampleCount"], 0)
         self.assertEqual(candidate_result["excludedRunCount"], 1)
         self.assertEqual(candidate_result["metrics"]["reliability"]["score"], 0)
-        self.assertEqual(candidate_result["reward"]["samples"], [])
+        self.assertEqual(candidate_result["reward"]["samples"], [[0, None, None, None]])
         self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline"])
         self.assertNotIn("candidate", report["statisticalComparison"]["componentMeans"])
         self.assertTrue(any("excluded 1 failed simulator run" in warning for warning in report["warnings"]))
+
+    def test_reward_samples_include_failed_repetition_reliability(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        successful_candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=300)])])
+        failed_candidate = variant_result("candidate", [])
+        failed_candidate["variant_run_id"] = "run-candidate-failed"
+        failed_candidate["ok"] = False
+        failed_candidate["error"] = "simulator failed"
+
+        class FlakyRepetitionSimulator:
+            def __init__(self) -> None:
+                self.calls: list[JsonObject] = []
+
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                self.calls.append(dict(kwargs))
+                candidate = successful_candidate if len(self.calls) == 1 else failed_candidate
+                return {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": kwargs["run_id"],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [baseline, candidate],
+                }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["repetitions"] = 2
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="flaky-reliability-samples",
+                simulator_runner=FlakyRepetitionSimulator(),
+            )
+
+        candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
+        self.assertEqual(candidate_result["sampleCount"], 1)
+        self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["reward"]["tuple"][0], 0.5)
+        self.assertEqual([sample[0] for sample in candidate_result["reward"]["samples"]], [1, 0])
+        self.assertEqual(candidate_result["reward"]["samples"][1], [0, None, None, None])
+        self.assertEqual(candidate_result["reward"]["sampleStdDev"][0], 0.5)
+        self.assertEqual(candidate_result["reward"]["sampleStdDev"][1:], [0, 0, 0])
 
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])

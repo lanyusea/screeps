@@ -815,11 +815,16 @@ def summarize_variant(
     runs: Sequence[JsonObject],
     reward_options: JsonObject,
 ) -> JsonObject:
-    scored_runs = [run for run in runs if run.get("ok") is True]
-    excluded_run_count = len(runs) - len(scored_runs)
-    run_metrics = [compute_run_metrics(run, reward_options) for run in scored_runs]
+    run_metrics_by_attempt: list[JsonObject | None] = []
+    for run in runs:
+        if run.get("ok") is True:
+            run_metrics_by_attempt.append(compute_run_metrics(run, reward_options))
+        else:
+            run_metrics_by_attempt.append(None)
+    run_metrics = [metrics for metrics in run_metrics_by_attempt if metrics is not None]
+    excluded_run_count = len(runs) - len(run_metrics)
     reward_tuple = mean_reward_tuple(run_metrics)
-    reward_tuple[0] = reliability_score(scored_run_count=len(scored_runs), total_run_count=len(runs))
+    reward_tuple[0] = reliability_score(scored_run_count=len(run_metrics), total_run_count=len(runs))
     metrics = aggregate_metrics(run_metrics)
     metrics["reliability"]["score"] = reward_tuple[0]
     return {
@@ -828,14 +833,14 @@ def summarize_variant(
         "rolloutStatus": variant.rollout_status,
         "sampleCount": len(run_metrics),
         "excludedRunCount": excluded_run_count,
-        "ok": bool(scored_runs) and excluded_run_count == 0,
+        "ok": bool(run_metrics) and excluded_run_count == 0,
         "parameters": variant.parameters,
         "reward": {
             "type": "lexicographic",
             "componentOrder": list(REWARD_TIERS),
             "tuple": reward_tuple,
-            "samples": [metrics["rewardTuple"] for metrics in run_metrics],
-            "sampleStdDev": reward_stddev(run_metrics),
+            "samples": reward_samples(run_metrics_by_attempt),
+            "sampleStdDev": reward_sample_stddev(run_metrics_by_attempt),
         },
         "metrics": metrics,
         "runs": [
@@ -1222,6 +1227,30 @@ def reward_stddev(metrics: Sequence[JsonObject]) -> list[float | int]:
         return [0 for _tier in REWARD_TIERS]
     columns = list(zip(*(metric["rewardTuple"] for metric in metrics)))
     return [round_float(statistics.pstdev(float(value) for value in column)) for column in columns]
+
+
+def reward_samples(metrics_by_attempt: Sequence[JsonObject | None]) -> list[list[Any]]:
+    samples: list[list[Any]] = []
+    for metrics in metrics_by_attempt:
+        if metrics is None:
+            samples.append([0, None, None, None])
+        else:
+            samples.append(list(metrics["rewardTuple"]))
+    return samples
+
+
+def reward_sample_stddev(metrics_by_attempt: Sequence[JsonObject | None]) -> list[float | int]:
+    scored_metrics = [metrics for metrics in metrics_by_attempt if metrics is not None]
+    sample_stddev = reward_stddev(scored_metrics)
+    reliability_values = [1 if metrics is not None else 0 for metrics in metrics_by_attempt]
+    sample_stddev[0] = component_stddev(reliability_values)
+    return sample_stddev
+
+
+def component_stddev(values: Sequence[float | int]) -> float | int:
+    if len(values) <= 1:
+        return 0
+    return round_float(statistics.pstdev(float(value) for value in values))
 
 
 def reliability_score(*, scored_run_count: int, total_run_count: int) -> float | int:
