@@ -79,6 +79,8 @@ def parse_registry(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
         jid = empty_to_none(row.get("id"))
         if not jid:
             continue
+        if jid in rows:
+            raise ValueError(f"Duplicate cron job id in registry: {jid}")
         rows[jid] = {
             "job": empty_to_none(row.get("job")),
             "schedule": empty_to_none(row.get("schedule")),
