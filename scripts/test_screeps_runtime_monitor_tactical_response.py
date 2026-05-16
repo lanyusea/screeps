@@ -1377,6 +1377,46 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
         self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
 
+    def test_room_only_console_summary_does_not_match_ambiguous_tracked_shards(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 995550,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 9, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                },
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardSeason",
+                    "workerCount": 2,
+                    "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                },
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260516T000000Z.log").write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [
+                    monitor.RoomRef(shard="shardX", room="E29N55"),
+                    monitor.RoomRef(shard="shardSeason", room="E29N55"),
+                ],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        self.assertNotIn("shardX/E29N55", runtime_rooms)
+        self.assertEqual(runtime_rooms["shardSeason/E29N55"]["taskCounts"]["harvest"], 2)
+
     def test_runtime_summary_loader_ignores_behavior_only_pathing_totals(self) -> None:
         payload = {
             "type": "runtime-summary",

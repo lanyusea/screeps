@@ -3085,7 +3085,14 @@ def runtime_summary_room_shard(room: dict[str, Any]) -> str | None:
     return None
 
 
-def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
+def ambiguous_runtime_room_names(refs: list[RoomRef]) -> set[str]:
+    shards_by_room: dict[str, set[str]] = {}
+    for ref in refs:
+        shards_by_room.setdefault(ref.room, set()).add(ref.shard)
+    return {room for room, shards in shards_by_room.items() if len(shards) > 1}
+
+
+def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef, ambiguous_room_names: set[str]) -> bool:
     room_ref = room.get("room")
     if isinstance(room_ref, str) and room_ref == ref.key:
         return True
@@ -3093,7 +3100,9 @@ def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
     shard = runtime_summary_room_shard(room)
     if room_name != ref.room:
         return False
-    return shard is None or shard == ref.shard
+    if shard is not None:
+        return shard == ref.shard
+    return room_name not in ambiguous_room_names
 
 
 def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
@@ -3151,6 +3160,7 @@ def load_latest_runtime_room_summaries(
         warnings.append(f"runtime-summary scan unavailable: {short_text(exc, 140)}")
         return {}
 
+    ambiguous_room_names = ambiguous_runtime_room_names(refs)
     result: dict[str, dict[str, Any]] = {}
     for path in paths:
         try:
@@ -3167,7 +3177,7 @@ def load_latest_runtime_room_summaries(
                 if not runtime_summary_room_has_worker_idle_fields(room):
                     continue
                 for ref in refs:
-                    if ref.key in result or not runtime_summary_room_matches(room, ref):
+                    if ref.key in result or not runtime_summary_room_matches(room, ref, ambiguous_room_names):
                         continue
                     result[ref.key] = room
                     break
