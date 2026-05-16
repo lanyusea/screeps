@@ -1752,8 +1752,11 @@ def is_expected_safe_rampart_decay_reason(
         return False
 
     current_hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+    hits_max = number_from_reason(reason, "hitsMax", "hits_max")
     delta = number_from_reason(reason, "delta")
     if current_hits is None or delta is None:
+        return False
+    if hits_max is not None and hits_max > 0 and current_hits / hits_max <= 0.25:
         return False
     if delta >= RAMPART_CRITICAL_DAMAGE_DELTA:
         return False

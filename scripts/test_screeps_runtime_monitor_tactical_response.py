@@ -827,6 +827,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         decay = monitor.RAMPART_DECAY_HITS_PER_EVENT
         safe_floor = monitor.RAMPART_SAFE_DECAY_HITS_FLOOR
         healthy_hits = safe_floor + 1
+        healthy_hits_max = 30_000
         previous = {
             "baseline_established": True,
             "tick": 1014519,
@@ -846,7 +847,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                     "x": 8,
                     "y": 24,
                     "hits": healthy_hits + decay,
-                    "hitsMax": 300000,
+                    "hitsMax": healthy_hits_max,
                     "owned": True,
                     "damageable": True,
                     "critical": False,
@@ -871,7 +872,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                     "x": 8,
                     "y": 24,
                     "hits": healthy_hits,
-                    "hitsMax": 300000,
+                    "hitsMax": healthy_hits_max,
                 },
             },
             tick=1014619,
@@ -981,26 +982,84 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 self.assertEqual([reason["kind"] for reason in emitted], ["structure_damage"])
                 self.assertEqual(emitted[0]["structure_type"], "rampart")
 
-    def test_low_relative_health_rampart_damage_is_critical(self) -> None:
-        reason = {
-            "kind": "structure_damage",
-            "room": "shardX/E26S49",
-            "object_id": "rampart1",
-            "structure_type": "rampart",
-            "current_hits": 1_000_000,
-            "hitsMax": 300_000_000,
-            "delta": 300,
-            "message": "owned rampart at 8,24 lost 300 hits",
+    def test_low_relative_health_expected_rampart_decay_still_alerts_p0(self) -> None:
+        decay = monitor.RAMPART_DECAY_HITS_PER_EVENT
+        current_hits = 20_000
+        hits_max = 300_000_000
+        previous_tick = 6000
+        current_tick = previous_tick + monitor.RAMPART_DECAY_EVENT_TICKS
+        previous = {
+            "baseline_established": True,
+            "tick": previous_tick,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": current_hits + decay,
+                    "hitsMax": hits_max,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
         }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": current_hits,
+                    "hitsMax": hits_max,
+                },
+            },
+            tick=current_tick,
+        )
 
-        self.assertGreater(reason["current_hits"], monitor.RAMPART_SAFE_DECAY_HITS_FLOOR)
+        self.assertGreater(current_hits, monitor.RAMPART_SAFE_DECAY_HITS_FLOOR)
+        self.assertLessEqual(current_hits / hits_max, 0.25)
+        self.assertEqual(monitor.expected_rampart_decay_delta(previous, current_tick), decay)
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], ["structure_damage"])
+        self.assertEqual(emitted[0]["structure_type"], "rampart")
+        self.assertEqual(emitted[0]["current_hits"], current_hits)
+        self.assertEqual(emitted[0]["delta"], decay)
 
         report = monitor.build_tactical_response_report(
             {
                 "ok": True,
                 "mode": "alert",
                 "alert": True,
-                "reasons": [reason],
+                "reasons": emitted,
                 "rooms": ["shardX/E26S49"],
             }
         )
