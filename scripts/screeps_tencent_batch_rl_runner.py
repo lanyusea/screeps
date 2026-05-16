@@ -126,6 +126,8 @@ class Controller:
         self.write_summary(partial=True)
 
     def write_summary(self, *, partial: bool = False) -> None:
+        training_report = self.result.get("trainingReport")
+        report_safety = training_report if isinstance(training_report, dict) else {}
         payload = {
             "type": "screeps-tencent-batch-rl-run",
             "schemaVersion": 1,
@@ -143,9 +145,9 @@ class Controller:
             "remoteDir": self.remote_dir,
             "localArtifactDir": str(self.artifact_dir),
             "safety": {
-                "liveEffect": False,
-                "officialMmoWrites": False,
-                "officialMmoWritesAllowed": False,
+                "liveEffect": report_safety.get("liveEffect", False),
+                "officialMmoWrites": report_safety.get("officialMmoWrites", False),
+                "officialMmoWritesAllowed": report_safety.get("officialMmoWritesAllowed", False),
                 "billingGuardBeforeScale": True,
                 "scaleDownAttempted": any(step.name == "scale_down" for step in self.steps),
                 "sshControllerOnlyExpected": self.args.controller_ip,
@@ -627,14 +629,21 @@ tar -czf remote-artifacts.tar.gz \
         if not report.is_file():
             raise BatchRunError(f"remote training report missing after collection: {report}")
         data = json.loads(report.read_text(encoding="utf-8"))
-        if data.get("liveEffect") is not False or data.get("officialMmoWrites") is not False:
-            raise BatchRunError("remote training report safety flags are unsafe")
+        safety_flags = {
+            "liveEffect": data.get("liveEffect"),
+            "officialMmoWrites": data.get("officialMmoWrites"),
+            "officialMmoWritesAllowed": data.get("officialMmoWritesAllowed"),
+        }
+        unsafe_flags = [name for name, value in safety_flags.items() if value is not False]
+        if unsafe_flags:
+            raise BatchRunError(f"remote training report safety flags are unsafe: {', '.join(unsafe_flags)}")
         artifact_count = data.get("artifactCount")
         if not isinstance(artifact_count, int) or artifact_count <= 0:
             raise BatchRunError(f"remote training artifactCount invalid: {artifact_count!r}")
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
+            **safety_flags,
             "artifactCount": artifact_count,
             "changedTopCount": data.get("changedTopCount"),
             "ranking": data.get("ranking"),

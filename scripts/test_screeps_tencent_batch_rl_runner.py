@@ -209,6 +209,63 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 root / "remote" / "runtime-artifacts" / "rl-training" / "run-1.json",
             )
 
+    def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                json.dumps(
+                    {
+                        "reportId": "run-test",
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": True,
+                        "artifactCount": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(runner.BatchRunError, "officialMmoWritesAllowed"):
+                controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                json.dumps(
+                    {
+                        "reportId": "run-test",
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactCount": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+            controller.verify_remote_training_report()
+            controller.write_summary()
+
+            summary = json.loads((root / "controller-summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                summary["safety"],
+                {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "billingGuardBeforeScale": True,
+                    "scaleDownAttempted": False,
+                    "sshControllerOnlyExpected": CONTROLLER_IP,
+                    "secretsPrinted": False,
+                },
+            )
+
     def test_safe_extract_tar_rejects_traversal_and_special_entries(self) -> None:
         cases = [
             ("../escape", lambda tar: add_file(tar, "../escape")),
