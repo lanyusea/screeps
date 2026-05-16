@@ -8,11 +8,13 @@ A critical issue is one that is likely to cause at least one of:
 - Colony unrecoverability, including spawn/economy deadlocks or worker recovery failure.
 - Broken build, typecheck, test, bundling, upload, or official/private-server deployment path.
 - Secret leakage or unsafe handling of Screeps auth tokens, Steam keys, private-server credentials, or API responses.
-- Destructive or wrong-target operations involving branch `main`, shard `shardX`, room `E48S28`, or spawn placement.
+- Destructive or wrong-target operations involving branch `main`, shard `shardX`, room `E29N55`, or `Spawn1` at `(17,24)`.
 - Runtime monitoring false negatives/false positives that could hide hostiles, damage, or bot failure, or spam alert channels.
 - Memory schema/task-state incompatibility that breaks existing Screeps `Memory` or creep behavior.
 
 Do not comment on style, naming, formatting, minor refactors, docs wording, small performance ideas, or speculative architecture unless the issue directly creates a critical risk above.
+
+Gemini comments are discovery input, not repair instructions. Codex must triage every Gemini/CodeRabbit finding against the latest head, tests, Screeps semantics, and `AGENTS.md`; only findings that are valid, necessary, actionable, and critical should produce code changes.
 
 If no critical issue is present, avoid inline comments.
 

@@ -30,7 +30,7 @@ This repository builds and operates a Screeps: World bot. Use this file as the c
 - Do not edit or commit directly on `main`. Use a topic branch in a git worktree, normally under `~/screeps-worktrees/<topic>`.
 - Production/test/build code changes under `prod/` must be implemented through the Codex CLI coding agent when this project is being operated by Hermes. Hermes may edit docs/config directly, but Codex owns production code implementation commits.
 - A Codex coding task is not complete until the change is verified, committed, pushed, reviewed by the automated review gate, and merged to `main` when it creates a PR. If a PR is superseded, close it with a PR comment explaining the replacement. The review gate uses the owner-approved automated口径: CodeRabbit/Gemini no blocking findings, resolved/outdated discussions, green required checks, and the required elapsed window; formal GitHub approval is not required unless a later owner decision changes it.
-- CodeRabbit may run in assertive/aggressive mode. Treat automated review feedback as input to a Codex triage loop, not as commands to blindly edit code. For every active CodeRabbit/Gemini review body, PR comment, or review thread, provide Codex the exact finding plus current diff/context and have it classify the item as: actionable critical fix, non-critical/advisory, false positive, stale/outdated, or owner-decision needed. Actionable critical findings get the smallest verified patch on the PR branch; non-actionable or stale findings get a concise evidence comment and explicit thread resolution via GitHub/GraphQL after verification. Do not merge while an active automated finding is pending, untriaged, or unresolved.
+- CodeRabbit may run in assertive/aggressive mode. Aggressive automated review is for discovery, not automatic implementation: treat every CodeRabbit/Gemini finding as an allegation until Codex verifies it against the current head, diff context, tests, Screeps semantics, and this severity policy. For every active review body, PR comment, or review thread, provide Codex the exact finding plus current context and require a short triage record: `source/thread`, `classification`, `criticality`, `evidence`, `action`, and `verification`. Classifications are: `FIX`, `RESOLVE_FALSE_POSITIVE`, `RESOLVE_STALE_OR_OUTDATED`, `ADVISORY_ONLY`, or `OWNER_DECISION`. `FIX` means the finding is valid, reasonable, necessary, actionable, and critical; those get the smallest verified patch on the PR branch. Valid but non-critical suggestions remain advisory and must not churn code just to appease a bot. Non-actionable or stale findings get concise evidence and explicit thread resolution via GitHub/GraphQL after verification. Do not merge while an active automated finding is pending, untriaged, or unresolved.
 - **Merge gate — mandatory pre-merge checklist.** Before merging any PR, every autonomous finisher (scheduler, Codex, QA agent, or main agent) MUST:
   1. Compute elapsed time: `now - PR.createdAt`. Reject merge if under 15 minutes. Use `gh pr view <PR> --json createdAt` and compare to current UTC. Do not rely on memory or session clocks — compute fresh each time.
   2. Re-query live checks: `gh pr checks <PR>`. All required checks must be green/pass. Do not merge on stale or cached check state.
@@ -76,11 +76,13 @@ Prioritize issues that can break runtime correctness or safe operations:
 
 ## Review severity policy
 
-For PR review tasks, **only report critical issues**: bugs or risks that are likely to cause data loss, deployment failure, runtime crashes, incorrect gameplay automation, secret leakage, or security exposure.
+For Codex/Hermes PR review tasks, **only report critical issues**: bugs or risks that are likely to cause data loss, deployment failure, runtime crashes, incorrect gameplay automation, secret leakage, or security exposure.
+
+Automated review bots may be configured more assertively to discover candidate risks, but their comments are not repair instructions. Codex/Hermes repair decisions remain critical-only: a finding is fixed only when it is valid, reasonable, necessary, actionable, and critical under this policy.
 
 Do not leave comments for style, formatting, naming, small refactors, documentation phrasing, speculative architecture, or minor test preferences unless they mask a critical failure.
 
-When responding to CodeRabbit assertive/aggressive-mode feedback, do not assume every finding is valid. Codex must state why each item is fixed, resolved as stale/outdated, or resolved as non-actionable before the controller closes the thread/comment.
+When responding to CodeRabbit assertive/aggressive-mode feedback, do not assume every finding is valid. Codex must state why each item is fixed, resolved as false-positive, resolved as stale/outdated, advisory-only, or owner-decision before the controller closes the thread/comment.
 
 When reviewing, use this compact format:
 
