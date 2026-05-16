@@ -108,10 +108,14 @@ function setSourceContainerHarvester(room: Room, sourceId: string): void {
   });
 }
 
-function expectLowLoadSourceLogisticsContinuationRangeToBeExtended(): void {
+function expectLowLoadSourceLogisticsContinuationRangeToBeExtended(): number {
+  const extendedOnlyRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE + 1;
+  expect(extendedOnlyRange).toBeGreaterThan(LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE);
+  expect(extendedOnlyRange).toBeLessThan(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE);
   expect(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE).toBeGreaterThan(
     LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
   );
+  return extendedOnlyRange;
 }
 
 function makeStructure(
@@ -9671,7 +9675,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('keeps E29N55 low-load source-container builders acquiring before healthy-buffer build trips', () => {
-    expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+    const extendedOnlyRange = expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
 
     const source = makeSource('source1', 20, 10, 'E29N55');
     const sourceContainerSite = {
@@ -9710,7 +9714,7 @@ describe('selectWorkerTask', () => {
       pos: {
         getRangeTo: jest.fn((target: { id?: string }) => {
           const ranges: Record<string, number> = {
-            source1: LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE - 2,
+            source1: extendedOnlyRange,
             'source-container-site1': 2
           };
           return ranges[String(target.id)] ?? 99;
@@ -9730,12 +9734,12 @@ describe('selectWorkerTask', () => {
       selectedTask: 'harvest',
       targetId: 'source1',
       energy: 300,
-      range: LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE - 2
+      range: extendedOnlyRange
     });
   });
 
   it('uses reachable source-container energy before low-load critical road build trips in healthy E29N55', () => {
-    expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+    const extendedOnlyRange = expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
 
     const source = makeSource('source1', 20, 10, 'E29N55');
     const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 250, {
@@ -9779,7 +9783,7 @@ describe('selectWorkerTask', () => {
         getRangeTo: jest.fn((target: { id?: string }) => {
           const ranges: Record<string, number> = {
             'road-critical-site1': 2,
-            'source-container1': LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE - 2,
+            'source-container1': extendedOnlyRange,
             source1: LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE
           };
           return ranges[String(target.id)] ?? 99;
@@ -9799,7 +9803,7 @@ describe('selectWorkerTask', () => {
       selectedTask: 'withdraw',
       targetId: 'source-container1',
       energy: 250,
-      range: LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE - 2
+      range: extendedOnlyRange
     });
   });
 
