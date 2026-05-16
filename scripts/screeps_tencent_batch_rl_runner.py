@@ -273,7 +273,12 @@ class Controller:
         if target.is_file():
             self.record_step("map_preflight", time.time(), True, detail={"path": str(target)})
             return
-        candidates = sorted((REPO_ROOT / "runtime-artifacts").glob("**/maps/map-0b6758af.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        candidate_roots = [REPO_ROOT / "runtime-artifacts", Path("/root/screeps/runtime-artifacts")]
+        candidates = sorted(
+            {candidate for root in candidate_roots if root.exists() for candidate in root.glob("**/maps/map-0b6758af.json")},
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
         if not candidates:
             raise BatchRunError("map-0b6758af.json is missing and no runtime artifact source was found")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -337,7 +342,11 @@ class Controller:
             "host_port_start": self.args.host_port_start,
             "code_path": "prod/dist/main.js",
             "map_source_file": "maps/map-0b6758af.json",
-            "simulator_out_dir": "runtime-artifacts/rl-simulator",
+            # Keep smoke worker dirs outside the bundled repo. The private smoke
+            # harness refuses to write secrets under a non-gitignored in-repo
+            # runtime-artifacts path; the remote bundle intentionally excludes
+            # .git, so git check-ignore cannot prove safety there.
+            "simulator_out_dir": f"{self.remote_dir}/simulator-artifacts",
         })
         if self.args.variant:
             payload["strategy_variants"] = self.args.variant
@@ -516,7 +525,7 @@ set +a
 export PYTHONPATH="$PWD/scripts"
 export npm_config_jobs=1
 export SCREEPS_PRIVATE_SMOKE_HOST_PORT_START="$HOST_PORT_START"
-mkdir -p runtime-artifacts/rl-training runtime-artifacts/rl-simulator
+mkdir -p runtime-artifacts/rl-training "$REMOTE_DIR/simulator-artifacts"
 python3 scripts/screeps_rl_experiment_card.py --validate --input "$REMOTE_DIR/experiment_card.json" > "$REMOTE_DIR/card-validation.json"
 /usr/bin/time -v python3 scripts/screeps_rl_training_runner.py \
   --experiment-card "$REMOTE_DIR/experiment_card.json" \
@@ -558,7 +567,8 @@ set -euo pipefail
 cd "$REMOTE_DIR"
 tar -czf remote-artifacts.tar.gz \
   experiment_card.json card-validation.json training-summary.json training-stderr.log report-extract.json \
-  -C repo runtime-artifacts/rl-training runtime-artifacts/rl-simulator
+  -C repo runtime-artifacts/rl-training \
+  -C "$REMOTE_DIR" simulator-artifacts
 """.strip()
         self.ssh_cmd("pack_remote_artifacts", "REMOTE_DIR=" + shlex.quote(self.remote_dir) + " " + bash_lc(remote), timeout=600)
         local_tar = self.artifact_dir / "remote-artifacts.tar.gz"
