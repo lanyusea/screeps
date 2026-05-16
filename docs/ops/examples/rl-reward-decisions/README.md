@@ -15,3 +15,4 @@ Current examples:
 - `RD-0001-defense-construction.json`
 - `RD-0002-worker-load-efficiency.json`
 - `RD-0003-stuck-actionless-creeps.json`
+- `RD-0004-construction-backlog-build-zero.json`

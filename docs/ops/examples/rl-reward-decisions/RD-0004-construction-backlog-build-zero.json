@@ -1,0 +1,104 @@
+{
+  "rewardDecisionId": "RD-0004-construction-backlog-build-zero",
+  "title": "Proposal: construction neglect penalty for build-zero backlog",
+  "state": "proposed",
+  "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/1024",
+  "linkedMetricEvidence": [
+    "https://github.com/lanyusea/screeps/issues/906",
+    "https://github.com/lanyusea/screeps/issues/907",
+    "https://github.com/lanyusea/screeps/issues/924",
+    "https://github.com/lanyusea/screeps/issues/1023",
+    "Gameplay Evolution Review 2026-05-14 08:07: build=0 while constructionSiteCount=10 across ticks 917318-918948; pendingBuildProgress frozen near 13200; buildBlockedReason=build_blocked_controller_progress_preferred."
+  ],
+  "linkedDashboardPanels": [
+    "runtime summary: constructionSiteCount",
+    "runtime summary: taskCounts.build",
+    "runtime summary: constructionDeadlockTicks",
+    "planned #924 candidate-vs-baseline construction scorecard"
+  ],
+  "problemStatement": "Historical runtime evidence shows construction sites remaining visible while no workers are assigned to build. In the cited window, upgrade selection won while constructionSiteCount stayed positive and pendingBuildProgress did not move, creating a training signal that can reinforce construction deadlock.",
+  "hypothesis": "Adding a construction-neglect penalty when constructionSiteCount > 0 and taskCounts.build == 0 will create offline selection pressure against policies that ignore available construction work, while preserving higher-priority safety gates and emergency spawn/refill behavior.",
+  "currentRewardCoverage": "Runtime telemetry exposes constructionSiteCount, taskCounts.build, pendingBuildProgress, buildCarriedEnergy, buildBlockedReason, and constructionDeadlockTicks. No accepted reward component currently penalizes constructionSiteCount > 0 with taskCounts.build == 0, and this record does not authorize live reward or policy writes.",
+  "proposedChangeType": "add_component",
+  "component": "construction_neglect_penalty",
+  "direction": "lower_is_better for construction deadlock; apply a negative reward proportional to constructionSiteCount only when constructionSiteCount > 0 and taskCounts.build == 0",
+  "expectedBehaviorChange": "In offline or shadow reward evaluation, candidate policies should rank below baseline when they leave build assignment at zero while construction sites exist, and should rank above comparable policies when they assign at least one worker to build without regressing safety, territory, or resource scorecard dimensions.",
+  "riskAndRegressions": [
+    "A penalty that is too strong can over-prioritize construction over spawn refill, controller downgrade safety, or emergency recovery.",
+    "A penalty that ignores energy availability can punish correct waiting during genuine energy starvation.",
+    "A proportional site-count penalty can overreact to many low-priority sites unless scorecard validation checks construction priority and resource health."
+  ],
+  "validationWindows": [
+    {
+      "name": "historical_shadow_reward_replay",
+      "minimumDurationHours": 8,
+      "requiredEvidence": [
+        "qualifying windows where constructionSiteCount > 0",
+        "taskCounts.build distribution in those windows",
+        "constructionDeadlockTicks",
+        "pendingBuildProgress or built progress delta",
+        "buildCarriedEnergy",
+        "spawn/refill health",
+        "controller downgrade safety",
+        "liveEffect:false",
+        "officialMmoWrites:false"
+      ]
+    },
+    {
+      "name": "candidate_vs_baseline_scorecard",
+      "minimumDurationHours": 0,
+      "requiredEvidence": [
+        "#924 scorecard comparing the penalized candidate against the incumbent baseline",
+        "candidate ranking changes attributable to construction-neglect penalty",
+        "reliability non-regression",
+        "territory/resource non-regression after higher-priority gates",
+        "officialMmoWritesAllowed:false"
+      ]
+    }
+  ],
+  "acceptanceCriteria": [
+    "A #924 candidate-vs-baseline scorecard exists for the penalized reward candidate and the incumbent baseline.",
+    "In qualifying windows with constructionSiteCount > 0, the candidate keeps constructionDeadlockTicks below 100 and does not regress versus baseline.",
+    "The candidate ranking favors policies with taskCounts.build > 0 over policies with taskCounts.build == 0 when constructionSiteCount > 0 and safety, territory, and resource metrics are comparable.",
+    "Build progress, build-carried energy, or built progress improves versus baseline in qualifying construction-backlog windows.",
+    "Worker count, spawn/refill throughput, controller downgrade safety, CPU bucket, and reliability do not regress versus baseline.",
+    "All validation artifacts preserve liveEffect:false, officialMmoWrites:false, and officialMmoWritesAllowed:false."
+  ],
+  "rollbackCriteria": [
+    "Reject or reduce the penalty if spawn/refill throughput regresses versus baseline.",
+    "Reject or reduce the penalty if controller downgrade safety worsens or upgrade progress is starved during safe construction windows.",
+    "Reject or gate the penalty if it punishes correct no-build behavior during genuine energy starvation or no-valid-builder windows.",
+    "Reject the candidate if the #924 scorecard shows any reliability, territory, resource, or CPU regression that is not explicitly accepted by owner review.",
+    "Owner rejects, suspends, or supersedes the decision."
+  ],
+  "safety": {
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false,
+    "memoryWritesAllowed": false,
+    "rawMemoryWritesAllowed": false,
+    "rawCreepIntentControl": false,
+    "spawnIntentControl": false,
+    "constructionIntentControl": false,
+    "marketIntentControl": false
+  },
+  "stewardDecision": {
+    "state": "needs_shadow_scorecard",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "Proposal only. Issue #1024 supplies historical evidence; acceptance requires offline/shadow replay plus a #924 candidate-vs-baseline scorecard."
+  },
+  "ownerDecision": {
+    "state": "not_requested",
+    "decidedBy": null,
+    "decidedAt": null,
+    "notes": "No accepted reward change and no live official MMO authority."
+  },
+  "linkedPRs": [],
+  "linkedTrainingRuns": [],
+  "linkedPolicyEvaluations": [
+    "pending: #924 candidate-vs-baseline scorecard for construction-neglect penalty"
+  ],
+  "createdAt": "2026-05-16T00:00:00Z",
+  "updatedAt": "2026-05-16T00:00:00Z"
+}

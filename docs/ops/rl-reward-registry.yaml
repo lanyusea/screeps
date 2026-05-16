@@ -7,7 +7,7 @@ schema:
   replaces:
     - "https://github.com/lanyusea/screeps/issues/907"
   created_date: "2026-05-13"
-  updated_date: "2026-05-13"
+  updated_date: "2026-05-16"
   status: "active"
   canonical_path: "docs/ops/rl-reward-registry.yaml"
 
@@ -175,6 +175,61 @@ entries:
     scope: "offline/shadow only until approved"
     current_code_reference: "prod/src/telemetry/behaviorTelemetry.ts records stuckTicks; no reward component found"
     notes: "This replaces the prior verify-stuck-penalty proposal with an explicit new proposed penalty."
+
+  - id: "RRD-2026-05-14-1024"
+    component_name: "constructionNeglectPenalty"
+    version: "v1"
+    change_type: "add"
+    component_kind: "penalty"
+    priority: "P1"
+    status: "proposed"
+    candidate_weight: null
+    candidate_formula: "negative reward proportional to constructionSiteCount when constructionSiteCount > 0 and taskCounts.build == 0"
+    candidate_predicate:
+      constructionSiteCount_gt: 0
+      taskCounts_build_eq: 0
+    evidence:
+      - "Issue #1024: build=0 while constructionSiteCount=10 across ticks 917318-918948."
+      - "Issue #1024: workers were dispatched to upgrade with buildBlockedReason=build_blocked_controller_progress_preferred while 10 construction sites existed."
+      - "Issue #1024: pendingBuildProgress was frozen near 13200 for an extended window."
+    hypothesis: >
+      Penalizing build=0 while construction sites exist will create offline
+      selection pressure against upgrade-preferred construction deadlock and
+      favor policies that assign at least one worker to build during buildable
+      windows, without bypassing higher-priority survival and resource gates.
+    validation_criteria:
+      - "Run historical shadow reward replay on windows where constructionSiteCount > 0."
+      - "#924 candidate-vs-baseline scorecard shows the penalized candidate ranks construction-assigning policies above build-zero policies under comparable safety, territory, and resource evidence."
+      - "constructionDeadlockTicks stays below 100 and does not regress versus baseline in qualifying windows."
+      - "Build progress, built progress, or buildCarriedEnergy improves versus baseline."
+      - "Worker count, spawn/refill throughput, controller downgrade safety, CPU bucket, reliability, territory, and resource metrics do not regress versus baseline."
+      - "Validation artifacts preserve liveEffect=false, officialMmoWrites=false, and officialMmoWritesAllowed=false."
+    rollback_condition:
+      - "Reject or reduce the penalty if workers over-prioritize construction at the expense of spawn/refill throughput."
+      - "Reject or reduce the penalty if controller downgrade safety or necessary upgrade progress regresses."
+      - "Reject or gate the penalty if it punishes valid no-build behavior during energy starvation or no-valid-builder windows."
+      - "Reject the candidate if the #924 scorecard reports reliability, territory, resource, or CPU regression not explicitly accepted by owner review."
+    linked_github_issue: "https://github.com/lanyusea/screeps/issues/1024"
+    related_github_issues:
+      - "https://github.com/lanyusea/screeps/issues/907"
+      - "https://github.com/lanyusea/screeps/issues/924"
+      - "https://github.com/lanyusea/screeps/issues/1023"
+      - "https://github.com/lanyusea/screeps/issues/906"
+    proposed_by: "Issue #1024; Gameplay Evolution Review 2026-05-14 08:07; RL Steward intake"
+    created_date: "2026-05-16"
+    scope: "offline/shadow reward decision only; no learned-policy live official MMO control"
+    safety:
+      liveEffect: false
+      officialMmoWrites: false
+      officialMmoWritesAllowed: false
+      memoryWritesAllowed: false
+      rawMemoryWritesAllowed: false
+      rawCreepIntentControl: false
+      spawnIntentControl: false
+      constructionIntentControl: false
+      marketIntentControl: false
+    decision_record: "docs/ops/examples/rl-reward-decisions/RD-0004-construction-backlog-build-zero.json"
+    notes: "This proposed registry entry does not authorize live reward defaults or official MMO writes."
 
   - id: "RRD-2026-05-13-003"
     component_name: "lowLoadHarvestPenalty"
