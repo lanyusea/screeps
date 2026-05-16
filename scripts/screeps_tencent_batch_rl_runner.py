@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -307,10 +308,7 @@ class Controller:
         )
         policies = data.get("SecurityGroupPolicySet", {})
         ingress = policies.get("Ingress") or []
-        allowed = [p for p in ingress if str(p.get("Protocol", "")).lower() == "tcp" and str(p.get("Port")) == "22"]
-        bad = [p for p in allowed if p.get("CidrBlock") != self.args.controller_ip]
-        if bad or len(allowed) != 1:
-            raise BatchRunError(f"security group SSH ingress is not controller-only: {allowed}")
+        allowed = validate_controller_only_sg_ssh_ingress(ingress, self.args.controller_ip)
         self.result["securityGroup"] = {"id": self.args.security_group_id, "sshIngress": allowed}
 
     def generate_experiment_card(self) -> None:
@@ -460,8 +458,7 @@ printf 'sshd='; sudo sshd -T 2>/dev/null | egrep '^(passwordauthentication|kbdin
 """.strip()
         cp = self.ssh_cmd("verify_worker_security", bash_lc(cmd), timeout=180)
         out = cp.stdout
-        if f"-s {self.args.controller_ip}" not in out and self.args.controller_ip not in out:
-            raise BatchRunError("worker iptables does not show controller-only SSH source")
+        validate_controller_only_worker_ssh(out, self.args.controller_ip)
         if "passwordauthentication no" not in out.lower():
             raise BatchRunError("worker sshd does not report passwordauthentication no")
         self.result["workerSecurity"] = {"summary": out[-3000:]}
@@ -570,12 +567,11 @@ tar -czf remote-artifacts.tar.gz \
         if extract_dir.exists():
             subprocess.run(["rm", "-rf", str(extract_dir)], check=True)
         extract_dir.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(local_tar, "r:gz") as tar:
-            tar.extractall(extract_dir)
+        safe_extract_tar(local_tar, extract_dir)
         self.result["remoteArtifacts"] = {"tarball": str(local_tar), "extractDir": str(extract_dir), "bytes": local_tar.stat().st_size}
 
     def verify_remote_training_report(self) -> None:
-        report = self.artifact_dir / "remote" / "repo" / "runtime-artifacts" / "rl-training" / f"{self.run_id}.json"
+        report = remote_training_report_path(self.artifact_dir, self.run_id)
         if not report.is_file():
             raise BatchRunError(f"remote training report missing after collection: {report}")
         data = json.loads(report.read_text(encoding="utf-8"))
@@ -628,6 +624,8 @@ tar -czf remote-artifacts.tar.gz \
             )
             ok = cp.returncode == 0
             last_seen: dict[str, Any] = {}
+            if not ok:
+                raise BatchRunError(f"scale_down failed with exit {cp.returncode}: {tail_text(cp.stderr or cp.stdout)}")
             if ok:
                 deadline = time.time() + self.args.scale_down_timeout_seconds
                 while time.time() < deadline:
@@ -692,6 +690,187 @@ def unwrap_response(data: Any) -> dict[str, Any]:
     if isinstance(data, dict):
         return data
     return {}
+
+
+def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
+    return artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{run_id}.json"
+
+
+def port_includes_ssh(port: Any) -> bool:
+    if port is None:
+        return True
+    text = str(port).strip().lower()
+    if text in {"", "all", "any", "-1"}:
+        return True
+    for token in re.split(r"[\s,;]+", text):
+        if not token:
+            continue
+        if token == "22":
+            return True
+        if "-" in token:
+            start, end = token.split("-", 1)
+            if start.isdigit() and end.isdigit() and int(start) <= 22 <= int(end):
+                return True
+    return False
+
+
+def protocol_includes_tcp(protocol: Any) -> bool:
+    text = str(protocol or "").strip().lower()
+    return text in {"", "tcp", "all", "any", "-1"}
+
+
+def rule_action_allows(rule: dict[str, Any]) -> bool:
+    action = str(rule.get("Action", "ACCEPT")).strip().upper()
+    return action in {"", "ACCEPT", "ALLOW"}
+
+
+def sg_rule_allows_ssh(rule: dict[str, Any]) -> bool:
+    return rule_action_allows(rule) and protocol_includes_tcp(rule.get("Protocol")) and port_includes_ssh(rule.get("Port"))
+
+
+def sg_rule_sources(rule: dict[str, Any]) -> list[str]:
+    sources: list[str] = []
+    for key in ("CidrBlock", "Ipv6CidrBlock", "SourceCidrIp", "SourceCidrIpv6"):
+        value = rule.get(key)
+        if value:
+            sources.append(str(value).strip())
+    return sources or ["<unspecified>"]
+
+
+def validate_controller_only_sg_ssh_ingress(ingress: Sequence[Any], controller_ip: str) -> list[dict[str, Any]]:
+    ssh_rules = [rule for rule in ingress if isinstance(rule, dict) and sg_rule_allows_ssh(rule)]
+    bad = [rule for rule in ssh_rules if set(sg_rule_sources(rule)) != {controller_ip}]
+    if bad or len(ssh_rules) != 1:
+        raise BatchRunError(f"security group SSH ingress is not controller-only: {ssh_rules}")
+    return ssh_rules
+
+
+def extract_iptables_input_rules(output: str) -> list[str]:
+    iptables_line = ""
+    for line in output.splitlines():
+        if line.startswith("iptables="):
+            iptables_line = line.removeprefix("iptables=")
+            break
+    source = iptables_line or output
+    return [rule.strip() for rule in re.split(r"[;\n]+", source) if rule.strip()]
+
+
+def token_value(tokens: Sequence[str], *names: str) -> str | None:
+    for index, token in enumerate(tokens[:-1]):
+        if token in names:
+            return tokens[index + 1]
+    return None
+
+
+def iptables_jump(tokens: Sequence[str]) -> str | None:
+    value = token_value(tokens, "-j", "--jump")
+    return value.upper() if value else None
+
+
+def iptables_source(tokens: Sequence[str]) -> str | None:
+    return token_value(tokens, "-s", "--source")
+
+
+def iptables_input_rule_tokens(rule: str) -> list[str] | None:
+    try:
+        tokens = shlex.split(rule)
+    except ValueError:
+        return None
+    if len(tokens) < 3 or tokens[0] not in {"-A", "-I"} or tokens[1] != "INPUT":
+        return None
+    return tokens
+
+
+def iptables_policy(tokens: Sequence[str]) -> str | None:
+    if len(tokens) >= 3 and tokens[0] == "-P" and tokens[1] == "INPUT":
+        return tokens[2].upper()
+    return None
+
+
+def iptables_rule_permits_new_ssh(tokens: Sequence[str]) -> bool:
+    if token_value(tokens, "-i", "--in-interface") == "lo":
+        return False
+    ctstate = token_value(tokens, "--ctstate")
+    if ctstate:
+        states = {state.strip().upper() for state in ctstate.split(",")}
+        if "NEW" not in states and states & {"ESTABLISHED", "RELATED"}:
+            return False
+    if not protocol_includes_tcp(token_value(tokens, "-p", "--protocol")):
+        return False
+    ports = [
+        tokens[index + 1]
+        for index, token in enumerate(tokens[:-1])
+        if token in {"--dport", "--destination-port", "--dports", "--destination-ports"}
+    ]
+    return any(port_includes_ssh(port) for port in ports) if ports else True
+
+
+def validate_controller_only_worker_ssh(output: str, controller_ip: str) -> None:
+    rules = extract_iptables_input_rules(output)
+    if not rules:
+        raise BatchRunError("worker iptables output is empty")
+    controller_accepts: list[str] = []
+    broad_accepts: list[str] = []
+    has_ssh_closure = False
+    for rule in rules:
+        try:
+            tokens = shlex.split(rule)
+        except ValueError:
+            raise BatchRunError(f"worker iptables rule is not parseable: {rule}") from None
+        policy = iptables_policy(tokens)
+        if policy in {"DROP", "REJECT"}:
+            has_ssh_closure = True
+            continue
+        input_tokens = iptables_input_rule_tokens(rule)
+        if input_tokens is None or not iptables_rule_permits_new_ssh(input_tokens):
+            continue
+        jump = iptables_jump(input_tokens)
+        source = iptables_source(input_tokens)
+        if jump == "ACCEPT":
+            if source == controller_ip:
+                controller_accepts.append(rule)
+            else:
+                broad_accepts.append(rule)
+        elif jump in {"DROP", "REJECT"} and source in {None, "0.0.0.0/0", "0.0/0", "::/0"}:
+            has_ssh_closure = True
+    if not controller_accepts or broad_accepts or not has_ssh_closure:
+        raise BatchRunError(
+            "worker SSH ingress is not controller-only: "
+            + json.dumps({"controllerAccepts": controller_accepts, "broadAccepts": broad_accepts, "hasSshClosure": has_ssh_closure}, sort_keys=True)
+        )
+
+
+def validate_tar_member(member: tarfile.TarInfo, extract_dir: Path) -> Path:
+    if member.issym() or member.islnk() or member.isdev():
+        raise BatchRunError(f"refusing unsafe archive member type: {member.name}")
+    if not member.isdir() and not member.isfile():
+        raise BatchRunError(f"refusing unsupported archive member type: {member.name}")
+    member_path = Path(member.name)
+    if member_path.is_absolute() or ".." in member_path.parts:
+        raise BatchRunError(f"refusing archive traversal entry: {member.name}")
+    base = extract_dir.resolve()
+    target = (base / member.name).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        raise BatchRunError(f"refusing archive entry outside extraction dir: {member.name}") from None
+    return target
+
+
+def safe_extract_tar(tar_path: Path, extract_dir: Path) -> None:
+    with tarfile.open(tar_path, "r:gz") as tar:
+        members = tar.getmembers()
+        targets = [(member, validate_tar_member(member, extract_dir)) for member in members]
+        for member, target in targets:
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            source = tar.extractfile(member)
+            if source is None:
+                raise BatchRunError(f"archive member is not readable: {member.name}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source, target.open("wb") as out:
+                shutil.copyfileobj(source, out)
 
 
 def parse_tencent_activity_time(value: Any) -> float | None:
