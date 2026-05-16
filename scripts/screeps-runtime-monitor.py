@@ -3304,6 +3304,8 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
     source = payload.get("source")
     if isinstance(source, str) and source:
         result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = source
+    elif path.name.startswith("runtime-summary-monitor-"):
+        result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = MONITOR_RUNTIME_SUMMARY_SOURCE
     return result
 
 

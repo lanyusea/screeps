@@ -1747,10 +1747,9 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
         self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
 
-    def test_monitor_summary_without_assignment_evidence_does_not_sustain_worker_gap(self) -> None:
+    def test_legacy_monitor_summary_without_assignment_evidence_does_not_sustain_worker_gap(self) -> None:
         monitor_payload = {
             "type": "runtime-summary",
-            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
             "tick": 999271,
             "rooms": [
                 {
