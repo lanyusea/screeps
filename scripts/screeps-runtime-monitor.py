@@ -51,6 +51,11 @@ WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+BUILD_BLOCKED_REASON_PATHS = (
+    ("buildBlockedReason",),
+    ("resources", "productiveEnergy", "buildBlockedReason"),
+    ("construction", "buildBlockedReason"),
+)
 WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
     "name",
     "task",
@@ -1432,11 +1437,7 @@ def tick_number(value: Any) -> int | None:
 def runtime_build_blocked_reason(room: dict[str, Any] | None) -> str | None:
     if not isinstance(room, dict):
         return None
-    for path in (
-        ("buildBlockedReason",),
-        ("resources", "productiveEnergy", "buildBlockedReason"),
-        ("construction", "buildBlockedReason"),
-    ):
+    for path in BUILD_BLOCKED_REASON_PATHS:
         value = nested_value(room, *path)
         if isinstance(value, str) and value:
             return value
@@ -1462,13 +1463,38 @@ def runtime_assigned_worker_task_count(room: dict[str, Any]) -> int | float:
     return sum(number_value(task_counts.get(task_name)) or 0 for task_name in ASSIGNED_WORKER_TASK_NAMES)
 
 
+def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("assignedWorkerCount",),
+        ("resources", "productiveEnergy", "assignedWorkerCount"),
+        ("productiveEnergy", "assignedWorkerCount"),
+    )
+
+
 def runtime_worker_assignment_recovered(room: dict[str, Any] | None) -> bool:
     if not isinstance(room, dict):
         return False
     worker_count = number_value(room.get("workerCount"))
     if worker_count is not None and worker_count <= 0:
         return False
-    return runtime_assigned_worker_task_count(room) > 0
+    productive_worker_count = runtime_assigned_productive_worker_count(room)
+    deadlock_ticks = runtime_construction_deadlock_ticks(room)
+    return (
+        runtime_assigned_worker_task_count(room) > 0
+        or (productive_worker_count is not None and productive_worker_count > 0)
+        or (deadlock_ticks is not None and deadlock_ticks <= 0)
+    )
+
+
+def runtime_reports_worker_assignment_gap(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    return any(nested_value(room, *path) == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON for path in BUILD_BLOCKED_REASON_PATHS)
+
+
+def runtime_worker_assignment_gap_recovered(room: dict[str, Any] | None) -> bool:
+    return not runtime_reports_worker_assignment_gap(room) and runtime_worker_assignment_recovered(room)
 
 
 def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
@@ -1501,9 +1527,11 @@ def worker_assignment_gap_active(
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
         site_count = len(metrics.construction_sites)
-    if runtime_worker_assignment_recovered(runtime_room):
-        return False, None, site_count
     blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
+    if runtime_reports_worker_assignment_gap(runtime_room):
+        blocked_reason = WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    elif runtime_worker_assignment_gap_recovered(runtime_room):
+        return False, None, site_count
     return blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON and site_count > 0, blocked_reason, site_count
 
 

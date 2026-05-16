@@ -200,6 +200,26 @@ def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot
     )
 
 
+def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
+    return monitor.RoomSummaryMetrics(
+        structures=[],
+        controller_summary={},
+        owned_creep_objects=[],
+        task_counts={"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0},
+        construction_sites=[{"type": "constructionSite"}],
+        pending_build_progress=50,
+        build_carried_energy=0,
+        build_blocked_reason=monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+        construction_deadlock_ticks=1,
+        extension_count=1,
+        extension_capacity_contribution=50,
+        stored_energy=0,
+        cpu_used=None,
+        cpu_bucket=None,
+        rcl_level=2,
+    )
+
+
 class WorldProfileDefaultsTest(unittest.TestCase):
     def test_persistent_profile_preserves_monitor_defaults(self) -> None:
         self.assertEqual(monitor.DEFAULT_OUT_DIR, Path("/root/screeps/runtime-artifacts/screeps-monitor"))
@@ -1251,12 +1271,10 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     "taskCounts": {"harvest": 2, "transfer": 0, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
                     "constructionSiteCount": 11,
                     "constructionDeadlockTicks": 0,
-                    "buildBlockedReason": None,
                     "resources": {
                         "productiveEnergy": {
                             "constructionSiteCount": 11,
                             "constructionDeadlockTicks": 0,
-                            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
                         }
                     },
                 }
@@ -1300,7 +1318,8 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         runtime_room = runtime_rooms["shardX/E29N55"]
         self.assertEqual(runtime_room["taskCounts"]["harvest"], 2)
         self.assertEqual(runtime_room["constructionDeadlockTicks"], 0)
-        self.assertIsNone(runtime_room["buildBlockedReason"])
+        self.assertIsNone(runtime_room.get("buildBlockedReason"))
+        self.assertNotIn("buildBlockedReason", runtime_room["resources"]["productiveEnergy"])
 
         snapshot = monitor.RoomSnapshot(
             ref=monitor.RoomRef(shard="shardX", room="E29N55"),
@@ -1376,6 +1395,38 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
         self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
+    def test_live_productive_energy_worker_assignment_gap_stays_active_with_other_tasks(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            "workerCount": 3,
+            "taskCounts": {"harvest": 1, "transfer": 1, "build": 0, "repair": 0, "upgrade": 1, "none": 0},
+            "constructionSiteCount": 11,
+            "constructionDeadlockTicks": 2,
+            "resources": {
+                "productiveEnergy": {
+                    "assignedWorkerCount": 1,
+                    "constructionSiteCount": 11,
+                    "constructionDeadlockTicks": 2,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                }
+            },
+        }
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1099, "consecutive_ticks": 99},
+            1101,
+        )
+
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(next_state["consecutive_ticks"], 101)
 
     def test_room_only_console_summary_does_not_match_ambiguous_tracked_shards(self) -> None:
         payload = {
