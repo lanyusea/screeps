@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -18,9 +19,20 @@ TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
+DEFAULT_STRATEGY_VARIANTS = (
+    "construction-priority.incumbent.v1",
+    "construction-priority.territory-shadow.v1",
+    "expansion-remote.incumbent.v1",
+    "expansion-remote.territory-shadow.v1",
+)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SIMULATION_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
+DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
+DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
 
 JsonObject = dict[str, Any]
 
@@ -93,6 +105,20 @@ def safety_block() -> JsonObject:
     }
 
 
+def simulation_block() -> JsonObject:
+    return {
+        "branch": "$activeWorld",
+        "code_path": str(DEFAULT_SIMULATION_CODE_PATH),
+        "map_source_file": str(DEFAULT_SIMULATION_MAP_SOURCE_FILE),
+        "repetitions": 1,
+        "room": "E1S1",
+        "shard": "shardX",
+        "simulator_out_dir": str(DEFAULT_SIMULATION_OUT_DIR),
+        "ticks": 50,
+        "workers": 1,
+    }
+
+
 def build_card(
     *,
     dataset_run_id: str,
@@ -110,11 +136,18 @@ def build_card(
     card = {
         "card_id": f"rl-exp-{dataset_run_id}-{commit_prefix}",
         "code_commit": code_commit.lower(),
+        "conservative_actions_only": True,
         "created_at": created_at,
         "dataset_run_id": dataset_run_id,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "ood_rejection": True,
         "reward_model": reward_model(),
         "safety": safety_block(),
+        "simulation": simulation_block(),
         "status": "shadow",
+        "strategy_variants": list(DEFAULT_STRATEGY_VARIANTS),
         "training_approach": training_approach,
     }
     validate_card(card)
@@ -168,6 +201,8 @@ def validate_card(raw: Any) -> None:
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
+    validate_strategy_variants(first_present(raw, ("strategy_variants", "strategyVariants", "variants")))
+    validate_simulation(first_present(raw, ("simulation", "simulator")))
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -216,6 +251,65 @@ def validate_reward_model(raw: Any) -> None:
         raise CardValidationError("reward_model weights must be strictly lexicographic")
     if raw.get("scalar_weighted_sum_authorized") is not False:
         raise CardValidationError("reward_model.scalar_weighted_sum_authorized must be false")
+
+
+def validate_strategy_variants(raw: Any) -> None:
+    if not isinstance(raw, list) or len(raw) == 0:
+        raise CardValidationError("strategy_variants must contain at least one registry id or inline variant")
+    for index, item in enumerate(raw):
+        if isinstance(item, str):
+            validate_strategy_id(item, f"strategy_variants[{index}]")
+            continue
+        if not isinstance(item, dict):
+            raise CardValidationError(f"strategy_variants[{index}] must be a string or JSON object")
+        variant_id = item.get("id")
+        if not isinstance(variant_id, str) or not variant_id:
+            raise CardValidationError(f"strategy_variants[{index}].id must be a non-empty string")
+        validate_strategy_id(variant_id, f"strategy_variants[{index}].id")
+
+
+def validate_strategy_id(value: str, label: str) -> None:
+    if not STRATEGY_ID_RE.fullmatch(value) or value in {".", ".."}:
+        raise CardValidationError(f"{label} may contain only letters, numbers, dot, colon, underscore, and hyphen")
+
+
+def first_present(raw: JsonObject, keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in raw:
+            return raw[key]
+    return None
+
+
+def validate_simulation(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError("simulation must be a JSON object")
+    for field in ("ticks", "workers", "repetitions"):
+        if positive_int(raw.get(field)) is None:
+            raise CardValidationError(f"simulation.{field} must be a positive integer")
+    host_port_start = first_present(raw, ("host_port_start", "hostPortStart"))
+    if host_port_start is not None and positive_int(host_port_start) is None:
+        raise CardValidationError("simulation.host_port_start must be a positive integer")
+    for field, aliases in (
+        ("room", ("room",)),
+        ("shard", ("shard",)),
+        ("branch", ("branch",)),
+        ("code_path", ("code_path", "codePath")),
+        ("map_source_file", ("map_source_file", "mapSourceFile")),
+        ("simulator_out_dir", ("simulator_out_dir", "simulatorOutDir")),
+    ):
+        value = first_present(raw, aliases)
+        if not isinstance(value, str) or not value:
+            raise CardValidationError(f"simulation.{field} must be a non-empty string")
+
+
+def positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer() and value > 0:
+        return int(value)
+    return None
 
 
 def write_output(payload: Any, output: Path | None, stdout: TextIO) -> None:
