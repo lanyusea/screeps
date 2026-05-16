@@ -354,6 +354,55 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('keeps stale E29N55 scout-only expansion intel out of reserve planning', () => {
+    const colony = makeSafeColony({ roomName: 'E29N55' });
+    const gameTime = 6_700;
+    const staleIntelUpdatedAt = gameTime - TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS - 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N54': makeScoutIntel('E29N54', staleIntelUpdatedAt, {
+            colony: 'E29N55',
+            controller: { id: 'controller-E29N54' as Id<StructureController>, my: false }
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, gameTime)
+    ).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N54',
+      action: 'scout'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N54',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: gameTime
+      }
+    ]);
+  });
+
   it('refreshes stale expansion candidate scout intel before generic adjacent scouting', () => {
     const colony = makeSafeColony();
     const gameTime = 2_000;
