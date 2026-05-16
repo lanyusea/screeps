@@ -691,7 +691,12 @@ def unsafe_simulator_flags(payload: JsonObject, label: str) -> list[str]:
     for field in ("liveEffect", "live_effect"):
         if payload.get(field) is True:
             unsafe.append(f"{label}.{field}=true")
-    for field in ("officialMmoWrites", "official_mmo_writes"):
+    for field in (
+        "officialMmoWrites",
+        "official_mmo_writes",
+        "officialMmoWritesAllowed",
+        "official_mmo_writes_allowed",
+    ):
         if payload.get(field) is True:
             unsafe.append(f"{label}.{field}=true")
     return unsafe

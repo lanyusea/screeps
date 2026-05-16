@@ -813,26 +813,29 @@ export const STRATEGY_REGISTRY = [
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
         candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
 
-        class UnsafeSimulator(MockSimulator):
-            def __call__(self, **kwargs: Any) -> JsonObject:
-                result = super().__call__(**kwargs)
-                result["liveEffect"] = True
-                return result
+        for unsafe_field in ("liveEffect", "officialMmoWritesAllowed", "official_mmo_writes_allowed"):
+            with self.subTest(unsafe_field=unsafe_field), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+                report_id = f"unsafe-{unsafe_field}"
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            card_path = root / "card.json"
-            out_dir = root / "reports"
-            write_json(card_path, base_card())
-            with self.assertRaisesRegex(RuntimeError, "liveEffect=true"):
-                runner.run_training_experiment(
-                    card_path,
-                    out_dir,
-                    report_id="unsafe-flags",
-                    simulator_runner=UnsafeSimulator({"baseline": baseline, "candidate": candidate}),
-                )
+                class UnsafeSimulator(MockSimulator):
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        result = super().__call__(**kwargs)
+                        result[unsafe_field] = True
+                        return result
 
-            self.assertFalse((out_dir / "unsafe-flags.json").exists())
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, f"{unsafe_field}=true"):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=UnsafeSimulator({"baseline": baseline, "candidate": candidate}),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
 
     def test_final_report_secret_scan_includes_steam_key_variant_errors(self) -> None:
         secret = "steam-secret-token-123456"
