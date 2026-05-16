@@ -61,6 +61,21 @@ BUILD_BLOCKED_REASON_PATHS = (
     ("resources", "productiveEnergy", "buildBlockedReason"),
     ("construction", "buildBlockedReason"),
 )
+WORKER_ASSIGNMENT_EVIDENCE_AVAILABLE_PATHS = (
+    ("workerAssignmentEvidenceAvailable",),
+    ("resources", "productiveEnergy", "workerAssignmentEvidenceAvailable"),
+    ("productiveEnergy", "workerAssignmentEvidenceAvailable"),
+)
+WORKER_ASSIGNMENT_BLOCKED_DETAIL_EVIDENCE_PATHS = (
+    ("workerAssignmentBlockedDetail",),
+    ("resources", "productiveEnergy", "workerAssignmentBlockedDetail"),
+    ("productiveEnergy", "workerAssignmentBlockedDetail"),
+)
+WORKER_ASSIGNMENT_BLOCKED_WORKERS_EVIDENCE_PATHS = (
+    ("workerAssignmentBlockedWorkers",),
+    ("resources", "productiveEnergy", "workerAssignmentBlockedWorkers"),
+    ("productiveEnergy", "workerAssignmentBlockedWorkers"),
+)
 WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
     "name",
     "task",
@@ -1488,14 +1503,19 @@ def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | floa
 def runtime_worker_assignment_evidence_available(room: dict[str, Any] | None) -> bool:
     if not isinstance(room, dict):
         return True
-    for path in (
-        ("workerAssignmentEvidenceAvailable",),
-        ("resources", "productiveEnergy", "workerAssignmentEvidenceAvailable"),
-        ("productiveEnergy", "workerAssignmentEvidenceAvailable"),
-    ):
+    for path in WORKER_ASSIGNMENT_EVIDENCE_AVAILABLE_PATHS:
         value = nested_value(room, *path)
         if isinstance(value, bool):
             return value
+    for path in WORKER_ASSIGNMENT_BLOCKED_DETAIL_EVIDENCE_PATHS:
+        if string_value(nested_value(room, *path)) is not None:
+            return True
+    for path in WORKER_ASSIGNMENT_BLOCKED_WORKERS_EVIDENCE_PATHS:
+        value = nested_value(room, *path)
+        if not isinstance(value, list):
+            continue
+        if any(sanitized_worker_assignment_blocked_worker(item) is not None for item in value):
+            return True
     return room.get(RUNTIME_SUMMARY_SOURCE_METADATA_KEY) != MONITOR_RUNTIME_SUMMARY_SOURCE
 
 
