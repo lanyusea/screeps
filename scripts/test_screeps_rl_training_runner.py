@@ -45,11 +45,12 @@ def base_card(variant_ids: list[str] | None = None) -> JsonObject:
         },
         "reward_model": {
             "type": "lexicographic",
-            "component_order": ["territory", "resources", "kills"],
+            "component_order": ["reliability", "territory", "resources", "kills"],
             "component_weights": {
-                "territory": 1000000,
-                "resources": 1000,
-                "kills": 1,
+                "alpha_reliability": 1000000000,
+                "beta_territory": 1000000,
+                "gamma_resources": 1000,
+                "delta_kills": 1,
             },
             "resource_normalizer": 1000,
             "scalar_weighted_sum_authorized": False,
@@ -162,6 +163,25 @@ class RequiredSteamKeySimulator(MockSimulator):
 
 
 class RlTrainingRunnerTest(unittest.TestCase):
+    def test_experiment_card_validation_requires_conservative_and_ood_safety_flags(self) -> None:
+        for field in ("conservative_actions_only", "ood_rejection"):
+            with self.subTest(field=field):
+                card = base_card()
+                del card["safety"][field]
+
+                with self.assertRaisesRegex(runner.TrainingCardError, f"safety.{field} must be true"):
+                    runner.validate_experiment_card(card)
+
+    def test_experiment_card_validation_rejects_missing_reliability_reward_tier(self) -> None:
+        card = base_card()
+        card["reward_model"]["component_order"] = ["territory", "resources", "kills"]
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "reward_model.component_order must preserve reliability, territory, resources, kills",
+        ):
+            runner.validate_experiment_card(card)
+
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
         file_secret = "file-secret-token-123456"
@@ -364,7 +384,11 @@ class RlTrainingRunnerTest(unittest.TestCase):
 
         self.assertEqual(report["ranking"][0]["variantId"], "candidate")
         self.assertEqual(report["variantResults"][1]["reward"]["tuple"][0], 1)
-        self.assertGreater(report["variantResults"][0]["reward"]["tuple"][1], report["variantResults"][1]["reward"]["tuple"][1])
+        self.assertEqual(report["variantResults"][1]["reward"]["tuple"][1], 1)
+        self.assertGreater(
+            report["variantResults"][0]["reward"]["tuple"][2],
+            report["variantResults"][1]["reward"]["tuple"][2],
+        )
         comparison = report["statisticalComparison"]["pairwise"][0]
         self.assertEqual(comparison["winner"], "candidate")
         self.assertEqual(comparison["firstDifferingTier"], "territory")
@@ -389,7 +413,8 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(metrics["territory"]["delta"], -1)
         self.assertEqual(metrics["territory"]["roomsLost"], 1)
         self.assertEqual(metrics["territory"]["collapsedClaimedRooms"], ["W1N2"])
-        self.assertEqual(metrics["rewardTuple"][0], -1)
+        self.assertEqual(metrics["rewardTuple"][0], 1)
+        self.assertEqual(metrics["rewardTuple"][1], -1)
 
     def test_run_metrics_prefer_harness_room_states_over_aggregate_room_counters(self) -> None:
         run = variant_result("candidate", [])
@@ -423,6 +448,7 @@ safety:
 reward_model:
   type: lexicographic
   component_order:
+    - reliability
     - territory
     - resources
     - kills
@@ -529,7 +555,8 @@ export const STRATEGY_REGISTRY = [
             )
 
         self.assertEqual(report["ranking"][0]["variantId"], "candidate")
-        self.assertEqual(report["ranking"][0]["rewardTuple"][0], 0)
+        self.assertEqual(report["ranking"][0]["rewardTuple"][0], 1)
+        self.assertEqual(report["ranking"][0]["rewardTuple"][1], 0)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["firstDifferingTier"], "resources")
 
     def test_equal_reward_tuple_does_not_count_as_top_change(self) -> None:
@@ -587,10 +614,216 @@ export const STRATEGY_REGISTRY = [
         candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
         self.assertEqual(candidate_result["sampleCount"], 0)
         self.assertEqual(candidate_result["excludedRunCount"], 1)
-        self.assertEqual(candidate_result["reward"]["samples"], [])
+        self.assertEqual(candidate_result["metrics"]["reliability"]["score"], 0)
+        self.assertEqual(candidate_result["reward"]["samples"], [[0, None, None, None]])
         self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline"])
         self.assertNotIn("candidate", report["statisticalComparison"]["componentMeans"])
-        self.assertTrue(any("excluded 1 failed simulator run" in warning for warning in report["warnings"]))
+        self.assertTrue(
+            any(
+                "excluded 1 failed simulator run(s) from sampleCount and non-reliability reward tiers; "
+                "reliability scored them as 0" in warning
+                for warning in report["warnings"]
+            )
+        )
+        self.assertFalse(any("from reward scoring" in warning for warning in report["warnings"]))
+
+    def test_reward_samples_include_failed_repetition_reliability(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        successful_candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=300)])])
+        failed_candidate = variant_result("candidate", [])
+        failed_candidate["variant_run_id"] = "run-candidate-failed"
+        failed_candidate["ok"] = False
+        failed_candidate["error"] = "simulator failed"
+
+        class FlakyRepetitionSimulator:
+            def __init__(self) -> None:
+                self.calls: list[JsonObject] = []
+
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                self.calls.append(dict(kwargs))
+                candidate = successful_candidate if len(self.calls) == 1 else failed_candidate
+                return {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": kwargs["run_id"],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [baseline, candidate],
+                }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["repetitions"] = 2
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="flaky-reliability-samples",
+                simulator_runner=FlakyRepetitionSimulator(),
+            )
+
+        candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
+        self.assertEqual(candidate_result["sampleCount"], 1)
+        self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["reward"]["tuple"][0], 0.5)
+        self.assertEqual([sample[0] for sample in candidate_result["reward"]["samples"]], [1, 0])
+        self.assertEqual(candidate_result["reward"]["samples"][1], [0, None, None, None])
+        self.assertEqual(candidate_result["reward"]["sampleStdDev"][0], 0.5)
+        self.assertEqual(candidate_result["reward"]["sampleStdDev"][1:], [0, 0, 0])
+
+    def test_missing_variant_repetition_counts_as_unreliable_attempt(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        successful_candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=10000)])])
+
+        class MissingCandidateRepetitionSimulator:
+            def __init__(self) -> None:
+                self.calls: list[JsonObject] = []
+
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                self.calls.append(dict(kwargs))
+                variants = [baseline, successful_candidate] if len(self.calls) == 1 else [baseline]
+                return {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": kwargs["run_id"],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": variants,
+                }
+
+        simulator = MissingCandidateRepetitionSimulator()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["repetitions"] = 2
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="missing-candidate-repetition",
+                simulator_runner=simulator,
+            )
+
+        candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
+        self.assertEqual(len(simulator.calls), 2)
+        self.assertEqual(candidate_result["sampleCount"], 1)
+        self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["reward"]["tuple"][0], 0.5)
+        self.assertEqual(candidate_result["metrics"]["reliability"]["score"], 0.5)
+        self.assertEqual([sample[0] for sample in candidate_result["reward"]["samples"]], [1, 0])
+        self.assertEqual(candidate_result["reward"]["samples"][1], [0, None, None, None])
+        self.assertIn("missing from simulator run", candidate_result["runs"][1]["error"])
+
+        ranking_by_variant = {item["variantId"]: item for item in report["ranking"]}
+        self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline", "candidate"])
+        self.assertEqual(ranking_by_variant["baseline"]["rank"], 1)
+        self.assertGreater(ranking_by_variant["candidate"]["rank"], ranking_by_variant["baseline"]["rank"])
+        self.assertNotEqual(ranking_by_variant["candidate"]["rewardTuple"][0], 1)
+        self.assertEqual(report["statisticalComparison"]["pairwise"][0]["winner"], "baseline")
+
+    def test_duplicate_or_unexpected_variant_rows_fail_before_report_is_persisted(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        duplicate_baseline = dict(baseline)
+        duplicate_baseline["variant_run_id"] = "run-baseline-duplicate"
+        unexpected = variant_result("intruder", [start, tick(2, [room("W1N1", energy=300)])])
+
+        cases = (
+            (
+                "duplicate-variant-row",
+                [baseline, duplicate_baseline, candidate],
+                r"duplicate-variant-row .*run_index=0.*duplicate variant id 'baseline'",
+            ),
+            (
+                "unexpected-variant-row",
+                [baseline, candidate, unexpected],
+                r"unexpected-variant-row .*run_index=0.*unexpected variant id 'intruder'",
+            ),
+        )
+        for report_id, variants, message_regex in cases:
+            with self.subTest(report_id=report_id), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+
+                class MalformedVariantSimulator:
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        return {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": kwargs["run_id"],
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": variants,
+                        }
+
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, message_regex):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=MalformedVariantSimulator(),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
+
+    def test_malformed_variant_rows_fail_before_report_is_persisted(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+
+        cases = (
+            (
+                "non-dict-variant-row",
+                [baseline, "not-a-dict", candidate],
+                r"non-dict-variant-row .*run_index=0.*variant_index=1.*raw_variant='not-a-dict'",
+            ),
+            (
+                "missing-variant-id",
+                [baseline, {"ticks": []}, candidate],
+                r"missing-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+            (
+                "empty-variant-id",
+                [baseline, {"variant_id": "", "ticks": []}, candidate],
+                r"empty-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+            (
+                "non-string-variant-id",
+                [baseline, {"variant_id": 7, "ticks": []}, candidate],
+                r"non-string-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+        )
+        for report_id, variants, message_regex in cases:
+            with self.subTest(report_id=report_id), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+
+                class MalformedVariantSimulator:
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        return {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": kwargs["run_id"],
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": variants,
+                        }
+
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, message_regex):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=MalformedVariantSimulator(),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
 
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])
@@ -616,6 +849,11 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(persisted["liveEffect"])
         self.assertFalse(persisted["officialMmoWrites"])
         self.assertFalse(persisted["safety"]["liveApiCalls"])
+        self.assertTrue(persisted["safety"]["conservative_actions_only"])
+        self.assertTrue(persisted["safety"]["ood_rejection"])
+        self.assertEqual(persisted["rewardModel"]["componentOrder"], ["reliability", "territory", "resources", "kills"])
+        self.assertEqual(persisted["variantResults"][0]["reward"]["componentOrder"], ["reliability", "territory", "resources", "kills"])
+        self.assertEqual(persisted["kpiSummary"]["reliability"]["score"], 1)
         self.assertEqual(persisted["candidateStrategyIds"], ["baseline", "candidate"])
         self.assertEqual(persisted["incumbentStrategyIds"], ["baseline"])
         self.assertIn("modelReports", persisted)
@@ -683,26 +921,29 @@ export const STRATEGY_REGISTRY = [
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
         candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
 
-        class UnsafeSimulator(MockSimulator):
-            def __call__(self, **kwargs: Any) -> JsonObject:
-                result = super().__call__(**kwargs)
-                result["liveEffect"] = True
-                return result
+        for unsafe_field in ("liveEffect", "officialMmoWritesAllowed", "official_mmo_writes_allowed"):
+            with self.subTest(unsafe_field=unsafe_field), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+                report_id = f"unsafe-{unsafe_field}"
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            card_path = root / "card.json"
-            out_dir = root / "reports"
-            write_json(card_path, base_card())
-            with self.assertRaisesRegex(RuntimeError, "liveEffect=true"):
-                runner.run_training_experiment(
-                    card_path,
-                    out_dir,
-                    report_id="unsafe-flags",
-                    simulator_runner=UnsafeSimulator({"baseline": baseline, "candidate": candidate}),
-                )
+                class UnsafeSimulator(MockSimulator):
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        result = super().__call__(**kwargs)
+                        result[unsafe_field] = True
+                        return result
 
-            self.assertFalse((out_dir / "unsafe-flags.json").exists())
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, f"{unsafe_field}=true"):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=UnsafeSimulator({"baseline": baseline, "candidate": candidate}),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
 
     def test_final_report_secret_scan_includes_steam_key_variant_errors(self) -> None:
         secret = "steam-secret-token-123456"
