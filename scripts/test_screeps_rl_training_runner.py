@@ -45,11 +45,12 @@ def base_card(variant_ids: list[str] | None = None) -> JsonObject:
         },
         "reward_model": {
             "type": "lexicographic",
-            "component_order": ["territory", "resources", "kills"],
+            "component_order": ["reliability", "territory", "resources", "kills"],
             "component_weights": {
-                "territory": 1000000,
-                "resources": 1000,
-                "kills": 1,
+                "alpha_reliability": 1000000000,
+                "beta_territory": 1000000,
+                "gamma_resources": 1000,
+                "delta_kills": 1,
             },
             "resource_normalizer": 1000,
             "scalar_weighted_sum_authorized": False,
@@ -162,6 +163,25 @@ class RequiredSteamKeySimulator(MockSimulator):
 
 
 class RlTrainingRunnerTest(unittest.TestCase):
+    def test_experiment_card_validation_requires_conservative_and_ood_safety_flags(self) -> None:
+        for field in ("conservative_actions_only", "ood_rejection"):
+            with self.subTest(field=field):
+                card = base_card()
+                del card["safety"][field]
+
+                with self.assertRaisesRegex(runner.TrainingCardError, f"safety.{field} must be true"):
+                    runner.validate_experiment_card(card)
+
+    def test_experiment_card_validation_rejects_missing_reliability_reward_tier(self) -> None:
+        card = base_card()
+        card["reward_model"]["component_order"] = ["territory", "resources", "kills"]
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "reward_model.component_order must preserve reliability, territory, resources, kills",
+        ):
+            runner.validate_experiment_card(card)
+
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
         file_secret = "file-secret-token-123456"
@@ -364,7 +384,11 @@ class RlTrainingRunnerTest(unittest.TestCase):
 
         self.assertEqual(report["ranking"][0]["variantId"], "candidate")
         self.assertEqual(report["variantResults"][1]["reward"]["tuple"][0], 1)
-        self.assertGreater(report["variantResults"][0]["reward"]["tuple"][1], report["variantResults"][1]["reward"]["tuple"][1])
+        self.assertEqual(report["variantResults"][1]["reward"]["tuple"][1], 1)
+        self.assertGreater(
+            report["variantResults"][0]["reward"]["tuple"][2],
+            report["variantResults"][1]["reward"]["tuple"][2],
+        )
         comparison = report["statisticalComparison"]["pairwise"][0]
         self.assertEqual(comparison["winner"], "candidate")
         self.assertEqual(comparison["firstDifferingTier"], "territory")
@@ -389,7 +413,8 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(metrics["territory"]["delta"], -1)
         self.assertEqual(metrics["territory"]["roomsLost"], 1)
         self.assertEqual(metrics["territory"]["collapsedClaimedRooms"], ["W1N2"])
-        self.assertEqual(metrics["rewardTuple"][0], -1)
+        self.assertEqual(metrics["rewardTuple"][0], 1)
+        self.assertEqual(metrics["rewardTuple"][1], -1)
 
     def test_run_metrics_prefer_harness_room_states_over_aggregate_room_counters(self) -> None:
         run = variant_result("candidate", [])
@@ -423,6 +448,7 @@ safety:
 reward_model:
   type: lexicographic
   component_order:
+    - reliability
     - territory
     - resources
     - kills
@@ -529,7 +555,8 @@ export const STRATEGY_REGISTRY = [
             )
 
         self.assertEqual(report["ranking"][0]["variantId"], "candidate")
-        self.assertEqual(report["ranking"][0]["rewardTuple"][0], 0)
+        self.assertEqual(report["ranking"][0]["rewardTuple"][0], 1)
+        self.assertEqual(report["ranking"][0]["rewardTuple"][1], 0)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["firstDifferingTier"], "resources")
 
     def test_equal_reward_tuple_does_not_count_as_top_change(self) -> None:
@@ -587,6 +614,7 @@ export const STRATEGY_REGISTRY = [
         candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
         self.assertEqual(candidate_result["sampleCount"], 0)
         self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["metrics"]["reliability"]["score"], 0)
         self.assertEqual(candidate_result["reward"]["samples"], [])
         self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline"])
         self.assertNotIn("candidate", report["statisticalComparison"]["componentMeans"])
@@ -616,6 +644,11 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(persisted["liveEffect"])
         self.assertFalse(persisted["officialMmoWrites"])
         self.assertFalse(persisted["safety"]["liveApiCalls"])
+        self.assertTrue(persisted["safety"]["conservative_actions_only"])
+        self.assertTrue(persisted["safety"]["ood_rejection"])
+        self.assertEqual(persisted["rewardModel"]["componentOrder"], ["reliability", "territory", "resources", "kills"])
+        self.assertEqual(persisted["variantResults"][0]["reward"]["componentOrder"], ["reliability", "territory", "resources", "kills"])
+        self.assertEqual(persisted["kpiSummary"]["reliability"]["score"], 1)
         self.assertEqual(persisted["candidateStrategyIds"], ["baseline", "candidate"])
         self.assertEqual(persisted["incumbentStrategyIds"], ["baseline"])
         self.assertIn("modelReports", persisted)

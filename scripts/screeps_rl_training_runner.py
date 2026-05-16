@@ -30,7 +30,9 @@ DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
 DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
-REWARD_TIERS = ("territory", "resources", "kills")
+REWARD_TIERS = ("reliability", "territory", "resources", "kills")
+SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
+SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
 REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 JsonObject = dict[str, Any]
@@ -200,26 +202,36 @@ def parse_yaml_card(text: str, path: Path) -> Any:
 
 
 def validate_experiment_card(card: JsonObject) -> None:
-    status = card.get("status", "shadow")
-    if status != "shadow":
+    if card.get("status") != "shadow":
         raise TrainingCardError("status must be shadow")
 
     safety = card.get("safety")
     if not isinstance(safety, dict):
         raise TrainingCardError("safety must be present and must be an object")
-    for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+    for field in SAFETY_FALSE_FIELDS:
         if safety.get(field) is not False:
             raise TrainingCardError(f"safety.{field} must be false")
         if field in card and card[field] is not False:
             raise TrainingCardError(f"{field} must be false when present")
+    for field in SAFETY_TRUE_FIELDS:
+        if safety.get(field) is not True:
+            raise TrainingCardError(f"safety.{field} must be true")
+        if field in card and card[field] is not True:
+            raise TrainingCardError(f"{field} must be true when present")
 
     reward_model = card.get("reward_model", card.get("rewardModel"))
     if not isinstance(reward_model, dict):
         raise TrainingCardError("reward_model must be present and must be an object")
+    if reward_model.get("type") != "lexicographic":
+        raise TrainingCardError("reward_model.type must be lexicographic")
     order = reward_model.get("component_order", reward_model.get("componentOrder"))
-    if order not in (list(REWARD_TIERS), ["reliability", *REWARD_TIERS]):
-        raise TrainingCardError("reward_model.component_order must preserve territory, resources, kills")
-    if reward_model.get("scalar_weighted_sum_authorized", reward_model.get("scalarWeightedSumAuthorized", False)) is True:
+    if order != list(REWARD_TIERS):
+        raise TrainingCardError("reward_model.component_order must preserve reliability, territory, resources, kills")
+    scalar_authorized = reward_model.get(
+        "scalar_weighted_sum_authorized",
+        reward_model.get("scalarWeightedSumAuthorized"),
+    )
+    if scalar_authorized is not False:
         raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false")
 
     raw_variants = raw_variant_definitions(card)
@@ -749,7 +761,7 @@ def build_training_report(
             "componentOrder": list(REWARD_TIERS),
             "resourceNormalizer": reward_options["resourceNormalizer"],
             "formula": (
-                "compare (roomsGained - roomsLost, "
+                "compare (successful simulator run share, roomsGained - roomsLost, "
                 "(storedEnergyDelta + collectedEnergy) / resourceNormalizer, "
                 "hostileKills - ownLosses) lexicographically"
             ),
@@ -807,6 +819,9 @@ def summarize_variant(
     excluded_run_count = len(runs) - len(scored_runs)
     run_metrics = [compute_run_metrics(run, reward_options) for run in scored_runs]
     reward_tuple = mean_reward_tuple(run_metrics)
+    reward_tuple[0] = reliability_score(scored_run_count=len(scored_runs), total_run_count=len(runs))
+    metrics = aggregate_metrics(run_metrics)
+    metrics["reliability"]["score"] = reward_tuple[0]
     return {
         "variantId": variant.id,
         "family": variant.family,
@@ -822,7 +837,7 @@ def summarize_variant(
             "samples": [metrics["rewardTuple"] for metrics in run_metrics],
             "sampleStdDev": reward_stddev(run_metrics),
         },
-        "metrics": aggregate_metrics(run_metrics),
+        "metrics": metrics,
         "runs": [
             {
                 "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
@@ -923,9 +938,18 @@ def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObje
         default=hostile_kills - own_losses,
     )
 
-    reward_tuple = [round_float(territory_delta), round_float(resources_delta), round_float(combat_delta)]
+    reliability = 0 if run.get("ok") is False else 1
+    reward_tuple = [
+        reliability,
+        round_float(territory_delta),
+        round_float(resources_delta),
+        round_float(combat_delta),
+    ]
     return {
         "rewardTuple": reward_tuple,
+        "reliability": {
+            "score": reliability,
+        },
         "territory": {
             "delta": round_float(territory_delta),
             "ownedRoomCount": len(survived_end),
@@ -1188,26 +1212,36 @@ def round_float(value: float | int) -> float | int:
 
 def mean_reward_tuple(metrics: Sequence[JsonObject]) -> list[float | int]:
     if not metrics:
-        return [0, 0, 0]
+        return [0 for _tier in REWARD_TIERS]
     columns = list(zip(*(metric["rewardTuple"] for metric in metrics)))
     return [round_float(statistics.fmean(float(value) for value in column)) for column in columns]
 
 
 def reward_stddev(metrics: Sequence[JsonObject]) -> list[float | int]:
     if len(metrics) <= 1:
-        return [0, 0, 0]
+        return [0 for _tier in REWARD_TIERS]
     columns = list(zip(*(metric["rewardTuple"] for metric in metrics)))
     return [round_float(statistics.pstdev(float(value) for value in column)) for column in columns]
+
+
+def reliability_score(*, scored_run_count: int, total_run_count: int) -> float | int:
+    if total_run_count <= 0:
+        return 0
+    return round_float(scored_run_count / total_run_count)
 
 
 def aggregate_metrics(metrics: Sequence[JsonObject]) -> JsonObject:
     if not metrics:
         return {
+            "reliability": empty_reliability_metrics(),
             "territory": empty_territory_metrics(),
             "resources": empty_resource_metrics(),
             "kills": empty_kill_metrics(),
         }
     return {
+        "reliability": {
+            "score": mean_component(metrics, "reliability", "score"),
+        },
         "territory": {
             "delta": mean_component(metrics, "territory", "delta"),
             "ownedRoomCount": mean_component(metrics, "territory", "ownedRoomCount"),
@@ -1250,6 +1284,10 @@ def aggregate_metrics(metrics: Sequence[JsonObject]) -> JsonObject:
             "ownLosses": mean_component(metrics, "kills", "ownLosses"),
         },
     }
+
+
+def empty_reliability_metrics() -> JsonObject:
+    return {"score": 0}
 
 
 def empty_territory_metrics() -> JsonObject:
@@ -1305,12 +1343,7 @@ def aggregate_rcl_levels(metrics: Sequence[JsonObject]) -> JsonObject:
 def rank_variant_results(results: Sequence[JsonObject]) -> list[JsonObject]:
     sorted_results = sorted(
         results,
-        key=lambda item: (
-            float(item["reward"]["tuple"][0]),
-            float(item["reward"]["tuple"][1]),
-            float(item["reward"]["tuple"][2]),
-            item["variantId"],
-        ),
+        key=lambda item: (*tuple(float(value) for value in item["reward"]["tuple"]), item["variantId"]),
         reverse=True,
     )
     ranking: list[JsonObject] = []
@@ -1351,9 +1384,8 @@ def build_pairwise_comparisons(results: Sequence[JsonObject]) -> list[JsonObject
                     "winner": winner,
                     "firstDifferingTier": first_differing_tier(left["reward"]["tuple"], right["reward"]["tuple"]),
                     "delta": {
-                        "territory": round_float(float(left["reward"]["tuple"][0]) - float(right["reward"]["tuple"][0])),
-                        "resources": round_float(float(left["reward"]["tuple"][1]) - float(right["reward"]["tuple"][1])),
-                        "kills": round_float(float(left["reward"]["tuple"][2]) - float(right["reward"]["tuple"][2])),
+                        tier: round_float(float(left["reward"]["tuple"][index]) - float(right["reward"]["tuple"][index]))
+                        for index, tier in enumerate(REWARD_TIERS)
                     },
                 }
             )
@@ -1394,6 +1426,8 @@ def compare_reward_tuples(left: Sequence[Any], right: Sequence[Any]) -> int:
 
 def first_differing_tier(left: Sequence[Any], right: Sequence[Any]) -> str | None:
     for index, tier in enumerate(REWARD_TIERS):
+        if index >= len(left) or index >= len(right):
+            return tier
         if float(left[index]) != float(right[index]):
             return tier
     return None
@@ -1467,23 +1501,31 @@ def build_kpi_summary(results: Sequence[JsonObject]) -> JsonObject:
     if not results:
         return {}
     best = rank_variant_results(results)[0]
+    reward_index = {tier: index for index, tier in enumerate(REWARD_TIERS)}
     return {
+        "reliability": {
+            "score": best["rewardTuple"][reward_index["reliability"]],
+            "components": {
+                result["variantId"]: result["metrics"]["reliability"]["score"]
+                for result in results
+            },
+        },
         "territory": {
-            "score": best["rewardTuple"][0],
+            "score": best["rewardTuple"][reward_index["territory"]],
             "components": {
                 result["variantId"]: result["metrics"]["territory"]["delta"]
                 for result in results
             },
         },
         "resources": {
-            "score": best["rewardTuple"][1],
+            "score": best["rewardTuple"][reward_index["resources"]],
             "components": {
                 result["variantId"]: result["metrics"]["resources"]["delta"]
                 for result in results
             },
         },
         "kills": {
-            "score": best["rewardTuple"][2],
+            "score": best["rewardTuple"][reward_index["kills"]],
             "components": {
                 result["variantId"]: result["metrics"]["kills"]["delta"]
                 for result in results
@@ -1529,6 +1571,8 @@ def safety_metadata() -> JsonObject:
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
+        "conservative_actions_only": True,
+        "ood_rejection": True,
         "officialMmoControl": False,
         "inputMode": "experiment card plus local private-server simulator harness output",
         "simulatorOnly": True,
