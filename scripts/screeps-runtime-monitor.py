@@ -1702,10 +1702,10 @@ def should_bypass_alert_debounce(reason: dict[str, Any]) -> bool:
 def expected_rampart_decay_delta(previous_room_state: dict[str, Any], current_tick_value: Any) -> int:
     previous_tick = tick_number(previous_room_state.get("tick"))
     current_tick = tick_number(current_tick_value)
-    if previous_tick is None or current_tick is None or current_tick < previous_tick:
-        return RAMPART_DECAY_HITS_PER_EVENT
+    if previous_tick is None or current_tick is None or current_tick <= previous_tick:
+        return 0
 
-    elapsed_ticks = max(1, current_tick - previous_tick)
+    elapsed_ticks = current_tick - previous_tick
     decay_events = max(1, (elapsed_ticks + RAMPART_DECAY_EVENT_TICKS - 1) // RAMPART_DECAY_EVENT_TICKS)
     return decay_events * RAMPART_DECAY_HITS_PER_EVENT
 
