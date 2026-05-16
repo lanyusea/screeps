@@ -1721,10 +1721,10 @@ def previous_room_state_has_recent_visible_hostiles(
         and isinstance(previous_visible_hostiles, (int, float))
         and previous_visible_hostiles > 0
     )
+    if had_visible_hostiles:
+        return True
 
     last_visible_hostile_tick = tick_number(previous_room_state.get("last_visible_hostile_tick"))
-    if last_visible_hostile_tick is None and had_visible_hostiles:
-        last_visible_hostile_tick = previous_tick
     if last_visible_hostile_tick is None:
         return False
 

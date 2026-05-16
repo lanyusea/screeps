@@ -1366,6 +1366,77 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertEqual([reason["kind"] for reason in emitted], ["structure_damage"])
 
+    def test_previous_visible_hostile_keeps_rampart_damage_alertable_beyond_recent_window(self) -> None:
+        decay = monitor.RAMPART_DECAY_HITS_PER_EVENT
+        safe_floor = monitor.RAMPART_SAFE_DECAY_HITS_FLOOR
+        healthy_hits = safe_floor + 1
+        previous_tick = 6000
+        current_tick = previous_tick + monitor.RAMPART_DECAY_RECENT_HOSTILE_TICKS + 1
+        previous = {
+            "baseline_established": True,
+            "tick": previous_tick,
+            "visible_hostile_creeps": 1,
+            "last_visible_hostile_tick": previous_tick,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": healthy_hits + decay,
+                    "hitsMax": 300000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": healthy_hits,
+                    "hitsMax": 300000,
+                },
+            },
+            tick=current_tick,
+        )
+
+        self.assertGreater(current_tick - previous_tick, monitor.RAMPART_DECAY_RECENT_HOSTILE_TICKS)
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], ["structure_damage"])
+        self.assertEqual(emitted[0]["structure_type"], "rampart")
+        self.assertEqual(emitted[0]["delta"], decay)
+
     def test_report_is_json_serializable(self) -> None:
         rendered = json.dumps(monitor.build_tactical_response_report(HOSTILE_ALERT_FIXTURE), sort_keys=True)
 
