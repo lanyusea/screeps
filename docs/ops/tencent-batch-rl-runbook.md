@@ -8,7 +8,7 @@ This runbook records the current bounded Tencent Cloud batch path for Screeps RL
 - ASG: `asg-csw592ro` (`screeps-rl-batch-spot-8c16g-public`).
 - Region: `ap-singapore`.
 - Default capacity: `min=0`, `desired=0`, `max=1` until single-worker validation passes.
-- Worker SSH: `screeps-batch` user, SSH key only, security group ingress `tcp/22` from controller public IP `43.128.104.34/32` only, plus worker iptables host firewall.
+- Worker SSH: `screeps-batch` user, SSH key only, security group ingress `tcp/22` from controller public IP `43.128.104.34/32` only, plus worker iptables host firewall. Launch configuration user-data writes both `00-` and `99-` sshd hardening snippets and removes cloud-init password override snippets so OpenSSH first/last-match behavior cannot leave password auth enabled.
 - Safety: all RL training cards/reports remain shadow/offline with `liveEffect:false`, `officialMmoWrites:false`, `officialMmoWritesAllowed:false`.
 
 ## Controller tool
@@ -67,7 +67,23 @@ On the worker it verifies:
 
 Secrets are copied only as a file path (`/root/.secret/.env` -> worker job dir) and are not printed in controller summaries.
 
-## Current blocker discovered on 2026-05-17
+## Validation history
+
+### 2026-05-17: balance blocker resolved, single-worker training completed
+
+After the owner restored account balance, run `tencent-single-20260516181313` created worker `ins-mu3eyg1y` (`S3.2XLARGE16`, 8 vCPU / 16 GiB), passed the security checks, ran one 50-tick / one-worker RL training pass, and scaled the ASG back to `DesiredCapacity=0`, `InstanceCount=0`.
+
+Training evidence:
+
+- Training wall time: `5:12.16`.
+- `artifactCount=4`, `modelReportCount=3`, `warnings=[]`.
+- Safety flags remained offline/shadow: `liveEffect=false`, `officialMmoWrites=false`, `officialMmoWritesAllowed=false`.
+- Ranking: `expansion-remote.incumbent.v1` first, then `construction-priority.territory-shadow.v1`, `expansion-remote.territory-shadow.v1`, `construction-priority.incumbent.v1`.
+- Validation report: `/root/screeps/runtime-artifacts/tencent-cloud/batch-runs/20260516T181313Z-single-worker-validation-report.md`.
+
+The controller itself initially marked that run failed at artifact extraction because the remote tar included the full simulator worker directory (`node_modules` symlinks plus bulky dependency trees). The downloaded tar was salvaged locally and the runner was patched to package only the training report plus simulator summary JSON files for future runs.
+
+### 2026-05-17: initial account-balance blocker
 
 The first `run-single` attempt did **not** create a worker. Tencent ASG scale-out activities failed before instance creation with:
 
@@ -75,7 +91,7 @@ The first `run-single` attempt did **not** create a worker. Tencent ASG scale-ou
 账户余额不足，无法购买云主机。
 ```
 
-Other non-primary details in the same activity also show some candidate AZ/type/image incompatibilities (`S3.2XLARGE16` invalid in `ap-singapore-4`, `S2.2XLARGE16` image mismatch, `SA5.2XLARGE16` disk incompatibility, `SA2.2XLARGE16` spot capacity shortage), but the owner-action blocker is account balance / purchase enablement.
+Other non-primary details in the same activity also show some candidate AZ/type/image incompatibilities (`S3.2XLARGE16` invalid in `ap-singapore-4`, `S2.2XLARGE16` image mismatch, `SA5.2XLARGE16` disk incompatibility, `SA2.2XLARGE16` spot capacity shortage), but the owner-action blocker was account balance / purchase enablement.
 
 Because no CVM was created, no paid worker runtime accumulated beyond failed purchase attempts. The controller forced ASG desired capacity back to `0` and verified `InstanceCount=0`.
 

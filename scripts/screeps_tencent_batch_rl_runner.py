@@ -592,12 +592,27 @@ PY
         remote = r"""
 set -euo pipefail
 cd "$REMOTE_DIR"
+if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
+  cp training-summary.json report-extract.json
+fi
+touch report-extract.json
+simulator_summaries=()
+if [ -f "simulator-artifacts/$RUN_ID/run_summary.json" ]; then
+  simulator_summaries+=("simulator-artifacts/$RUN_ID/run_summary.json")
+fi
+if [ -f "simulator-artifacts/$RUN_ID/owned_room_scorecard.json" ]; then
+  simulator_summaries+=("simulator-artifacts/$RUN_ID/owned_room_scorecard.json")
+fi
 tar -czf remote-artifacts.tar.gz \
   experiment_card.json card-validation.json training-summary.json training-stderr.log report-extract.json \
-  -C repo runtime-artifacts/rl-training \
-  -C "$REMOTE_DIR" simulator-artifacts
+  "${simulator_summaries[@]}" \
+  -C repo runtime-artifacts/rl-training
 """.strip()
-        self.ssh_cmd("pack_remote_artifacts", "REMOTE_DIR=" + shlex.quote(self.remote_dir) + " " + bash_lc(remote), timeout=600)
+        env_prefix = " ".join(
+            f"{key}={shlex.quote(value)}"
+            for key, value in {"REMOTE_DIR": self.remote_dir, "RUN_ID": self.run_id}.items()
+        )
+        self.ssh_cmd("pack_remote_artifacts", env_prefix + " " + bash_lc(remote), timeout=600)
         local_tar = self.artifact_dir / "remote-artifacts.tar.gz"
         self.scp_from_worker("download_remote_artifacts", remote_tar, local_tar, timeout=self.args.transfer_timeout_seconds)
         extract_dir = self.artifact_dir / "remote"
