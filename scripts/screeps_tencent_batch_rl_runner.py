@@ -47,6 +47,20 @@ SSH_CONNECT_OPTIONS = (
     "-o", "ServerAliveCountMax=8",
     "-o", "StrictHostKeyChecking=accept-new",
 )
+BUNDLE_ALLOWLISTED_RUNTIME_FILES = ("maps/map-0b6758af.json",)
+BUNDLE_EXCLUDE_DIRS = {".git", "node_modules", "__pycache__", ".codex", ".codex-local-git", ".git-local"}
+BUNDLE_EXCLUDE_PREFIXES = (
+    "runtime-artifacts/",
+    "docs/roadmap-kpi.sqlite",
+    "prod/node_modules/",
+    "maps/.git/",
+)
+BUNDLE_SECRET_PATH_PATTERNS = (
+    re.compile(r"(^|/)\.env($|[./])"),
+    re.compile(r"(^|/)prod/(\.env|screeps\.json)$"),
+    re.compile(r"(^|/)[^/]*\.local$"),
+    re.compile(r"(^|/)[^/]*(credential|credentials|private[-_]?key|token)[^/]*\.(json|pem|key|txt)$", re.IGNORECASE),
+)
 
 
 class BatchRunError(RuntimeError):
@@ -271,7 +285,7 @@ class Controller:
     def ensure_map_present(self) -> None:
         target = REPO_ROOT / "maps" / "map-0b6758af.json"
         if target.is_file():
-            self.record_step("map_preflight", time.time(), True, detail={"path": str(target)})
+            self.record_step("map_preflight", time.time(), True, path=str(target))
             return
         candidate_roots = [REPO_ROOT / "runtime-artifacts", Path("/root/screeps/runtime-artifacts")]
         candidates = sorted(
@@ -283,13 +297,13 @@ class Controller:
             raise BatchRunError("map-0b6758af.json is missing and no runtime artifact source was found")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(candidates[0].read_bytes())
-        self.record_step("map_preflight", time.time(), True, detail={"path": str(target), "source": str(candidates[0])})
+        self.record_step("map_preflight", time.time(), True, path=str(target), source=str(candidates[0]))
 
     def ensure_dist_present(self) -> None:
         dist = REPO_ROOT / "prod" / "dist" / "main.js"
         if not dist.is_file():
             raise BatchRunError("prod/dist/main.js missing; build before launching worker training")
-        self.record_step("dist_preflight", time.time(), True, detail={"path": str(dist), "bytes": dist.stat().st_size})
+        self.record_step("dist_preflight", time.time(), True, path=str(dist), bytes=dist.stat().st_size)
 
     def run_billing_guard(self) -> None:
         guard = Path(self.args.billing_guard)
@@ -462,7 +476,13 @@ set -euo pipefail
 cloud-init status --wait >/dev/null 2>&1 || true
 printf 'whoami='; whoami
 printf 'ready='; cat /opt/screeps-batch/READY 2>/dev/null || true; printf '\n'
-printf 'iptables='; sudo iptables -S INPUT | tr '\n' ';'; printf '\n'
+printf 'iptables_filter='
+if sudo iptables-save -t filter 2>/dev/null | tr '\n' ';'; then
+  :
+else
+  sudo iptables -S | tr '\n' ';'
+fi
+printf '\n'
 printf 'sshd='; sudo sshd -T 2>/dev/null | egrep '^(passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication|permitrootlogin|allowusers) ' | tr '\n' ';'; printf '\n'
 """.strip()
         cp = self.ssh_cmd("verify_worker_security", bash_lc(cmd), timeout=180)
@@ -485,16 +505,23 @@ if ! docker compose version >/dev/null 2>&1; then
   sudo apt-get install -y docker-compose-v2 || sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose || true
 fi
 sudo systemctl enable --now docker
-sudo usermod -aG docker screeps-batch || true
+sudo usermod -aG docker "$WORKER_USER" || true
 sudo mkdir -p "$REMOTE_DIR" /var/log/screeps-batch
-sudo chown -R screeps-batch:screeps-batch "$REMOTE_DIR" /var/log/screeps-batch
+sudo chown -R "$WORKER_USER:$WORKER_USER" "$REMOTE_DIR" /var/log/screeps-batch
 python3 --version
 docker --version
 (docker compose version || docker-compose version)
 """.strip()
+        env_prefix = " ".join(
+            f"{key}={shlex.quote(value)}"
+            for key, value in {
+                "REMOTE_DIR": self.remote_dir,
+                "WORKER_USER": self.args.worker_user,
+            }.items()
+        )
         self.ssh_cmd(
             "bootstrap_worker",
-            "REMOTE_DIR=" + shlex.quote(self.remote_dir) + " " + bash_lc(remote),
+            env_prefix + " " + bash_lc(remote),
             timeout=self.args.bootstrap_timeout_seconds,
         )
 
@@ -758,6 +785,10 @@ def validate_controller_only_sg_ssh_ingress(ingress: Sequence[Any], controller_i
 def extract_iptables_input_rules(output: str) -> list[str]:
     iptables_line = ""
     for line in output.splitlines():
+        if line.startswith("iptables_filter="):
+            iptables_line = line.removeprefix("iptables_filter=")
+            break
+    for line in output.splitlines():
         if line.startswith("iptables="):
             iptables_line = line.removeprefix("iptables=")
             break
@@ -772,21 +803,43 @@ def token_value(tokens: Sequence[str], *names: str) -> str | None:
     return None
 
 
+def token_index(tokens: Sequence[str], *names: str) -> int | None:
+    for index, token in enumerate(tokens[:-1]):
+        if token in names:
+            return index
+    return None
+
+
 def iptables_jump(tokens: Sequence[str]) -> str | None:
     value = token_value(tokens, "-j", "--jump")
-    return value.upper() if value else None
+    return value if value else None
 
 
 def iptables_source(tokens: Sequence[str]) -> str | None:
     return token_value(tokens, "-s", "--source")
 
 
-def iptables_input_rule_tokens(rule: str) -> list[str] | None:
+def iptables_source_is_negated(tokens: Sequence[str]) -> bool:
+    index = token_index(tokens, "-s", "--source")
+    return index is not None and index > 0 and tokens[index - 1] == "!"
+
+
+def iptables_chain_rule_tokens(rule: str) -> tuple[str, list[str]] | None:
     try:
         tokens = shlex.split(rule)
     except ValueError:
         return None
-    if len(tokens) < 3 or tokens[0] not in {"-A", "-I"} or tokens[1] != "INPUT":
+    if len(tokens) < 3 or tokens[0] not in {"-A", "-I"}:
+        return None
+    return tokens[1], tokens
+
+
+def iptables_input_rule_tokens(rule: str) -> list[str] | None:
+    parsed = iptables_chain_rule_tokens(rule)
+    if parsed is None:
+        return None
+    chain, tokens = parsed
+    if chain != "INPUT":
         return None
     return tokens
 
@@ -797,10 +850,20 @@ def iptables_policy(tokens: Sequence[str]) -> str | None:
     return None
 
 
+def iptables_save_chain_policy(rule: str) -> tuple[str, str] | None:
+    try:
+        tokens = shlex.split(rule)
+    except ValueError:
+        return None
+    if len(tokens) >= 2 and tokens[0].startswith(":"):
+        return tokens[0][1:], tokens[1].upper()
+    return None
+
+
 def iptables_rule_permits_new_ssh(tokens: Sequence[str]) -> bool:
     if token_value(tokens, "-i", "--in-interface") == "lo":
         return False
-    ctstate = token_value(tokens, "--ctstate")
+    ctstate = token_value(tokens, "--ctstate", "--state")
     if ctstate:
         states = {state.strip().upper() for state in ctstate.split(",")}
         if "NEW" not in states and states & {"ESTABLISHED", "RELATED"}:
@@ -815,34 +878,81 @@ def iptables_rule_permits_new_ssh(tokens: Sequence[str]) -> bool:
     return any(port_includes_ssh(port) for port in ports) if ports else True
 
 
-def validate_controller_only_worker_ssh(output: str, controller_ip: str) -> None:
-    rules = extract_iptables_input_rules(output)
-    if not rules:
-        raise BatchRunError("worker iptables output is empty")
-    controller_accepts: list[str] = []
-    broad_accepts: list[str] = []
-    has_ssh_closure = False
+def build_iptables_filter_model(rules: Sequence[str]) -> tuple[dict[str, str], dict[str, list[tuple[str, list[str]]]]]:
+    policies: dict[str, str] = {}
+    chains: dict[str, list[tuple[str, list[str]]]] = {}
     for rule in rules:
+        if rule in {"*filter", "COMMIT"} or rule.startswith("#"):
+            continue
         try:
             tokens = shlex.split(rule)
         except ValueError:
             raise BatchRunError(f"worker iptables rule is not parseable: {rule}") from None
         policy = iptables_policy(tokens)
-        if policy in {"DROP", "REJECT"}:
-            has_ssh_closure = True
+        if policy is not None:
+            policies[tokens[1]] = policy
             continue
-        input_tokens = iptables_input_rule_tokens(rule)
-        if input_tokens is None or not iptables_rule_permits_new_ssh(input_tokens):
+        save_policy = iptables_save_chain_policy(rule)
+        if save_policy is not None:
+            chain, chain_policy = save_policy
+            chains.setdefault(chain, [])
+            if chain_policy != "-":
+                policies[chain] = chain_policy
             continue
-        jump = iptables_jump(input_tokens)
-        source = iptables_source(input_tokens)
-        if jump == "ACCEPT":
-            if source == controller_ip:
-                controller_accepts.append(rule)
-            else:
-                broad_accepts.append(rule)
-        elif jump in {"DROP", "REJECT"} and source in {None, "0.0.0.0/0", "0.0/0", "::/0"}:
-            has_ssh_closure = True
+        parsed = iptables_chain_rule_tokens(rule)
+        if parsed is None:
+            continue
+        chain, rule_tokens = parsed
+        chains.setdefault(chain, []).append((rule, rule_tokens))
+    return policies, chains
+
+
+def narrowed_ssh_source_scope(current_scope: str, tokens: Sequence[str], controller_ip: str) -> str:
+    if current_scope == "controller":
+        return "controller"
+    source = iptables_source(tokens)
+    if source == controller_ip and not iptables_source_is_negated(tokens):
+        return "controller"
+    return "broad"
+
+
+def validate_controller_only_worker_ssh(output: str, controller_ip: str) -> None:
+    rules = extract_iptables_input_rules(output)
+    if not rules:
+        raise BatchRunError("worker iptables output is empty")
+    policies, chains = build_iptables_filter_model(rules)
+    controller_accepts: list[str] = []
+    broad_accepts: list[str] = []
+    has_ssh_closure = False
+
+    def visit_chain(chain: str, source_scope: str, stack: tuple[str, ...]) -> None:
+        nonlocal has_ssh_closure
+        if chain in stack:
+            return
+        for rule, tokens in chains.get(chain, []):
+            if not iptables_rule_permits_new_ssh(tokens):
+                continue
+            jump = iptables_jump(tokens)
+            if not jump:
+                continue
+            next_scope = narrowed_ssh_source_scope(source_scope, tokens, controller_ip)
+            jump_upper = jump.upper()
+            if jump_upper == "ACCEPT":
+                if next_scope == "controller":
+                    controller_accepts.append(rule)
+                else:
+                    broad_accepts.append(rule)
+            elif jump_upper in {"DROP", "REJECT"}:
+                if next_scope == "broad":
+                    has_ssh_closure = True
+            elif jump_upper == "RETURN":
+                continue
+            elif jump in chains:
+                visit_chain(jump, next_scope, (*stack, chain))
+
+    visit_chain("INPUT", "broad", ())
+    if policies.get("INPUT") in {"DROP", "REJECT"}:
+        has_ssh_closure = True
     if not controller_accepts or broad_accepts or not has_ssh_closure:
         raise BatchRunError(
             "worker SSH ingress is not controller-only: "
@@ -942,23 +1052,57 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
         raise BatchRunError("controller IP must be a /32 CIDR")
 
 
+def list_tracked_bundle_paths() -> list[str]:
+    cp = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=REPO_ROOT,
+        text=False,
+        capture_output=True,
+        check=False,
+    )
+    if cp.returncode != 0:
+        stderr = cp.stderr.decode("utf-8", errors="replace")
+        raise BatchRunError(f"git ls-files failed while building repo bundle: {tail_text(stderr)}")
+    return sorted(path.decode("utf-8") for path in cp.stdout.split(b"\0") if path)
+
+
+def should_include_bundle_relpath(rel: str) -> bool:
+    rel_path = Path(rel)
+    if rel_path.is_absolute() or ".." in rel_path.parts or not rel:
+        raise BatchRunError(f"refusing unsafe bundle path: {rel}")
+    parts = set(rel_path.parts)
+    if parts & BUNDLE_EXCLUDE_DIRS:
+        return False
+    if any(rel == prefix.rstrip("/") or rel.startswith(prefix) for prefix in BUNDLE_EXCLUDE_PREFIXES):
+        return False
+    if any(pattern.search(rel) for pattern in BUNDLE_SECRET_PATH_PATTERNS):
+        raise BatchRunError(f"refusing secret-like bundle path: {rel}")
+    return True
+
+
+def iter_repo_bundle_paths() -> list[Path]:
+    rel_paths = list_tracked_bundle_paths()
+    for rel in BUNDLE_ALLOWLISTED_RUNTIME_FILES:
+        if (REPO_ROOT / rel).is_file() and rel not in rel_paths:
+            rel_paths.append(rel)
+    bundle_paths: list[Path] = []
+    for rel in sorted(set(rel_paths)):
+        if not should_include_bundle_relpath(rel):
+            continue
+        path = REPO_ROOT / rel
+        if path.is_symlink():
+            raise BatchRunError(f"refusing symlink in repo bundle: {rel}")
+        if not path.is_file():
+            raise BatchRunError(f"bundle manifest path is not a regular file: {rel}")
+        bundle_paths.append(path)
+    return bundle_paths
+
+
 def create_repo_bundle(package: Path) -> None:
     package.parent.mkdir(parents=True, exist_ok=True)
-    exclude_dirs = {".git", "node_modules", "__pycache__", ".codex", ".codex-local-git", ".git-local"}
-    exclude_prefixes = {
-        "runtime-artifacts/",
-        "docs/roadmap-kpi.sqlite",
-        "prod/node_modules",
-        "maps/.git",
-    }
     with tarfile.open(package, "w:gz") as tar:
-        for path in REPO_ROOT.rglob("*"):
+        for path in iter_repo_bundle_paths():
             rel = path.relative_to(REPO_ROOT).as_posix()
-            parts = set(path.relative_to(REPO_ROOT).parts)
-            if parts & exclude_dirs:
-                continue
-            if any(rel == prefix.rstrip("/") or rel.startswith(prefix) for prefix in exclude_prefixes):
-                continue
             tar.add(path, arcname=rel, recursive=False)
     if package.stat().st_size <= 0:
         raise BatchRunError("repo bundle is empty")
