@@ -229,7 +229,7 @@ describe('room scouting', () => {
     ]);
   });
 
-  it('keeps the E29N56 configured scout request closed before E29N55 reaches RCL3 tower readiness', () => {
+  it('keeps E29N56 closed before E29N55 reaches RCL3 tower readiness while preserving adjacent scout requests', () => {
     const colony = makeColony('E29N55', {
       controllerLevel: 2,
       energyAvailable: 550,
@@ -245,12 +245,20 @@ describe('room scouting', () => {
 
     const result = refreshConfiguredExpansionRoomScouting(colony, 968_800);
 
-    expect(result.records).toEqual([]);
+    expect(result.records).toEqual([
+      makeRequestedScoutRecord('E29N54', 968_800),
+      makeRequestedScoutRecord('E28N55', 968_800),
+      makeRequestedScoutRecord('E30N55', 968_800)
+    ]);
     expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      makeScoutIntent('E29N54', 968_800),
+      makeScoutIntent('E28N55', 968_800),
+      makeScoutIntent('E30N55', 968_800)
+    ]);
   });
 
-  it('requests only a scout intent for E29N56 after E29N55 reaches RCL3 tower readiness', () => {
+  it('adds the gated E29N56 scout request after E29N55 reaches RCL3 tower readiness', () => {
     const colony = makeColony('E29N55', {
       controllerLevel: 3,
       energyAvailable: 650,
@@ -269,23 +277,17 @@ describe('room scouting', () => {
     const result = refreshConfiguredExpansionRoomScouting(colony, 968_801);
 
     expect(result.records).toEqual([
-      {
-        colony: 'E29N55',
-        roomName: 'E29N56',
-        status: 'requested',
-        updatedAt: 968_801,
-        distance: 1
-      }
+      makeRequestedScoutRecord('E29N56', 968_801),
+      makeRequestedScoutRecord('E29N54', 968_801),
+      makeRequestedScoutRecord('E28N55', 968_801),
+      makeRequestedScoutRecord('E30N55', 968_801)
     ]);
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
-      {
-        colony: 'E29N55',
-        targetRoom: 'E29N56',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_801
-      }
+      makeScoutIntent('E29N56', 968_801),
+      makeScoutIntent('E29N54', 968_801),
+      makeScoutIntent('E28N55', 968_801),
+      makeScoutIntent('E30N55', 968_801)
     ]);
   });
 });
@@ -371,6 +373,26 @@ function makeSpawn(name: string, room: Room): StructureSpawn {
     spawning: null,
     pos: { x: 17, y: 24, roomName: room.name } as RoomPosition
   } as StructureSpawn;
+}
+
+function makeRequestedScoutRecord(roomName: string, updatedAt: number) {
+  return {
+    colony: 'E29N55',
+    roomName,
+    status: 'requested',
+    updatedAt,
+    distance: 1
+  };
+}
+
+function makeScoutIntent(targetRoom: string, updatedAt: number) {
+  return {
+    colony: 'E29N55',
+    targetRoom,
+    action: 'scout',
+    status: 'planned',
+    updatedAt
+  };
 }
 
 function makeE29N55ReadyStructures(): AnyStructure[] {

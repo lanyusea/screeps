@@ -378,15 +378,25 @@ describe('expansion executor', () => {
     expect(
       (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
     ).toEqual([]);
-    expect(Memory.territory?.intents).toEqual([
-      {
-        colony: 'E29N55',
-        targetRoom: 'E29N56',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_900
-      }
-    ]);
+    expect(Memory.territory?.intents).toEqual(
+      expect.arrayContaining([
+        {
+          colony: 'E29N55',
+          targetRoom: 'E29N56',
+          action: 'scout',
+          status: 'planned',
+          updatedAt: 968_900
+        },
+        {
+          colony: 'E29N55',
+          targetRoom: 'E28N55',
+          action: 'scout',
+          status: 'planned',
+          updatedAt: 968_900
+        }
+      ])
+    );
+    expect(Memory.territory?.intents).toHaveLength(2);
     expect(Memory.territory?.expansionPipelines).toEqual({});
     expect(Memory.territory?.expansionCandidates).toEqual(
       expect.arrayContaining([
@@ -399,6 +409,11 @@ describe('expansion executor', () => {
         })
       ])
     );
+    expect(
+      (Memory.territory?.expansionCandidates ?? [])
+        .filter((candidate) => candidate.colony === 'E29N55' && candidate.scoutOnly === true)
+        .map((candidate) => candidate.roomName)
+    ).toEqual(expect.arrayContaining(['E29N56', 'E29N54', 'E28N55', 'E30N55']));
   });
 
   it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {

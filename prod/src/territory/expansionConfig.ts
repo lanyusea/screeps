@@ -34,18 +34,18 @@ export function getRuntimeCurrentRoomScoutOnlyTargets(
   }
 
   if (currentRoomName === ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION.colony) {
-    return [{ ...ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION }];
+    const officialTarget = { ...ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION };
+    return [
+      officialTarget,
+      ...getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName)
+        .filter((roomName) => roomName !== officialTarget.roomName)
+        .map((roomName) => buildRuntimeCurrentRoomScoutOnlyTarget(currentRoomName, roomName))
+    ];
   }
 
-  return getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).map((roomName) => ({
-    colony: currentRoomName,
-    roomName,
-    nearestOwnedRoom: currentRoomName,
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true,
-    scoutOnly: true
-  }));
+  return getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).map((roomName) =>
+    buildRuntimeCurrentRoomScoutOnlyTarget(currentRoomName, roomName)
+  );
 }
 
 export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): string[] {
@@ -94,6 +94,21 @@ function getEnabledRuntimeCurrentRoomScoutOnlyTargets(
   }
 
   return getRuntimeCurrentRoomScoutOnlyTargets(colonyName);
+}
+
+function buildRuntimeCurrentRoomScoutOnlyTarget(
+  currentRoomName: string,
+  roomName: string
+): TerritoryExpansionScoutTargetConfig {
+  return {
+    colony: currentRoomName,
+    roomName,
+    nearestOwnedRoom: currentRoomName,
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 1,
+    adjacentToOwnedRoom: true,
+    scoutOnly: true
+  };
 }
 
 function isRuntimeCurrentRoomScoutTargetsEnabled(colonyName: string): boolean {
