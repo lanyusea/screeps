@@ -468,6 +468,61 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 },
             )
 
+    def test_training_report_component_order_mismatch_suppresses_component_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            artifact_dir = root / "rl-training"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            component_order = ["reliability", "territory", "resources", "kills"]
+            report = {
+                "type": "screeps-rl-training-report",
+                "reportId": "component-order-mismatch-report",
+                "rewardModel": {"componentOrder": component_order},
+                "incumbentStrategyIds": ["baseline"],
+                "variantResults": [
+                    {
+                        "variantId": "baseline",
+                        "sampleCount": 1,
+                        "reward": {"tuple": [5, 50, 0], "componentOrder": component_order},
+                    },
+                    {
+                        "variantId": "candidate",
+                        "sampleCount": 1,
+                        "reward": {"tuple": [7, 60, 3], "componentOrder": component_order},
+                    },
+                ],
+                "ranking": [
+                    {"variantId": "candidate", "rewardTuple": [7, 60, 3]},
+                    {"variantId": "baseline", "rewardTuple": [5, 50, 0]},
+                ],
+            }
+            (artifact_dir / "training-report.json").write_text(json.dumps(report), encoding="utf-8")
+
+            stats = ingestor.ingest_artifacts(db_path, [artifact_dir])
+
+            with sqlite3.connect(db_path) as conn:
+                reward_rows = conn.execute(
+                    """
+                    SELECT metric_name, value
+                    FROM rl_training_execution_metrics
+                    WHERE report_id = ? AND metric_name LIKE 'rl.training.reward_%'
+                    """,
+                    ("component-order-mismatch-report",),
+                ).fetchall()
+                advantage_rows = conn.execute(
+                    """
+                    SELECT metric_name, value
+                    FROM rl_policy_advantage_metrics
+                    WHERE report_id = ?
+                    """,
+                    ("component-order-mismatch-report",),
+                ).fetchall()
+
+            self.assertEqual(stats["training_artifacts"], 1)
+            self.assertEqual(reward_rows, [])
+            self.assertEqual(advantage_rows, [])
+
     def test_low_load_return_metric_creates_behavior_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

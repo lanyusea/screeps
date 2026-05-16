@@ -773,7 +773,9 @@ def training_report_component_order(payload: dict[str, object]) -> list[str]:
 
 def reward_component_order_for_tuple(explicit_order: list[str], tuple_length: int) -> list[str]:
     if explicit_order:
-        return explicit_order
+        if len(explicit_order) == tuple_length:
+            return explicit_order
+        return []
     if tuple_length == len(LEGACY_REWARD_COMPONENT_ORDER):
         return list(LEGACY_REWARD_COMPONENT_ORDER)
     return []
