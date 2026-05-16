@@ -53,6 +53,8 @@ WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
 WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
 RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
+RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
+MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
 BUILD_BLOCKED_REASON_PATHS = (
     ("buildBlockedReason",),
@@ -486,6 +488,7 @@ class RoomSummaryMetrics:
     controller_summary: dict[str, Any]
     owned_creep_objects: list[dict[str, Any]]
     task_counts: dict[str, int]
+    worker_assignment_evidence_available: bool
     construction_sites: list[dict[str, Any]]
     pending_build_progress: int | float
     build_carried_energy: int | float
@@ -1482,8 +1485,24 @@ def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | floa
     )
 
 
+def runtime_worker_assignment_evidence_available(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return True
+    for path in (
+        ("workerAssignmentEvidenceAvailable",),
+        ("resources", "productiveEnergy", "workerAssignmentEvidenceAvailable"),
+        ("productiveEnergy", "workerAssignmentEvidenceAvailable"),
+    ):
+        value = nested_value(room, *path)
+        if isinstance(value, bool):
+            return value
+    return room.get(RUNTIME_SUMMARY_SOURCE_METADATA_KEY) != MONITOR_RUNTIME_SUMMARY_SOURCE
+
+
 def runtime_worker_assignment_recovered(room: dict[str, Any] | None) -> bool:
     if not isinstance(room, dict):
+        return False
+    if not runtime_worker_assignment_evidence_available(room):
         return False
     worker_count = number_value(room.get("workerCount"))
     if worker_count is not None and worker_count <= 0:
@@ -1499,6 +1518,8 @@ def runtime_worker_assignment_recovered(room: dict[str, Any] | None) -> bool:
 
 def runtime_reports_worker_assignment_gap(room: dict[str, Any] | None) -> bool:
     if not isinstance(room, dict):
+        return False
+    if not runtime_worker_assignment_evidence_available(room):
         return False
     return any(nested_value(room, *path) == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON for path in BUILD_BLOCKED_REASON_PATHS)
 
@@ -1556,10 +1577,12 @@ def worker_assignment_gap_active(
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
         site_count = metrics_site_count
-    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
+    runtime_assignment_evidence_available = runtime_worker_assignment_evidence_available(runtime_room)
+    runtime_blocked_reason = runtime_build_blocked_reason(runtime_room) if runtime_assignment_evidence_available else None
+    blocked_reason = runtime_blocked_reason or metrics.build_blocked_reason
     if runtime_reports_worker_assignment_gap(runtime_room):
         blocked_reason = WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
-    elif runtime_worker_assignment_gap_recovered(runtime_room):
+    elif runtime_assignment_evidence_available and runtime_worker_assignment_gap_recovered(runtime_room):
         if (
             metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
             and not runtime_worker_assignment_gap_recovery_is_fresh(runtime_room, current_tick_value)
@@ -3078,6 +3101,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "expected_owner": snapshot.expected_owner,
         "expected_owner_id": snapshot.expected_owner_id,
         "taskCounts": metrics.task_counts,
+        "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
@@ -3277,6 +3301,9 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
     timestamp = runtime_summary_artifact_timestamp(path)
     if timestamp is not None:
         result[RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY] = timestamp
+    source = payload.get("source")
+    if isinstance(source, str) and source:
+        result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = source
     return result
 
 
@@ -3380,6 +3407,14 @@ def creep_role(creep: dict[str, Any]) -> str | None:
 def is_worker_creep(creep: dict[str, Any]) -> bool:
     role = creep_role(creep)
     return role is not None and role.lower() == "worker"
+
+
+def creep_has_assignment_evidence(creep: dict[str, Any]) -> bool:
+    return creep_role(creep) is not None or creep_task_type(creep) is not None
+
+
+def worker_assignment_evidence_available(owned_creeps: list[dict[str, Any]]) -> bool:
+    return any(creep_has_assignment_evidence(creep) for creep in owned_creeps)
 
 
 def behavior_pathing_totals(source: dict[str, Any]) -> dict[str, int | float]:
@@ -3760,6 +3795,7 @@ def build_blocked_reason(
     pending_build_progress: int | float,
     construction_site_count: int,
     build_carried_energy: int | float,
+    assignment_evidence_available: bool,
 ) -> str | None:
     if construction_site_count <= 0 or pending_build_progress <= 0:
         return "no_construction_sites"
@@ -3781,6 +3817,8 @@ def build_blocked_reason(
         )
     ):
         return "energy_buffer_blocked"
+    if not assignment_evidence_available:
+        return None
     return "worker_assignment_gap"
 
 
@@ -3788,6 +3826,7 @@ def construction_deadlock_ticks(
     snapshot: RoomSnapshot,
     task_counts: dict[str, int],
     construction_site_count: int,
+    assignment_evidence_available: bool,
 ) -> int | float:
     explicit = first_number_value(
         snapshot.info,
@@ -3798,6 +3837,8 @@ def construction_deadlock_ticks(
     )
     if explicit is not None:
         return explicit
+    if not assignment_evidence_available:
+        return 0
     return 1 if task_counts.get("build", 0) == 0 and construction_site_count > 0 else 0
 
 
@@ -3834,6 +3875,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
     ]
     construction_sites = owned_construction_sites(snapshot)
     task_counts = worker_task_counts(owned_creep_objects)
+    assignment_evidence_available = worker_assignment_evidence_available(owned_creep_objects)
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
     extension_count, extension_capacity_contribution = room_extension_metrics(structures, snapshot.owner)
@@ -3849,6 +3891,7 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         controller_summary=controller_summary,
         owned_creep_objects=owned_creep_objects,
         task_counts=task_counts,
+        worker_assignment_evidence_available=assignment_evidence_available,
         construction_sites=construction_sites,
         pending_build_progress=pending_build_progress,
         build_carried_energy=build_carried_energy,
@@ -3857,11 +3900,13 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
             pending_build_progress,
             len(construction_sites),
             build_carried_energy,
+            assignment_evidence_available,
         ),
         construction_deadlock_ticks=construction_deadlock_ticks(
             snapshot,
             task_counts,
             len(construction_sites),
+            assignment_evidence_available,
         ),
         extension_count=extension_count,
         extension_capacity_contribution=extension_capacity_contribution,
@@ -3926,6 +3971,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "constructionSiteCount": len(metrics.construction_sites),
+        "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
     }
@@ -3934,6 +3980,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "roomName": snapshot.ref.room,
         "shard": snapshot.ref.shard,
         "taskCounts": metrics.task_counts,
+        "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
@@ -3981,7 +4028,7 @@ def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dic
         "tick": max(ticks) if ticks else None,
         "rooms": [runtime_summary_room(snapshot) for snapshot in snapshots],
         "cpu": {"used": cpu_used, "bucket": cpu_bucket},
-        "source": "screeps-runtime-monitor",
+        "source": MONITOR_RUNTIME_SUMMARY_SOURCE,
     }
 
 

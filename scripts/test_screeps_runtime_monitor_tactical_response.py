@@ -206,6 +206,7 @@ def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
         controller_summary={},
         owned_creep_objects=[],
         task_counts={"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0},
+        worker_assignment_evidence_available=True,
         construction_sites=[{"type": "constructionSite"}],
         pending_build_progress=50,
         build_carried_energy=0,
@@ -1141,7 +1142,20 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                         "structureType": "extension",
                         "progress": 0,
                         "progressTotal": 50,
-                    }
+                    },
+                    "worker-1": {
+                        "_id": "worker-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E26S49-1",
+                        "body": [
+                            {"type": "work", "hits": 100},
+                            {"type": "carry", "hits": 100},
+                        ],
+                        "store": {"energy": 0, "capacity": 50},
+                        "memory": {"role": "worker"},
+                    },
                 }
             ),
             tick=265632,
@@ -1158,6 +1172,59 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             "worker_assignment_gap",
         )
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
+
+    def test_runtime_summary_payload_does_not_classify_worker_gap_without_assignment_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "creep-1": {
+                        "_id": "creep-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N55-1",
+                        "store": {"energy": 12, "capacity": 50},
+                    },
+                    "creep-2": {
+                        "_id": "creep-2",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N55-2",
+                        "store": {"energy": 36, "capacity": 50},
+                    },
+                }
+            ),
+            tick=999271,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(
+            room["taskCounts"],
+            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+        )
+        self.assertEqual(room["resources"]["workerCarriedEnergy"], 48)
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
 
     def test_runtime_summary_payload_includes_worker_dispatch_diagnostics(self) -> None:
         snapshot = monitor.RoomSnapshot(
@@ -1320,11 +1387,13 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         }
         monitor_payload = {
             "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
             "tick": 995544,
             "rooms": [
                 {
                     "roomName": "E29N55",
                     "shard": "shardX",
+                    "workerAssignmentEvidenceAvailable": True,
                     "workerCount": 3,
                     "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
                     "constructionSiteCount": 11,
@@ -1381,11 +1450,13 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         }
         monitor_payload = {
             "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
             "tick": 995544,
             "rooms": [
                 {
                     "roomName": "E29N55",
                     "shard": "shardX",
+                    "workerAssignmentEvidenceAvailable": True,
                     "workerCount": 3,
                     "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
                     "constructionSiteCount": 11,
@@ -1481,6 +1552,128 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                     "start_tick": 988884,
                     "last_tick": 995520,
                     "consecutive_ticks": 6636,
+                }
+            },
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous_state,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
+    def test_monitor_summary_without_assignment_evidence_does_not_sustain_worker_gap(self) -> None:
+        monitor_payload = {
+            "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            "tick": 999271,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "constructionSiteCount": 9,
+                    "constructionDeadlockTicks": 1,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-monitor-20260516T020155Z.log").write_text(
+                "#runtime-summary " + json.dumps(monitor_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY],
+            monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+        )
+
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 17,
+                        "y": 24,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "extension1": {
+                        "type": "extension",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 18,
+                        "y": 24,
+                        "hits": 1000,
+                        "hitsMax": 1000,
+                    },
+                    "ctrl": {
+                        "type": "controller",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "level": 2,
+                        "x": 5,
+                        "y": 36,
+                    },
+                    "worker-1": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-1",
+                    },
+                    "worker-2": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-2",
+                    },
+                    "site1": {
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "road",
+                        "progress": 0,
+                        "progressTotal": 50,
+                        "x": 19,
+                        "y": 24,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+            expected_owner="lanyusea",
+        )
+        previous_state = {
+            "baseline_established": True,
+            "owner": "lanyusea",
+            "rule_counts": {
+                monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: {
+                    "start_tick": 988884,
+                    "last_tick": 999271,
+                    "consecutive_ticks": 10387,
                 }
             },
         }
