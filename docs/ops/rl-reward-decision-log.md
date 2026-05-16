@@ -114,7 +114,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 - Linked metric taxonomy: https://github.com/lanyusea/screeps/issues/906
 - Linked scorecard gate: https://github.com/lanyusea/screeps/issues/924
 - Problem: `build=0` while construction backlog exists can block territory and resource progression; issue #1024 records `build=0` with `constructionSiteCount=10` across ticks 917318-918948 and frozen `pendingBuildProgress` near 13200.
-- Possible Act choice: add a shadow/offline `construction_neglect_penalty` when `constructionSiteCount > 0` and `taskCounts.build == 0`, with negative reward proportional to construction site count.
+- Possible Act choice: add a shadow/offline `construction-neglect-penalty` when `constructionSiteCount > 0` and `taskCounts.build == 0`, with negative reward proportional to construction site count.
 - Evidence needed: historical shadow replay, construction-deadlock tick counts, build assignment distribution, build progress or build-carried energy, spawn/refill health, controller downgrade safety, and a future generated #924-compatible candidate-vs-baseline scorecard artifact. Issue #924 is the source scorecard contract; its closure is not acceptance for #1024.
 - Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize learned-policy live writes.
 - Acceptance status: not accepted; proposal only.
