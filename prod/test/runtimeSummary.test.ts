@@ -89,6 +89,15 @@ describe('runtime telemetry summaries', () => {
             healthy: true
           },
           workerCount: 2,
+          workerAssignmentEvidenceAvailable: true,
+          workerAssignmentEvidence: {
+            source: 'runtime-summary',
+            available: true,
+            tick: RUNTIME_SUMMARY_INTERVAL,
+            workerCount: 2,
+            assignedTaskCount: 1,
+            productiveAssignmentCount: 0
+          },
           spawnStatus: [
             {
               name: 'Spawn1',
@@ -138,6 +147,7 @@ describe('runtime telemetry summaries', () => {
               sourcesMissingContainers: 2
             },
             productiveEnergy: {
+              workerAssignmentEvidenceAvailable: true,
               assignedWorkerCount: 0,
               assignedCarriedEnergy: 0,
               buildCarriedEnergy: 0,
@@ -913,6 +923,7 @@ describe('runtime telemetry summaries', () => {
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.taskCounts).toMatchObject({ build: 1, repair: 1, upgrade: 1, transfer: 1, none: 0 });
     expect((room.resources as Record<string, unknown>).productiveEnergy).toEqual({
+      workerAssignmentEvidenceAvailable: true,
       assignedWorkerCount: 3,
       assignedCarriedEnergy: 70,
       buildCarriedEnergy: 40,
@@ -1082,6 +1093,93 @@ describe('runtime telemetry summaries', () => {
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBe(
       'worker_assignment_gap'
     );
+  });
+
+  it('marks zero assigned worker tasks as authoritative runtime evidence', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 0, progressTotal: 50 }
+      ]
+    });
+    const idleWorker = makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'worker-E29N55-idle');
+
+    emitRuntimeSummary([colony], [idleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const productiveEnergy = (room.resources as Record<string, Record<string, unknown>>).productiveEnergy;
+    expect(room.taskCounts).toMatchObject({
+      build: 0,
+      harvest: 0,
+      none: 1,
+      repair: 0,
+      transfer: 0,
+      upgrade: 0
+    });
+    expect(room.workerAssignmentEvidenceAvailable).toBe(true);
+    expect(room.workerAssignmentEvidence).toEqual({
+      source: 'runtime-summary',
+      available: true,
+      tick: RUNTIME_SUMMARY_INTERVAL,
+      workerCount: 1,
+      assignedTaskCount: 0,
+      productiveAssignmentCount: 0
+    });
+    expect(productiveEnergy.workerAssignmentEvidenceAvailable).toBe(true);
+    expect(productiveEnergy.buildBlockedReason).toBe('worker_assignment_gap');
+  });
+
+  it('counts non-display worker task assignments as assigned runtime evidence', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    const workers = [
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'withdraw', targetId: 'storage1' as Id<AnyStoreStructure> } },
+        0,
+        'Withdrawer'
+      ),
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          task: { type: 'pickup', targetId: 'dropped-energy' as Id<Resource<ResourceConstant>> }
+        },
+        0,
+        'Picker'
+      ),
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          task: { type: 'signController', targetId: 'controller1' as Id<StructureController> }
+        },
+        0,
+        'Signer'
+      )
+    ];
+
+    emitRuntimeSummary([colony], workers);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({
+      build: 0,
+      harvest: 0,
+      none: 3,
+      repair: 0,
+      transfer: 0,
+      upgrade: 0
+    });
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 3,
+      assignedTaskCount: 3,
+      productiveAssignmentCount: 0
+    });
   });
 
   it('counts visible same-room workers when colony memory is missing', () => {
@@ -1293,6 +1391,19 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({
+      build: 0,
+      harvest: 0,
+      none: 1,
+      repair: 0,
+      transfer: 0,
+      upgrade: 0
+    });
+    expect(room.workerAssignmentEvidence).toMatchObject({
+      workerCount: 1,
+      assignedTaskCount: 1,
+      productiveAssignmentCount: 0
+    });
     expect((room.resources as Record<string, Record<string, unknown>>).productiveEnergy.buildBlockedReason).toBeUndefined();
   });
 

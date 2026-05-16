@@ -245,6 +245,8 @@ interface RuntimeRoomSummary {
   cpuBucket?: number;
   energyBufferHealth: EnergyBufferHealth;
   workerCount: number;
+  workerAssignmentEvidenceAvailable: true;
+  workerAssignmentEvidence: RuntimeWorkerAssignmentEvidenceSummary;
   workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
   workerAssignmentBlockedWorkers?: RuntimeWorkerAssignmentBlockedWorkerDetail[];
   spawnStatus: RuntimeSpawnStatus[];
@@ -380,6 +382,7 @@ interface RuntimeEnergySurplusSummary {
 }
 
 interface RuntimeProductiveEnergySummary {
+  workerAssignmentEvidenceAvailable: true;
   assignedWorkerCount: number;
   assignedCarriedEnergy: number;
   buildCarriedEnergy: number;
@@ -393,6 +396,15 @@ interface RuntimeProductiveEnergySummary {
   workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
   workerAssignmentBlockedWorkers?: RuntimeWorkerAssignmentBlockedWorkerDetail[];
   controllerProgressRemaining?: number;
+}
+
+interface RuntimeWorkerAssignmentEvidenceSummary {
+  source: 'runtime-summary';
+  available: true;
+  tick: number;
+  workerCount: number;
+  assignedTaskCount: number;
+  productiveAssignmentCount: number;
 }
 
 interface RuntimeWorkerAssignmentBlockedWorkerDetail {
@@ -796,15 +808,23 @@ function summarizeRoom(
   eventMetrics: RuntimeRoomEventMetrics,
   includeStructureSnapshot: boolean
 ): RuntimeRoomSummary {
+  const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
-    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
   const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
   const taskCounts = countWorkerTasks(colonyWorkers);
+  const assignedTaskCount = countAssignedWorkerTasks(colonyWorkers);
+  const workerAssignmentEvidence = summarizeWorkerAssignmentEvidence(
+    tick,
+    colonyWorkers.length,
+    assignedTaskCount,
+    resources.productiveEnergy.assignedWorkerCount
+  );
   const constructionDeadlockTicks = getRoomConstructionDeadlockTicks(colony.room);
 
   return {
@@ -813,16 +833,18 @@ function summarizeRoom(
     energyCapacity: colony.energyCapacityAvailable,
     energyBufferHealth: getRoomEnergyBufferHealth(colony.room),
     workerCount: colonyWorkers.length,
+    workerAssignmentEvidenceAvailable: true,
+    workerAssignmentEvidence,
     ...summarizeWorkerAssignmentBlockedRoomFields(resources.productiveEnergy),
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts,
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
-    ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, getGameTime()),
+    ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
-    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
-    ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
-    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime()),
+    ...summarizeWorkerEfficiency(colonyWorkers, tick),
+    ...summarizeRefillTelemetry(colonyWorkers, tick),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, tick),
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -835,6 +857,26 @@ function summarizeRoom(
     ...buildTerritoryScoutSummary(colony.room.name),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
+}
+
+function summarizeWorkerAssignmentEvidence(
+  tick: number,
+  workerCount: number,
+  assignedTaskCount: number,
+  productiveAssignmentCount: number
+): RuntimeWorkerAssignmentEvidenceSummary {
+  return {
+    source: 'runtime-summary',
+    available: true,
+    tick,
+    workerCount,
+    assignedTaskCount,
+    productiveAssignmentCount
+  };
+}
+
+function countAssignedWorkerTasks(workers: Creep[]): number {
+  return workers.reduce((assignedCount, worker) => assignedCount + (getWorkerTaskType(worker) ? 1 : 0), 0);
 }
 
 function summarizeWorkerAssignmentBlockedRoomFields(
@@ -1988,6 +2030,7 @@ function summarizeProductiveEnergy(
   );
 
   return {
+    workerAssignmentEvidenceAvailable: true,
     ...productiveAssignments,
     constructionSiteCount: constructionSites.length,
     constructionDeadlockTicks: getRoomConstructionDeadlockTicks(colony.room),
