@@ -1652,17 +1652,42 @@ describe('runWorker', () => {
       moveTo: jest.fn()
     } as unknown as Creep;
     workers.push(firstWorker, secondWorker);
+    const rampartsById = new Map<string, StructureRampart>([
+      [String(firstRampart.id), firstRampart],
+      [String(secondRampart.id), secondRampart]
+    ]);
+    const getObjectById = jest.fn((id: string) => rampartsById.get(id) ?? null);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { FirstWorker: firstWorker, SecondWorker: secondWorker },
-      getObjectById: jest.fn((id: string) => (id === 'rampart-a' ? firstRampart : secondRampart)),
+      getObjectById,
       time: 801
     };
 
     expect(() => runWorker(firstWorker)).not.toThrow();
     expect(() => runWorker(secondWorker)).not.toThrow();
 
-    expect(firstWorker.memory.task).toEqual({ type: 'repair', targetId: 'rampart-a' });
-    expect(secondWorker.memory.task).toEqual({ type: 'repair', targetId: 'rampart-b' });
+    const firstTask = firstWorker.memory.task;
+    const secondTask = secondWorker.memory.task;
+    expect(firstTask?.type).toBe('repair');
+    expect(secondTask?.type).toBe('repair');
+    if (firstTask?.type !== 'repair' || secondTask?.type !== 'repair') {
+      throw new Error('expected both workers to receive repair tasks');
+    }
+
+    expect(new Set([String(firstTask.targetId), String(secondTask.targetId)])).toEqual(
+      new Set([String(firstRampart.id), String(secondRampart.id)])
+    );
+
+    const firstRepairTarget = rampartsById.get(String(firstTask.targetId));
+    const secondRepairTarget = rampartsById.get(String(secondTask.targetId));
+    if (!firstRepairTarget || !secondRepairTarget) {
+      throw new Error('expected assigned repair targets to resolve through Game.getObjectById');
+    }
+
+    expect(getObjectById).toHaveBeenCalledWith(firstTask.targetId);
+    expect(getObjectById).toHaveBeenCalledWith(secondTask.targetId);
+    expect(firstWorker.repair).toHaveBeenCalledWith(firstRepairTarget);
+    expect(secondWorker.repair).toHaveBeenCalledWith(secondRepairTarget);
   });
 
   it('upgrades an existing upgrade target and moves when not in range', () => {
