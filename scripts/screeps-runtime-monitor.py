@@ -2459,15 +2459,14 @@ def category_severity(category: str, reason: dict[str, Any]) -> str:
     if category == "owned_structure_damage":
         structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
         hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+        hits_max = number_from_reason(reason, "hitsMax", "hits_max")
         if structure_type == "rampart":
             delta = number_from_reason(reason, "delta")
             if hits is not None and hits <= RAMPART_SAFE_DECAY_HITS_FLOOR:
                 return "critical"
             if delta is not None and delta >= RAMPART_CRITICAL_DAMAGE_DELTA:
                 return "critical"
-            return severity
 
-        hits_max = number_from_reason(reason, "hitsMax", "hits_max")
         if hits is not None and hits_max and hits / hits_max <= 0.25:
             return "critical"
     return severity

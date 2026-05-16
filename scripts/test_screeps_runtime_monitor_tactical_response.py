@@ -903,6 +903,36 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertFalse(report["emergency"])
         self.assertTrue(report["silent"])
 
+    def test_low_relative_health_rampart_damage_is_critical(self) -> None:
+        reason = {
+            "kind": "structure_damage",
+            "room": "shardX/E26S49",
+            "object_id": "rampart1",
+            "structure_type": "rampart",
+            "current_hits": 1_000_000,
+            "hitsMax": 300_000_000,
+            "delta": 300,
+            "message": "owned rampart at 8,24 lost 300 hits",
+        }
+
+        self.assertGreater(reason["current_hits"], monitor.RAMPART_SAFE_DECAY_HITS_FLOOR)
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": [reason],
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertEqual(report["triggers"][0]["severity"], "critical")
+        self.assertEqual(report["triggers"][0]["priority"], "P0")
+
     def test_low_rampart_decay_below_safe_floor_still_alerts_p0(self) -> None:
         previous = {
             "baseline_established": True,
