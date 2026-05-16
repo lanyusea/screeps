@@ -1018,9 +1018,11 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         safe_floor = monitor.RAMPART_SAFE_DECAY_HITS_FLOOR
         current_hits = safe_floor + decay * 10
         large_delta = monitor.RAMPART_CRITICAL_DAMAGE_DELTA + decay
+        previous_tick = 3000
+        current_tick = previous_tick + monitor.RAMPART_DECAY_EVENT_TICKS * 18
         previous = {
             "baseline_established": True,
-            "tick": 3000,
+            "tick": previous_tick,
             "structures": {
                 "spawn1": {
                     "type": "spawn",
@@ -1065,8 +1067,9 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                     "hitsMax": 300000,
                 },
             },
-            tick=3001,
+            tick=current_tick,
         )
+        self.assertGreaterEqual(monitor.expected_rampart_decay_delta(previous, current_tick), large_delta)
 
         emitted, suppressed, _next_state = monitor.evaluate_room_alert(
             snapshot,
