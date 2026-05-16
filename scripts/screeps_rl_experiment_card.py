@@ -29,6 +29,10 @@ DEFAULT_STRATEGY_VARIANTS = (
     "expansion-remote.incumbent.v1",
     "expansion-remote.territory-shadow.v1",
 )
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SIMULATION_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
+DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
+DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
 
 JsonObject = dict[str, Any]
 
@@ -104,12 +108,12 @@ def safety_block() -> JsonObject:
 def simulation_block() -> JsonObject:
     return {
         "branch": "$activeWorld",
-        "code_path": "prod/dist/main.js",
-        "map_source_file": "maps/map-0b6758af.json",
+        "code_path": str(DEFAULT_SIMULATION_CODE_PATH),
+        "map_source_file": str(DEFAULT_SIMULATION_MAP_SOURCE_FILE),
         "repetitions": 1,
         "room": "E1S1",
         "shard": "shardX",
-        "simulator_out_dir": "runtime-artifacts/rl-simulator",
+        "simulator_out_dir": str(DEFAULT_SIMULATION_OUT_DIR),
         "ticks": 50,
         "workers": 1,
     }

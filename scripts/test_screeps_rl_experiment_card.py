@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_rl_experiment_card as card_helper
+import screeps_rl_simulator_harness as harness
 import screeps_rl_training_runner as runner
 
 
@@ -54,6 +56,32 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(config.ticks, 50)
         self.assertEqual(config.workers, 1)
         self.assertEqual(config.repetitions, 1)
+        self.assertEqual(config.branch, "$activeWorld")
+
+    def test_generated_simulation_paths_are_harness_defaults_from_arbitrary_cwd(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-cwd-safe-000000",
+            code_commit="e" * 40,
+            training_approach="bandit",
+            created_at="2026-05-16T10:09:35Z",
+        )
+
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                os.chdir(temp_dir)
+                config = runner.simulation_config_from_card(card)
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(config.branch, harness.DEFAULT_ACTIVE_WORLD_BRANCH)
+        self.assertEqual(config.map_source_file, harness.DEFAULT_MAP_SOURCE_FILE)
+        self.assertTrue(config.map_source_file.is_absolute())
+        self.assertEqual(config.code_path, harness.DEFAULT_CODE_PATH)
+        self.assertTrue(config.code_path.is_absolute())
+        self.assertTrue(config.code_path.is_file())
+        self.assertEqual(config.simulator_out_dir, REPO_ROOT / "runtime-artifacts" / "rl-simulator")
+        self.assertTrue(config.simulator_out_dir.is_absolute())
 
     def test_validate_rejects_header_only_card(self) -> None:
         card = card_helper.build_card(
