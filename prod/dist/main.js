@@ -16842,6 +16842,9 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
   }
+  if (isConfiguredScoutOnlyExpansionCandidate(candidate)) {
+    return "scout";
+  }
   if (candidate.source === "occupationIntent" && isPersistedControllerFollowUpCandidate(candidate)) {
     return candidate.intentAction;
   }
@@ -16864,6 +16867,9 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
     return "claim";
   }
   return recommendation.action === "reserve" ? "reserve" : candidate.intentAction;
+}
+function isConfiguredScoutOnlyExpansionCandidate(candidate) {
+  return candidate.source === "configuredExpansionScout" && isConfiguredExpansionScoutOnlyTarget(candidate.target.colony, candidate.target.roomName);
 }
 function isUnscoutedAdjacentReservationCandidate(candidate) {
   return isAdjacentRoomReservationReserveSelection(candidate);

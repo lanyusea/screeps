@@ -3152,6 +3152,10 @@ function getRecommendedTerritoryIntentAction(
     return candidate.intentAction;
   }
 
+  if (isConfiguredScoutOnlyExpansionCandidate(candidate)) {
+    return 'scout';
+  }
+
   if (candidate.source === 'occupationIntent' && isPersistedControllerFollowUpCandidate(candidate)) {
     return candidate.intentAction;
   }
@@ -3184,6 +3188,13 @@ function getRecommendedTerritoryIntentAction(
   }
 
   return recommendation.action === 'reserve' ? 'reserve' : candidate.intentAction;
+}
+
+function isConfiguredScoutOnlyExpansionCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    candidate.source === 'configuredExpansionScout' &&
+    isConfiguredExpansionScoutOnlyTarget(candidate.target.colony, candidate.target.roomName)
+  );
 }
 
 function isUnscoutedAdjacentReservationCandidate(candidate: ScoredTerritoryTarget): boolean {

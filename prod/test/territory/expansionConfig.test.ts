@@ -10,8 +10,8 @@ describe('territory expansion config', () => {
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
 
-  it('derives current-room scout-only neighbors from W3N9 without static tactical literals', () => {
-    expect(getCurrentRoomScoutOnlyAdjacentRoomNames('W3N9')).toEqual(['W3N10', 'W3N8', 'W4N9', 'W2N9']);
+  it('derives current-room scout-only neighbors from E29N55 without static tactical literals', () => {
+    expect(getCurrentRoomScoutOnlyAdjacentRoomNames('E29N55')).toEqual(['E29N56', 'E29N54', 'E28N55', 'E30N55']);
   });
 
   it('derives current-room scout-only neighbors across quadrant edges', () => {
@@ -57,10 +57,10 @@ describe('territory expansion config', () => {
   });
 
   it('merges explicit Memory scout targets with runtime current-room scout-only targets', () => {
-    const room = makeOwnedRoom('W3N9');
+    const room = makeOwnedRoom('E29N55');
     (globalThis as { Game: Partial<Game> }).Game = {
       rooms: {
-        W3N9: room
+        E29N55: room
       },
       spawns: {
         Spawn1: makeSpawn('Spawn1', room)
@@ -68,14 +68,14 @@ describe('territory expansion config', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       runtime: {
-        currentRoomName: 'W3N9'
+        currentRoomName: 'E29N55'
       },
       territory: {
         expansionScoutTargets: [
           {
-            colony: 'W3N9',
-            roomName: 'W5N9',
-            nearestOwnedRoom: 'W3N9',
+            colony: 'E29N55',
+            roomName: 'E31N55',
+            nearestOwnedRoom: 'E29N55',
             nearestOwnedRoomDistance: 2,
             routeDistance: 2,
             adjacentToOwnedRoom: false
@@ -84,46 +84,46 @@ describe('territory expansion config', () => {
       }
     };
 
-    expect(getTerritoryExpansionScoutTargets('W3N9')).toEqual([
+    expect(getTerritoryExpansionScoutTargets('E29N55')).toEqual([
       {
-        colony: 'W3N9',
-        roomName: 'W5N9',
-        nearestOwnedRoom: 'W3N9',
+        colony: 'E29N55',
+        roomName: 'E31N55',
+        nearestOwnedRoom: 'E29N55',
         nearestOwnedRoomDistance: 2,
         routeDistance: 2,
         adjacentToOwnedRoom: false
       },
       {
-        colony: 'W3N9',
-        roomName: 'W3N10',
-        nearestOwnedRoom: 'W3N9',
+        colony: 'E29N55',
+        roomName: 'E29N56',
+        nearestOwnedRoom: 'E29N55',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
         adjacentToOwnedRoom: true,
         scoutOnly: true
       },
       {
-        colony: 'W3N9',
-        roomName: 'W3N8',
-        nearestOwnedRoom: 'W3N9',
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        nearestOwnedRoom: 'E29N55',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
         adjacentToOwnedRoom: true,
         scoutOnly: true
       },
       {
-        colony: 'W3N9',
-        roomName: 'W4N9',
-        nearestOwnedRoom: 'W3N9',
+        colony: 'E29N55',
+        roomName: 'E28N55',
+        nearestOwnedRoom: 'E29N55',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
         adjacentToOwnedRoom: true,
         scoutOnly: true
       },
       {
-        colony: 'W3N9',
-        roomName: 'W2N9',
-        nearestOwnedRoom: 'W3N9',
+        colony: 'E29N55',
+        roomName: 'E30N55',
+        nearestOwnedRoom: 'E29N55',
         nearestOwnedRoomDistance: 1,
         routeDistance: 1,
         adjacentToOwnedRoom: true,
