@@ -3409,11 +3409,21 @@ def is_worker_creep(creep: dict[str, Any]) -> bool:
     return role is not None and role.lower() == "worker"
 
 
+def is_worker_assignment_task_type(task_type: str | None) -> bool:
+    return task_type is not None and task_type.strip().lower() in ASSIGNED_WORKER_TASK_NAMES
+
+
 def creep_has_assignment_evidence(creep: dict[str, Any]) -> bool:
-    return creep_role(creep) is not None or creep_task_type(creep) is not None
+    return is_worker_creep(creep) or is_worker_assignment_task_type(creep_task_type(creep))
 
 
-def worker_assignment_evidence_available(owned_creeps: list[dict[str, Any]]) -> bool:
+def worker_assignment_evidence_available(
+    owned_creeps: list[dict[str, Any]],
+    explicit_blocked_workers: list[dict[str, Any]] | None,
+    explicit_blocked_detail: str | None,
+) -> bool:
+    if explicit_blocked_detail is not None or bool(explicit_blocked_workers):
+        return True
     return any(creep_has_assignment_evidence(creep) for creep in owned_creeps)
 
 
@@ -3875,7 +3885,12 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
     ]
     construction_sites = owned_construction_sites(snapshot)
     task_counts = worker_task_counts(owned_creep_objects)
-    assignment_evidence_available = worker_assignment_evidence_available(owned_creep_objects)
+    info = snapshot.info if isinstance(snapshot.info, dict) else {}
+    assignment_evidence_available = worker_assignment_evidence_available(
+        owned_creep_objects,
+        explicit_worker_assignment_blocked_workers(info),
+        explicit_worker_assignment_blocked_detail(info),
+    )
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
     build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
     extension_count, extension_capacity_contribution = room_extension_metrics(structures, snapshot.owner)

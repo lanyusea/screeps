@@ -1225,6 +1225,126 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(room["constructionDeadlockTicks"], 0)
         self.assertNotIn("buildBlockedReason", room)
         self.assertNotIn("buildBlockedReason", productive_energy)
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
+
+    def test_runtime_summary_payload_ignores_non_worker_assignment_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "claimer-1": {
+                        "_id": "claimer-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "claimer-E29N55-1",
+                        "memory": {"role": "claimer", "task": {"type": "claim", "targetId": "controller1"}},
+                        "store": {"energy": 0, "capacity": 0},
+                    },
+                }
+            ),
+            tick=999272,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(
+            room["taskCounts"],
+            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+        )
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+
+    def test_runtime_summary_payload_uses_explicit_blocked_worker_telemetry_as_assignment_evidence(self) -> None:
+        explicit_workers = [
+            {
+                "name": "WorkerA",
+                "task": "upgrade",
+                "carriedEnergy": 50,
+                "freeCapacity": 0,
+                "buildBlockedReason": "build_blocked_controller_progress_preferred",
+                "repairBlockedReason": "repair_blocked_build_backlog_first",
+            }
+        ]
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    }
+                }
+            ),
+            tick=999273,
+            owner="lanyusea",
+            info={
+                "energyAvailable": 333,
+                "resources": {
+                    "productiveEnergy": {
+                        "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                        "workerAssignmentBlockedWorkers": explicit_workers,
+                    }
+                },
+            },
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertTrue(room["workerAssignmentEvidenceAvailable"])
+        self.assertTrue(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(room["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(productive_energy["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(room["constructionDeadlockTicks"], 1)
+        self.assertEqual(productive_energy["constructionDeadlockTicks"], 1)
+        self.assertEqual(room["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(productive_energy["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(room["workerAssignmentBlockedWorkers"], explicit_workers)
+        self.assertEqual(productive_energy["workerAssignmentBlockedWorkers"], explicit_workers)
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(next_state["consecutive_ticks"], 173)
 
     def test_runtime_summary_payload_includes_worker_dispatch_diagnostics(self) -> None:
         snapshot = monitor.RoomSnapshot(
