@@ -435,6 +435,34 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(summary["steps"][-1]["name"], "scale_down")
         self.assertFalse(summary["steps"][-1]["ok"])
 
+    def test_main_exits_nonzero_when_controller_cleanup_failed(self) -> None:
+        class FakeController:
+            def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:
+                self.args = args
+                self.run_id = run_id
+                self.artifact_dir = artifact_dir
+                self.final_status = "unknown"
+
+            def run(self) -> None:
+                self.final_status = "completed_scale_down_failed"
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(runner, "Controller", FakeController),
+            mock.patch.object(runner.sys, "stdout", stdout),
+            mock.patch.object(runner.sys, "stderr", stderr),
+        ):
+            exit_code = runner.main(["run-single", "--run-id", "run-test", "--artifact-root", temp_dir])
+
+        self.assertNotEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertNotIn('"ok": true', stderr.getvalue())
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], "completed_scale_down_failed")
+
     def test_bootstrap_worker_uses_configured_worker_user(self) -> None:
         args = controller_args()
         args.worker_user = "custom-worker"

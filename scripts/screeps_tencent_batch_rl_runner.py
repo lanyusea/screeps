@@ -1195,6 +1195,15 @@ def main(argv: list[str] | None = None) -> int:
         controller.write_summary()
         print(json.dumps({"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "error": str(error)}, ensure_ascii=False), file=sys.stderr)
         return 2
+    if controller.final_status == "completed_scale_down_failed":
+        print(
+            json.dumps(
+                {"ok": False, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 3
     print(json.dumps({"ok": True, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status}, ensure_ascii=False))
     return 0
 
