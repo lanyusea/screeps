@@ -23145,6 +23145,7 @@ var LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS = 1e3;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
+var LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE = LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE;
 var ROUTINE_REPAIR_MIN_HITS_DEFICIT = 500;
 var ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
 var ROUTINE_REPAIR_MAX_RANGE = 5;
@@ -24119,12 +24120,32 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
-  const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+  const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(
+    creep,
+    getLowLoadWorkerEnergyContinuationRange(creep, task)
+  );
   if (lowLoadEnergyContinuationTask) {
     return lowLoadEnergyContinuationTask;
   }
   recordLowLoadReturnTelemetry(creep, task, "noReachableEnergy");
   return task;
+}
+function getLowLoadWorkerEnergyContinuationRange(creep, task) {
+  return shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) ? LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE : LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
+}
+function shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) {
+  return task.type === "build" && hasHealthyRoomEnergyBuffer(creep.room) && !hasEmergencySpawnExtensionRefillDemand(creep) && isSourceLogisticsConstructionTask(creep, task);
+}
+function isSourceLogisticsConstructionTask(creep, task) {
+  const site = getGameObjectById2(String(task.targetId));
+  if (!site) {
+    return false;
+  }
+  const priority = getConstructionSiteImpactPriority(
+    site,
+    buildWorkerConstructionSiteImpactPriorityContext(creep, [site])
+  );
+  return priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad;
 }
 function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
@@ -26141,8 +26162,8 @@ function shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(creep, currentTa
   const selectedCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, selectedTask);
   return currentCandidate !== null && selectedCandidate !== null && isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, selectedCandidate);
 }
-function selectLowLoadWorkerEnergyContinuationTask(creep) {
-  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
+function selectLowLoadWorkerEnergyContinuationTask(creep, maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE) {
+  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep, maximumRange);
   if (!candidate) {
     return null;
   }
