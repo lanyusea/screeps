@@ -666,6 +666,57 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(candidate_result["reward"]["sampleStdDev"][0], 0.5)
         self.assertEqual(candidate_result["reward"]["sampleStdDev"][1:], [0, 0, 0])
 
+    def test_missing_variant_repetition_counts_as_unreliable_attempt(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        successful_candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=10000)])])
+
+        class MissingCandidateRepetitionSimulator:
+            def __init__(self) -> None:
+                self.calls: list[JsonObject] = []
+
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                self.calls.append(dict(kwargs))
+                variants = [baseline, successful_candidate] if len(self.calls) == 1 else [baseline]
+                return {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": kwargs["run_id"],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": variants,
+                }
+
+        simulator = MissingCandidateRepetitionSimulator()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            card = base_card()
+            card["simulation"]["repetitions"] = 2
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="missing-candidate-repetition",
+                simulator_runner=simulator,
+            )
+
+        candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
+        self.assertEqual(len(simulator.calls), 2)
+        self.assertEqual(candidate_result["sampleCount"], 1)
+        self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["reward"]["tuple"][0], 0.5)
+        self.assertEqual(candidate_result["metrics"]["reliability"]["score"], 0.5)
+        self.assertEqual([sample[0] for sample in candidate_result["reward"]["samples"]], [1, 0])
+        self.assertEqual(candidate_result["reward"]["samples"][1], [0, None, None, None])
+        self.assertIn("missing from simulator run", candidate_result["runs"][1]["error"])
+
+        ranking_by_variant = {item["variantId"]: item for item in report["ranking"]}
+        self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline", "candidate"])
+        self.assertEqual(ranking_by_variant["baseline"]["rank"], 1)
+        self.assertGreater(ranking_by_variant["candidate"]["rank"], ranking_by_variant["baseline"]["rank"])
+        self.assertNotEqual(ranking_by_variant["candidate"]["rewardTuple"][0], 1)
+        self.assertEqual(report["statisticalComparison"]["pairwise"][0]["winner"], "baseline")
+
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200, spawn_status="spawning")])])

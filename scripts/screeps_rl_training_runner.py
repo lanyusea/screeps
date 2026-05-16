@@ -708,7 +708,7 @@ def build_training_report(
     report_id: str,
     generated_at: str,
 ) -> JsonObject:
-    per_variant_runs = collect_variant_runs(simulator_runs)
+    per_variant_runs = collect_variant_runs(simulator_runs, [variant.id for variant in variants])
     results = [
         summarize_variant(variant, per_variant_runs.get(variant.id, []), reward_options)
         for variant in variants
@@ -793,21 +793,42 @@ def build_training_report(
     }
 
 
-def collect_variant_runs(simulator_runs: Sequence[JsonObject]) -> dict[str, list[JsonObject]]:
-    collected: dict[str, list[JsonObject]] = {}
-    for run in simulator_runs:
-        if not isinstance(run, dict):
-            continue
-        raw_variants = run.get("variants")
-        if not isinstance(raw_variants, list):
-            continue
-        for raw_variant in raw_variants:
-            if not isinstance(raw_variant, dict):
-                continue
-            variant_id = raw_variant.get("variant_id", raw_variant.get("variantId"))
-            if isinstance(variant_id, str):
-                collected.setdefault(variant_id, []).append(raw_variant)
+def collect_variant_runs(
+    simulator_runs: Sequence[JsonObject],
+    expected_variant_ids: Sequence[str],
+) -> dict[str, list[JsonObject]]:
+    collected: dict[str, list[JsonObject]] = {variant_id: [] for variant_id in expected_variant_ids}
+    for run_index, run in enumerate(simulator_runs):
+        emitted: dict[str, JsonObject] = {}
+        if isinstance(run, dict):
+            raw_variants = run.get("variants")
+            if isinstance(raw_variants, list):
+                for raw_variant in raw_variants:
+                    if not isinstance(raw_variant, dict):
+                        continue
+                    variant_id = raw_variant.get("variant_id", raw_variant.get("variantId"))
+                    if isinstance(variant_id, str) and variant_id not in emitted:
+                        emitted[variant_id] = raw_variant
+        for variant_id in expected_variant_ids:
+            collected[variant_id].append(
+                emitted.get(variant_id) or missing_variant_attempt(run, variant_id, run_index)
+            )
     return collected
+
+
+def missing_variant_attempt(run: Any, variant_id: str, run_index: int) -> JsonObject:
+    run_id = (
+        run.get("runId")
+        if isinstance(run, dict) and isinstance(run.get("runId"), str)
+        else f"run[{run_index}]"
+    )
+    return {
+        "variant_id": variant_id,
+        "variant_run_id": None,
+        "ticks_run": None,
+        "ok": False,
+        "error": f"variant result missing from simulator run {run_id}",
+    }
 
 
 def summarize_variant(
