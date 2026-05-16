@@ -2142,7 +2142,7 @@ describe('runWorker', () => {
         pos: { getRangeTo: jest.fn().mockReturnValue(5) },
         room,
         build: jest.fn().mockReturnValue(0),
-        upgradeController: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
         moveTo: jest.fn()
       }) as unknown as Creep;
     workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
@@ -2170,6 +2170,9 @@ describe('runWorker', () => {
     expect(assignedTasks.filter((task) => task === 'upgrade')).toHaveLength(2);
     expect(workers.some((worker) => (worker.build as jest.Mock).mock.calls.length > 0)).toBe(true);
     expect(workers.some((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)).toBe(true);
+    for (const worker of workers.filter((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)) {
+      expect(worker.moveTo).toHaveBeenCalledWith(controller, { range: 3 });
+    }
   });
 
   it('keeps E29N55 RCL2 controller progression active after construction clears', () => {
@@ -2240,7 +2243,7 @@ describe('runWorker', () => {
         room,
         build: jest.fn(),
         transfer: jest.fn(),
-        upgradeController: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
         moveTo: jest.fn()
       }) as unknown as Creep;
     workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
@@ -2266,6 +2269,9 @@ describe('runWorker', () => {
     expect(room.find).toHaveBeenCalledWith(FIND_CONSTRUCTION_SITES);
     expect(assignedTasks).toEqual(['upgrade', 'upgrade', 'upgrade', 'upgrade']);
     expect(workers.every((worker) => (worker.upgradeController as jest.Mock).mock.calls.length === 1)).toBe(true);
+    for (const worker of workers) {
+      expect(worker.moveTo).toHaveBeenCalledWith(controller, { range: 3 });
+    }
     expect(workers.every((worker) => (worker.build as jest.Mock).mock.calls.length === 0)).toBe(true);
     expect(workers.every((worker) => (worker.transfer as jest.Mock).mock.calls.length === 0)).toBe(true);
   });
