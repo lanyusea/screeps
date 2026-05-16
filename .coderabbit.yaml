@@ -107,10 +107,6 @@ reviews:
         secret-handling mistakes, contradictory merge/review gates, or context loss that would cause autonomous agents to make
         wrong production decisions. Ignore grammar and style.
 
-    - path: "AGENT.md"
-      instructions: |
-        Ensure this remains only a pointer to `AGENTS.md`; do not duplicate long-lived project instructions here.
-
     - path: "AGENTS.md"
       instructions: |
         Review for critical contradictions with repository operating rules: worktree-only changes, Codex ownership of `prod/`
@@ -180,7 +176,6 @@ knowledge_base:
     enabled: true
     filePatterns:
       - AGENTS.md
-      - AGENT.md
       - docs/ops/codex-skills.md
       - .gemini/styleguide.md
       - .coderabbit.yaml

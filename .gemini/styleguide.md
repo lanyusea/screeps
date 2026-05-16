@@ -31,4 +31,4 @@ Repository context:
 - Durable docs live under `docs/`.
 - Generated Screeps bundle is `prod/dist/main.js`; it should be produced by `npm run build`, not hand-edited.
 - Expected verification from `prod/`: `npm run typecheck`, `npm test -- --runInBand`, `npm run build`.
-- AI/agent project instructions live in root `AGENTS.md`; singular `AGENT.md` is only a pointer.
+- AI/agent project instructions live in root `AGENTS.md`.
