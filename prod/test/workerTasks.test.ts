@@ -108,6 +108,16 @@ function setSourceContainerHarvester(room: Room, sourceId: string): void {
   });
 }
 
+function expectLowLoadSourceLogisticsContinuationRangeToBeExtended(): number {
+  const extendedOnlyRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE + 1;
+  expect(extendedOnlyRange).toBeGreaterThan(LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE);
+  expect(extendedOnlyRange).toBeLessThan(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE);
+  expect(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE).toBeGreaterThan(
+    LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+  );
+  return extendedOnlyRange;
+}
+
 function makeStructure(
   id: string,
   structureType: StructureConstant,
@@ -7007,6 +7017,63 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
+  it('refills the first RCL3 tower before additional extension construction', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'TowerActivationWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        constructionSites: [extensionSite],
+        controller,
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+  });
+
+  it.each([
+    ['spawn', 'spawn-emergency', 300],
+    ['extension', 'extension-emergency', 50]
+  ] as const)('keeps emergency %s refill before first tower activation', (structureType, sinkId, freeCapacity) => {
+    const emergencySink = makeEnergySinkWithEnergy(
+      sinkId,
+      structureType as StructureConstant,
+      0,
+      freeCapacity
+    );
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'EmergencyRefillWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 550,
+        myStructures: [lowTower as AnyOwnedStructure, emergencySink as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: sinkId });
+  });
+
   it('refills low towers in a claimed non-primary room', () => {
     const lowTower = makeTowerEnergySink('e17s58-tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
     const site = { id: 'e17s58-road-site', structureType: 'road' } as ConstructionSite;
@@ -9662,6 +9729,139 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
+  });
+
+  it('keeps E29N55 low-load source-container builders acquiring before healthy-buffer build trips', () => {
+    const extendedOnlyRange = expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+
+    const source = makeSource('source1', 20, 10, 'E29N55');
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      structureType: 'container',
+      pos: makeRoomPosition(20, 11, 'E29N55')
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const capacity = 50;
+    const carriedEnergy = Math.ceil(capacity * MINIMUM_USEFUL_LOAD_RATIO) - 1;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [sourceContainerSite],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      name: 'SourceLogisticsBuilder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(capacity),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(capacity - carriedEnergy)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            source1: extendedOnlyRange,
+            'source-container-site1': 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ SourceLogisticsBuilder: creep });
+    setGameObjectsById([sourceContainerSite], { time: 1_141 });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 1_141,
+      carriedEnergy,
+      freeCapacity: capacity - carriedEnergy,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: extendedOnlyRange
+    });
+  });
+
+  it('uses reachable source-container energy before low-load critical road build trips in healthy E29N55', () => {
+    const extendedOnlyRange = expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+
+    const source = makeSource('source1', 20, 10, 'E29N55');
+    const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 250, {
+      pos: makeRoomPosition(20, 11, 'E29N55')
+    });
+    const roadSite = {
+      id: 'road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10, 'E29N55')
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const capacity = 50;
+    const carriedEnergy = Math.ceil(capacity * MINIMUM_USEFUL_LOAD_RATIO) - 1;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [sourceContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'RoadLogisticsBuilder',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(capacity),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(capacity - carriedEnergy)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'road-critical-site1': 2,
+            'source-container1': extendedOnlyRange,
+            source1: LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RoadLogisticsBuilder: creep });
+    setGameObjectsById([roadSite, sourceContainer], { time: 1_142 });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'source-container1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 1_142,
+      carriedEnergy,
+      freeCapacity: capacity - carriedEnergy,
+      selectedTask: 'withdraw',
+      targetId: 'source-container1',
+      energy: 250,
+      range: extendedOnlyRange
+    });
   });
 
   it('builds an extension finishable with Screeps build power before a closer unfinished extension', () => {

@@ -11113,6 +11113,10 @@ function planConstructionForColony(colony, options = {}) {
     planStorage(colony, result, budgetState, options);
     return result;
   }
+  let priorityTowerDefenseSiteState = shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options) ? planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl) : "notNeeded";
+  if (hasBlockingPlacementFailure(result)) {
+    return result;
+  }
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
     if (hasBlockingPlacementFailure(result)) {
@@ -11137,15 +11141,17 @@ function planConstructionForColony(colony, options = {}) {
       return result;
     }
   }
-  const priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
-    colony,
-    result,
-    budgetState,
-    options,
-    rcl
-  );
-  if (hasBlockingPlacementFailure(result)) {
-    return result;
+  if (priorityTowerDefenseSiteState === "notNeeded") {
+    priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+      colony,
+      result,
+      budgetState,
+      options,
+      rcl
+    );
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
   }
   if (priorityTowerDefenseSiteState !== "blocked") {
     planBootstrapDefenseFloor(colony, result, budgetState, options);
@@ -11206,6 +11212,9 @@ function planTowers(colony, result, budgetState, options) {
   if (towerResult !== null) {
     recordPlacement(result, budgetState, "tower", towerResult, options);
   }
+}
+function shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options) {
+  return options.respectRoomEnergyBuffer === true && options.postClaimPriorityOrder !== true && rcl >= 3 && getRoomEnergyCapacityAvailableFromRoom(room) < TERRITORY_CONTROLLER_BODY_COST && countExistingAndPendingStructures(room, "tower") <= 0 && hasRemainingStructureCapacity(room, "tower");
 }
 function planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl) {
   if (rcl < 3 || countExistingAndPendingStructures(colony.room, "tower") > 0 || !hasRemainingStructureCapacity(colony.room, "tower")) {
@@ -23145,6 +23154,7 @@ var LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS = 1e3;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
+var LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE = LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE;
 var ROUTINE_REPAIR_MIN_HITS_DEFICIT = 500;
 var ROUTINE_REPAIR_MIN_HITS_DEFICIT_RATIO = 0.1;
 var ROUTINE_REPAIR_MAX_RANGE = 5;
@@ -23416,6 +23426,13 @@ function selectHeuristicWorkerTask(creep) {
   if (constructionPreBufferBuildTask) {
     return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
   }
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink && shouldPrioritizeRcl3TowerActivationRefill(controller)) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "transfer",
+      targetId: priorityTowerEnergySink.id
+    });
+  }
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(
     creep,
     constructionSites,
@@ -23451,7 +23468,6 @@ function selectHeuristicWorkerTask(creep) {
       return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: capacityConstructionSite.id });
     }
   }
-  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "transfer",
@@ -23984,6 +24000,9 @@ function hasLowWorkerThroughputRecoveryPressure(creep) {
 function getControllerLevel(controller) {
   return typeof controller.level === "number" && Number.isFinite(controller.level) ? Math.max(0, Math.floor(controller.level)) : 0;
 }
+function shouldPrioritizeRcl3TowerActivationRefill(controller) {
+  return (controller == null ? void 0 : controller.my) === true && getControllerLevel(controller) >= 3;
+}
 function shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed) {
   return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
@@ -24119,12 +24138,32 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
-  const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+  const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(
+    creep,
+    getLowLoadWorkerEnergyContinuationRange(creep, task)
+  );
   if (lowLoadEnergyContinuationTask) {
     return lowLoadEnergyContinuationTask;
   }
   recordLowLoadReturnTelemetry(creep, task, "noReachableEnergy");
   return task;
+}
+function getLowLoadWorkerEnergyContinuationRange(creep, task) {
+  return shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) ? LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE : LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
+}
+function shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) {
+  return task.type === "build" && isSourceLogisticsConstructionTask(creep, task) && hasHealthyRoomEnergyBuffer(creep.room) && !hasEmergencySpawnExtensionRefillDemand(creep);
+}
+function isSourceLogisticsConstructionTask(creep, task) {
+  const site = getGameObjectById2(String(task.targetId));
+  if (!site) {
+    return false;
+  }
+  const priority = getConstructionSiteImpactPriority(
+    site,
+    buildWorkerConstructionSiteImpactPriorityContext(creep, [site])
+  );
+  return priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad || priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad;
 }
 function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
@@ -26141,8 +26180,8 @@ function shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(creep, currentTa
   const selectedCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, selectedTask);
   return currentCandidate !== null && selectedCandidate !== null && isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, selectedCandidate);
 }
-function selectLowLoadWorkerEnergyContinuationTask(creep) {
-  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
+function selectLowLoadWorkerEnergyContinuationTask(creep, maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE) {
+  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep, maximumRange);
   if (!candidate) {
     return null;
   }
