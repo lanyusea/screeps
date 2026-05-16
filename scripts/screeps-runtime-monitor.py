@@ -703,6 +703,24 @@ def overview_rooms(overview: Any, shard: str) -> list[str]:
     return [room for room in rooms if isinstance(room, str)]
 
 
+def overview_room_refs(overview: Any) -> list[RoomRef]:
+    if not isinstance(overview, dict):
+        return []
+    shards = overview.get("shards")
+    if not isinstance(shards, dict):
+        return []
+
+    refs: list[RoomRef] = []
+    for shard in sorted(shards):
+        shard_info = shards.get(shard)
+        if not isinstance(shard_info, dict):
+            continue
+        for room in shard_info.get("rooms") or []:
+            if isinstance(room, str):
+                refs.append(RoomRef(shard=shard, room=room))
+    return refs
+
+
 def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
     if not isinstance(overview, dict):
         return None
@@ -715,7 +733,7 @@ def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
     return shard_info.get("gametime")
 
 
-def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tuple[list[RoomRef], Any, list[str]]:
+def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tuple[list[RoomRef], Any, list[str], list[RoomRef]]:
     warnings: list[str] = []
     overview: Any = None
     try:
@@ -723,27 +741,16 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     except Exception as exc:  # noqa: BLE001 - sanitized in user payload
         warnings.append(f"owned room discovery unavailable: {short_text(exc, 140)}")
 
+    overview_refs = overview_room_refs(overview)
     if forced_room:
-        return [forced_room], overview, warnings
+        return [forced_room], overview, warnings, overview_refs
 
-    rooms: list[RoomRef] = []
-    if isinstance(overview, dict):
-        shards = overview.get("shards")
-        if isinstance(shards, dict):
-            for shard in sorted(shards):
-                shard_info = shards.get(shard)
-                if not isinstance(shard_info, dict):
-                    continue
-                for room in shard_info.get("rooms") or []:
-                    if isinstance(room, str):
-                        rooms.append(RoomRef(shard=shard, room=room))
-
-    if rooms:
-        return rooms, overview, warnings
+    if overview_refs:
+        return overview_refs, overview, warnings, overview_refs
 
     fallback = RoomRef(ctx.default_shard, ctx.default_room)
     warnings.append(f"falling back to configured room {fallback.key}")
-    return [fallback], overview, warnings
+    return [fallback], overview, warnings, [fallback]
 
 
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
@@ -863,9 +870,9 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
     raise RuntimeError(f"no room snapshot event received for {ref.key}")
 
 
-def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str]]:
+def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str], list[RoomRef]]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
-    refs, overview, warnings = discover_owned_rooms(ctx, forced_room)
+    refs, overview, warnings, overview_refs = discover_owned_rooms(ctx, forced_room)
     configured_owner, configured_owner_id = user_identity(ctx, warnings)
     configured_owner = configured_owner or overview_username(overview)
     snapshots: list[RoomSnapshot] = []
@@ -915,7 +922,7 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
 
     if not snapshots:
         raise RuntimeError("no room snapshots collected")
-    return snapshots, warnings
+    return snapshots, warnings, overview_refs
 
 
 def detect_hostile_creeps(objects: dict[str, dict[str, Any]], owner_username: str | None) -> list[dict[str, Any]]:
@@ -3178,6 +3185,7 @@ def load_latest_runtime_room_summaries(
     runtime_summary_dir: Path,
     refs: list[RoomRef],
     warnings: list[str],
+    disambiguation_refs: list[RoomRef] | None = None,
 ) -> dict[str, dict[str, Any]]:
     if not refs or not runtime_summary_dir.exists():
         return {}
@@ -3188,7 +3196,7 @@ def load_latest_runtime_room_summaries(
         warnings.append(f"runtime-summary scan unavailable: {short_text(exc, 140)}")
         return {}
 
-    ambiguous_room_names = ambiguous_runtime_room_names(refs)
+    ambiguous_room_names = ambiguous_runtime_room_names([*refs, *(disambiguation_refs or [])])
     result: dict[str, dict[str, Any]] = {}
     for path in paths:
         try:
@@ -4132,7 +4140,7 @@ def command_health_gate(args: argparse.Namespace) -> int:
 
 def command_summary(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
-    snapshots, warnings = collect_snapshots(ctx, args.room)
+    snapshots, warnings, _overview_refs = collect_snapshots(ctx, args.room)
     images: list[str] = []
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
@@ -4168,11 +4176,12 @@ def command_summary(args: argparse.Namespace) -> int:
 
 def command_alert(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
-    snapshots, warnings = collect_snapshots(ctx, args.room)
+    snapshots, warnings, overview_refs = collect_snapshots(ctx, args.room)
     runtime_room_summaries = load_latest_runtime_room_summaries(
         Path(args.runtime_summary_dir).expanduser(),
         [snapshot.ref for snapshot in snapshots],
         warnings,
+        disambiguation_refs=overview_refs,
     )
     state = load_state(ctx.state_file)
     rooms_state = state.get("rooms")

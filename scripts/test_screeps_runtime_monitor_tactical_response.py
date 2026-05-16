@@ -315,6 +315,44 @@ class WorldProfileDefaultsTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 monitor.build_parser().parse_args(["summary"])
 
+    def test_forced_room_discovery_preserves_overview_refs_for_summary_disambiguation(self) -> None:
+        ctx = monitor.RuntimeContext(
+            base_http="https://screeps.com",
+            token="token",
+            default_shard="shardX",
+            default_room="E29N55",
+            owner=None,
+            owner_id=None,
+            state_file=Path("/tmp/state.json"),
+            cache_dir=Path("/tmp/cache"),
+            debounce_seconds=300,
+            collection_attempts=1,
+            collection_retry_delay_seconds=0,
+        )
+        overview = {
+            "shards": {
+                "shardSeason": {"rooms": ["E29N55"]},
+                "shardX": {"rooms": ["E29N55"]},
+            }
+        }
+
+        with mock.patch.object(monitor, "get_json", return_value=overview):
+            rooms, returned_overview, warnings, overview_refs = monitor.discover_owned_rooms(
+                ctx,
+                monitor.RoomRef(shard="shardX", room="E29N55"),
+            )
+
+        self.assertEqual(rooms, [monitor.RoomRef(shard="shardX", room="E29N55")])
+        self.assertIs(returned_overview, overview)
+        self.assertEqual(warnings, [])
+        self.assertEqual(
+            overview_refs,
+            [
+                monitor.RoomRef(shard="shardSeason", room="E29N55"),
+                monitor.RoomRef(shard="shardX", room="E29N55"),
+            ],
+        )
+
 
 class TacticalResponseBridgeTest(unittest.TestCase):
     def test_no_alert_fixture_is_machine_readable_silent(self) -> None:
@@ -1467,6 +1505,40 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertNotIn("shardX/E29N55", runtime_rooms)
         self.assertEqual(runtime_rooms["shardSeason/E29N55"]["taskCounts"]["harvest"], 2)
+
+    def test_room_only_console_summary_uses_overview_refs_for_forced_room_disambiguation(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 995550,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 9, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260516T000000Z.log").write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+                disambiguation_refs=[
+                    monitor.RoomRef(shard="shardX", room="E29N55"),
+                    monitor.RoomRef(shard="shardSeason", room="E29N55"),
+                ],
+            )
+
+        self.assertEqual(runtime_rooms, {})
+        self.assertEqual(warnings, [])
 
     def test_runtime_summary_loader_ignores_behavior_only_pathing_totals(self) -> None:
         payload = {
