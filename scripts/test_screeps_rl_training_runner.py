@@ -771,6 +771,60 @@ export const STRATEGY_REGISTRY = [
 
                 self.assertFalse((out_dir / f"{report_id}.json").exists())
 
+    def test_malformed_variant_rows_fail_before_report_is_persisted(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+
+        cases = (
+            (
+                "non-dict-variant-row",
+                [baseline, "not-a-dict", candidate],
+                r"non-dict-variant-row .*run_index=0.*variant_index=1.*raw_variant='not-a-dict'",
+            ),
+            (
+                "missing-variant-id",
+                [baseline, {"ticks": []}, candidate],
+                r"missing-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+            (
+                "empty-variant-id",
+                [baseline, {"variant_id": "", "ticks": []}, candidate],
+                r"empty-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+            (
+                "non-string-variant-id",
+                [baseline, {"variant_id": 7, "ticks": []}, candidate],
+                r"non-string-variant-id .*run_index=0.*variant_index=1.*missing string variant id.*raw_variant=",
+            ),
+        )
+        for report_id, variants, message_regex in cases:
+            with self.subTest(report_id=report_id), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                out_dir = root / "reports"
+
+                class MalformedVariantSimulator:
+                    def __call__(self, **kwargs: Any) -> JsonObject:
+                        return {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": kwargs["run_id"],
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": variants,
+                        }
+
+                write_json(card_path, base_card())
+                with self.assertRaisesRegex(RuntimeError, message_regex):
+                    runner.run_training_experiment(
+                        card_path,
+                        out_dir,
+                        report_id=report_id,
+                        simulator_runner=MalformedVariantSimulator(),
+                    )
+
+                self.assertFalse((out_dir / f"{report_id}.json").exists())
+
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200, spawn_status="spawning")])])

@@ -809,13 +809,19 @@ def collect_variant_runs(
         if isinstance(run, dict):
             raw_variants = run.get("variants")
             if isinstance(raw_variants, list):
-                for raw_variant in raw_variants:
+                run_label = simulator_run_label(run, run_index)
+                for variant_index, raw_variant in enumerate(raw_variants):
                     if not isinstance(raw_variant, dict):
-                        continue
+                        raise RuntimeError(
+                            f"simulator run {run_label} emitted malformed variant row at "
+                            f"variant_index={variant_index}: raw_variant={raw_variant!r}"
+                        )
                     variant_id = raw_variant.get("variant_id", raw_variant.get("variantId"))
-                    if not isinstance(variant_id, str):
-                        continue
-                    run_label = simulator_run_label(run, run_index)
+                    if not isinstance(variant_id, str) or not variant_id:
+                        raise RuntimeError(
+                            f"simulator run {run_label} emitted malformed variant row at "
+                            f"variant_index={variant_index}: missing string variant id in raw_variant={raw_variant!r}"
+                        )
                     if variant_id not in expected_variant_id_set:
                         raise RuntimeError(
                             f"simulator run {run_label} emitted unexpected variant id {variant_id!r}"

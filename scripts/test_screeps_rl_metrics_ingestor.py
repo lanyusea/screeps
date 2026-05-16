@@ -393,6 +393,81 @@ class ScreepsRlMetricsIngestorTest(unittest.TestCase):
                 ],
             )
 
+    def test_training_report_component_order_maps_reward_and_policy_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "rl_metrics.sqlite"
+            artifact_dir = root / "rl-training"
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            component_order = ["reliability", "territory", "resources", "kills"]
+            report = {
+                "type": "screeps-rl-training-report",
+                "reportId": "component-order-report",
+                "rewardModel": {"componentOrder": component_order},
+                "incumbentStrategyIds": ["baseline"],
+                "variantResults": [
+                    {
+                        "variantId": "baseline",
+                        "sampleCount": 1,
+                        "reward": {"tuple": [1, 5, 50, 0], "componentOrder": component_order},
+                    },
+                    {
+                        "variantId": "candidate",
+                        "sampleCount": 1,
+                        "reward": {"tuple": [1, 7, 60, 3], "componentOrder": component_order},
+                    },
+                ],
+                "ranking": [
+                    {"variantId": "candidate", "rewardTuple": [1, 7, 60, 3]},
+                    {"variantId": "baseline", "rewardTuple": [1, 5, 50, 0]},
+                ],
+            }
+            (artifact_dir / "training-report.json").write_text(json.dumps(report), encoding="utf-8")
+
+            stats = ingestor.ingest_artifacts(db_path, [artifact_dir])
+
+            with sqlite3.connect(db_path) as conn:
+                reward_rows = {
+                    row[0]: row[1]
+                    for row in conn.execute(
+                        """
+                        SELECT metric_name, value
+                        FROM rl_training_execution_metrics
+                        WHERE report_id = ? AND variant_id = ? AND metric_name LIKE 'rl.training.reward_%'
+                        """,
+                        ("component-order-report", "candidate"),
+                    ).fetchall()
+                }
+                advantage_rows = {
+                    row[0]: row[1]
+                    for row in conn.execute(
+                        """
+                        SELECT metric_name, value
+                        FROM rl_policy_advantage_metrics
+                        WHERE report_id = ? AND candidate_id = ? AND incumbent_id = ?
+                        """,
+                        ("component-order-report", "candidate", "baseline"),
+                    ).fetchall()
+                }
+
+            self.assertEqual(stats["training_artifacts"], 1)
+            self.assertEqual(
+                reward_rows,
+                {
+                    "rl.training.reward_territory": 7.0,
+                    "rl.training.reward_resources": 60.0,
+                    "rl.training.reward_kills": 3.0,
+                },
+            )
+            self.assertEqual(
+                advantage_rows,
+                {
+                    "rl.policy.advantage_territory": 2.0,
+                    "rl.policy.advantage_resources": 10.0,
+                    "rl.policy.advantage_kills": 3.0,
+                },
+            )
+
     def test_low_load_return_metric_creates_behavior_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

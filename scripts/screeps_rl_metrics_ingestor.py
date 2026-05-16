@@ -667,6 +667,18 @@ DEDUPE_TABLE_KEYS = {
     ),
 }
 
+REWARD_COMPONENT_METRICS = (
+    ("territory", "rl.training.reward_territory"),
+    ("resources", "rl.training.reward_resources"),
+    ("kills", "rl.training.reward_kills"),
+)
+POLICY_ADVANTAGE_COMPONENT_METRICS = (
+    ("territory", "rl.policy.advantage_territory"),
+    ("resources", "rl.policy.advantage_resources"),
+    ("kills", "rl.policy.advantage_kills"),
+)
+LEGACY_REWARD_COMPONENT_ORDER = ("territory", "resources", "kills")
+
 
 def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -741,6 +753,41 @@ def integer_value(value: object) -> int | None:
 
 def text_value(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def component_order_from_mapping(mapping: dict[str, object]) -> list[str]:
+    raw_order = mapping.get("componentOrder")
+    if raw_order is None:
+        raw_order = mapping.get("component_order")
+    order = as_list(raw_order)
+    if not order or not all(isinstance(item, str) and item for item in order):
+        return []
+    return list(order)
+
+
+def training_report_component_order(payload: dict[str, object]) -> list[str]:
+    return component_order_from_mapping(as_dict(payload.get("rewardModel"))) or component_order_from_mapping(
+        as_dict(payload.get("reward_model"))
+    )
+
+
+def reward_component_order_for_tuple(explicit_order: list[str], tuple_length: int) -> list[str]:
+    if explicit_order:
+        return explicit_order
+    if tuple_length == len(LEGACY_REWARD_COMPONENT_ORDER):
+        return list(LEGACY_REWARD_COMPONENT_ORDER)
+    return []
+
+
+def reward_component_values(reward_tuple: list[object], component_order: list[str]) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for index, component in enumerate(component_order):
+        if index >= len(reward_tuple):
+            continue
+        value = number_value(reward_tuple[index])
+        if value is not None:
+            values[component] = value
+    return values
 
 
 def nested_value(value: object, path: tuple[str, ...]) -> object:
@@ -2729,6 +2776,7 @@ def process_training_report(
     stats: dict[str, int],
 ) -> None:
     report_id = text_value(payload.get("reportId"))
+    report_component_order = training_report_component_order(payload)
     for result in as_list(payload.get("variantResults")):
         if not isinstance(result, dict):
             continue
@@ -2744,22 +2792,21 @@ def process_training_report(
         )
         reward = as_dict(result.get("reward"))
         reward_tuple = as_list(reward.get("tuple"))
-        for index, metric_name in enumerate(
-            (
-                "rl.training.reward_territory",
-                "rl.training.reward_resources",
-                "rl.training.reward_kills",
-            )
-        ):
-            if index < len(reward_tuple):
+        component_order = reward_component_order_for_tuple(
+            component_order_from_mapping(reward) or report_component_order,
+            len(reward_tuple),
+        )
+        component_values = reward_component_values(reward_tuple, component_order)
+        for component, metric_name in REWARD_COMPONENT_METRICS:
+            if component in component_values:
                 record_training_metric(
                     conn,
                     report_id=report_id,
                     variant_id=variant_id,
                     metric_name=metric_name,
-                    value=number_value(reward_tuple[index]),
+                    value=component_values[component],
                     source_artifact=source_artifact,
-                    evidence={"rewardTuple": reward_tuple},
+                    evidence={"rewardTuple": reward_tuple, "componentOrder": component_order},
                 )
 
     incumbent_ids = [item for item in as_list(payload.get("incumbentStrategyIds")) if isinstance(item, str)]
@@ -2770,24 +2817,34 @@ def process_training_report(
         best_tuple = reward_tuple_from_ranking_item(best)
         incumbent = first_incumbent_ranking(ranking, incumbent_ids)
         incumbent_tuple = reward_tuple_from_ranking_item(incumbent) if incumbent else []
-        for index, metric_name in enumerate(
-            (
-                "rl.policy.advantage_territory",
-                "rl.policy.advantage_resources",
-                "rl.policy.advantage_kills",
-            )
-        ):
-            if index < len(best_tuple) and index < len(incumbent_tuple):
+        best_reward = as_dict(best.get("reward"))
+        incumbent_reward = as_dict(incumbent.get("reward")) if incumbent else {}
+        component_order = reward_component_order_for_tuple(
+            component_order_from_mapping(best_reward)
+            or component_order_from_mapping(incumbent_reward)
+            or report_component_order,
+            max(len(best_tuple), len(incumbent_tuple)),
+        )
+        best_values = reward_component_values(best_tuple, component_order)
+        incumbent_values = reward_component_values(incumbent_tuple, component_order)
+        for component, metric_name in POLICY_ADVANTAGE_COMPONENT_METRICS:
+            best_value = best_values.get(component)
+            incumbent_value = incumbent_values.get(component)
+            if best_value is not None and incumbent_value is not None:
                 record_policy_advantage(
                     conn,
                     report_id=report_id,
                     candidate_id=candidate_id,
                     incumbent_id=text_value(incumbent.get("variantId")) if incumbent else None,
                     metric_name=metric_name,
-                    value=number_value(best_tuple[index]) - number_value(incumbent_tuple[index]),
+                    value=best_value - incumbent_value,
                     directionality="higher is better",
                     source_artifact=source_artifact,
-                    evidence={"bestRewardTuple": best_tuple, "incumbentRewardTuple": incumbent_tuple},
+                    evidence={
+                        "bestRewardTuple": best_tuple,
+                        "incumbentRewardTuple": incumbent_tuple,
+                        "componentOrder": component_order,
+                    },
                 )
     for metric_name, raw_value in (
         ("rl.training.changed_top_count", payload.get("changedTopCount")),
@@ -2806,18 +2863,13 @@ def process_training_report(
     stats["training_artifacts"] += 1
 
 
-def reward_tuple_from_ranking_item(item: dict[str, object] | None) -> list[float]:
+def reward_tuple_from_ranking_item(item: dict[str, object] | None) -> list[object]:
     if not isinstance(item, dict):
         return []
     raw_tuple = as_list(item.get("rewardTuple"))
     if not raw_tuple:
         raw_tuple = as_list(as_dict(item.get("reward")).get("tuple"))
-    values: list[float] = []
-    for raw_value in raw_tuple:
-        value = number_value(raw_value)
-        if value is not None:
-            values.append(value)
-    return values
+    return list(raw_tuple)
 
 
 def first_incumbent_ranking(ranking: list[dict[str, object]], incumbent_ids: list[str]) -> dict[str, object] | None:
