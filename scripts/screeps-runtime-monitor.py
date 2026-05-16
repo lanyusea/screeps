@@ -50,6 +50,15 @@ EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND = "extension_count_zero_at_rcl_ge_2"
 WORKER_ASSIGNMENT_GAP_BLOCKED_REASON = "worker_assignment_gap"
 WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND = "worker_assignment_gap_sustained"
 WORKER_ASSIGNMENT_GAP_REQUIRED_TICKS = 100
+WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
+RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
+RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
+ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
+BUILD_BLOCKED_REASON_PATHS = (
+    ("buildBlockedReason",),
+    ("resources", "productiveEnergy", "buildBlockedReason"),
+    ("construction", "buildBlockedReason"),
+)
 WORKER_ASSIGNMENT_BLOCKED_WORKER_STRING_FIELDS = (
     "name",
     "task",
@@ -697,6 +706,24 @@ def overview_rooms(overview: Any, shard: str) -> list[str]:
     return [room for room in rooms if isinstance(room, str)]
 
 
+def overview_room_refs(overview: Any) -> list[RoomRef]:
+    if not isinstance(overview, dict):
+        return []
+    shards = overview.get("shards")
+    if not isinstance(shards, dict):
+        return []
+
+    refs: list[RoomRef] = []
+    for shard in sorted(shards):
+        shard_info = shards.get(shard)
+        if not isinstance(shard_info, dict):
+            continue
+        for room in shard_info.get("rooms") or []:
+            if isinstance(room, str):
+                refs.append(RoomRef(shard=shard, room=room))
+    return refs
+
+
 def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
     if not isinstance(overview, dict):
         return None
@@ -709,7 +736,7 @@ def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
     return shard_info.get("gametime")
 
 
-def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tuple[list[RoomRef], Any, list[str]]:
+def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tuple[list[RoomRef], Any, list[str], list[RoomRef]]:
     warnings: list[str] = []
     overview: Any = None
     try:
@@ -717,27 +744,16 @@ def discover_owned_rooms(ctx: RuntimeContext, forced_room: RoomRef | None) -> tu
     except Exception as exc:  # noqa: BLE001 - sanitized in user payload
         warnings.append(f"owned room discovery unavailable: {short_text(exc, 140)}")
 
+    overview_refs = overview_room_refs(overview)
     if forced_room:
-        return [forced_room], overview, warnings
+        return [forced_room], overview, warnings, overview_refs
 
-    rooms: list[RoomRef] = []
-    if isinstance(overview, dict):
-        shards = overview.get("shards")
-        if isinstance(shards, dict):
-            for shard in sorted(shards):
-                shard_info = shards.get(shard)
-                if not isinstance(shard_info, dict):
-                    continue
-                for room in shard_info.get("rooms") or []:
-                    if isinstance(room, str):
-                        rooms.append(RoomRef(shard=shard, room=room))
-
-    if rooms:
-        return rooms, overview, warnings
+    if overview_refs:
+        return overview_refs, overview, warnings, overview_refs
 
     fallback = RoomRef(ctx.default_shard, ctx.default_room)
     warnings.append(f"falling back to configured room {fallback.key}")
-    return [fallback], overview, warnings
+    return [fallback], overview, warnings, [fallback]
 
 
 def terrain_cache_path(cache_dir: Path, ref: RoomRef) -> Path:
@@ -857,9 +873,9 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
     raise RuntimeError(f"no room snapshot event received for {ref.key}")
 
 
-def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str]]:
+def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str], list[RoomRef]]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
-    refs, overview, warnings = discover_owned_rooms(ctx, forced_room)
+    refs, overview, warnings, overview_refs = discover_owned_rooms(ctx, forced_room)
     configured_owner, configured_owner_id = user_identity(ctx, warnings)
     configured_owner = configured_owner or overview_username(overview)
     snapshots: list[RoomSnapshot] = []
@@ -909,7 +925,7 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
 
     if not snapshots:
         raise RuntimeError("no room snapshots collected")
-    return snapshots, warnings
+    return snapshots, warnings, overview_refs
 
 
 def detect_hostile_creeps(objects: dict[str, dict[str, Any]], owner_username: str | None) -> list[dict[str, Any]]:
@@ -1431,11 +1447,7 @@ def tick_number(value: Any) -> int | None:
 def runtime_build_blocked_reason(room: dict[str, Any] | None) -> str | None:
     if not isinstance(room, dict):
         return None
-    for path in (
-        ("buildBlockedReason",),
-        ("resources", "productiveEnergy", "buildBlockedReason"),
-        ("construction", "buildBlockedReason"),
-    ):
+    for path in BUILD_BLOCKED_REASON_PATHS:
         value = nested_value(room, *path)
         if isinstance(value, str) and value:
             return value
@@ -1454,6 +1466,62 @@ def runtime_construction_site_count(room: dict[str, Any] | None) -> int | float 
         if value is not None:
             return value
     return None
+
+
+def runtime_assigned_worker_task_count(room: dict[str, Any]) -> int | float:
+    task_counts = as_dict(room.get("taskCounts"))
+    return sum(number_value(task_counts.get(task_name)) or 0 for task_name in ASSIGNED_WORKER_TASK_NAMES)
+
+
+def runtime_assigned_productive_worker_count(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("assignedWorkerCount",),
+        ("resources", "productiveEnergy", "assignedWorkerCount"),
+        ("productiveEnergy", "assignedWorkerCount"),
+    )
+
+
+def runtime_worker_assignment_recovered(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    worker_count = number_value(room.get("workerCount"))
+    if worker_count is not None and worker_count <= 0:
+        return False
+    productive_worker_count = runtime_assigned_productive_worker_count(room)
+    deadlock_ticks = runtime_construction_deadlock_ticks(room)
+    return (
+        runtime_assigned_worker_task_count(room) > 0
+        or (productive_worker_count is not None and productive_worker_count > 0)
+        or (deadlock_ticks is not None and deadlock_ticks <= 0)
+    )
+
+
+def runtime_reports_worker_assignment_gap(room: dict[str, Any] | None) -> bool:
+    if not isinstance(room, dict):
+        return False
+    return any(nested_value(room, *path) == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON for path in BUILD_BLOCKED_REASON_PATHS)
+
+
+def runtime_worker_assignment_gap_recovered(room: dict[str, Any] | None) -> bool:
+    return not runtime_reports_worker_assignment_gap(room) and runtime_worker_assignment_recovered(room)
+
+
+def runtime_summary_room_tick(room: dict[str, Any] | None) -> int | None:
+    if not isinstance(room, dict):
+        return None
+    return tick_number(room.get(RUNTIME_SUMMARY_TICK_METADATA_KEY))
+
+
+def runtime_worker_assignment_gap_recovery_is_fresh(
+    room: dict[str, Any] | None,
+    current_tick_value: Any,
+) -> bool:
+    current_tick = tick_number(current_tick_value)
+    room_tick = runtime_summary_room_tick(room)
+    if current_tick is None or room_tick is None:
+        return False
+    return room_tick + WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE >= current_tick
 
 
 def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
@@ -1482,11 +1550,22 @@ def detect_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSu
 def worker_assignment_gap_active(
     runtime_room: dict[str, Any] | None,
     metrics: RoomSummaryMetrics,
+    current_tick_value: Any,
 ) -> tuple[bool, str | None, int | float]:
-    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
+    metrics_site_count = len(metrics.construction_sites)
     site_count = runtime_construction_site_count(runtime_room)
     if site_count is None:
-        site_count = len(metrics.construction_sites)
+        site_count = metrics_site_count
+    blocked_reason = runtime_build_blocked_reason(runtime_room) or metrics.build_blocked_reason
+    if runtime_reports_worker_assignment_gap(runtime_room):
+        blocked_reason = WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+    elif runtime_worker_assignment_gap_recovered(runtime_room):
+        if (
+            metrics.build_blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON
+            and not runtime_worker_assignment_gap_recovery_is_fresh(runtime_room, current_tick_value)
+        ):
+            return metrics_site_count > 0, metrics.build_blocked_reason, metrics_site_count
+        return False, None, site_count
     return blocked_reason == WORKER_ASSIGNMENT_GAP_BLOCKED_REASON and site_count > 0, blocked_reason, site_count
 
 
@@ -1548,7 +1627,11 @@ def detect_worker_assignment_gap_sustained_reason(
     previous_rule_state: Any,
     current_tick_value: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | int]:
-    active, blocked_reason, construction_site_count = worker_assignment_gap_active(runtime_room, metrics)
+    active, blocked_reason, construction_site_count = worker_assignment_gap_active(
+        runtime_room,
+        metrics,
+        current_tick_value,
+    )
     current_tick = tick_number(current_tick_value)
     if not active or current_tick is None:
         return None, 0
@@ -3068,11 +3151,42 @@ def runtime_summary_room_shard(room: dict[str, Any]) -> str | None:
     return None
 
 
-def runtime_summary_room_matches(room: dict[str, Any], ref: RoomRef) -> bool:
+def ambiguous_runtime_room_names(refs: list[RoomRef]) -> set[str]:
+    shards_by_room: dict[str, set[str]] = {}
+    for ref in refs:
+        shards_by_room.setdefault(ref.room, set()).add(ref.shard)
+    return {room for room, shards in shards_by_room.items() if len(shards) > 1}
+
+
+def runtime_summary_room_matches(
+    room: dict[str, Any],
+    ref: RoomRef,
+    ambiguous_room_names: set[str],
+    payload_explicit_shards_by_room: dict[str, set[str]] | None = None,
+) -> bool:
     room_ref = room.get("room")
     if isinstance(room_ref, str) and room_ref == ref.key:
         return True
-    return runtime_summary_room_name(room) == ref.room and runtime_summary_room_shard(room) == ref.shard
+    room_name = runtime_summary_room_name(room)
+    shard = runtime_summary_room_shard(room)
+    if room_name != ref.room:
+        return False
+    if shard is not None:
+        return shard == ref.shard
+    if room_name in ambiguous_room_names:
+        return False
+    explicit_shards = (payload_explicit_shards_by_room or {}).get(room_name, set())
+    return not explicit_shards or explicit_shards == {ref.shard}
+
+
+def runtime_summary_explicit_shards_by_room(rooms: list[dict[str, Any]]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for room in rooms:
+        room_name = runtime_summary_room_name(room)
+        shard = runtime_summary_room_shard(room)
+        if room_name is not None and shard is not None:
+            result.setdefault(room_name, set()).add(shard)
+    return result
 
 
 def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
@@ -3109,17 +3223,68 @@ def payload_runtime_rooms(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [room for room in rooms if isinstance(room, dict)]
 
 
+def runtime_summary_artifact_timestamp(path: Path) -> float | None:
+    match = re.search(r"(\d{8}T\d{6}Z)", path.name)
+    if match is not None:
+        try:
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def runtime_summary_log_sort_key(path: Path) -> tuple[bool, float, str]:
+    timestamp = runtime_summary_artifact_timestamp(path)
+    return (timestamp is not None, timestamp if timestamp is not None else -1.0, str(path))
+
+
 def runtime_summary_log_paths(runtime_summary_dir: Path) -> list[Path]:
-    all_paths = list(runtime_summary_dir.glob("*.log"))
-    console_paths = [path for path in all_paths if path.name.startswith("runtime-summary-console-")]
-    paths = console_paths if console_paths else all_paths
-    return sorted(paths, key=lambda path: (path.stat().st_mtime, str(path)), reverse=True)
+    return sorted(runtime_summary_dir.glob("*.log"), key=runtime_summary_log_sort_key, reverse=True)
+
+
+def runtime_summary_payload_tick(payload: dict[str, Any]) -> int | None:
+    return tick_number(payload.get("tick"))
+
+
+def runtime_summary_candidate_key(
+    payload: dict[str, Any],
+    path: Path,
+    line_index: int,
+    room: dict[str, Any],
+) -> tuple[bool, int, bool, float, int, int, str]:
+    tick = runtime_summary_payload_tick(payload)
+    timestamp = runtime_summary_artifact_timestamp(path)
+    explicit_shard_rank = 1 if runtime_summary_room_shard(room) is not None else 0
+    return (
+        tick is not None,
+        tick if tick is not None else -1,
+        timestamp is not None,
+        timestamp if timestamp is not None else -1.0,
+        line_index,
+        explicit_shard_rank,
+        str(path),
+    )
+
+
+def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room: dict[str, Any]) -> dict[str, Any]:
+    result = dict(room)
+    tick = runtime_summary_payload_tick(payload)
+    if tick is not None:
+        result[RUNTIME_SUMMARY_TICK_METADATA_KEY] = tick
+    timestamp = runtime_summary_artifact_timestamp(path)
+    if timestamp is not None:
+        result[RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY] = timestamp
+    return result
 
 
 def load_latest_runtime_room_summaries(
     runtime_summary_dir: Path,
     refs: list[RoomRef],
     warnings: list[str],
+    disambiguation_refs: list[RoomRef] | None = None,
 ) -> dict[str, dict[str, Any]]:
     if not refs or not runtime_summary_dir.exists():
         return {}
@@ -3130,7 +3295,9 @@ def load_latest_runtime_room_summaries(
         warnings.append(f"runtime-summary scan unavailable: {short_text(exc, 140)}")
         return {}
 
+    ambiguous_room_names = ambiguous_runtime_room_names([*refs, *(disambiguation_refs or [])])
     result: dict[str, dict[str, Any]] = {}
+    result_keys: dict[str, tuple[bool, int, bool, float, int, int, str]] = {}
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -3138,19 +3305,29 @@ def load_latest_runtime_room_summaries(
             warnings.append(f"runtime-summary artifact unreadable {path.name}: {short_text(exc, 140)}")
             continue
 
-        for line in reversed(lines):
+        for line_index, line in reversed(list(enumerate(lines))):
             payload = parse_runtime_summary_line(line)
             if payload is None:
                 continue
-            for room in payload_runtime_rooms(payload):
+            rooms = payload_runtime_rooms(payload)
+            payload_explicit_shards_by_room = runtime_summary_explicit_shards_by_room(rooms)
+            for room in rooms:
                 if not runtime_summary_room_has_worker_idle_fields(room):
                     continue
                 for ref in refs:
-                    if ref.key in result or not runtime_summary_room_matches(room, ref):
+                    if not runtime_summary_room_matches(
+                        room,
+                        ref,
+                        ambiguous_room_names,
+                        payload_explicit_shards_by_room,
+                    ):
                         continue
-                    result[ref.key] = room
+                    candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
+                    if candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
+                        continue
+                    result[ref.key] = runtime_summary_room_with_metadata(payload, path, room)
+                    result_keys[ref.key] = candidate_key
                     break
-            return result
 
     return result
 
@@ -4073,7 +4250,7 @@ def command_health_gate(args: argparse.Namespace) -> int:
 
 def command_summary(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
-    snapshots, warnings = collect_snapshots(ctx, args.room)
+    snapshots, warnings, _overview_refs = collect_snapshots(ctx, args.room)
     images: list[str] = []
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
@@ -4109,11 +4286,12 @@ def command_summary(args: argparse.Namespace) -> int:
 
 def command_alert(args: argparse.Namespace) -> int:
     ctx = context_from_env(args.world_profile)
-    snapshots, warnings = collect_snapshots(ctx, args.room)
+    snapshots, warnings, overview_refs = collect_snapshots(ctx, args.room)
     runtime_room_summaries = load_latest_runtime_room_summaries(
         Path(args.runtime_summary_dir).expanduser(),
         [snapshot.ref for snapshot in snapshots],
         warnings,
+        disambiguation_refs=overview_refs,
     )
     state = load_state(ctx.state_file)
     rooms_state = state.get("rooms")
