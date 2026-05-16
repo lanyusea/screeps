@@ -152,12 +152,16 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
         if not job:
             missing_expected.append({"id": jid, "job": spec.get("job")})
             continue
-        if job.get("enabled") is not True or job.get("state") != "scheduled":
+        # A recurring job can be healthy while it is actively executing. Treat
+        # both `scheduled` and `running` as acceptable enabled states so the
+        # monitor does not raise false drift during a legitimate run.
+        healthy_states = {"scheduled", "running"}
+        if job.get("enabled") is not True or job.get("state") not in healthy_states:
             mismatches.append({
                 "id": jid,
                 "job": spec.get("job") or job.get("name"),
                 "field": "enabled/state",
-                "expected": "enabled=true,state=scheduled",
+                "expected": "enabled=true,state in {scheduled,running}",
                 "live": f"enabled={job.get('enabled')},state={job.get('state')}",
             })
         checks = [

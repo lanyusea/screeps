@@ -12,7 +12,7 @@ This registry is the expected-state contract for Screeps/Hermes cron jobs and Di
 - A job missing from live metadata, an unexpected recurring live job, wrong cadence, wrong delivery target, wrong provider/model, wrong repeat policy, wrong workdir, or paused expected job is Agent OS drift.
 - Drift is P0 when it affects scheduler, P0 monitor, runtime alerting, owner-decision routing, deploy/runtime safety, or GitHub/Project reconciliation.
 - Old cron outputs and reporter state files are caches/history, not authority.
-- Before changing any live cron definition, create a rollback snapshot of `~/.hermes/cron/jobs.json` and relevant docs; after changing, run `cronjob list` and `python3 scripts/check_cron_registry.py --strict`.
+- Before changing any live cron definition, create a rollback snapshot of `~/.hermes/cron/jobs.json` and relevant docs; after changing, run `cronjob list` and `python3 scripts/check_cron_registry.py --strict`. Expected recurring jobs are healthy when `enabled=true` and state is either `scheduled` or transiently `running`; paused/disabled/error states are drift unless explicitly documented as an active maintenance window.
 
 Verification command:
 
