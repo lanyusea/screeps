@@ -2,28 +2,42 @@
 language: en-US
 early_access: false
 
-tone_instructions: "Be concise and direct. Focus on critical correctness, runtime safety, and secret-safety issues."
+# CodeRabbit schema currently supports profile=assertive as the strongest review profile.
+tone_instructions: "Use a Linus Torvalds-style tone: blunt, skeptical, correctness-first, no praise padding. Hunt serious bugs hard; criticize code and failure modes, not people. No profanity/slurs. Separate blockers from advisory noise."
 
 chat:
   auto_reply: true
 
 reviews:
   profile: assertive
-  request_changes_workflow: false
+  request_changes_workflow: true
   high_level_summary: true
+  high_level_summary_instructions: |
+    Skip cheerleading. Summarize the riskiest correctness, runtime, deployment, security, and secret-safety concerns first.
+    If a finding is speculative or advisory, say so plainly instead of presenting it as a required fix.
   high_level_summary_in_walkthrough: true
   poem: false
   review_status: true
-  review_details: false
+  review_details: true
+  commit_status: true
+  fail_commit_status: false
   collapse_walkthrough: true
   changed_files_summary: true
   sequence_diagrams: false
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  enable_prompt_for_ai_agents: true
 
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
     base_branches:
-      - main
+      - ".*"
     ignore_title_keywords:
       - WIP
       - DO NOT REVIEW
@@ -43,42 +57,55 @@ reviews:
     - "!**/*.gif"
     - "!**/*.svg"
     - "!prod/dist/**"
-    - "!prod/package-lock.json"
 
   path_instructions:
+    - path: "**/*"
+      instructions: |
+        Be aggressive at discovering real failure modes: runtime correctness, deployability, broken tests, secret leaks,
+        unsafe automation, stale operational targets, and high-confidence data/state corruption risks. Do not waste review
+        comments on style, naming, formatting, preference refactors, generic cleanup, or grammar unless they hide a real failure.
+        Treat findings as hypotheses with evidence: state the concrete execution path, affected invariant, and why the issue
+        matters now. Separate critical blockers from advisory/non-blocking observations so Codex can triage honestly.
+
     - path: "prod/src/**/*.{ts,tsx,js,jsx}"
       instructions: |
-        Review only for critical issues likely to break Screeps runtime behavior, deployment, or secret safety.
-        Focus on:
-        - uncaught tick-loop exceptions or code paths that can halt exported loop execution;
-        - CPU/runaway loops, memory corruption, or incompatible Memory schema changes;
-        - spawn/economy deadlocks where the colony cannot recover workers or energy flow;
-        - invalid Screeps API assumptions, body construction, task state, or room/shard/branch handling;
-        - code that exposes auth tokens, room intelligence, or credentials.
-        Do not comment on style, naming, small refactors, or non-critical architecture preferences.
+        Review aggressively for Screeps production failures, especially:
+        - uncaught exported `loop` exceptions or per-tick state corruption;
+        - CPU/runaway loops, stale Memory migrations, incompatible creep/task memory, or broken cleanup;
+        - spawn/economy deadlocks, invalid body construction, `ERR_BUSY` loops, or no worker/energy recovery path;
+        - wrong shard/room/spawn assumptions, including stale room literals outside central strategy configuration;
+        - unsafe official/private-server API assumptions, destructive calls, token exposure, or branch/room targeting errors.
+        Avoid comments for style, naming, micro-optimizations, or broad rewrites unless they directly create one of these failures.
 
     - path: "prod/test/**/*.{ts,tsx,js,jsx}"
       instructions: |
-        Review only for critical test issues: tests that falsely pass despite runtime-breaking behavior,
-        remove coverage for recovery/deployment-critical paths, or make the suite nondeterministic/flaky enough
-        to block safe releases. Ignore style-only or minor organization concerns.
+        Review aggressively for tests that create false confidence: mocks that hide Screeps runtime failures, assertions that
+        no longer protect spawn recovery/deployment/Memory compatibility, nondeterminism that can block safe releases, or tests
+        that encode stale room/shard/spawn assumptions. Ignore organization/style-only test preferences.
 
-    - path: "prod/{package.json,tsconfig*.json,jest.config.cjs}"
+    - path: "prod/{package.json,package-lock.json,tsconfig*.json,jest.config.cjs}"
       instructions: |
-        Review only for critical build/test/deploy breakage: incompatible TypeScript/Jest/esbuild settings,
-        missing Screeps type support, broken npm scripts, or dependency changes that prevent producing a single
-        valid Screeps `main` bundle.
+        Review aggressively for build/test/deploy breakage: incompatible TypeScript/Jest/esbuild settings, missing Screeps
+        type/runtime support, broken npm scripts, lockfile/package drift, dependency supply-chain risk, or anything preventing
+        deterministic `npm ci`, `npm run typecheck`, `npm test -- --runInBand`, or a single valid Screeps `main` bundle.
+
+    - path: ".github/workflows/**/*"
+      instructions: |
+        Review aggressively for CI/deploy hazards: missing required checks, wrong Node/npm install behavior, unsafe permissions,
+        secret exposure, deployment on the wrong branch, stale branch protection assumptions, or checks that can pass while the
+        Screeps bundle/test/typecheck path is broken.
 
     - path: "scripts/**/*"
       instructions: |
-        Review only for critical operational issues: leaked secrets, destructive API calls, incorrect Discord/runtime
-        alert behavior, missing no-alert silence semantics, broken private-server smoke workflow, or unreadable generated
-        room artifacts that would mislead operations.
+        Review aggressively for operational failures: leaked secrets, destructive API calls, wrong branch/shard/room targeting,
+        incorrect Discord/runtime alert routing, alert spam or missed hostile/damage/bot-failure signals, broken private-server
+        smoke workflows, or unreadable/generated room artifacts that would mislead operations.
 
     - path: "docs/**/*"
       instructions: |
-        Review only for critical factual or operational errors that would cause unsafe deployment, wrong shard/room/branch
-        targeting, secret-handling mistakes, or serious context-loss in autonomous execution. Ignore grammar and style.
+        Review only for operationally critical factual errors: stale shard/room/spawn facts, unsafe deployment instructions,
+        secret-handling mistakes, contradictory merge/review gates, or context loss that would cause autonomous agents to make
+        wrong production decisions. Ignore grammar and style.
 
     - path: "AGENT.md"
       instructions: |
@@ -86,17 +113,74 @@ reviews:
 
     - path: "AGENTS.md"
       instructions: |
-        Review for critical contradictions with repository operating rules: worktree-only changes, Codex ownership of
-        `prod/` implementation, secret handling, verification commands, and critical-only review policy.
+        Review for critical contradictions with repository operating rules: worktree-only changes, Codex ownership of `prod/`
+        implementation, secret handling, verification commands, merge gates, and the rule that aggressive automated review is
+        discovery input only. Codex must triage every CodeRabbit/Gemini finding before changing code.
+
+    - path: "docs/ops/codex-skills.md"
+      instructions: |
+        Review for contradictions in Codex review-fix workflow. It must require exact-head review context, per-finding triage,
+        and a real decision before edits: FIX only when valid, reasonable, necessary, actionable, and critical; otherwise resolve
+        as false-positive, stale/outdated, advisory-only, or owner-decision with evidence.
+
+    - path: ".coderabbit.yaml"
+      instructions: |
+        Review for CodeRabbit schema validity and strategy drift. The config should keep assertive issue discovery, Linus-style
+        blunt technical tone, static/security tooling, and explicit safeguards against blindly implementing bot suggestions.
+
+    - path: ".gemini/{config.yaml,styleguide.md}"
+      instructions: |
+        Review for Gemini config/styleguide drift: CRITICAL threshold must remain intentional, current official target is shard
+        `shardX` room `E29N55` with `Spawn1` at `(17,24)`, and Gemini findings must still go through Codex triage before fixes.
+
+  pre_merge_checks:
+    custom_checks:
+      - mode: warning
+        name: Bot feedback triage
+        instructions: |
+          If the PR contains CodeRabbit/Gemini findings, pass only when the PR discussion or body records Codex triage for each
+          active finding: source/thread, classification, criticality, evidence, action, and verification. If no automated review
+          finding exists yet, pass. Do not require code changes for findings classified as false-positive, stale/outdated,
+          advisory-only, or owner-decision.
+      - mode: warning
+        name: Screeps verification evidence
+        instructions: |
+          Pass when the PR records appropriate verification evidence: docs/config-only changes must show YAML/schema or syntax
+          validation; production changes must show `npm run typecheck`, `npm test -- --runInBand`, and `npm run build` from
+          `prod/`. Fail only for missing evidence that would make the merge gate unsafe.
+
+  tools:
+    ast-grep:
+      essential_rules: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    semgrep:
+      enabled: true
+    osvScanner:
+      enabled: true
 
 knowledge_base:
   learnings:
     scope: auto
   issues:
     scope: auto
+  pull_requests:
+    scope: auto
+  web_search:
+    enabled: true
   code_guidelines:
     enabled: true
     filePatterns:
       - AGENTS.md
       - AGENT.md
       - docs/ops/codex-skills.md
+      - .gemini/styleguide.md
+      - .coderabbit.yaml
