@@ -128,6 +128,37 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 9, 9, STRUCTURE_TOWER);
   });
 
+  it('plans RCL3 extension capacity after first tower readiness while preserving source logistics', () => {
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [
+        makeStructure('extension-1', TEST_GLOBALS.STRUCTURE_EXTENSION, 9, 9),
+        makeStructure('extension-2', TEST_GLOBALS.STRUCTURE_EXTENSION, 11, 9),
+        makeStructure('extension-3', TEST_GLOBALS.STRUCTURE_EXTENSION, 9, 11),
+        makeStructure('extension-4', TEST_GLOBALS.STRUCTURE_EXTENSION, 11, 11),
+        makeStructure('extension-5', TEST_GLOBALS.STRUCTURE_EXTENSION, 8, 8),
+        makeStructure('tower-ready', TEST_GLOBALS.STRUCTURE_TOWER, 12, 10)
+      ],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 12, y: 8 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension', 'container', 'road']);
+    expect(room.createConstructionSite.mock.calls.map(([, , structureType]) => structureType)).toEqual([
+      STRUCTURE_EXTENSION,
+      STRUCTURE_CONTAINER,
+      STRUCTURE_ROAD
+    ]);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 10, 8, STRUCTURE_EXTENSION);
+  });
+
   it('places spawn and controller staging containers after extension work before roads', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({

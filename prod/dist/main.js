@@ -8958,6 +8958,7 @@ var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
 var EARLY_ENERGY_CAPACITY_TARGET = 550;
 var RCL2_EXTENSION_BOOTSTRAP_STORED_ENERGY_THRESHOLD = 500;
 var RCL2_EXTENSION_BOOTSTRAP_POINTS = 30;
+var RCL3_EXTENSION_GROWTH_PRESSURE = 0.7;
 var SPAWN_ENERGY_CAPACITY_FALLBACK = 300;
 var EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL = {
   1: 0,
@@ -9818,7 +9819,7 @@ function scoreExtensionBootstrapWeight(roomState, candidate) {
   if (typeof energyCapacity !== "number" || typeof storedEnergy !== "number" || storedEnergy <= RCL2_EXTENSION_BOOTSTRAP_STORED_ENERGY_THRESHOLD) {
     return 0;
   }
-  const rclCapacityTarget = getSpawnEnergyCapacity2() + extensionLimit * getExtensionEnergyCapacityForRcl2(roomState.rcl);
+  const rclCapacityTarget = getSpawnExtensionEnergyCapacityTarget(roomState.rcl, extensionLimit);
   if (energyCapacity >= rclCapacityTarget) {
     return 0;
   }
@@ -10004,7 +10005,22 @@ function getEnergyBottleneckPressure(roomState) {
   if (energyCapacity < EARLY_ENERGY_CAPACITY_TARGET) {
     return 0.65;
   }
+  if (hasRcl3ExtensionGrowthOpportunity(roomState, energyCapacity)) {
+    return RCL3_EXTENSION_GROWTH_PRESSURE;
+  }
   return 0;
+}
+function hasRcl3ExtensionGrowthOpportunity(roomState, energyCapacity) {
+  var _a;
+  if (roomState.rcl !== 3 || ((_a = roomState.towerCount) != null ? _a : 0) <= 0) {
+    return false;
+  }
+  const extensionLimit = getControllerExtensionLimitForRcl(roomState.rcl);
+  const extensionCount = roomState.extensionCount;
+  if (extensionLimit <= 0 || typeof extensionCount !== "number" || extensionCount >= extensionLimit) {
+    return false;
+  }
+  return energyCapacity < getSpawnExtensionEnergyCapacityTarget(roomState.rcl, extensionLimit);
 }
 function getControllerExtensionLimitForRcl(rcl) {
   const controllerStructures = globalThis.CONTROLLER_STRUCTURES;
@@ -10023,6 +10039,9 @@ function getExtensionEnergyCapacityForRcl2(rcl) {
     rcl
   );
   return (_a = configuredCapacity != null ? configuredCapacity : EXTENSION_ENERGY_CAPACITY_FALLBACK_BY_RCL[rcl]) != null ? _a : 0;
+}
+function getSpawnExtensionEnergyCapacityTarget(rcl, extensionLimit) {
+  return getSpawnEnergyCapacity2() + extensionLimit * getExtensionEnergyCapacityForRcl2(rcl);
 }
 function getRepairDecayPressure(roomState) {
   var _a, _b;
@@ -10170,7 +10189,7 @@ function buildExistingSiteCandidates(state) {
   });
 }
 function buildPlannedLocalCandidates(state) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d;
   const candidates = [];
   const rcl = (_a = state.rcl) != null ? _a : 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
@@ -10178,16 +10197,16 @@ function buildPlannedLocalCandidates(state) {
   if (((_b = state.spawnCount) != null ? _b : 1) === 0) {
     candidates.push(createCandidateForBuildType("spawn", state));
   }
-  if (extensionLimit > 0 && ((_c = state.extensionCount) != null ? _c : 0) < extensionLimit) {
+  if (extensionLimit > 0 && getExistingAndPendingBuildCount(state, "STRUCTURE_EXTENSION", "extension") < extensionLimit) {
     candidates.push(createCandidateForBuildType("extension", state));
   }
   if (towerLimit > 0 && getExistingAndPendingBuildCount(state, "STRUCTURE_TOWER", "tower") < towerLimit) {
     candidates.push(createCandidateForBuildType("tower", state));
   }
-  if (rcl >= 2 && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
+  if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
     candidates.push(createCandidateForBuildType("container", state));
   }
-  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_e = state.sourceCount) != null ? _e : 0) > 0) {
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
     candidates.push(createCandidateForBuildType("road", state));
   }
   if (rcl >= MIN_RCL_FOR_STORAGE && getExistingAndPendingBuildCount(state, "STRUCTURE_STORAGE", "storage") < STORAGE_STRUCTURE_LIMIT) {
@@ -10203,13 +10222,23 @@ function getTowerLimitForRcl(level) {
   return level ? (_a = TOWER_LIMITS_BY_RCL[level]) != null ? _a : 0 : 0;
 }
 function getExistingAndPendingBuildCount(state, globalName, fallback) {
-  var _a, _b;
+  var _a;
   const existingStructures = countStructuresByType(state.ownedStructures, globalName, fallback);
-  const existingCount = existingStructures != null ? existingStructures : globalName === "STRUCTURE_TOWER" && fallback === "tower" ? (_a = state.towerCount) != null ? _a : 0 : 0;
-  const pendingCount = ((_b = state.ownedConstructionSites) != null ? _b : []).filter(
+  const existingCount = existingStructures != null ? existingStructures : getFallbackRuntimeStructureCount(state, globalName, fallback);
+  const pendingCount = ((_a = state.ownedConstructionSites) != null ? _a : []).filter(
     (site) => matchesStructureType6(String(site.structureType), globalName, fallback)
   ).length;
   return existingCount + pendingCount;
+}
+function getFallbackRuntimeStructureCount(state, globalName, fallback) {
+  var _a, _b;
+  if (globalName === "STRUCTURE_TOWER" && fallback === "tower") {
+    return (_a = state.towerCount) != null ? _a : 0;
+  }
+  if (globalName === "STRUCTURE_EXTENSION" && fallback === "extension") {
+    return (_b = state.extensionCount) != null ? _b : 0;
+  }
+  return 0;
 }
 function buildRemoteLogisticsCandidates(state) {
   var _a, _b;
