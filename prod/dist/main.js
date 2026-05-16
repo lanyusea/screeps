@@ -24134,7 +24134,7 @@ function getLowLoadWorkerEnergyContinuationRange(creep, task) {
   return shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) ? LOW_LOAD_SOURCE_LOGISTICS_CONTINUATION_MAX_RANGE : LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
 }
 function shouldUseExtendedLowLoadSourceLogisticsContinuation(creep, task) {
-  return task.type === "build" && hasHealthyRoomEnergyBuffer(creep.room) && !hasEmergencySpawnExtensionRefillDemand(creep) && isSourceLogisticsConstructionTask(creep, task);
+  return task.type === "build" && isSourceLogisticsConstructionTask(creep, task) && hasHealthyRoomEnergyBuffer(creep.room) && !hasEmergencySpawnExtensionRefillDemand(creep);
 }
 function isSourceLogisticsConstructionTask(creep, task) {
   const site = getGameObjectById2(String(task.targetId));

@@ -108,6 +108,12 @@ function setSourceContainerHarvester(room: Room, sourceId: string): void {
   });
 }
 
+function expectLowLoadSourceLogisticsContinuationRangeToBeExtended(): void {
+  expect(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE).toBeGreaterThan(
+    LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+  );
+}
+
 function makeStructure(
   id: string,
   structureType: StructureConstant,
@@ -9665,6 +9671,8 @@ describe('selectWorkerTask', () => {
   });
 
   it('keeps E29N55 low-load source-container builders acquiring before healthy-buffer build trips', () => {
+    expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+
     const source = makeSource('source1', 20, 10, 'E29N55');
     const sourceContainerSite = {
       id: 'source-container-site1',
@@ -9727,6 +9735,8 @@ describe('selectWorkerTask', () => {
   });
 
   it('uses reachable source-container energy before low-load critical road build trips in healthy E29N55', () => {
+    expectLowLoadSourceLogisticsContinuationRangeToBeExtended();
+
     const source = makeSource('source1', 20, 10, 'E29N55');
     const sourceContainer = makeStoredEnergyStructure('source-container1', 'container' as StructureConstant, 250, {
       pos: makeRoomPosition(20, 11, 'E29N55')

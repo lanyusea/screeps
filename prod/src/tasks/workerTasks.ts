@@ -1662,9 +1662,9 @@ function shouldUseExtendedLowLoadSourceLogisticsContinuation(
 ): boolean {
   return (
     task.type === 'build' &&
+    isSourceLogisticsConstructionTask(creep, task) &&
     hasHealthyRoomEnergyBuffer(creep.room) &&
-    !hasEmergencySpawnExtensionRefillDemand(creep) &&
-    isSourceLogisticsConstructionTask(creep, task)
+    !hasEmergencySpawnExtensionRefillDemand(creep)
   );
 }
 
