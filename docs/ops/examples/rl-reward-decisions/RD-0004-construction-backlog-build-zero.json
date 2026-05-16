@@ -1,5 +1,5 @@
 {
-  "rewardDecisionId": "RD-0004-construction-backlog-build-zero",
+  "rewardDecisionId": "RD-V3-004-constructionNeglectPenalty",
   "title": "Proposal: construction neglect penalty for build-zero backlog",
   "state": "proposed",
   "linkedGitHubIssue": "https://github.com/lanyusea/screeps/issues/1024",
@@ -20,7 +20,7 @@
   "hypothesis": "Adding a construction-neglect penalty when constructionSiteCount > 0 and taskCounts.build == 0 will create offline selection pressure against policies that ignore available construction work, while preserving higher-priority safety gates and emergency spawn/refill behavior.",
   "currentRewardCoverage": "Runtime telemetry exposes constructionSiteCount, taskCounts.build, pendingBuildProgress, buildCarriedEnergy, buildBlockedReason, and constructionDeadlockTicks. No accepted reward component currently penalizes constructionSiteCount > 0 with taskCounts.build == 0, and this record does not authorize live reward or policy writes.",
   "proposedChangeType": "add_component",
-  "component": "construction_neglect_penalty",
+  "component": "construction-neglect-penalty",
   "direction": "lower_is_better for construction deadlock; apply a negative reward proportional to constructionSiteCount only when constructionSiteCount > 0 and taskCounts.build == 0",
   "expectedBehaviorChange": "In offline or shadow reward evaluation, candidate policies should rank below baseline when they leave build assignment at zero while construction sites exist, and should rank above comparable policies when they assign at least one worker to build without regressing safety, territory, or resource scorecard dimensions.",
   "riskAndRegressions": [
