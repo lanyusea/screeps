@@ -514,6 +514,8 @@ def positive_int_value(value: Any) -> int | None:
         return None
     if isinstance(value, int) and value > 0:
         return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer() and value > 0:
+        return int(value)
     if isinstance(value, str):
         try:
             parsed = int(value)

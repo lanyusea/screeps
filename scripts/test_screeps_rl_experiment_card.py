@@ -67,6 +67,40 @@ class RlExperimentCardTest(unittest.TestCase):
         with self.assertRaisesRegex(card_helper.CardValidationError, "strategy_variants must contain"):
             card_helper.validate_card(card)
 
+    def test_validate_accepts_training_runner_aliases_and_integer_floats(self) -> None:
+        for variant_field in ("strategyVariants", "variants"):
+            with self.subTest(variant_field=variant_field):
+                card = card_helper.build_card(
+                    dataset_run_id=f"rl-alias-{variant_field}",
+                    code_commit="d" * 40,
+                    training_approach="bandit",
+                    created_at="2026-05-16T10:09:35Z",
+                )
+                variants = card.pop("strategy_variants")
+                simulation = card.pop("simulation")
+                card[variant_field] = variants
+                card["simulator"] = {
+                    "ticks": 50.0,
+                    "workers": 1.0,
+                    "repetitions": 1.0,
+                    "hostPortStart": 24125.0,
+                    "room": simulation["room"],
+                    "shard": simulation["shard"],
+                    "branch": simulation["branch"],
+                    "codePath": simulation["code_path"],
+                    "mapSourceFile": simulation["map_source_file"],
+                    "simulatorOutDir": simulation["simulator_out_dir"],
+                }
+
+                card_helper.validate_card(card)
+                runner.validate_experiment_card(card)
+                config = runner.simulation_config_from_card(card)
+
+                self.assertEqual(config.ticks, 50)
+                self.assertEqual(config.workers, 1)
+                self.assertEqual(config.repetitions, 1)
+                self.assertEqual(config.host_port_start, 24125)
+
     def test_cli_generation_outputs_training_runner_valid_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "card.json"

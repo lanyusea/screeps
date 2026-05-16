@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -196,8 +197,8 @@ def validate_card(raw: Any) -> None:
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
-    validate_strategy_variants(raw.get("strategy_variants"))
-    validate_simulation(raw.get("simulation"))
+    validate_strategy_variants(first_present(raw, ("strategy_variants", "strategyVariants", "variants")))
+    validate_simulation(first_present(raw, ("simulation", "simulator")))
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -268,16 +269,31 @@ def validate_strategy_id(value: str, label: str) -> None:
         raise CardValidationError(f"{label} may contain only letters, numbers, dot, colon, underscore, and hyphen")
 
 
+def first_present(raw: JsonObject, keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in raw:
+            return raw[key]
+    return None
+
+
 def validate_simulation(raw: Any) -> None:
     if not isinstance(raw, dict):
         raise CardValidationError("simulation must be a JSON object")
     for field in ("ticks", "workers", "repetitions"):
         if positive_int(raw.get(field)) is None:
             raise CardValidationError(f"simulation.{field} must be a positive integer")
-    if "host_port_start" in raw and positive_int(raw.get("host_port_start")) is None:
+    host_port_start = first_present(raw, ("host_port_start", "hostPortStart"))
+    if host_port_start is not None and positive_int(host_port_start) is None:
         raise CardValidationError("simulation.host_port_start must be a positive integer")
-    for field in ("room", "shard", "branch", "code_path", "map_source_file", "simulator_out_dir"):
-        value = raw.get(field)
+    for field, aliases in (
+        ("room", ("room",)),
+        ("shard", ("shard",)),
+        ("branch", ("branch",)),
+        ("code_path", ("code_path", "codePath")),
+        ("map_source_file", ("map_source_file", "mapSourceFile")),
+        ("simulator_out_dir", ("simulator_out_dir", "simulatorOutDir")),
+    ):
+        value = first_present(raw, aliases)
         if not isinstance(value, str) or not value:
             raise CardValidationError(f"simulation.{field} must be a non-empty string")
 
@@ -287,6 +303,8 @@ def positive_int(value: Any) -> int | None:
         return None
     if isinstance(value, int) and value > 0:
         return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer() and value > 0:
+        return int(value)
     return None
 
 
