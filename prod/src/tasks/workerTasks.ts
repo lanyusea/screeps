@@ -1407,6 +1407,12 @@ function getControllerLevel(controller: StructureController): number {
     : 0;
 }
 
+function shouldPrioritizeRcl3TowerActivationRefill(
+  controller: StructureController | undefined
+): boolean {
+  return controller?.my === true && getControllerLevel(controller) >= 3;
+}
+
 function shouldSuppressBootstrapControllerSpending(creep: Creep, recoveryOnlyWorkSuppressed: boolean): boolean {
   return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
@@ -2030,6 +2036,10 @@ function compareAssignedTransferTarget(
 }
 
 function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
+  if (!shouldPrioritizeRcl3TowerActivationRefill(creep.room.controller)) {
+    return null;
+  }
+
   const priorityTowerEnergySinks = findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink);
   if (priorityTowerEnergySinks.length === 0) {
     return null;

@@ -4,6 +4,7 @@ import {
   checkEnergyBufferForSpending
 } from '../economy/energyBuffer';
 import { planBootstrapDefenseFloorPlacements } from '../defense/defensePlanner';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
 import { planSourceContainerConstruction, planStorageConstruction, planTowerConstruction } from './constructionPriority';
 import { planExtensionConstruction } from './extensionPlanner';
@@ -255,6 +256,14 @@ export function planConstructionForColony(
     return result;
   }
 
+  let priorityTowerDefenseSiteState: PriorityTowerDefenseSiteState =
+    shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options)
+      ? planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl)
+      : 'notNeeded';
+  if (hasBlockingPlacementFailure(result)) {
+    return result;
+  }
+
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
     if (hasBlockingPlacementFailure(result)) {
@@ -284,15 +293,17 @@ export function planConstructionForColony(
     }
   }
 
-  const priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
-    colony,
-    result,
-    budgetState,
-    options,
-    rcl
-  );
-  if (hasBlockingPlacementFailure(result)) {
-    return result;
+  if (priorityTowerDefenseSiteState === 'notNeeded') {
+    priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+      colony,
+      result,
+      budgetState,
+      options,
+      rcl
+    );
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
   }
 
   if (priorityTowerDefenseSiteState !== 'blocked') {
@@ -397,6 +408,21 @@ function planTowers(
 }
 
 type PriorityTowerDefenseSiteState = 'planned' | 'blocked' | 'notNeeded';
+
+function shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(
+  room: Room,
+  rcl: number,
+  options: ConstructionPlannerOptions
+): boolean {
+  return (
+    options.respectRoomEnergyBuffer === true &&
+    options.postClaimPriorityOrder !== true &&
+    rcl >= 3 &&
+    getRoomEnergyCapacityAvailableFromRoom(room) < TERRITORY_CONTROLLER_BODY_COST &&
+    countExistingAndPendingStructures(room, 'tower') <= 0 &&
+    hasRemainingStructureCapacity(room, 'tower')
+  );
+}
 
 function planPriorityTowerDefenseSiteIfNeeded(
   colony: ColonySnapshot,

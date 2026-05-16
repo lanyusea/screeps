@@ -11113,6 +11113,10 @@ function planConstructionForColony(colony, options = {}) {
     planStorage(colony, result, budgetState, options);
     return result;
   }
+  let priorityTowerDefenseSiteState = shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options) ? planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl) : "notNeeded";
+  if (hasBlockingPlacementFailure(result)) {
+    return result;
+  }
   if (sourceLogisticsStarved) {
     planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
     if (hasBlockingPlacementFailure(result)) {
@@ -11137,15 +11141,17 @@ function planConstructionForColony(colony, options = {}) {
       return result;
     }
   }
-  const priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
-    colony,
-    result,
-    budgetState,
-    options,
-    rcl
-  );
-  if (hasBlockingPlacementFailure(result)) {
-    return result;
+  if (priorityTowerDefenseSiteState === "notNeeded") {
+    priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+      colony,
+      result,
+      budgetState,
+      options,
+      rcl
+    );
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
   }
   if (priorityTowerDefenseSiteState !== "blocked") {
     planBootstrapDefenseFloor(colony, result, budgetState, options);
@@ -11206,6 +11212,9 @@ function planTowers(colony, result, budgetState, options) {
   if (towerResult !== null) {
     recordPlacement(result, budgetState, "tower", towerResult, options);
   }
+}
+function shouldPrioritizeFirstTowerDefenseSiteBeforeRoutineConstruction(room, rcl, options) {
+  return options.respectRoomEnergyBuffer === true && options.postClaimPriorityOrder !== true && rcl >= 3 && getRoomEnergyCapacityAvailableFromRoom(room) < TERRITORY_CONTROLLER_BODY_COST && countExistingAndPendingStructures(room, "tower") <= 0 && hasRemainingStructureCapacity(room, "tower");
 }
 function planPriorityTowerDefenseSiteIfNeeded(colony, result, budgetState, options, rcl) {
   if (rcl < 3 || countExistingAndPendingStructures(colony.room, "tower") > 0 || !hasRemainingStructureCapacity(colony.room, "tower")) {
@@ -23985,6 +23994,9 @@ function hasLowWorkerThroughputRecoveryPressure(creep) {
 function getControllerLevel(controller) {
   return typeof controller.level === "number" && Number.isFinite(controller.level) ? Math.max(0, Math.floor(controller.level)) : 0;
 }
+function shouldPrioritizeRcl3TowerActivationRefill(controller) {
+  return (controller == null ? void 0 : controller.my) === true && getControllerLevel(controller) >= 3;
+}
 function shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed) {
   return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
@@ -24381,6 +24393,9 @@ function compareAssignedTransferTarget(left, right, assignedTransferTargetId) {
   return leftAssigned ? -1 : 1;
 }
 function selectPriorityTowerEnergySink(creep) {
+  if (!shouldPrioritizeRcl3TowerActivationRefill(creep.room.controller)) {
+    return null;
+  }
   const priorityTowerEnergySinks = findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink);
   if (priorityTowerEnergySinks.length === 0) {
     return null;

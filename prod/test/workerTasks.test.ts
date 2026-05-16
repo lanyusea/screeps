@@ -4038,7 +4038,7 @@ describe('selectWorkerTask', () => {
     } as unknown as TestEnergySink;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: { find: jest.fn((type) => (type === 3 ? [energySink] : [])) }
+      room: makeWorkerTaskRoom({ myStructures: [energySink as AnyOwnedStructure] })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
@@ -7015,6 +7015,85 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+  });
+
+  it('builds RCL3 capacity extension construction before first tower refill', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'TowerActivationWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        constructionSites: [extensionSite],
+        controller,
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('does not refill towers before RCL3', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'TowerUnlockWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it.each([
+    ['spawn', 'spawn-emergency', 300],
+    ['extension', 'extension-emergency', 50]
+  ] as const)('keeps emergency %s refill before first tower activation', (structureType, sinkId, freeCapacity) => {
+    const emergencySink = makeEnergySinkWithEnergy(
+      sinkId,
+      structureType as StructureConstant,
+      0,
+      freeCapacity
+    );
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'EmergencyRefillWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 550,
+        myStructures: [lowTower as AnyOwnedStructure, emergencySink as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: sinkId });
   });
 
   it('refills low towers in a claimed non-primary room', () => {

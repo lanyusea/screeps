@@ -5,6 +5,7 @@ import {
   recordColonySurvivalAssessment
 } from '../src/colony/survivalMode';
 import { planConstructionForColony } from '../src/construction/planner';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyBuilder';
 import { planExpansionDefenseBarrierPlacements } from '../src/territory/expansionPlanner';
 
 jest.mock('../src/territory/expansionPlanner', () => ({
@@ -15,6 +16,7 @@ const mockPlanExpansionDefenseBarrierPlacements =
   planExpansionDefenseBarrierPlacements as jest.MockedFunction<typeof planExpansionDefenseBarrierPlacements>;
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const FIRST_RCL3_TOWER_PRIORITY_ENERGY = Math.max(500, TERRITORY_CONTROLLER_BODY_COST - 100);
 
 const TEST_GLOBALS = {
   FIND_SOURCES: 1,
@@ -95,6 +97,35 @@ describe('owned room construction planner', () => {
     ]);
     expect(result.energyBudget).toBe(500);
     expect(result.energyReserved).toBe(300);
+  });
+
+  it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
+    expect(FIRST_RCL3_TOWER_PRIORITY_ENERGY).toBeLessThan(TERRITORY_CONTROLLER_BODY_COST);
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: FIRST_RCL3_TOWER_PRIORITY_ENERGY,
+      energyCapacityAvailable: FIRST_RCL3_TOWER_PRIORITY_ENERGY,
+      structures: [
+        ...Array.from({ length: 5 }, (_, index) =>
+          makeStructure(`extension-rcl2-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 30 + index, 30)
+        )
+      ],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+
+    expect(result.placements[0]).toMatchObject({
+      priority: 'tower',
+      structureType: STRUCTURE_TOWER,
+      result: OK_CODE
+    });
+    expect(result.placements.some((placement) => placement.priority === 'tower')).toBe(true);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 9, 9, STRUCTURE_TOWER);
   });
 
   it('places spawn and controller staging containers after extension work before roads', () => {
