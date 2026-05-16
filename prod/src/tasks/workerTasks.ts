@@ -576,14 +576,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
   }
 
-  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
-  if (priorityTowerEnergySink && shouldPrioritizeRcl3TowerActivationRefill(controller)) {
-    return applyMinimumUsefulLoadPolicy(creep, {
-      type: 'transfer',
-      targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure>
-    });
-  }
-
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(
     creep,
     constructionSites,
@@ -623,6 +615,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
   }
 
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'transfer',
@@ -2043,6 +2036,10 @@ function compareAssignedTransferTarget(
 }
 
 function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
+  if (!shouldPrioritizeRcl3TowerActivationRefill(creep.room.controller)) {
+    return null;
+  }
+
   const priorityTowerEnergySinks = findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink);
   if (priorityTowerEnergySinks.length === 0) {
     return null;

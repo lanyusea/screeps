@@ -4038,7 +4038,7 @@ describe('selectWorkerTask', () => {
     } as unknown as TestEnergySink;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: { find: jest.fn((type) => (type === 3 ? [energySink] : [])) }
+      room: makeWorkerTaskRoom({ myStructures: [energySink as AnyOwnedStructure] })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
@@ -7017,7 +7017,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
-  it('refills the first RCL3 tower before additional extension construction', () => {
+  it('builds RCL3 capacity extension construction before first tower refill', () => {
     const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
     const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
@@ -7038,7 +7038,29 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('does not refill towers before RCL3', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'TowerUnlockWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it.each([

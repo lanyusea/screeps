@@ -5,6 +5,7 @@ import {
   recordColonySurvivalAssessment
 } from '../src/colony/survivalMode';
 import { planConstructionForColony } from '../src/construction/planner';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyBuilder';
 import { planExpansionDefenseBarrierPlacements } from '../src/territory/expansionPlanner';
 
 jest.mock('../src/territory/expansionPlanner', () => ({
@@ -15,6 +16,7 @@ const mockPlanExpansionDefenseBarrierPlacements =
   planExpansionDefenseBarrierPlacements as jest.MockedFunction<typeof planExpansionDefenseBarrierPlacements>;
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const FIRST_RCL3_TOWER_PRIORITY_ENERGY = Math.max(500, TERRITORY_CONTROLLER_BODY_COST - 100);
 
 const TEST_GLOBALS = {
   FIND_SOURCES: 1,
@@ -98,11 +100,12 @@ describe('owned room construction planner', () => {
   });
 
   it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
+    expect(FIRST_RCL3_TOWER_PRIORITY_ENERGY).toBeLessThan(TERRITORY_CONTROLLER_BODY_COST);
     installOpenTerrain();
     const { room, colony } = makeColony({
       controllerLevel: 3,
-      energyAvailable: 550,
-      energyCapacityAvailable: 550,
+      energyAvailable: FIRST_RCL3_TOWER_PRIORITY_ENERGY,
+      energyCapacityAvailable: FIRST_RCL3_TOWER_PRIORITY_ENERGY,
       structures: [
         ...Array.from({ length: 5 }, (_, index) =>
           makeStructure(`extension-rcl2-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 30 + index, 30)
