@@ -4908,6 +4908,50 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('holds E29N55 scout-only execution while RCL3 tower defense is missing', () => {
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
+    const { colony } = makeColony({
+      roomName: 'E29N55',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: 10_000,
+        pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
+      } as StructureController,
+      structures: [
+        {
+          id: 'spawn1',
+          structureType: 'spawn',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-rampart',
+          structureType: 'rampart',
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E29N55' }
+        } as AnyStructure,
+        {
+          id: 'spawn-wall',
+          structureType: 'constructedWall',
+          pos: { x: 16, y: 23, roomName: 'E29N55' }
+        } as AnyStructure
+      ]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installRuntimeCurrentRoom('E29N55');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { E29N55: colony.room }
+    };
+
+    expect(planSpawn(colony, { worker: 6, claimer: 0, claimersByTargetRoom: {} }, 968_802)).toBeNull();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('spawns a minimal claimer for E17S58 after scout intel and claim capacity are ready', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E17S59',

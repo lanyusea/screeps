@@ -1,5 +1,6 @@
 import type { RoleCounts } from '../creeps/roleCounts';
 import { getWorkerCapacity } from '../creeps/roleCounts';
+import { isBootstrapDefenseFloorSatisfiedForTerritory } from '../defense/defensePlanner';
 import { getRoomMinerThroughput } from '../economy/minerThroughput';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import type { ColonySnapshot } from './colonyRegistry';
@@ -13,6 +14,7 @@ export type ColonyStageSuppressionReason =
   | 'bootstrapRecovery'
   | 'localWorkerRecovery'
   | 'controllerDowngradeGuard'
+  | 'defenseFloor'
   | 'territoryEnergyCapacity'
   | 'controllerLevel'
   | 'defense';
@@ -39,6 +41,7 @@ export interface ColonyStageInput {
     level?: number;
     ticksToDowngrade?: number;
   };
+  defenseFloorReady?: boolean;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
 }
@@ -109,6 +112,7 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = (input.hostileCreepCount ?? 0) > 0 || (input.hostileStructureCount ?? 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
+  const defenseFloorReady = input.defenseFloorReady === true;
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
   const bootstrapRecovery =
@@ -123,6 +127,7 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
     workerCapacity >= workerTarget &&
     energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST &&
     isControllerTerritoryReady(input.controller) &&
+    defenseFloorReady &&
     !controllerDowngradeGuard;
   const mode = selectColonyMode({ bootstrap, hostilePresence, territoryReady });
 
@@ -145,6 +150,7 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
       bootstrapSpawnEnergy,
       controller: input.controller,
       controllerDowngradeGuard,
+      defenseFloorReady,
       energyCapacityAvailable,
       hostilePresence,
       mode,
@@ -173,6 +179,7 @@ export function assessColonySnapshotStage(
     spawnEnergyAvailable: colony.energyAvailable,
     previousMode,
     controller: getControllerSurvivalState(colony.room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(colony.room),
     hostileCreepCount: countRoomFind(colony.room, 'FIND_HOSTILE_CREEPS'),
     hostileStructureCount: countRoomFind(colony.room, 'FIND_HOSTILE_STRUCTURES')
   });
@@ -297,6 +304,7 @@ export function recordClaimedRoomBootstrapStage(
     spawnEnergyAvailable: getRoomEnergyAvailable(room),
     previousMode: getPersistedRoomStageMode(room),
     controller: getControllerSurvivalState(room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(room),
     hostileCreepCount: countRoomFind(room, 'FIND_HOSTILE_CREEPS'),
     hostileStructureCount: countRoomFind(room, 'FIND_HOSTILE_STRUCTURES')
   });
@@ -374,6 +382,7 @@ function getSuppressionReasons(input: {
   bootstrapSpawnEnergy: boolean;
   controller?: ColonyStageInput['controller'];
   controllerDowngradeGuard: boolean;
+  defenseFloorReady: boolean;
   energyCapacityAvailable: number;
   hostilePresence: boolean;
   mode: ColonyStage;
@@ -403,6 +412,10 @@ function getSuppressionReasons(input: {
 
   if (input.controllerDowngradeGuard) {
     reasons.push('controllerDowngradeGuard');
+  }
+
+  if (!input.defenseFloorReady) {
+    reasons.push('defenseFloor');
   }
 
   if (input.hostilePresence) {

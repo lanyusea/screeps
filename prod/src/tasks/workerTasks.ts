@@ -23,6 +23,11 @@ import {
 } from '../construction/criticalRoads';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import {
+  BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+  shouldGateTerritoryOnBootstrapDefenseFloor,
+  shouldUseBootstrapDefenseFloorRepairCap
+} from '../defense/defensePlanner';
+import {
   CONSTRUCTION_SITE_IMPACT_PRIORITY,
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   getConstructionSiteImpactPriority,
@@ -689,6 +694,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
+  }
+
+  const rcl3DefenseUnlockUpgradeTask = selectRcl3DefenseUnlockUpgradeTask(creep, controller);
+  if (rcl3DefenseUnlockUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, rcl3DefenseUnlockUpgradeTask);
   }
 
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -6592,10 +6602,18 @@ export function isWorkerRepairTargetComplete(structure: Structure): boolean {
 
 function getWorkerRepairHitsCeiling(structure: Structure): number {
   if (isWorkerBarrierRepairStructure(structure)) {
+    if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
+      return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+    }
+
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
   }
 
   return structure.hitsMax;
+}
+
+function getStructureRoom(structure: Structure): Room {
+  return (structure as Structure & { room?: Room }).room ?? ({} as Room);
 }
 
 function isWorkerBarrierRepairStructure(structure: Structure): boolean {
@@ -6652,6 +6670,33 @@ function shouldGuardControllerDowngrade(controller: StructureController | undefi
 
 function shouldRushRcl1Controller(controller: StructureController): boolean {
   return controller.my === true && controller.level === 1;
+}
+
+function selectRcl3DefenseUnlockUpgradeTask(
+  creep: Creep,
+  controller: StructureController | undefined
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (!shouldUpgradeForRcl3DefenseUnlock(creep, controller)) {
+    return null;
+  }
+
+  return { type: 'upgrade', targetId: controller.id };
+}
+
+function shouldUpgradeForRcl3DefenseUnlock(
+  creep: Creep,
+  controller: StructureController | undefined
+): controller is StructureController {
+  return (
+    controller?.my === true &&
+    controller.level === 2 &&
+    shouldGateTerritoryOnBootstrapDefenseFloor(creep.room) &&
+    isWorkerInColonyRoom(creep) &&
+    getUsedEnergy(creep) > 0 &&
+    !hasVisibleHostilePresence(creep.room) &&
+    !shouldGuardControllerDowngrade(controller) &&
+    !isControllerUpgradeSaturated(creep, controller, { ignoreTerritoryExpansionPressure: true })
+  );
 }
 
 export function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep: Creep): boolean {
@@ -6965,7 +7010,11 @@ function isLowRclControllerProgressTarget(controller: StructureController): bool
   return canLevelUpController(controller) && controller.level >= 2 && controller.level <= 3;
 }
 
-function isControllerUpgradeSaturated(creep: Creep, controller: StructureController): boolean {
+function isControllerUpgradeSaturated(
+  creep: Creep,
+  controller: StructureController,
+  options: { ignoreTerritoryExpansionPressure?: boolean } = {}
+): boolean {
   if (controller.my !== true || shouldGuardControllerDowngrade(controller)) {
     return false;
   }
@@ -6983,7 +7032,7 @@ function isControllerUpgradeSaturated(creep: Creep, controller: StructureControl
     getControllerProgressWorkerLimit(
       creep,
       loadedWorkers.length,
-      hasActiveTerritoryExpansionPressure(creep)
+      options.ignoreTerritoryExpansionPressure !== true && hasActiveTerritoryExpansionPressure(creep)
     )
   );
 

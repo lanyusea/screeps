@@ -306,6 +306,67 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
   });
 
+  it('holds scout execution while local stability is blocked by the defense floor', () => {
+    recordColonyStageAssessment(
+      'W1N1',
+      {
+        mode: 'LOCAL_STABLE',
+        stage: 'LOCAL_STABLE',
+        roomName: 'W1N1',
+        totalCreeps: 4,
+        spawnEnergyAvailable: 650,
+        workerCapacity: 4,
+        workerTarget: 4,
+        survivalWorkerFloor: 3,
+        bootstrapRecovery: false,
+        controllerDowngradeGuard: false,
+        hostilePresence: false,
+        territoryReady: false,
+        suppressionReasons: ['defenseFloor']
+      },
+      500
+    );
+    const creep = {
+      memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
+  });
+
+  it('treats missing stage suppression reasons as empty for scout holds', () => {
+    recordColonyStageAssessment(
+      'W1N1',
+      {
+        mode: 'LOCAL_STABLE',
+        stage: 'LOCAL_STABLE',
+        roomName: 'W1N1',
+        totalCreeps: 4,
+        spawnEnergyAvailable: 650,
+        workerCapacity: 4,
+        workerTarget: 4,
+        survivalWorkerFloor: 3,
+        bootstrapRecovery: false,
+        controllerDowngradeGuard: false,
+        hostilePresence: false,
+        territoryReady: false
+      } as Parameters<typeof recordColonyStageAssessment>[1],
+      500
+    );
+    const creep = {
+      memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    expect(() => runTerritoryControllerCreep(creep)).not.toThrow();
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N2' });
+  });
+
   it('reserves the target room controller and moves into range when needed', () => {
     const controller = { id: 'controller1', my: false } as StructureController;
     const creep = {

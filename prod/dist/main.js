@@ -1289,6 +1289,117 @@ function getGameTime3() {
   return typeof ((_a = globalThis.Game) == null ? void 0 : _a.time) === "number" ? (_b = globalThis.Game.time) != null ? _b : 0 : 0;
 }
 
+// src/config/roomSelection.ts
+var ACTIVE_OFFICIAL_ROOM_SELECTION = {
+  branch: "main",
+  shard: "shardX",
+  roomName: "E29N55",
+  spawn: {
+    name: "Spawn1",
+    x: 17,
+    y: 24
+  }
+};
+var OFFICIAL_ROOM_CANDIDATES = [
+  {
+    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+    status: "active",
+    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
+    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
+  },
+  {
+    shard: "shardX",
+    roomName: "W3N9",
+    status: "fallback",
+    spawn: { name: "Spawn1", x: 35, y: 23 },
+    notes: "Previous official target retained only as a fallback/audit candidate."
+  },
+  {
+    shard: "shardX",
+    roomName: "E19S57",
+    status: "fallback",
+    notes: "Prior recovery candidate from the owner-approved fallback sequence."
+  },
+  {
+    shard: "shardX",
+    roomName: "E26S49",
+    status: "fallback",
+    notes: "Prior official room and fallback candidate; not an active default."
+  },
+  {
+    shard: "shardX",
+    roomName: "E17S59",
+    status: "fallback",
+    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
+  }
+];
+var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
+var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
+var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
+var LOGISTICS_ROOM_SELECTION = {
+  corridorRooms: ["E17S58", "E17S59", "E18S59"],
+  safeTransitRooms: ["E17S59"],
+  localFirstEnergyRooms: ["E17S58", "E18S59"],
+  localFirstSourceRoom: "E17S59",
+  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
+};
+var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
+var TERRITORY_EXPANSION_ROOM_SELECTION = {
+  scoutTargets: [
+    {
+      colony: activeRoom,
+      roomName: "E29N54",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: activeRoom,
+      roomName: "E30N55",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E18S59",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E17S60",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 2,
+      adjacentToOwnedRoom: true
+    }
+  ]
+};
+var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
+  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
+  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
+  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
+  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
+  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
+  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
+    target.colony,
+    target.roomName,
+    target.nearestOwnedRoom
+  ])
+]));
+
 // src/defense/defensePlanner.ts
 var DEFENDER_ROLE = "defender";
 var DEFENDER_BODY_PATTERN = ["tough", "attack", "move"];
@@ -1301,8 +1412,10 @@ var CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 var TOWER_CONTROLLER_THREAT_RANGE = 3;
 var TOWER_STRUCTURE_THREAT_RANGE = 3;
 var BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL = 2;
+var BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL = 3;
 var BOOTSTRAP_DEFENSE_FLOOR_MAX_SITES_PER_TICK = 2;
 var BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS = 1;
+var BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING = 25e3;
 var ROOM_EDGE_MIN = 1;
 var ROOM_EDGE_MAX = 48;
 var DEFAULT_TERRAIN_WALL_MASK = 1;
@@ -1359,7 +1472,46 @@ function assessBootstrapDefenseFloor(room) {
     missingAnchors,
     ready: spawnRampartReady && wallAnchorCount >= requiredWallAnchors,
     spawnRampartReady,
+    requiredWallAnchorCount: requiredWallAnchors,
     wallAnchorCount
+  };
+}
+function assessBootstrapDefenseFloorReadiness(room) {
+  const rcl = getOwnedRoomRcl(room);
+  const assessable = canAssessBootstrapDefenseFloor(room);
+  if (!assessable || rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL) {
+    return {
+      anchors: [],
+      missingAnchors: [],
+      ready: true,
+      spawnRampartReady: true,
+      requiredWallAnchorCount: 0,
+      wallAnchorCount: 0,
+      assessable,
+      anchorReady: true,
+      pendingTowerCount: 0,
+      repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+      rcl,
+      towerCount: 0,
+      towerReady: true
+    };
+  }
+  const anchorAssessment = assessBootstrapDefenseFloor(room);
+  const lookups = getBootstrapDefenseFloorLookups(room);
+  const towerCount = getOwnedStructuresByType(room, lookups, "STRUCTURE_TOWER").length;
+  const pendingTowerCount = getConstructionSitesByType(room, lookups, "STRUCTURE_TOWER").length;
+  const towerReady = rcl !== 3 || towerCount > 0;
+  const anchorReady = anchorAssessment.anchors.length === 0 || anchorAssessment.ready;
+  return {
+    ...anchorAssessment,
+    ready: anchorReady && towerReady,
+    assessable,
+    anchorReady,
+    pendingTowerCount,
+    repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+    rcl,
+    towerCount,
+    towerReady
   };
 }
 function planBootstrapDefenseFloorPlacements(room, options = {}) {
@@ -1374,6 +1526,15 @@ function planBootstrapDefenseFloorPlacements(room, options = {}) {
     return [];
   }
   return assessBootstrapDefenseFloor(room).missingAnchors.slice(0, maxPlacements);
+}
+function isBootstrapDefenseFloorSatisfiedForTerritory(room) {
+  if (!shouldGateTerritoryOnBootstrapDefenseFloor(room)) {
+    return true;
+  }
+  return assessBootstrapDefenseFloorReadiness(room).ready;
+}
+function shouldUseBootstrapDefenseFloorRepairCap(room) {
+  return shouldGateTerritoryOnBootstrapDefenseFloor(room) && !hasVisibleHostilePresence(room);
 }
 function buildDefenderBody(energyAvailable, hostileCount) {
   const desiredPatternCount = Math.max(
@@ -1588,6 +1749,20 @@ function selectPrimaryOwnedSpawn(room, lookups) {
   }).sort((left, right) => getObjectId2(left).localeCompare(getObjectId2(right)));
   return (_a = spawns[0]) != null ? _a : null;
 }
+function shouldGateTerritoryOnBootstrapDefenseFloor(room) {
+  const rcl = getOwnedRoomRcl(room);
+  if (rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL || rcl > BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL || !canAssessBootstrapDefenseFloor(room) || room.name !== ACTIVE_OFFICIAL_ROOM_SELECTION.roomName) {
+    return false;
+  }
+  return hasActiveOfficialSpawn(room, getBootstrapDefenseFloorLookups(room));
+}
+function hasActiveOfficialSpawn(room, lookups) {
+  const expectedSpawn = ACTIVE_OFFICIAL_ROOM_SELECTION.spawn;
+  return getOwnedStructuresByType(room, lookups, "STRUCTURE_SPAWN").some((spawn) => {
+    var _a;
+    return ((_a = spawn.pos) == null ? void 0 : _a.roomName) === room.name && spawn.pos.x === expectedSpawn.x && spawn.pos.y === expectedSpawn.y;
+  });
+}
 function selectSpawnWallAnchorPositions(room, spawnPosition, lookups) {
   const positions = [];
   for (const [dx, dy] of SPAWN_WALL_ANCHOR_OFFSETS) {
@@ -1672,6 +1847,12 @@ function getBootstrapDefenseFloorLookups(room) {
   bootstrapDefenseFloorLookupCache.set(room, lookups);
   return lookups;
 }
+function canAssessBootstrapDefenseFloor(room) {
+  return typeof room.find === "function" && getGlobalNumber2("FIND_STRUCTURES") !== null && getGlobalNumber2("FIND_CONSTRUCTION_SITES") !== null;
+}
+function hasVisibleHostilePresence(room) {
+  return findRoomObjects3(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects3(room, "FIND_HOSTILE_STRUCTURES").length > 0;
+}
 function createBootstrapDefenseFloorLookups(room) {
   const structures = findRoomObjects3(room, "FIND_STRUCTURES").filter((structure) => isPositionInRoom(structure.pos, room.name));
   const constructionSites = findRoomObjects3(room, "FIND_CONSTRUCTION_SITES").filter((site) => isPositionInRoom(site.pos, room.name));
@@ -1705,6 +1886,10 @@ function getStructuresAtPosition(lookups, position) {
 function getConstructionSitesAtPosition(lookups, position) {
   var _a;
   return (_a = lookups.constructionSitesByPosition.get(getPositionKey(position))) != null ? _a : [];
+}
+function getConstructionSitesByType(room, lookups, structureGlobal) {
+  const structureType = getStructureConstant(structureGlobal);
+  return lookups.constructionSites.filter((site) => site.structureType === structureType && isPositionInRoom(site.pos, room.name));
 }
 function isStructureType(structureType, structureGlobal) {
   return structureType === getStructureConstant(structureGlobal);
@@ -2780,11 +2965,12 @@ function assessColonyStage(input) {
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = ((_d = input.hostileCreepCount) != null ? _d : 0) > 0 || ((_e = input.hostileStructureCount) != null ? _e : 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
+  const defenseFloorReady = input.defenseFloorReady === true;
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
   const bootstrapRecovery = input.previousMode === "BOOTSTRAP" && !bootstrapCreepFloor && !bootstrapSpawnEnergy && !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable);
   const bootstrap = bootstrapCreepFloor || bootstrapSpawnEnergy || bootstrapRecovery;
-  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && !controllerDowngradeGuard;
+  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && defenseFloorReady && !controllerDowngradeGuard;
   const mode = selectColonyMode({ bootstrap, hostilePresence, territoryReady });
   return {
     mode,
@@ -2805,6 +2991,7 @@ function assessColonyStage(input) {
       bootstrapSpawnEnergy,
       controller: input.controller,
       controllerDowngradeGuard,
+      defenseFloorReady,
       energyCapacityAvailable,
       hostilePresence,
       mode,
@@ -2826,6 +3013,7 @@ function assessColonySnapshotStage(colony, roleCounts) {
     spawnEnergyAvailable: colony.energyAvailable,
     previousMode,
     controller: getControllerSurvivalState(colony.room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(colony.room),
     hostileCreepCount: countRoomFind(colony.room, "FIND_HOSTILE_CREEPS"),
     hostileStructureCount: countRoomFind(colony.room, "FIND_HOSTILE_STRUCTURES")
   });
@@ -2909,6 +3097,7 @@ function recordClaimedRoomBootstrapStage(roomName, tick = getGameTime8()) {
     spawnEnergyAvailable: getRoomEnergyAvailable(room),
     previousMode: getPersistedRoomStageMode(room),
     controller: getControllerSurvivalState(room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(room),
     hostileCreepCount: countRoomFind(room, "FIND_HOSTILE_CREEPS"),
     hostileStructureCount: countRoomFind(room, "FIND_HOSTILE_STRUCTURES")
   });
@@ -2966,6 +3155,9 @@ function getSuppressionReasons(input) {
   }
   if (input.controllerDowngradeGuard) {
     reasons.push("controllerDowngradeGuard");
+  }
+  if (!input.defenseFloorReady) {
+    reasons.push("defenseFloor");
   }
   if (input.hostilePresence) {
     reasons.push("defense");
@@ -12508,7 +12700,7 @@ function shouldSignOwnedRoomController(room, controller = room == null ? void 0 
 }
 function isOwnedRoomControllerSigningSafe(room, controller = room == null ? void 0 : room.controller) {
   var _a;
-  return Boolean(room) && (controller == null ? void 0 : controller.my) === true && ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && room.controller.id === controller.id && !hasVisibleHostilePresence(room);
+  return Boolean(room) && (controller == null ? void 0 : controller.my) === true && ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && room.controller.id === controller.id && !hasVisibleHostilePresence2(room);
 }
 function shouldSignReservedController(controller, actorUsername, gameTime = getGameTime17()) {
   return Boolean(
@@ -12578,7 +12770,7 @@ function getControllerRoom(creep, controller) {
   var _a;
   return (_a = controller == null ? void 0 : controller.room) != null ? _a : creep.room;
 }
-function hasVisibleHostilePresence(room) {
+function hasVisibleHostilePresence2(room) {
   return findRoomObjects16(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects16(room, "FIND_HOSTILE_STRUCTURES").length > 0;
 }
 function findRoomObjects16(room, globalName) {
@@ -15551,6 +15743,9 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget, options = {}) {
   }
   const controller = colony.room.controller;
   if ((controller == null ? void 0 : controller.my) !== true || typeof controller.level !== "number" || controller.level < 2) {
+    return false;
+  }
+  if (!isBootstrapDefenseFloorSatisfiedForTerritory(colony.room)) {
     return false;
   }
   return typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS;
@@ -23327,6 +23522,10 @@ function selectHeuristicWorkerTask(creep) {
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
   }
+  const rcl3DefenseUnlockUpgradeTask = selectRcl3DefenseUnlockUpgradeTask(creep, controller);
+  if (rcl3DefenseUnlockUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, rcl3DefenseUnlockUpgradeTask);
+  }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
@@ -23624,7 +23823,7 @@ function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
   }
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -23649,7 +23848,7 @@ function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
 function isUpgraderBoostActive(creep, controller) {
-  return isUpgraderCreep(creep) && !hasVisibleHostilePresence2(creep.room) && isControllerNearLevelUp(controller);
+  return isUpgraderCreep(creep) && !hasVisibleHostilePresence3(creep.room) && isControllerNearLevelUp(controller);
 }
 function isUpgraderCreep(creep) {
   var _a, _b, _c, _d;
@@ -23770,7 +23969,7 @@ function hasLowWorkerThroughputRecoveryPressure(creep) {
   var _a;
   const room = creep.room;
   const controller = room.controller;
-  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker" || (controller == null ? void 0 : controller.my) !== true || getControllerLevel(controller) > 2 || shouldGuardControllerDowngrade2(controller) || hasVisibleHostilePresence2(room)) {
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker" || (controller == null ? void 0 : controller.my) !== true || getControllerLevel(controller) > 2 || shouldGuardControllerDowngrade2(controller) || hasVisibleHostilePresence3(room)) {
     return false;
   }
   const energyAvailable = getRoomEnergyAvailable9(room);
@@ -23829,7 +24028,7 @@ function hasEmergencySpawnExtensionRefillDemand(creep) {
   return hasTrueLowLoadSpawnExtensionRefillEmergency(creep);
 }
 function hasTrueLowLoadSpawnExtensionRefillEmergency(creep) {
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     return true;
   }
   if (isControllerDowngradeImminentForLowLoadReturn(creep.room.controller)) {
@@ -23916,7 +24115,7 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
     return task;
   }
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
@@ -23931,7 +24130,7 @@ function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
     return task;
   }
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
@@ -24067,7 +24266,7 @@ function isSpawnExtensionThroughputBottlenecked(room) {
 function selectStorageForSpawnExtensionRefill(creep) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const storageSources = findVisibleRoomStructures(creep.room).filter(
@@ -25478,7 +25677,7 @@ function matchesStructureType18(actual, globalName, fallback) {
 function selectStoredEnergySource(creep) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const storedEnergySources = findVisibleRoomStructures(creep.room).filter(
@@ -25610,7 +25809,7 @@ function selectConstructionBacklogEnergyAcquisitionTask(creep) {
 function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -25991,7 +26190,7 @@ function selectLowLoadWorkerEnergyContinuationCandidate(creep, maximumRange = LO
   );
 }
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
-  return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence2(creep.room);
+  return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence3(creep.room);
 }
 function selectLowLoadWorkerEnergyYieldAwareCandidate(creep, candidates, defaultCandidate, maximumRange) {
   const currentCandidate = selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
@@ -26121,7 +26320,7 @@ function isSafePersistedLowLoadWorkerWithdrawSource(creep, source) {
   const room = (_a = source.room) != null ? _a : creep.room;
   return isSafeStoredEnergySource(source, {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(room),
+    hasHostilePresence: hasVisibleHostilePresence3(room),
     room
   });
 }
@@ -26263,7 +26462,7 @@ function createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignme
 function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -26814,7 +27013,7 @@ function getCreepOwnerUsername2(creep) {
   const username = (_a = creep.owner) == null ? void 0 : _a.username;
   return typeof username === "string" && username.length > 0 ? username : null;
 }
-function hasVisibleHostilePresence2(room) {
+function hasVisibleHostilePresence3(room) {
   return findHostileCreeps3(room).length > 0 || findHostileStructures3(room).length > 0;
 }
 function findHostileCreeps3(room) {
@@ -26897,7 +27096,7 @@ function computeRoutineRampartMaintenanceRepairTarget(room) {
 }
 function canSelectRoutineBarrierMaintenanceRepairTarget(room) {
   var _a;
-  return ((_a = room.controller) == null ? void 0 : _a.my) === true && !hasVisibleHostilePresence2(room) && checkEnergyBufferForConstructionSpending(room);
+  return ((_a = room.controller) == null ? void 0 : _a.my) === true && !hasVisibleHostilePresence3(room) && checkEnergyBufferForConstructionSpending(room);
 }
 function selectCriticalInfrastructureRepairTarget(creep) {
   var _a;
@@ -26932,7 +27131,7 @@ function selectCriticalOwnedSpawnRepairTarget(creep, visibleStructures = findVis
 }
 function canRepairRemoteCriticalRoadInfrastructure(creep) {
   var _a;
-  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence2(creep.room)) {
+  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence3(creep.room)) {
     return false;
   }
   const controller = creep.room.controller;
@@ -27051,9 +27250,16 @@ function isWorkerRepairTargetComplete(structure) {
 }
 function getWorkerRepairHitsCeiling(structure) {
   if (isWorkerBarrierRepairStructure(structure)) {
+    if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
+      return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+    }
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
   }
   return structure.hitsMax;
+}
+function getStructureRoom(structure) {
+  var _a;
+  return (_a = structure.room) != null ? _a : {};
 }
 function isWorkerBarrierRepairStructure(structure) {
   return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) || matchesStructureType18(structure.structureType, "STRUCTURE_WALL", "constructedWall");
@@ -27087,6 +27293,15 @@ function shouldGuardControllerDowngrade2(controller) {
 }
 function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
+}
+function selectRcl3DefenseUnlockUpgradeTask(creep, controller) {
+  if (!shouldUpgradeForRcl3DefenseUnlock(creep, controller)) {
+    return null;
+  }
+  return { type: "upgrade", targetId: controller.id };
+}
+function shouldUpgradeForRcl3DefenseUnlock(creep, controller) {
+  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && shouldGateTerritoryOnBootstrapDefenseFloor(creep.room) && isWorkerInColonyRoom(creep) && getUsedEnergy2(creep) > 0 && !hasVisibleHostilePresence3(creep.room) && !shouldGuardControllerDowngrade2(controller) && !isControllerUpgradeSaturated(creep, controller, { ignoreTerritoryExpansionPressure: true });
 }
 function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
@@ -27286,12 +27501,12 @@ function hasNonControllerWorkerEnergyDemand(creep) {
   return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
 }
 function hasPostConstructionControllerUpgradeEnergy(creep, controller) {
-  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence2(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
+  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence3(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
 }
 function isLowRclControllerProgressTarget(controller) {
   return canLevelUpController2(controller) && controller.level >= 2 && controller.level <= 3;
 }
-function isControllerUpgradeSaturated(creep, controller) {
+function isControllerUpgradeSaturated(creep, controller, options = {}) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {
     return false;
   }
@@ -27307,7 +27522,7 @@ function isControllerUpgradeSaturated(creep, controller) {
     getControllerProgressWorkerLimit(
       creep,
       loadedWorkers.length,
-      hasActiveTerritoryExpansionPressure(creep)
+      options.ignoreTerritoryExpansionPressure !== true && hasActiveTerritoryExpansionPressure(creep)
     )
   );
   return otherControllerUpgraders >= controllerProgressWorkerLimit;
@@ -27353,7 +27568,7 @@ function selectSource2ControllerLaneHarvestSource(creep) {
   return topology.source;
 }
 function getSource2ControllerLaneTopology(room, controller) {
-  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition5(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence2(room)) {
+  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition5(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence3(room)) {
     return null;
   }
   const source = getSource2(room);
@@ -27694,7 +27909,7 @@ function findSourceContainerWithdrawCandidates(creep) {
     );
     if (candidate && isSafeStoredEnergySource(sourceContainer, {
       creepOwnerUsername: getCreepOwnerUsername2(creep),
-      hasHostilePresence: hasVisibleHostilePresence2(sourceRoom),
+      hasHostilePresence: hasVisibleHostilePresence3(sourceRoom),
       room: sourceRoom
     })) {
       candidates.push(candidate);
@@ -30197,7 +30412,7 @@ function getEnergyHaulingBacklogThreshold(room, options) {
 function shouldUseEarlyRclControllerRunwayThreshold(room) {
   var _a, _b, _c;
   const controllerLevel = normalizeNonNegativeInteger11((_b = (_a = room.controller) == null ? void 0 : _a.level) != null ? _b : 0);
-  return ((_c = room.controller) == null ? void 0 : _c.my) === true && controllerLevel >= EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL && controllerLevel <= EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL && !hasVisibleHostilePresence3(room) && !hasVisibleConstructionDemand(room) && !hasDurableEnergyStore(room) && hasEarlyRclRunwayDeliveryCapacity(room);
+  return ((_c = room.controller) == null ? void 0 : _c.my) === true && controllerLevel >= EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL && controllerLevel <= EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL && !hasVisibleHostilePresence4(room) && !hasVisibleConstructionDemand(room) && !hasDurableEnergyStore(room) && hasEarlyRclRunwayDeliveryCapacity(room);
 }
 function hasEarlyRclRunwayDeliveryCapacity(room) {
   return findEnergyHaulingDeliveryTargets(room).some(
@@ -30210,7 +30425,7 @@ function hasDurableEnergyStore(room) {
 function hasVisibleConstructionDemand(room) {
   return findRoomObjects23(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects23(room, "FIND_CONSTRUCTION_SITES").some((site) => site.my !== false);
 }
-function hasVisibleHostilePresence3(room) {
+function hasVisibleHostilePresence4(room) {
   return findRoomObjects23(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects23(room, "FIND_HOSTILE_STRUCTURES").length > 0;
 }
 function countActiveLocalEnergyHaulers(roomName) {
@@ -33264,7 +33479,7 @@ function getTerritoryIntentPlanningOptions(context) {
   return shouldPlanLocalStableTerritoryScout(context) ? { scoutOnly: true } : null;
 }
 function shouldPlanLocalStableTerritoryScout(context) {
-  return context.survival.mode === "LOCAL_STABLE" && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST;
+  return context.survival.mode === "LOCAL_STABLE" && !context.survival.suppressionReasons.includes("defenseFloor") && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST;
 }
 function planControllerUpgradeSurplusSpawn(context) {
   if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
@@ -35490,12 +35705,33 @@ function summarizeConstructionPriority(colony, colonyWorkers) {
 }
 function summarizeSurvival(colony, roleCounts) {
   const assessment = assessColonySnapshotSurvival(colony, roleCounts);
+  const defenseFloor = assessBootstrapDefenseFloorReadiness(colony.room);
   return {
     mode: assessment.mode,
     workerCapacity: assessment.workerCapacity,
     workerTarget: assessment.workerTarget,
     survivalWorkerFloor: assessment.survivalWorkerFloor,
-    ...assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {}
+    ...assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {},
+    ...shouldReportRuntimeDefenseFloor(defenseFloor) ? { defenseFloor: toRuntimeDefenseFloorSummary(defenseFloor) } : {}
+  };
+}
+function shouldReportRuntimeDefenseFloor(defenseFloor) {
+  return defenseFloor.assessable;
+}
+function toRuntimeDefenseFloorSummary(defenseFloor) {
+  return {
+    ready: defenseFloor.ready,
+    assessable: defenseFloor.assessable,
+    rcl: defenseFloor.rcl,
+    anchorReady: defenseFloor.anchorReady,
+    towerReady: defenseFloor.towerReady,
+    towerCount: defenseFloor.towerCount,
+    pendingTowerCount: defenseFloor.pendingTowerCount,
+    spawnRampartReady: defenseFloor.spawnRampartReady,
+    wallAnchorCount: defenseFloor.wallAnchorCount,
+    requiredWallAnchorCount: defenseFloor.requiredWallAnchorCount,
+    missingAnchorCount: defenseFloor.missingAnchors.length,
+    repairHitsCeiling: defenseFloor.repairHitsCeiling
   };
 }
 function toRuntimeConstructionPriorityCandidateSummary(score) {
@@ -40478,7 +40714,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   }
   const colonyStageAssessment = getRecordedColonyStageAssessment(creep.memory.colony);
   if (assignment.action === "scout") {
-    if ((colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE") {
+    if (shouldHoldTerritoryScout(colonyStageAssessment)) {
       return;
     }
   } else if (suppressesTerritoryWork(colonyStageAssessment)) {
@@ -40576,6 +40812,10 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result) || assignment.action === "reserve" && RESERVE_FATAL_RESULT_CODES.has(result)) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+function shouldHoldTerritoryScout(colonyStageAssessment) {
+  var _a;
+  return (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE" || ((_a = colonyStageAssessment == null ? void 0 : colonyStageAssessment.suppressionReasons) == null ? void 0 : _a.includes("defenseFloor")) === true;
 }
 function logBestClaimTarget(homeRoom) {
   if (isJestRuntime()) {
@@ -44493,117 +44733,6 @@ function getDefenseEventPriority(event) {
 function getGameTime43() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
-
-// src/config/roomSelection.ts
-var ACTIVE_OFFICIAL_ROOM_SELECTION = {
-  branch: "main",
-  shard: "shardX",
-  roomName: "E29N55",
-  spawn: {
-    name: "Spawn1",
-    x: 17,
-    y: 24
-  }
-};
-var OFFICIAL_ROOM_CANDIDATES = [
-  {
-    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
-    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
-    status: "active",
-    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
-    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
-  },
-  {
-    shard: "shardX",
-    roomName: "W3N9",
-    status: "fallback",
-    spawn: { name: "Spawn1", x: 35, y: 23 },
-    notes: "Previous official target retained only as a fallback/audit candidate."
-  },
-  {
-    shard: "shardX",
-    roomName: "E19S57",
-    status: "fallback",
-    notes: "Prior recovery candidate from the owner-approved fallback sequence."
-  },
-  {
-    shard: "shardX",
-    roomName: "E26S49",
-    status: "fallback",
-    notes: "Prior official room and fallback candidate; not an active default."
-  },
-  {
-    shard: "shardX",
-    roomName: "E17S59",
-    status: "fallback",
-    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
-  }
-];
-var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
-var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
-var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
-var LOGISTICS_ROOM_SELECTION = {
-  corridorRooms: ["E17S58", "E17S59", "E18S59"],
-  safeTransitRooms: ["E17S59"],
-  localFirstEnergyRooms: ["E17S58", "E18S59"],
-  localFirstSourceRoom: "E17S59",
-  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
-};
-var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
-var TERRITORY_EXPANSION_ROOM_SELECTION = {
-  scoutTargets: [
-    {
-      colony: activeRoom,
-      roomName: "E29N54",
-      nearestOwnedRoom: activeRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true,
-      scoutOnly: true
-    },
-    {
-      colony: activeRoom,
-      roomName: "E30N55",
-      nearestOwnedRoom: activeRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true,
-      scoutOnly: true
-    },
-    {
-      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      roomName: "E18S59",
-      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true
-    },
-    {
-      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      roomName: "E17S60",
-      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 2,
-      adjacentToOwnedRoom: true
-    }
-  ]
-};
-var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
-  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
-  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
-  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
-  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
-  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
-  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
-  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
-  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
-  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
-    target.colony,
-    target.roomName,
-    target.nearestOwnedRoom
-  ])
-]));
 
 // src/strategy/strategyRegistry.ts
 var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;

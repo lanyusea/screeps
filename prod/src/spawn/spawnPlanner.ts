@@ -1458,6 +1458,7 @@ function getTerritoryIntentPlanningOptions(
 function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boolean {
   return (
     context.survival.mode === 'LOCAL_STABLE' &&
+    !context.survival.suppressionReasons.includes('defenseFloor') &&
     context.options.workersOnly !== true &&
     context.workerCapacity >= context.workerTarget &&
     context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST &&

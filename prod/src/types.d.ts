@@ -741,6 +741,7 @@ declare global {
       | 'bootstrapRecovery'
       | 'localWorkerRecovery'
       | 'controllerDowngradeGuard'
+      | 'defenseFloor'
       | 'territoryEnergyCapacity'
       | 'controllerLevel'
       | 'defense'

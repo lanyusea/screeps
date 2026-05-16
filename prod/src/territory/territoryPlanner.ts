@@ -28,6 +28,7 @@ import {
   isRouteBlockedByKnownDeadZone,
   refreshVisibleRoomDeadZoneMemory
 } from '../defense/deadZone';
+import { isBootstrapDefenseFloorSatisfiedForTerritory } from '../defense/defensePlanner';
 import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
 import {
   findSourceContainer,
@@ -1114,6 +1115,10 @@ export function isTerritoryHomeSafe(
 
   const controller = colony.room.controller;
   if (controller?.my !== true || typeof controller.level !== 'number' || controller.level < 2) {
+    return false;
+  }
+
+  if (!isBootstrapDefenseFloorSatisfiedForTerritory(colony.room)) {
     return false;
   }
 

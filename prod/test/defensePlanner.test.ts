@@ -1,6 +1,8 @@
 import {
   assessBootstrapDefenseFloor,
+  assessBootstrapDefenseFloorReadiness,
   buildDefenderBody,
+  BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
   getDesiredDefenderCount,
   hasDefensePressure,
   planBootstrapDefenseFloorPlacements,
@@ -266,6 +268,63 @@ describe('defensePlanner', () => {
     expect(assessment.spawnRampartReady).toBe(true);
     expect(assessment.wallAnchorCount).toBe(0);
     expect(assessment.ready).toBe(true);
+  });
+
+  it('keeps the bootstrap defense floor compact with low early repair caps', () => {
+    const room = makeDefenseRoom();
+
+    const placements = planBootstrapDefenseFloorPlacements(room, { maxPlacements: 10 });
+    const readiness = assessBootstrapDefenseFloorReadiness(room);
+
+    expect(placements.map((placement) => placement.kind)).toEqual([
+      'spawnRampart',
+      'spawnWall',
+      'spawnWall',
+      'controllerRampart'
+    ]);
+    expect(readiness).toMatchObject({
+      ready: false,
+      assessable: true,
+      anchorReady: false,
+      towerReady: true,
+      requiredWallAnchorCount: 1,
+      wallAnchorCount: 0,
+      repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING
+    });
+  });
+
+  it('requires an owned tower at RCL3 before territory work is defense-ready', () => {
+    const coveredAnchors = [
+      makeDefenseStructure('spawn-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 10, 10),
+      makeDefenseStructure('wall-blocker-a', TEST_GLOBALS.STRUCTURE_WALL, 9, 9),
+      makeDefenseStructure('wall-blocker-b', TEST_GLOBALS.STRUCTURE_WALL, 11, 9),
+      makeDefenseStructure('wall-blocker-c', TEST_GLOBALS.STRUCTURE_WALL, 9, 11),
+      makeDefenseStructure('wall-blocker-d', TEST_GLOBALS.STRUCTURE_WALL, 11, 11)
+    ];
+    const roomWithoutTower = makeDefenseRoom({
+      controllerLevel: 3,
+      structures: coveredAnchors
+    });
+    const roomWithTower = makeDefenseRoom({
+      controllerLevel: 3,
+      structures: [
+        ...coveredAnchors,
+        makeDefenseStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 12, 10, 'W1N1', true)
+      ]
+    });
+
+    expect(assessBootstrapDefenseFloorReadiness(roomWithoutTower)).toMatchObject({
+      ready: false,
+      anchorReady: true,
+      towerCount: 0,
+      towerReady: false
+    });
+    expect(assessBootstrapDefenseFloorReadiness(roomWithTower)).toMatchObject({
+      ready: true,
+      anchorReady: true,
+      towerCount: 1,
+      towerReady: true
+    });
   });
 
   it('caches visible structure and construction-site lookups for defense-floor assessment', () => {

@@ -46,6 +46,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
     const selectedScore = scoreClaimTarget('W1N2', colony.room).score;
@@ -108,6 +109,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
     const selectedScore = scoreClaimTarget('W1N2', colony.room).score;
@@ -204,6 +206,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
 
@@ -253,6 +256,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 1_000,
       energyCapacityAvailable: 1_000,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
     const duplicateScore = scoreClaimTarget('W2N1', colony.room).score;
@@ -300,6 +304,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
     const eligibleScore = scoreClaimTarget('W2N1', colony.room).score;
@@ -343,6 +348,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
+      defenseFloorReady: true,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
     });
 

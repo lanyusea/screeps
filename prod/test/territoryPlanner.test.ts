@@ -72,6 +72,66 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('holds configured territory execution while an E29N55-like RCL3 room has no tower', () => {
+    const globals = globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      STRUCTURE_SPAWN: StructureConstant;
+      STRUCTURE_RAMPART: StructureConstant;
+      STRUCTURE_WALL: StructureConstant;
+      STRUCTURE_TOWER: StructureConstant;
+    };
+    globals.FIND_STRUCTURES = 10;
+    globals.FIND_CONSTRUCTION_SITES = 11;
+    globals.STRUCTURE_SPAWN = 'spawn';
+    globals.STRUCTURE_RAMPART = 'rampart';
+    globals.STRUCTURE_WALL = 'constructedWall';
+    globals.STRUCTURE_TOWER = 'tower';
+    const roomName = 'E29N55';
+    const controller = {
+      id: 'controller-e29n55',
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000,
+      pos: makeRoomPosition(25, 25, roomName)
+    } as StructureController;
+    const structures = [
+      makeStructure('Spawn1', 'spawn', 17, 24, roomName, true),
+      makeStructure('spawn-rampart', 'rampart', 17, 24, roomName, true),
+      makeStructure('spawn-wall', 'constructedWall', 16, 23, roomName)
+    ];
+    const room = {
+      name: roomName,
+      controller,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      find: jest.fn((findType: number) => {
+        if (findType === globals.FIND_STRUCTURES) {
+          return structures;
+        }
+        if (findType === globals.FIND_CONSTRUCTION_SITES) {
+          return [];
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const colony = {
+      room,
+      spawns: [structures[0] as StructureSpawn],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: roomName, roomName: 'E29N56', action: 'reserve' }]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 4, 1000)).toBeNull();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('keeps source-owned territory intents separate from unowned progress records', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -7230,4 +7290,24 @@ function makeSafeColony({
     energyAvailable,
     energyCapacityAvailable
   };
+}
+
+function makeRoomPosition(x: number, y: number, roomName: string): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
+}
+
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  roomName: string,
+  my?: boolean
+): Structure {
+  return {
+    id,
+    structureType,
+    my,
+    pos: makeRoomPosition(x, y, roomName)
+  } as unknown as Structure;
 }

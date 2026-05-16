@@ -103,6 +103,7 @@ describe('colony bootstrap stage', () => {
         workerTarget: 4,
         energyAvailable: 800,
         energyCapacityAvailable: 800,
+        defenseFloorReady: true,
         previousMode: 'BOOTSTRAP',
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
       })
@@ -122,12 +123,51 @@ describe('colony bootstrap stage', () => {
         workerTarget: 4,
         energyAvailable: 400,
         energyCapacityAvailable: 400,
+        defenseFloorReady: true,
         previousMode: 'BOOTSTRAP',
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
       })
     ).toMatchObject({
       mode: 'LOCAL_STABLE',
       bootstrapRecovery: false
+    });
+  });
+
+  it('holds territory readiness while the local defense floor is missing', () => {
+    const assessment = assessColonyStage({
+      roomName: 'E29N55',
+      totalCreeps: 9,
+      workerCapacity: 4,
+      workerTarget: 4,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      defenseFloorReady: false,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+
+    expect(assessment).toMatchObject({
+      mode: 'LOCAL_STABLE',
+      territoryReady: false,
+      suppressionReasons: ['defenseFloor']
+    });
+    expect(suppressesTerritoryWork(assessment)).toBe(true);
+  });
+
+  it('fails closed when defense floor readiness is not wired', () => {
+    expect(
+      assessColonyStage({
+        roomName: 'E29N55',
+        totalCreeps: 9,
+        workerCapacity: 4,
+        workerTarget: 4,
+        energyAvailable: 650,
+        energyCapacityAvailable: 650,
+        controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      })
+    ).toMatchObject({
+      mode: 'LOCAL_STABLE',
+      territoryReady: false,
+      suppressionReasons: ['defenseFloor']
     });
   });
 

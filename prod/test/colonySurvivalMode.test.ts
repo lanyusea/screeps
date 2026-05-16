@@ -36,6 +36,7 @@ describe('assessColonySurvival', () => {
         workerCapacity: 3,
         workerTarget: 4,
         energyCapacityAvailable: 650,
+        defenseFloorReady: true,
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
       })
     ).toMatchObject({
@@ -51,6 +52,7 @@ describe('assessColonySurvival', () => {
         workerCapacity: 4,
         workerTarget: 4,
         energyCapacityAvailable: 650,
+        defenseFloorReady: true,
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
       })
     ).toMatchObject({
@@ -68,6 +70,7 @@ describe('assessColonySurvival', () => {
         workerTarget: 4,
         energyCapacityAvailable: 650,
         controller: { my: true, level: 3, ticksToDowngrade: 10_000 },
+        defenseFloorReady: true,
         hostileCreepCount: 1
       })
     ).toMatchObject({

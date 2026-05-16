@@ -1,3 +1,5 @@
+import { ACTIVE_OFFICIAL_ROOM_SELECTION } from '../config/roomSelection';
+
 export const DEFENDER_ROLE = 'defender';
 
 const DEFENDER_BODY_PATTERN: BodyPartConstant[] = ['tough', 'attack', 'move'];
@@ -10,8 +12,10 @@ export const CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 export const TOWER_CONTROLLER_THREAT_RANGE = 3;
 export const TOWER_STRUCTURE_THREAT_RANGE = 3;
 export const BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL = 2;
+export const BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL = 3;
 export const BOOTSTRAP_DEFENSE_FLOOR_MAX_SITES_PER_TICK = 2;
 export const BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS = 1;
+export const BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING = 25_000;
 
 export type DefenseTarget = Creep | Structure;
 export type BootstrapDefenseFloorAnchorKind =
@@ -68,11 +72,22 @@ export interface BootstrapDefenseFloorAssessment {
   missingAnchors: BootstrapDefenseFloorAnchor[];
   ready: boolean;
   spawnRampartReady: boolean;
+  requiredWallAnchorCount: number;
   wallAnchorCount: number;
 }
 
 export interface BootstrapDefenseFloorOptions {
   maxPlacements?: number;
+}
+
+export interface BootstrapDefenseFloorReadiness extends BootstrapDefenseFloorAssessment {
+  assessable: boolean;
+  anchorReady: boolean;
+  pendingTowerCount: number;
+  repairHitsCeiling: number;
+  rcl: number;
+  towerCount: number;
+  towerReady: boolean;
 }
 
 interface CandidatePosition {
@@ -88,7 +103,11 @@ interface BootstrapDefenseFloorLookups {
   constructionSitesByPosition: Map<string, ConstructionSite[]>;
 }
 
-type FindConstantGlobal = 'FIND_STRUCTURES' | 'FIND_CONSTRUCTION_SITES';
+type FindConstantGlobal =
+  | 'FIND_STRUCTURES'
+  | 'FIND_CONSTRUCTION_SITES'
+  | 'FIND_HOSTILE_CREEPS'
+  | 'FIND_HOSTILE_STRUCTURES';
 type StructureConstantGlobal =
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_CONTAINER'
@@ -163,7 +182,49 @@ export function assessBootstrapDefenseFloor(room: Room): BootstrapDefenseFloorAs
       spawnRampartReady &&
       wallAnchorCount >= requiredWallAnchors,
     spawnRampartReady,
+    requiredWallAnchorCount: requiredWallAnchors,
     wallAnchorCount
+  };
+}
+
+export function assessBootstrapDefenseFloorReadiness(room: Room): BootstrapDefenseFloorReadiness {
+  const rcl = getOwnedRoomRcl(room);
+  const assessable = canAssessBootstrapDefenseFloor(room);
+  if (!assessable || rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL) {
+    return {
+      anchors: [],
+      missingAnchors: [],
+      ready: true,
+      spawnRampartReady: true,
+      requiredWallAnchorCount: 0,
+      wallAnchorCount: 0,
+      assessable,
+      anchorReady: true,
+      pendingTowerCount: 0,
+      repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+      rcl,
+      towerCount: 0,
+      towerReady: true
+    };
+  }
+
+  const anchorAssessment = assessBootstrapDefenseFloor(room);
+  const lookups = getBootstrapDefenseFloorLookups(room);
+  const towerCount = getOwnedStructuresByType<StructureTower>(room, lookups, 'STRUCTURE_TOWER').length;
+  const pendingTowerCount = getConstructionSitesByType(room, lookups, 'STRUCTURE_TOWER').length;
+  const towerReady = rcl !== 3 || towerCount > 0;
+  const anchorReady = anchorAssessment.anchors.length === 0 || anchorAssessment.ready;
+
+  return {
+    ...anchorAssessment,
+    ready: anchorReady && towerReady,
+    assessable,
+    anchorReady,
+    pendingTowerCount,
+    repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+    rcl,
+    towerCount,
+    towerReady
   };
 }
 
@@ -188,6 +249,18 @@ export function planBootstrapDefenseFloorPlacements(
 
 export function isBootstrapDefenseFloorReady(room: Room): boolean {
   return assessBootstrapDefenseFloor(room).ready;
+}
+
+export function isBootstrapDefenseFloorSatisfiedForTerritory(room: Room): boolean {
+  if (!shouldGateTerritoryOnBootstrapDefenseFloor(room)) {
+    return true;
+  }
+
+  return assessBootstrapDefenseFloorReadiness(room).ready;
+}
+
+export function shouldUseBootstrapDefenseFloorRepairCap(room: Room): boolean {
+  return shouldGateTerritoryOnBootstrapDefenseFloor(room) && !hasVisibleHostilePresence(room);
 }
 
 export function buildDefenderBody(energyAvailable: number, hostileCount: number): BodyPartConstant[] {
@@ -487,6 +560,30 @@ function selectPrimaryOwnedSpawn(room: Room, lookups: BootstrapDefenseFloorLooku
   return spawns[0] ?? null;
 }
 
+export function shouldGateTerritoryOnBootstrapDefenseFloor(room: Room): boolean {
+  const rcl = getOwnedRoomRcl(room);
+  if (
+    rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL ||
+    rcl > BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL ||
+    !canAssessBootstrapDefenseFloor(room) ||
+    room.name !== ACTIVE_OFFICIAL_ROOM_SELECTION.roomName
+  ) {
+    return false;
+  }
+
+  return hasActiveOfficialSpawn(room, getBootstrapDefenseFloorLookups(room));
+}
+
+function hasActiveOfficialSpawn(room: Room, lookups: BootstrapDefenseFloorLookups): boolean {
+  const expectedSpawn = ACTIVE_OFFICIAL_ROOM_SELECTION.spawn;
+  return getOwnedStructuresByType<StructureSpawn>(room, lookups, 'STRUCTURE_SPAWN')
+    .some((spawn) => (
+      spawn.pos?.roomName === room.name &&
+      spawn.pos.x === expectedSpawn.x &&
+      spawn.pos.y === expectedSpawn.y
+    ));
+}
+
 function selectSpawnWallAnchorPositions(
   room: Room,
   spawnPosition: RoomPosition,
@@ -648,6 +745,21 @@ function getBootstrapDefenseFloorLookups(room: Room): BootstrapDefenseFloorLooku
   return lookups;
 }
 
+function canAssessBootstrapDefenseFloor(room: Room): boolean {
+  return (
+    typeof room.find === 'function' &&
+    getGlobalNumber('FIND_STRUCTURES') !== null &&
+    getGlobalNumber('FIND_CONSTRUCTION_SITES') !== null
+  );
+}
+
+function hasVisibleHostilePresence(room: Room): boolean {
+  return (
+    findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length > 0 ||
+    findRoomObjects<Structure>(room, 'FIND_HOSTILE_STRUCTURES').length > 0
+  );
+}
+
 function createBootstrapDefenseFloorLookups(room: Room): BootstrapDefenseFloorLookups {
   const structures = findRoomObjects<Structure>(room, 'FIND_STRUCTURES')
     .filter((structure) => isPositionInRoom(structure.pos, room.name));
@@ -693,6 +805,16 @@ function getConstructionSitesAtPosition(
   position: CandidatePosition
 ): ConstructionSite[] {
   return lookups.constructionSitesByPosition.get(getPositionKey(position)) ?? [];
+}
+
+function getConstructionSitesByType<T extends ConstructionSite>(
+  room: Room,
+  lookups: BootstrapDefenseFloorLookups,
+  structureGlobal: StructureConstantGlobal
+): T[] {
+  const structureType = getStructureConstant(structureGlobal);
+  return lookups.constructionSites
+    .filter((site) => site.structureType === structureType && isPositionInRoom(site.pos, room.name)) as T[];
 }
 
 function isStructureType(
