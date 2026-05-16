@@ -189,12 +189,12 @@ def clean_private_smoke_fixture() -> dict[str, object]:
     }
 
 
-def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot:
+def make_snapshot(objects: dict[str, dict[str, object]], tick: int = 1) -> monitor.RoomSnapshot:
     return monitor.RoomSnapshot(
         ref=monitor.RoomRef("shardX", "E26S49"),
         terrain="0" * monitor.TERRAIN_CELLS,
         objects=monitor.normalize_objects(objects),
-        tick=1,
+        tick=tick,
         owner="owner",
         info={},
     )
@@ -822,6 +822,303 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["severity"], "critical")
         self.assertIn("owned_structure_damage", report["categories"])
         self.assertEqual(report["triggers"][0]["severity"], "critical")
+
+    def test_expected_safe_rampart_decay_is_suppressed(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "tick": 1014519,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": 10401,
+                    "hitsMax": 300000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": 10101,
+                    "hitsMax": 300000,
+                },
+            },
+            tick=1014619,
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(suppressed[0]["suppression_reason"], "expected_rampart_decay")
+        self.assertEqual(suppressed[0]["safe_hits_floor"], monitor.RAMPART_SAFE_DECAY_HITS_FLOOR)
+        self.assertEqual(next_state["structures"]["rampart1"]["hits"], 10101)
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": False,
+                "reasons": emitted,
+                "suppressed": True,
+                "suppressed_count": len(suppressed),
+                "suppressed_reasons": suppressed,
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+
+    def test_low_rampart_decay_below_safe_floor_still_alerts_p0(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "tick": 2000,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": 10200,
+                    "hitsMax": 300000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": 9900,
+                    "hitsMax": 300000,
+                },
+            },
+            tick=2100,
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], ["structure_damage"])
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": emitted,
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+
+    def test_large_rampart_drop_still_alerts_p0(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "tick": 3000,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": 60000,
+                    "hitsMax": 300000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": 54500,
+                    "hitsMax": 300000,
+                },
+            },
+            tick=3001,
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual(emitted[0]["delta"], 5500)
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": emitted,
+                "rooms": ["shardX/E26S49"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+
+    def test_visible_hostile_keeps_rampart_damage_alertable(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "tick": 4000,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 8,
+                    "y": 24,
+                    "hits": 10401,
+                    "hitsMax": 300000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 8,
+                    "y": 24,
+                    "hits": 10101,
+                    "hitsMax": 300000,
+                },
+                "hostile1": {
+                    "type": "creep",
+                    "owner": {"username": "Invader"},
+                    "x": 9,
+                    "y": 24,
+                },
+            },
+            tick=4100,
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], ["hostile_creep", "structure_damage"])
 
     def test_report_is_json_serializable(self) -> None:
         rendered = json.dumps(monitor.build_tactical_response_report(HOSTILE_ALERT_FIXTURE), sort_keys=True)

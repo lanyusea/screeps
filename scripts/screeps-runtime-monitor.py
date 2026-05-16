@@ -42,6 +42,10 @@ DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = world_profiles.PERSISTENT_DEFAULTS.shard
 DEFAULT_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 WORLD_PROFILE_ENV = world_profiles.WORLD_PROFILE_ENV
+RAMPART_DECAY_HITS_PER_EVENT = 300
+RAMPART_DECAY_EVENT_TICKS = 100
+RAMPART_SAFE_DECAY_HITS_FLOOR = 10_000
+RAMPART_CRITICAL_DAMAGE_DELTA = 5_000
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
@@ -1694,6 +1698,42 @@ def should_bypass_alert_debounce(reason: dict[str, Any]) -> bool:
     return alert_reason_kind(reason) in DEBOUNCE_BYPASS_REASON_KINDS
 
 
+def expected_rampart_decay_delta(previous_room_state: dict[str, Any], current_tick_value: Any) -> int:
+    previous_tick = tick_number(previous_room_state.get("tick"))
+    current_tick = tick_number(current_tick_value)
+    if previous_tick is None or current_tick is None or current_tick < previous_tick:
+        return RAMPART_DECAY_HITS_PER_EVENT
+
+    elapsed_ticks = max(1, current_tick - previous_tick)
+    decay_events = max(1, (elapsed_ticks + RAMPART_DECAY_EVENT_TICKS - 1) // RAMPART_DECAY_EVENT_TICKS)
+    return decay_events * RAMPART_DECAY_HITS_PER_EVENT
+
+
+def is_expected_safe_rampart_decay_reason(
+    reason: dict[str, Any],
+    previous_room_state: dict[str, Any],
+    current_tick_value: Any,
+    has_visible_hostiles: bool,
+) -> bool:
+    if has_visible_hostiles:
+        return False
+    if alert_reason_kind(reason) != "structure_damage":
+        return False
+    structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
+    if structure_type != "rampart":
+        return False
+
+    current_hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+    delta = number_from_reason(reason, "delta")
+    if current_hits is None or delta is None:
+        return False
+
+    return (
+        current_hits >= RAMPART_SAFE_DECAY_HITS_FLOOR
+        and 0 < delta <= expected_rampart_decay_delta(previous_room_state, current_tick_value)
+    )
+
+
 def should_preserve_previous_baseline(
     previous_structures: dict[str, Any], current_structures: dict[str, dict[str, Any]], reasons: list[dict[str, Any]]
 ) -> bool:
@@ -1764,7 +1804,8 @@ def evaluate_room_alert(
     previous_spawn_count = previous_critical_spawn_count(previous_structures)
     detected: list[dict[str, Any]] = []
 
-    for hostile in detect_hostile_creeps(snapshot.objects, snapshot.owner):
+    visible_hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
+    for hostile in visible_hostiles:
         detected.append(build_hostile_reason(snapshot.ref, hostile))
 
     if expected_owner and snapshot.owner != expected_owner:
@@ -1882,6 +1923,19 @@ def evaluate_room_alert(
     suppressed: list[dict[str, Any]] = []
     alerts = dict(previous_alerts)
     for reason in detected:
+        if is_expected_safe_rampart_decay_reason(
+            reason,
+            previous_room_state,
+            snapshot.tick,
+            has_visible_hostiles=bool(visible_hostiles),
+        ):
+            suppressed_reason = dict(reason)
+            suppressed_reason["suppression_reason"] = "expected_rampart_decay"
+            suppressed_reason["expected_decay_delta"] = expected_rampart_decay_delta(previous_room_state, snapshot.tick)
+            suppressed_reason["safe_hits_floor"] = RAMPART_SAFE_DECAY_HITS_FLOOR
+            suppressed.append(suppressed_reason)
+            continue
+
         signature = str(reason.get("signature"))
         last_seen = alerts.get(signature)
         if (
@@ -2403,7 +2457,16 @@ def category_severity(category: str, reason: dict[str, Any]) -> str:
         if ticks is not None and ticks <= 2000:
             return "critical"
     if category == "owned_structure_damage":
+        structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
         hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+        if structure_type == "rampart":
+            delta = number_from_reason(reason, "delta")
+            if hits is not None and hits <= RAMPART_SAFE_DECAY_HITS_FLOOR:
+                return "critical"
+            if delta is not None and delta >= RAMPART_CRITICAL_DAMAGE_DELTA:
+                return "critical"
+            return severity
+
         hits_max = number_from_reason(reason, "hitsMax", "hits_max")
         if hits is not None and hits_max and hits / hits_max <= 0.25:
             return "critical"
