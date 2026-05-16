@@ -5,8 +5,8 @@
 # Human-readable registry: docs/ops/rl-reward-decision-registry.md
 
 schema: 1
-source_issues: [967, 879]
-last_updated: "2026-05-12"
+source_issues: [967, 879, 1024]
+last_updated: "2026-05-16"
 
 # Reward components are additive: total_reward = sum(component_reward * weight)
 components:
@@ -75,6 +75,33 @@ components:
       captures_pct: 80
     rollback:
       false_positive_pct_gt: 10
+
+  # RD-V3-004 / #1024: Penalize build=0 when construction sites exist
+  - component_id: construction-neglect-penalty
+    decision_id: RD-V3-004-constructionNeglectPenalty
+    type: penalty
+    category: resources
+    status: PROPOSED
+    candidate_weight: null
+    hypothesis: >
+      Penalizing taskCounts.build == 0 when constructionSiteCount > 0 will
+      reduce construction deadlock learned from upgrade-preferred windows while
+      preserving higher-priority safety, territory, and resource gates.
+    predicate:
+      constructionSiteCount_gt: 0
+      taskCounts_build_eq: 0
+    validation:
+      metric: constructionDeadlockTicks
+      threshold_lt: 100
+      scorecard: "#924-compatible candidate-vs-baseline"
+      minimum_duration_hours: 8
+      window: "per-room non-overlapping 5-minute qualifying windows where constructionSiteCount > 0"
+      aggregation: "maximum constructionDeadlockTicks per room/window"
+      requirement: "candidate max below 100 in every room/window and no regression versus baseline"
+    rollback:
+      spawn_refill_regression: true
+      controller_downgrade_regression: true
+      valid_energy_starvation_false_positive: true
 
   # Territory expansion placeholder from v2 registry
   - component_id: territory-expansion-reward

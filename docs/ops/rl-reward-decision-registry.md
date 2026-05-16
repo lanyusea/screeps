@@ -8,7 +8,7 @@ Canonical PDCA Act-loop registry for RL reward components, weights, penalties, v
 - **Previous reward-decision issue:** #907, closed after PR #961 merged
 - **Umbrella:** #879 (ALL IN RL)
 - **Machine-readable schema:** `docs/ops/rl-reward-schema.yaml` (v1, #967)
-- **Last updated:** 2026-05-12
+- **Last updated:** 2026-05-16
 
 ## Purpose
 
@@ -75,7 +75,9 @@ The v3 registry references only code paths verified against `prod/src/` on 2026-
 
 ## Pending Decisions
 
-Source for all three pending records: Gameplay Evolution Review output `2026-05-12_17-45-46.md`, section "Game behavior rationality analysis (PDCA #906/#907/#924)" and "Reward decision items for #907".
+Source for the first three pending records: Gameplay Evolution Review output `2026-05-12_17-45-46.md`, section "Game behavior rationality analysis (PDCA #906/#907/#924)" and "Reward decision items for #907".
+
+Source for `RD-V3-004-constructionNeglectPenalty`: issue #1024 and Gameplay Evolution Review 2026-05-14 08:07, following the #907 change-control framework and #924 as the source scorecard contract. A future generated #924-compatible scorecard artifact is still required for #1024 acceptance.
 
 ### RD-V3-001-workerLoadEfficiency
 
@@ -122,6 +124,21 @@ Source for all three pending records: Gameplay Evolution Review output `2026-05-
 | `rollback_conditions` | Disable or reject if valid stationary workers are penalized, false-positive rate exceeds 10%, pathing becomes overly conservative, CPU use increases materially, or work/energy-delivery metrics regress. |
 | `implementation_tracking` | Container issue #963; previous registry PR #961; implementation PR TBD; metric taxonomy link #906; previous reward-decision container #907. |
 
+### RD-V3-004-constructionNeglectPenalty
+
+| Field | Value |
+| --- | --- |
+| `decision_id` | `RD-V3-004-constructionNeglectPenalty` |
+| `component_id` | `construction-neglect-penalty` |
+| `status` | `PROPOSED` |
+| `source` | Issue #1024; Gameplay Evolution Review 2026-05-14 08:07; follow-up to #907 with #924 as the source scorecard contract. |
+| `hypothesis` | Penalizing `taskCounts.build == 0` when `constructionSiteCount > 0` will reduce construction deadlock learned from upgrade-preferred windows without weakening higher-priority survival gates. |
+| `current_metric_coverage` | Partial but sufficient for a shadow decision record. Runtime telemetry exposes `constructionSiteCount`, `taskCounts.build`, `pendingBuildProgress`, `buildCarriedEnergy`, `buildBlockedReason`, and `constructionDeadlockTicks`. Acceptance still requires candidate-vs-baseline scorecard evidence rather than prose intuition. |
+| `required_code_changes` | Add or derive an offline/shadow reward feature only: negative reward proportional to `constructionSiteCount` when `constructionSiteCount > 0` and `taskCounts.build == 0`. Preserve `liveEffect=false`, `officialMmoWrites=false`, and `officialMmoWritesAllowed=false`; do not make learned-policy live writes. |
+| `validation_criteria` | Historical shadow replay and a future generated #924-compatible candidate-vs-baseline scorecard artifact must cover the same 8-hour horizon. In every room and every non-overlapping 5-minute qualifying window where `constructionSiteCount > 0`, use max `constructionDeadlockTicks` per room/window; the candidate max must stay below 100 in every room/window and must not regress versus baseline. Policy ranking must favor `taskCounts.build > 0` over build-zero candidates, build progress or build-carried energy must improve, and reliability, spawn/refill health, controller downgrade safety, CPU, territory, and resource metrics must not regress. |
+| `rollback_conditions` | Disable, reduce, or reject if construction is over-prioritized at the expense of spawn/refill throughput, controller downgrade safety, emergency recovery, valid energy-starvation waiting, reliability, CPU, territory, or resource scorecard dimensions. |
+| `implementation_tracking` | Issue #1024; previous reward-decision container #907; metric taxonomy link #906; candidate-vs-baseline scorecard contract #924; construction diagnosis link #1023; decision JSON `docs/ops/examples/rl-reward-decisions/RD-V3-004-constructionNeglectPenalty.json`. #924 closure is not acceptance for #1024; acceptance requires a future generated #924-compatible scorecard artifact for this candidate. |
+
 ## Registered Components
 
 These are registry entries from v2 or this v3 Act container. `PROPOSED` entries are not accepted reward defaults.
@@ -131,6 +148,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 | `worker-load-efficiency` | `RD-V3-001-workerLoadEfficiency` | penalty | `-0.1` candidate from v2 | logistics | `PROPOSED` | Pending v3 code and validation. |
 | `build-allocation-minimum` | `RD-V3-002-buildAllocationMinimum` | reward | `+0.05` candidate from v2 | resources | `PROPOSED` | Pending v3 code and validation. |
 | `stuck-penalty` | `RD-V3-003-verifyStuckPenalty` | penalty | `-0.02` per stuck tick candidate from v2 | reliability | `PROPOSED` | Pending v3 verification and possible implementation. |
+| `construction-neglect-penalty` | `RD-V3-004-constructionNeglectPenalty` | penalty | proportional to `constructionSiteCount`, coefficient TBD | resources | `PROPOSED` | Pending offline/shadow replay and future #924-compatible scorecard artifact; no live writes. |
 | `territory-expansion-reward` | TBD | reward | TBD | territory | `PROPOSED` | Placeholder from v2 linked to #958; outside the 2026-05-12 pending Act batch. |
 
 ## Integration Points
@@ -148,6 +166,8 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 - #906 - Gameplay metric taxonomy and coverage gaps
 - #907 - Previous reward-decision container, closed after #961
 - #924 - Candidate-vs-baseline scorecard
+- #1023 - Construction deadlock diagnosis with 3 identified gates
+- #1024 - P1 construction-neglect reward decision for `build=0` with construction sites
 - #958 - Expansion initiation gap and territory reward placeholder
 - #959 - RL reward decision registry v2 issue
 - #961 - Merged v2 registry PR
