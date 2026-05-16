@@ -3,6 +3,7 @@ import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
+  TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
 } from '../src/tasks/workerTasks';
 import {
@@ -2055,6 +2056,260 @@ describe('runWorker', () => {
     expect(workers[0].build).toHaveBeenCalledWith(sourceContainerSite);
     expect(workers[1].upgradeController).toHaveBeenCalledWith(controller);
     expect(workers[2].upgradeController).toHaveBeenCalledWith(controller);
+  });
+
+  it('keeps healthy E29N55 RCL2 backlog mixed between construction and RCL3 upgrade progress', () => {
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      my: true,
+      structureType: 'container',
+      progress: 250,
+      progressTotal: 5_000,
+      pos: { x: 21, y: 10, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const towerSite = {
+      id: 'tower-site1',
+      my: true,
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 5_000,
+      pos: { x: 18, y: 23, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const roadSite = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 100,
+      progressTotal: 300,
+      pos: { x: 19, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000,
+      pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(550),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const constructionSites = [sourceContainerSite, towerSite, roadSite];
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (index: number): Creep =>
+      ({
+        name: `worker-E29N55-${index}`,
+        memory: {
+          role: 'worker',
+          colony: 'E29N55',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(0),
+          getCapacity: jest.fn().mockReturnValue(50)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(5) },
+        room,
+        build: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(0),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_010_657,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'controller1') {
+          return controller;
+        }
+
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return constructionSites.find((site) => site.id === id) ?? null;
+      })
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(assignedTasks).not.toContain(undefined);
+    expect(assignedTasks.filter((task) => task === 'build')).toHaveLength(2);
+    expect(assignedTasks.filter((task) => task === 'upgrade')).toHaveLength(2);
+    expect(workers.some((worker) => (worker.build as jest.Mock).mock.calls.length > 0)).toBe(true);
+    expect(workers.some((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)).toBe(true);
+  });
+
+  it('keeps emergency spawn-extension refill ahead of E29N55 construction backlog balancing', () => {
+    const site = {
+      id: 'tower-site1',
+      my: true,
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 5_000,
+      pos: { x: 18, y: 23, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const extension = {
+      id: 'extension1',
+      my: true,
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      }
+    } as unknown as StructureExtension;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [extension as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'worker-E29N55-refill',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn(),
+      transfer: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_010_658,
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) => (id === 'extension1' ? extension : id === 'controller1' ? controller : site))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension1' });
+    expect(creep.transfer).toHaveBeenCalledWith(extension, RESOURCE_ENERGY);
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
+  it('keeps low tower energy ahead of RCL3 construction backlog work', () => {
+    const site = {
+      id: 'road-site1',
+      my: true,
+      structureType: 'road',
+      progress: 0,
+      progressTotal: 300,
+      pos: { x: 19, y: 24, roomName: 'E29N55' } as RoomPosition
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const tower = {
+      id: 'tower1',
+      my: true,
+      structureType: 'tower',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(TOWER_REFILL_ENERGY_FLOOR - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(501)
+      }
+    } as unknown as StructureTower;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [tower as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'worker-E29N55-tower',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn(),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_010_659,
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) => (id === 'tower1' ? tower : site))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'tower1' });
+    expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
+    expect(creep.build).not.toHaveBeenCalled();
   });
 
   it('keeps the RCL2 downgrade guard above upgrade preemption', () => {
