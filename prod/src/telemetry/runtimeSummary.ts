@@ -43,6 +43,10 @@ import {
   type SourceContainerCoverageSummary
 } from '../economy/sourceContainerPlanner';
 import {
+  assessBootstrapDefenseFloorReadiness,
+  type BootstrapDefenseFloorReadiness
+} from '../defense/defensePlanner';
+import {
   summarizeAndResetCreepBehaviorTelemetry,
   type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary,
   type RuntimeEnergyAcquisitionMethodDistribution
@@ -625,6 +629,22 @@ interface RuntimeSurvivalSummary {
   workerTarget: number;
   survivalWorkerFloor: number;
   suppressionReasons?: ColonySuppressionReason[];
+  defenseFloor?: RuntimeDefenseFloorSummary;
+}
+
+interface RuntimeDefenseFloorSummary {
+  ready: boolean;
+  assessable: boolean;
+  rcl: number;
+  anchorReady: boolean;
+  towerReady: boolean;
+  towerCount: number;
+  pendingTowerCount: number;
+  spawnRampartReady: boolean;
+  wallAnchorCount: number;
+  requiredWallAnchorCount: number;
+  missingAnchorCount: number;
+  repairHitsCeiling: number;
 }
 
 interface RuntimeRoomEventMetrics {
@@ -2574,13 +2594,40 @@ function summarizeConstructionPriority(
 
 function summarizeSurvival(colony: ColonySnapshot, roleCounts: RoleCounts): RuntimeSurvivalSummary {
   const assessment = assessColonySnapshotSurvival(colony, roleCounts);
+  const defenseFloor = assessBootstrapDefenseFloorReadiness(colony.room);
 
   return {
     mode: assessment.mode,
     workerCapacity: assessment.workerCapacity,
     workerTarget: assessment.workerTarget,
     survivalWorkerFloor: assessment.survivalWorkerFloor,
-    ...(assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {})
+    ...(assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {}),
+    ...(shouldReportRuntimeDefenseFloor(defenseFloor)
+      ? { defenseFloor: toRuntimeDefenseFloorSummary(defenseFloor) }
+      : {})
+  };
+}
+
+function shouldReportRuntimeDefenseFloor(defenseFloor: BootstrapDefenseFloorReadiness): boolean {
+  return defenseFloor.assessable && (defenseFloor.anchors.length > 0 || defenseFloor.rcl >= 3);
+}
+
+function toRuntimeDefenseFloorSummary(
+  defenseFloor: BootstrapDefenseFloorReadiness
+): RuntimeDefenseFloorSummary {
+  return {
+    ready: defenseFloor.ready,
+    assessable: defenseFloor.assessable,
+    rcl: defenseFloor.rcl,
+    anchorReady: defenseFloor.anchorReady,
+    towerReady: defenseFloor.towerReady,
+    towerCount: defenseFloor.towerCount,
+    pendingTowerCount: defenseFloor.pendingTowerCount,
+    spawnRampartReady: defenseFloor.spawnRampartReady,
+    wallAnchorCount: defenseFloor.wallAnchorCount,
+    requiredWallAnchorCount: defenseFloor.requiredWallAnchorCount,
+    missingAnchorCount: defenseFloor.missingAnchors.length,
+    repairHitsCeiling: defenseFloor.repairHitsCeiling
   };
 }
 

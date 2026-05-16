@@ -1289,6 +1289,117 @@ function getGameTime3() {
   return typeof ((_a = globalThis.Game) == null ? void 0 : _a.time) === "number" ? (_b = globalThis.Game.time) != null ? _b : 0 : 0;
 }
 
+// src/config/roomSelection.ts
+var ACTIVE_OFFICIAL_ROOM_SELECTION = {
+  branch: "main",
+  shard: "shardX",
+  roomName: "E29N55",
+  spawn: {
+    name: "Spawn1",
+    x: 17,
+    y: 24
+  }
+};
+var OFFICIAL_ROOM_CANDIDATES = [
+  {
+    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+    status: "active",
+    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
+    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
+  },
+  {
+    shard: "shardX",
+    roomName: "W3N9",
+    status: "fallback",
+    spawn: { name: "Spawn1", x: 35, y: 23 },
+    notes: "Previous official target retained only as a fallback/audit candidate."
+  },
+  {
+    shard: "shardX",
+    roomName: "E19S57",
+    status: "fallback",
+    notes: "Prior recovery candidate from the owner-approved fallback sequence."
+  },
+  {
+    shard: "shardX",
+    roomName: "E26S49",
+    status: "fallback",
+    notes: "Prior official room and fallback candidate; not an active default."
+  },
+  {
+    shard: "shardX",
+    roomName: "E17S59",
+    status: "fallback",
+    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
+  }
+];
+var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
+var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
+var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
+var LOGISTICS_ROOM_SELECTION = {
+  corridorRooms: ["E17S58", "E17S59", "E18S59"],
+  safeTransitRooms: ["E17S59"],
+  localFirstEnergyRooms: ["E17S58", "E18S59"],
+  localFirstSourceRoom: "E17S59",
+  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
+};
+var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
+var TERRITORY_EXPANSION_ROOM_SELECTION = {
+  scoutTargets: [
+    {
+      colony: activeRoom,
+      roomName: "E29N54",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: activeRoom,
+      roomName: "E30N55",
+      nearestOwnedRoom: activeRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true,
+      scoutOnly: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E18S59",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1,
+      adjacentToOwnedRoom: true
+    },
+    {
+      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+      roomName: "E17S60",
+      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 2,
+      adjacentToOwnedRoom: true
+    }
+  ]
+};
+var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
+  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
+  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
+  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
+  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
+  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
+  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
+  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
+  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
+  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
+    target.colony,
+    target.roomName,
+    target.nearestOwnedRoom
+  ])
+]));
+
 // src/defense/defensePlanner.ts
 var DEFENDER_ROLE = "defender";
 var DEFENDER_BODY_PATTERN = ["tough", "attack", "move"];
@@ -1301,8 +1412,10 @@ var CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 var TOWER_CONTROLLER_THREAT_RANGE = 3;
 var TOWER_STRUCTURE_THREAT_RANGE = 3;
 var BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL = 2;
+var BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL = 3;
 var BOOTSTRAP_DEFENSE_FLOOR_MAX_SITES_PER_TICK = 2;
 var BOOTSTRAP_DEFENSE_FLOOR_REQUIRED_WALL_ANCHORS = 1;
+var BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING = 25e3;
 var ROOM_EDGE_MIN = 1;
 var ROOM_EDGE_MAX = 48;
 var DEFAULT_TERRAIN_WALL_MASK = 1;
@@ -1359,7 +1472,46 @@ function assessBootstrapDefenseFloor(room) {
     missingAnchors,
     ready: spawnRampartReady && wallAnchorCount >= requiredWallAnchors,
     spawnRampartReady,
+    requiredWallAnchorCount: requiredWallAnchors,
     wallAnchorCount
+  };
+}
+function assessBootstrapDefenseFloorReadiness(room) {
+  const rcl = getOwnedRoomRcl(room);
+  const assessable = canAssessBootstrapDefenseFloor(room);
+  if (!assessable || rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL) {
+    return {
+      anchors: [],
+      missingAnchors: [],
+      ready: true,
+      spawnRampartReady: true,
+      requiredWallAnchorCount: 0,
+      wallAnchorCount: 0,
+      assessable,
+      anchorReady: true,
+      pendingTowerCount: 0,
+      repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+      rcl,
+      towerCount: 0,
+      towerReady: true
+    };
+  }
+  const anchorAssessment = assessBootstrapDefenseFloor(room);
+  const lookups = getBootstrapDefenseFloorLookups(room);
+  const towerCount = getOwnedStructuresByType(room, lookups, "STRUCTURE_TOWER").length;
+  const pendingTowerCount = getConstructionSitesByType(room, lookups, "STRUCTURE_TOWER").length;
+  const towerReady = rcl !== 3 || towerCount > 0;
+  const anchorReady = anchorAssessment.anchors.length === 0 || anchorAssessment.ready;
+  return {
+    ...anchorAssessment,
+    ready: anchorReady && towerReady,
+    assessable,
+    anchorReady,
+    pendingTowerCount,
+    repairHitsCeiling: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+    rcl,
+    towerCount,
+    towerReady
   };
 }
 function planBootstrapDefenseFloorPlacements(room, options = {}) {
@@ -1374,6 +1526,15 @@ function planBootstrapDefenseFloorPlacements(room, options = {}) {
     return [];
   }
   return assessBootstrapDefenseFloor(room).missingAnchors.slice(0, maxPlacements);
+}
+function isBootstrapDefenseFloorSatisfiedForTerritory(room) {
+  if (!shouldGateTerritoryOnBootstrapDefenseFloor(room)) {
+    return true;
+  }
+  return assessBootstrapDefenseFloorReadiness(room).ready;
+}
+function shouldUseBootstrapDefenseFloorRepairCap(room) {
+  return shouldGateTerritoryOnBootstrapDefenseFloor(room);
 }
 function buildDefenderBody(energyAvailable, hostileCount) {
   const desiredPatternCount = Math.max(
@@ -1588,6 +1749,20 @@ function selectPrimaryOwnedSpawn(room, lookups) {
   }).sort((left, right) => getObjectId2(left).localeCompare(getObjectId2(right)));
   return (_a = spawns[0]) != null ? _a : null;
 }
+function shouldGateTerritoryOnBootstrapDefenseFloor(room) {
+  const rcl = getOwnedRoomRcl(room);
+  if (rcl < BOOTSTRAP_DEFENSE_FLOOR_MIN_RCL || rcl > BOOTSTRAP_DEFENSE_FLOOR_MAX_TERRITORY_GATE_RCL || !canAssessBootstrapDefenseFloor(room) || room.name !== ACTIVE_OFFICIAL_ROOM_SELECTION.roomName) {
+    return false;
+  }
+  return hasActiveOfficialSpawn(room, getBootstrapDefenseFloorLookups(room));
+}
+function hasActiveOfficialSpawn(room, lookups) {
+  const expectedSpawn = ACTIVE_OFFICIAL_ROOM_SELECTION.spawn;
+  return getOwnedStructuresByType(room, lookups, "STRUCTURE_SPAWN").some((spawn) => {
+    var _a;
+    return ((_a = spawn.pos) == null ? void 0 : _a.roomName) === room.name && spawn.pos.x === expectedSpawn.x && spawn.pos.y === expectedSpawn.y;
+  });
+}
 function selectSpawnWallAnchorPositions(room, spawnPosition, lookups) {
   const positions = [];
   for (const [dx, dy] of SPAWN_WALL_ANCHOR_OFFSETS) {
@@ -1672,6 +1847,9 @@ function getBootstrapDefenseFloorLookups(room) {
   bootstrapDefenseFloorLookupCache.set(room, lookups);
   return lookups;
 }
+function canAssessBootstrapDefenseFloor(room) {
+  return typeof room.find === "function" && getGlobalNumber2("FIND_STRUCTURES") !== null && getGlobalNumber2("FIND_CONSTRUCTION_SITES") !== null;
+}
 function createBootstrapDefenseFloorLookups(room) {
   const structures = findRoomObjects3(room, "FIND_STRUCTURES").filter((structure) => isPositionInRoom(structure.pos, room.name));
   const constructionSites = findRoomObjects3(room, "FIND_CONSTRUCTION_SITES").filter((site) => isPositionInRoom(site.pos, room.name));
@@ -1705,6 +1883,10 @@ function getStructuresAtPosition(lookups, position) {
 function getConstructionSitesAtPosition(lookups, position) {
   var _a;
   return (_a = lookups.constructionSitesByPosition.get(getPositionKey(position))) != null ? _a : [];
+}
+function getConstructionSitesByType(room, lookups, structureGlobal) {
+  const structureType = getStructureConstant(structureGlobal);
+  return lookups.constructionSites.filter((site) => site.structureType === structureType && isPositionInRoom(site.pos, room.name));
 }
 function isStructureType(structureType, structureGlobal) {
   return structureType === getStructureConstant(structureGlobal);
@@ -2780,11 +2962,12 @@ function assessColonyStage(input) {
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = ((_d = input.hostileCreepCount) != null ? _d : 0) > 0 || ((_e = input.hostileStructureCount) != null ? _e : 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
+  const defenseFloorReady = input.defenseFloorReady !== false;
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
   const bootstrapRecovery = input.previousMode === "BOOTSTRAP" && !bootstrapCreepFloor && !bootstrapSpawnEnergy && !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable);
   const bootstrap = bootstrapCreepFloor || bootstrapSpawnEnergy || bootstrapRecovery;
-  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && !controllerDowngradeGuard;
+  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && defenseFloorReady && !controllerDowngradeGuard;
   const mode = selectColonyMode({ bootstrap, hostilePresence, territoryReady });
   return {
     mode,
@@ -2805,6 +2988,7 @@ function assessColonyStage(input) {
       bootstrapSpawnEnergy,
       controller: input.controller,
       controllerDowngradeGuard,
+      defenseFloorReady,
       energyCapacityAvailable,
       hostilePresence,
       mode,
@@ -2826,6 +3010,7 @@ function assessColonySnapshotStage(colony, roleCounts) {
     spawnEnergyAvailable: colony.energyAvailable,
     previousMode,
     controller: getControllerSurvivalState(colony.room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(colony.room),
     hostileCreepCount: countRoomFind(colony.room, "FIND_HOSTILE_CREEPS"),
     hostileStructureCount: countRoomFind(colony.room, "FIND_HOSTILE_STRUCTURES")
   });
@@ -2966,6 +3151,9 @@ function getSuppressionReasons(input) {
   }
   if (input.controllerDowngradeGuard) {
     reasons.push("controllerDowngradeGuard");
+  }
+  if (!input.defenseFloorReady) {
+    reasons.push("defenseFloor");
   }
   if (input.hostilePresence) {
     reasons.push("defense");
@@ -15553,6 +15741,9 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget, options = {}) {
   if ((controller == null ? void 0 : controller.my) !== true || typeof controller.level !== "number" || controller.level < 2) {
     return false;
   }
+  if (!isBootstrapDefenseFloorSatisfiedForTerritory(colony.room)) {
+    return false;
+  }
   return typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS;
 }
 function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options = {}) {
@@ -23327,6 +23518,10 @@ function selectHeuristicWorkerTask(creep) {
   if (controllerSustainUpgradeTask) {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
   }
+  const rcl3DefenseUnlockUpgradeTask = selectRcl3DefenseUnlockUpgradeTask(creep, controller);
+  if (rcl3DefenseUnlockUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, rcl3DefenseUnlockUpgradeTask);
+  }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
@@ -27051,9 +27246,16 @@ function isWorkerRepairTargetComplete(structure) {
 }
 function getWorkerRepairHitsCeiling(structure) {
   if (isWorkerBarrierRepairStructure(structure)) {
+    if (shouldUseBootstrapDefenseFloorRepairCap(getStructureRoom(structure))) {
+      return Math.min(structure.hitsMax, BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING);
+    }
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
   }
   return structure.hitsMax;
+}
+function getStructureRoom(structure) {
+  var _a;
+  return (_a = structure.room) != null ? _a : {};
 }
 function isWorkerBarrierRepairStructure(structure) {
   return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) || matchesStructureType18(structure.structureType, "STRUCTURE_WALL", "constructedWall");
@@ -27087,6 +27289,15 @@ function shouldGuardControllerDowngrade2(controller) {
 }
 function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
+}
+function selectRcl3DefenseUnlockUpgradeTask(creep, controller) {
+  if (!shouldUpgradeForRcl3DefenseUnlock(creep, controller)) {
+    return null;
+  }
+  return { type: "upgrade", targetId: controller.id };
+}
+function shouldUpgradeForRcl3DefenseUnlock(creep, controller) {
+  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && shouldGateTerritoryOnBootstrapDefenseFloor(creep.room) && isWorkerInColonyRoom(creep) && getUsedEnergy2(creep) > 0 && !hasVisibleHostilePresence2(creep.room) && !shouldGuardControllerDowngrade2(controller) && !isControllerUpgradeSaturated(creep, controller);
 }
 function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
@@ -33264,7 +33475,7 @@ function getTerritoryIntentPlanningOptions(context) {
   return shouldPlanLocalStableTerritoryScout(context) ? { scoutOnly: true } : null;
 }
 function shouldPlanLocalStableTerritoryScout(context) {
-  return context.survival.mode === "LOCAL_STABLE" && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST;
+  return context.survival.mode === "LOCAL_STABLE" && !context.survival.suppressionReasons.includes("defenseFloor") && context.options.workersOnly !== true && context.workerCapacity >= context.workerTarget && context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST && context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST;
 }
 function planControllerUpgradeSurplusSpawn(context) {
   if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
@@ -35490,12 +35701,33 @@ function summarizeConstructionPriority(colony, colonyWorkers) {
 }
 function summarizeSurvival(colony, roleCounts) {
   const assessment = assessColonySnapshotSurvival(colony, roleCounts);
+  const defenseFloor = assessBootstrapDefenseFloorReadiness(colony.room);
   return {
     mode: assessment.mode,
     workerCapacity: assessment.workerCapacity,
     workerTarget: assessment.workerTarget,
     survivalWorkerFloor: assessment.survivalWorkerFloor,
-    ...assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {}
+    ...assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {},
+    ...shouldReportRuntimeDefenseFloor(defenseFloor) ? { defenseFloor: toRuntimeDefenseFloorSummary(defenseFloor) } : {}
+  };
+}
+function shouldReportRuntimeDefenseFloor(defenseFloor) {
+  return defenseFloor.assessable && (defenseFloor.anchors.length > 0 || defenseFloor.rcl >= 3);
+}
+function toRuntimeDefenseFloorSummary(defenseFloor) {
+  return {
+    ready: defenseFloor.ready,
+    assessable: defenseFloor.assessable,
+    rcl: defenseFloor.rcl,
+    anchorReady: defenseFloor.anchorReady,
+    towerReady: defenseFloor.towerReady,
+    towerCount: defenseFloor.towerCount,
+    pendingTowerCount: defenseFloor.pendingTowerCount,
+    spawnRampartReady: defenseFloor.spawnRampartReady,
+    wallAnchorCount: defenseFloor.wallAnchorCount,
+    requiredWallAnchorCount: defenseFloor.requiredWallAnchorCount,
+    missingAnchorCount: defenseFloor.missingAnchors.length,
+    repairHitsCeiling: defenseFloor.repairHitsCeiling
   };
 }
 function toRuntimeConstructionPriorityCandidateSummary(score) {
@@ -40478,7 +40710,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   }
   const colonyStageAssessment = getRecordedColonyStageAssessment(creep.memory.colony);
   if (assignment.action === "scout") {
-    if ((colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE") {
+    if (shouldHoldTerritoryScout(colonyStageAssessment)) {
       return;
     }
   } else if (suppressesTerritoryWork(colonyStageAssessment)) {
@@ -40576,6 +40808,9 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result) || assignment.action === "reserve" && RESERVE_FATAL_RESULT_CODES.has(result)) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+function shouldHoldTerritoryScout(colonyStageAssessment) {
+  return (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.suppressionReasons.includes("defenseFloor")) === true;
 }
 function logBestClaimTarget(homeRoom) {
   if (isJestRuntime()) {
@@ -44493,117 +44728,6 @@ function getDefenseEventPriority(event) {
 function getGameTime43() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
-
-// src/config/roomSelection.ts
-var ACTIVE_OFFICIAL_ROOM_SELECTION = {
-  branch: "main",
-  shard: "shardX",
-  roomName: "E29N55",
-  spawn: {
-    name: "Spawn1",
-    x: 17,
-    y: 24
-  }
-};
-var OFFICIAL_ROOM_CANDIDATES = [
-  {
-    shard: ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
-    roomName: ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
-    status: "active",
-    spawn: ACTIVE_OFFICIAL_ROOM_SELECTION.spawn,
-    notes: "Current official MMO room selected after the W3N9 room_dead recovery."
-  },
-  {
-    shard: "shardX",
-    roomName: "W3N9",
-    status: "fallback",
-    spawn: { name: "Spawn1", x: 35, y: 23 },
-    notes: "Previous official target retained only as a fallback/audit candidate."
-  },
-  {
-    shard: "shardX",
-    roomName: "E19S57",
-    status: "fallback",
-    notes: "Prior recovery candidate from the owner-approved fallback sequence."
-  },
-  {
-    shard: "shardX",
-    roomName: "E26S49",
-    status: "fallback",
-    notes: "Prior official room and fallback candidate; not an active default."
-  },
-  {
-    shard: "shardX",
-    roomName: "E17S59",
-    status: "fallback",
-    notes: "Legacy expansion/logistics root retained as a non-active fallback candidate."
-  }
-];
-var REPLACED_ACTIVE_OFFICIAL_ROOM_NAMES = OFFICIAL_ROOM_CANDIDATES.filter((candidate) => candidate.status !== "active").map((candidate) => candidate.roomName);
-var ACTIVE_OFFICIAL_SHARDS = [ACTIVE_OFFICIAL_ROOM_SELECTION.shard];
-var ACTIVE_OFFICIAL_ROOM_NAMES = [ACTIVE_OFFICIAL_ROOM_SELECTION.roomName];
-var LOGISTICS_ROOM_SELECTION = {
-  corridorRooms: ["E17S58", "E17S59", "E18S59"],
-  safeTransitRooms: ["E17S59"],
-  localFirstEnergyRooms: ["E17S58", "E18S59"],
-  localFirstSourceRoom: "E17S59",
-  prioritizedExportRoutes: [{ sourceRoom: "E17S59", targetRoom: "E18S59" }]
-};
-var activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
-var TERRITORY_EXPANSION_ROOM_SELECTION = {
-  scoutTargets: [
-    {
-      colony: activeRoom,
-      roomName: "E29N54",
-      nearestOwnedRoom: activeRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true,
-      scoutOnly: true
-    },
-    {
-      colony: activeRoom,
-      roomName: "E30N55",
-      nearestOwnedRoom: activeRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true,
-      scoutOnly: true
-    },
-    {
-      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      roomName: "E18S59",
-      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 1,
-      adjacentToOwnedRoom: true
-    },
-    {
-      colony: LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-      roomName: "E17S60",
-      nearestOwnedRoom: LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms[0],
-      nearestOwnedRoomDistance: 1,
-      routeDistance: 2,
-      adjacentToOwnedRoom: true
-    }
-  ]
-};
-var PRODUCTION_ROOM_SELECTION_LITERAL_NAMES = Array.from(/* @__PURE__ */ new Set([
-  ACTIVE_OFFICIAL_ROOM_SELECTION.shard,
-  ACTIVE_OFFICIAL_ROOM_SELECTION.roomName,
-  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.roomName),
-  ...OFFICIAL_ROOM_CANDIDATES.map((candidate) => candidate.shard),
-  ...LOGISTICS_ROOM_SELECTION.corridorRooms,
-  ...LOGISTICS_ROOM_SELECTION.safeTransitRooms,
-  ...LOGISTICS_ROOM_SELECTION.localFirstEnergyRooms,
-  LOGISTICS_ROOM_SELECTION.localFirstSourceRoom,
-  ...LOGISTICS_ROOM_SELECTION.prioritizedExportRoutes.flatMap((route) => [route.sourceRoom, route.targetRoom]),
-  ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets.flatMap((target) => [
-    target.colony,
-    target.roomName,
-    target.nearestOwnedRoom
-  ])
-]));
 
 // src/strategy/strategyRegistry.ts
 var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;

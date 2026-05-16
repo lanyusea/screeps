@@ -23,9 +23,11 @@ import {
   canUpgradeController,
   isUpgraderBoostActive,
   selectWorkerEnergyCriticalAcquisitionTask,
+  isWorkerRepairTargetComplete,
   selectWorkerTask,
   shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield
 } from '../src/tasks/workerTasks';
+import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../src/defense/defensePlanner';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   emitRuntimeSummary,
@@ -7026,6 +7028,122 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'e17s58-tower-low' });
+  });
+
+  it('keeps RCL2 controller progress ahead of generic construction for tower unlock', () => {
+    const roadSite = { id: 'road-site', structureType: 'road' } as ConstructionSite;
+    const activeSpawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'BootstrapWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        constructionSites: [roadSite],
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        structures: [activeSpawn]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('preserves RCL2 capacity construction before controller progress for tower unlock', () => {
+    const extensionSite = { id: 'extension-site', structureType: 'extension' } as ConstructionSite;
+    const activeSpawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'BootstrapWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N55',
+        controller,
+        constructionSites: [extensionSite],
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        structures: [activeSpawn]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site' });
+  });
+
+  it('keeps low tower refill ahead of generic repairs', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const damagedRoad = makeStructure('road-damaged', 'road' as StructureConstant, 1_000, 5_000);
+    const creep = {
+      name: 'TowerRefiller',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller: {
+          id: 'controller1',
+          my: true,
+          level: 3,
+          ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+        } as StructureController,
+        myStructures: [lowTower as AnyOwnedStructure],
+        structures: [damagedRoad]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+  });
+
+  it('caps bootstrap barrier repairs at the defense floor ceiling', () => {
+    const structures: AnyStructure[] = [];
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      name: 'E29N55',
+      structures
+    });
+    const spawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const rampartAtCap = makeStructure(
+      'rampart-at-cap',
+      'rampart' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+      300_000,
+      { my: true, pos: makeRoomPosition(17, 24, 'E29N55'), room }
+    );
+    const rampartBelowCap = makeStructure(
+      'rampart-below-cap',
+      'rampart' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      300_000,
+      { my: true, pos: makeRoomPosition(17, 24, 'E29N55'), room }
+    );
+    structures.push(spawn, rampartAtCap, rampartBelowCap);
+
+    expect(isWorkerRepairTargetComplete(rampartAtCap)).toBe(true);
+    expect(isWorkerRepairTargetComplete(rampartBelowCap)).toBe(false);
   });
 
   it('spends carried energy productively when another worker covers the low tower refill', () => {

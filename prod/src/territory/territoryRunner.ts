@@ -66,7 +66,7 @@ export function runTerritoryControllerCreep(
 
   const colonyStageAssessment = getRecordedColonyStageAssessment(creep.memory.colony);
   if (assignment.action === 'scout') {
-    if (colonyStageAssessment?.mode === 'BOOTSTRAP' || colonyStageAssessment?.mode === 'DEFENSE') {
+    if (shouldHoldTerritoryScout(colonyStageAssessment)) {
       return;
     }
   } else if (suppressesTerritoryWork(colonyStageAssessment)) {
@@ -202,6 +202,16 @@ export function runTerritoryControllerCreep(
   ) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+
+function shouldHoldTerritoryScout(
+  colonyStageAssessment: ReturnType<typeof getRecordedColonyStageAssessment>
+): boolean {
+  return (
+    colonyStageAssessment?.mode === 'BOOTSTRAP' ||
+    colonyStageAssessment?.mode === 'DEFENSE' ||
+    colonyStageAssessment?.suppressionReasons.includes('defenseFloor') === true
+  );
 }
 
 export function logBestClaimTarget(homeRoom: Room): string | null {
