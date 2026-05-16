@@ -20,6 +20,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class RlExperimentCardTest(unittest.TestCase):
+    def assert_map_source_uses_harness_default_sentinel(self, map_source_file: Path) -> None:
+        self.assertEqual(map_source_file, harness.DEFAULT_MAP_SOURCE_FILE)
+        self.assertTrue(map_source_file.is_absolute())
+
+        # The default map path is a harness sentinel. It may be absent because
+        # the harness then asks private-smoke to fetch its default map.
+        smoke_map_source_file = harness._resolve_smoke_map_source_file(map_source_file)
+        if map_source_file.is_file():
+            self.assertEqual(smoke_map_source_file, map_source_file)
+        else:
+            self.assertIsNone(smoke_map_source_file)
+
     def test_generated_card_is_training_runner_valid(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-3d29e8b9397d",
@@ -75,8 +87,7 @@ class RlExperimentCardTest(unittest.TestCase):
                 os.chdir(original_cwd)
 
         self.assertEqual(config.branch, harness.DEFAULT_ACTIVE_WORLD_BRANCH)
-        self.assertEqual(config.map_source_file, harness.DEFAULT_MAP_SOURCE_FILE)
-        self.assertTrue(config.map_source_file.is_absolute())
+        self.assert_map_source_uses_harness_default_sentinel(config.map_source_file)
         self.assertEqual(config.code_path, harness.DEFAULT_CODE_PATH)
         self.assertTrue(config.code_path.is_absolute())
         self.assertTrue(config.code_path.is_file())
