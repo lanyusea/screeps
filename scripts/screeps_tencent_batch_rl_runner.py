@@ -250,10 +250,22 @@ class Controller:
             self.collect_remote_artifacts()
             self.verify_remote_training_report()
             self.final_status = "completed"
+        except Exception as error:
+            self.final_status = "failed"
+            self.result.setdefault("error", type(error).__name__ + ": " + str(error))
+            raise
         finally:
+            self.safe_scale_down()
+            self.finished_at = utc_now_iso()
+            self.write_summary()
+
+    def safe_scale_down(self) -> None:
+        try:
             self.scale_down()
-        self.finished_at = utc_now_iso()
-        self.write_summary()
+        except Exception as error:
+            self.result["scaleDownError"] = type(error).__name__ + ": " + str(error)
+            if self.final_status == "completed":
+                self.final_status = "completed_scale_down_failed"
 
     def ensure_map_present(self) -> None:
         target = REPO_ROOT / "maps" / "map-0b6758af.json"
@@ -757,11 +769,9 @@ def main(argv: list[str] | None = None) -> int:
 
     def handle_signal(signum: int, _frame: Any) -> None:
         controller.final_status = f"signal_{signum}"
-        try:
-            controller.scale_down()
-        finally:
-            controller.finished_at = utc_now_iso()
-            controller.write_summary()
+        controller.safe_scale_down()
+        controller.finished_at = utc_now_iso()
+        controller.write_summary()
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGINT, handle_signal)
