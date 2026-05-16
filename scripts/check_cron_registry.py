@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = REPO_ROOT / "docs" / "ops" / "cron-and-route-registry.md"
 DEFAULT_JOBS = Path("/root/.hermes/cron/jobs.json")
 EXPECTED_SECTION = "## Expected recurring cron jobs"
+NO_WORKDIR = "__NO_DURABLE_CRON_WORKDIR__"
 
 
 def strip_md(value: str) -> str:
@@ -43,6 +44,13 @@ def split_md_row(line: str) -> List[str]:
     # The registry table intentionally avoids literal pipe characters inside
     # cells, so a simple split is sufficient and easier to audit.
     return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def normalize_expected_workdir(value: Any) -> Optional[str]:
+    raw = strip_md(str(value)) if value is not None else ""
+    if not raw or raw in {"-", "—"} or raw.lower() == "null":
+        return NO_WORKDIR
+    return raw
 
 
 def parse_registry(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
@@ -77,7 +85,7 @@ def parse_registry(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
             "deliver": empty_to_none(row.get("delivery")),
             "provider": empty_to_none(row.get("provider")),
             "model": empty_to_none(row.get("model")),
-            "workdir": empty_to_none(row.get("workdir")),
+            "workdir": normalize_expected_workdir(row.get("workdir")),
             "repeat": empty_to_none(row.get("repeat")),
             "criticality": empty_to_none(row.get("criticality")),
         }
@@ -89,11 +97,17 @@ def parse_registry(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
 def load_live_jobs(path: Path) -> Dict[str, Dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     jobs = data.get("jobs") if isinstance(data, dict) else data
+    live: Dict[str, Dict[str, Any]] = {}
     if isinstance(jobs, dict):
-        jobs = list(jobs.values())
+        iterator = jobs.items()
+        for key, job in iterator:
+            if not isinstance(job, dict):
+                continue
+            jid = job.get("id") or job.get("job_id") or key
+            live[str(jid)] = job
+        return live
     if not isinstance(jobs, list):
         raise ValueError(f"Unsupported jobs.json structure in {path}")
-    live: Dict[str, Dict[str, Any]] = {}
     for job in jobs:
         if not isinstance(job, dict):
             continue
@@ -182,7 +196,16 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
                 })
         expected_workdir = spec.get("workdir")
         live_workdir = empty_to_none(job.get("workdir"))
-        if expected_workdir:
+        if expected_workdir == NO_WORKDIR:
+            if live_workdir:
+                mismatches.append({
+                    "id": jid,
+                    "job": spec.get("job") or job.get("name"),
+                    "field": "workdir",
+                    "expected": None,
+                    "live": live_workdir,
+                })
+        elif expected_workdir:
             if expected_workdir != live_workdir:
                 mismatches.append({
                     "id": jid,
@@ -191,14 +214,6 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
                     "expected": expected_workdir,
                     "live": live_workdir,
                 })
-        elif live_workdir:
-            mismatches.append({
-                "id": jid,
-                "job": spec.get("job") or job.get("name"),
-                "field": "workdir",
-                "expected": None,
-                "live": live_workdir,
-            })
         ok, live_repeat = repeat_matches(spec.get("repeat"), job.get("repeat"))
         if not ok:
             mismatches.append({

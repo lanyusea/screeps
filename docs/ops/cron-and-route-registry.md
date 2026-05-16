@@ -66,6 +66,8 @@ Repeat policy values:
 - `high-horizon` — live repeat may show consumed/limit such as `1276/999999`; the limit must remain high enough for effectively always-on infrastructure.
 - `once` — one-shot jobs only; do not use in this recurring table.
 
+`Workdir` uses `-` to mean an explicit expectation that the job has no durable cron workdir. This is different from "unknown": the verifier should flag a live workdir on a `-` row because shared workdirs can serialize otherwise independent jobs behind repo-bound workers.
+
 | Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
@@ -76,7 +78,7 @@ Repeat policy values:
 | Screeps console capture (live energy telemetry) | `7ee147327ba6` | `*/30 * * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Local bounded console/energy telemetry collector. |
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Research/RL progress fanout. |
-| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Roadmap/Pages image fanout; regenerate roadmap and RL dashboard artifacts. |
+| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Roadmap/Pages image fanout; uses explicit `cd /root/screeps` in its prompt rather than a durable cron workdir. |
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
 | Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |

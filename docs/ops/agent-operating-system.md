@@ -340,11 +340,13 @@ Behavior:
 
 Purpose: prevent typed channels from going stale when the continuation worker only delivers one final response to `#task-queue`.
 
-Configured reporters:
+Configured reporters use `docs/ops/cron-and-route-registry.md` as the only cadence source of truth. Current registry-backed schedules are:
 
-- `Screeps dev-log fanout reporter` → `discord:#dev-log`, every 20m;
-- `Screeps roadmap fanout reporter` → `discord:#roadmap`, every 20m;
-- `Screeps research-notes fanout reporter` → `discord:#research-notes`, every 20m.
+- `Screeps dev-log fanout reporter` → `discord:#dev-log`, `25,55 * * * *`;
+- `Screeps roadmap fanout reporter` → `discord:#roadmap`, `34 * * * *`;
+- `Screeps research-notes fanout reporter` → `discord:#research-notes`, `10,40 * * * *`.
+
+If live cadence or routing changes, update the cron registry first, then this summary if it is kept as a convenience copy.
 
 Behavior:
 
