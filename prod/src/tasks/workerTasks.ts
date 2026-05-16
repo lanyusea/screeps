@@ -6695,7 +6695,7 @@ function shouldUpgradeForRcl3DefenseUnlock(
     getUsedEnergy(creep) > 0 &&
     !hasVisibleHostilePresence(creep.room) &&
     !shouldGuardControllerDowngrade(controller) &&
-    !isControllerUpgradeSaturated(creep, controller)
+    !isControllerUpgradeSaturated(creep, controller, { ignoreTerritoryExpansionPressure: true })
   );
 }
 
@@ -7010,7 +7010,11 @@ function isLowRclControllerProgressTarget(controller: StructureController): bool
   return canLevelUpController(controller) && controller.level >= 2 && controller.level <= 3;
 }
 
-function isControllerUpgradeSaturated(creep: Creep, controller: StructureController): boolean {
+function isControllerUpgradeSaturated(
+  creep: Creep,
+  controller: StructureController,
+  options: { ignoreTerritoryExpansionPressure?: boolean } = {}
+): boolean {
   if (controller.my !== true || shouldGuardControllerDowngrade(controller)) {
     return false;
   }
@@ -7028,7 +7032,7 @@ function isControllerUpgradeSaturated(creep: Creep, controller: StructureControl
     getControllerProgressWorkerLimit(
       creep,
       loadedWorkers.length,
-      hasActiveTerritoryExpansionPressure(creep)
+      options.ignoreTerritoryExpansionPressure !== true && hasActiveTerritoryExpansionPressure(creep)
     )
   );
 

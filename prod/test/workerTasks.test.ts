@@ -478,6 +478,7 @@ function recordSurvivalMode(
   const assessment = assessColonySurvival({
     roomName: 'W1N1',
     energyCapacityAvailable: 650,
+    defenseFloorReady: true,
     controller: { my: true, level: 3, ticksToDowngrade: 10_000 },
     ...inputByMode
   });
@@ -7059,6 +7060,46 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('keeps RCL2 defense unlock upgrading despite active territory pressure', () => {
+    const roadSite = { id: 'road-site', structureType: 'road' } as ConstructionSite;
+    const activeSpawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      controller,
+      constructionSites: [roadSite],
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      structures: [activeSpawn]
+    });
+    const creep = {
+      name: 'BootstrapWorker',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'E29N55', targetRoom: 'E29N56', action: 'scout', status: 'planned', updatedAt: 301 }]
+      }
+    };
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      BuilderA: makeLoadedWorker(room),
+      BuilderB: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('preserves RCL2 capacity construction before controller progress for tower unlock', () => {
     const extensionSite = { id: 'extension-site', structureType: 'extension' } as ConstructionSite;
     const activeSpawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
@@ -7144,6 +7185,59 @@ describe('selectWorkerTask', () => {
 
     expect(isWorkerRepairTargetComplete(rampartAtCap)).toBe(true);
     expect(isWorkerRepairTargetComplete(rampartBelowCap)).toBe(false);
+  });
+
+  it('keeps threatened bootstrap barriers repairable above the defense floor cap while hostiles are visible', () => {
+    const structures: AnyStructure[] = [];
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      hostileCreeps: [{ id: 'hostile1' } as Creep],
+      name: 'E29N55',
+      structures
+    });
+    const spawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const wallAtCap = makeStructure(
+      'wall-at-cap',
+      'constructedWall' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING,
+      300_000_000,
+      { pos: makeRoomPosition(16, 23, 'E29N55'), room }
+    );
+    structures.push(spawn, wallAtCap);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        colonyThreats: {
+          updatedAt: 302,
+          rooms: {
+            E29N55: {
+              roomName: 'E29N55',
+              level: 'hostile_present',
+              updatedAt: 302,
+              hostileCreepCount: 1,
+              hostileStructureCount: 0,
+              damagedCriticalStructureCount: 0
+            }
+          }
+        }
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 302 };
+
+    expect(isWorkerRepairTargetComplete(wallAtCap)).toBe(false);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'wall-at-cap' });
   });
 
   it('spends carried energy productively when another worker covers the low tower refill', () => {

@@ -1534,7 +1534,7 @@ function isBootstrapDefenseFloorSatisfiedForTerritory(room) {
   return assessBootstrapDefenseFloorReadiness(room).ready;
 }
 function shouldUseBootstrapDefenseFloorRepairCap(room) {
-  return shouldGateTerritoryOnBootstrapDefenseFloor(room);
+  return shouldGateTerritoryOnBootstrapDefenseFloor(room) && !hasVisibleHostilePresence(room);
 }
 function buildDefenderBody(energyAvailable, hostileCount) {
   const desiredPatternCount = Math.max(
@@ -1849,6 +1849,9 @@ function getBootstrapDefenseFloorLookups(room) {
 }
 function canAssessBootstrapDefenseFloor(room) {
   return typeof room.find === "function" && getGlobalNumber2("FIND_STRUCTURES") !== null && getGlobalNumber2("FIND_CONSTRUCTION_SITES") !== null;
+}
+function hasVisibleHostilePresence(room) {
+  return findRoomObjects3(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects3(room, "FIND_HOSTILE_STRUCTURES").length > 0;
 }
 function createBootstrapDefenseFloorLookups(room) {
   const structures = findRoomObjects3(room, "FIND_STRUCTURES").filter((structure) => isPositionInRoom(structure.pos, room.name));
@@ -2962,7 +2965,7 @@ function assessColonyStage(input) {
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = ((_d = input.hostileCreepCount) != null ? _d : 0) > 0 || ((_e = input.hostileStructureCount) != null ? _e : 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
-  const defenseFloorReady = input.defenseFloorReady !== false;
+  const defenseFloorReady = input.defenseFloorReady === true;
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
   const bootstrapRecovery = input.previousMode === "BOOTSTRAP" && !bootstrapCreepFloor && !bootstrapSpawnEnergy && !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable);
@@ -3094,6 +3097,7 @@ function recordClaimedRoomBootstrapStage(roomName, tick = getGameTime8()) {
     spawnEnergyAvailable: getRoomEnergyAvailable(room),
     previousMode: getPersistedRoomStageMode(room),
     controller: getControllerSurvivalState(room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(room),
     hostileCreepCount: countRoomFind(room, "FIND_HOSTILE_CREEPS"),
     hostileStructureCount: countRoomFind(room, "FIND_HOSTILE_STRUCTURES")
   });
@@ -12696,7 +12700,7 @@ function shouldSignOwnedRoomController(room, controller = room == null ? void 0 
 }
 function isOwnedRoomControllerSigningSafe(room, controller = room == null ? void 0 : room.controller) {
   var _a;
-  return Boolean(room) && (controller == null ? void 0 : controller.my) === true && ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && room.controller.id === controller.id && !hasVisibleHostilePresence(room);
+  return Boolean(room) && (controller == null ? void 0 : controller.my) === true && ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && room.controller.id === controller.id && !hasVisibleHostilePresence2(room);
 }
 function shouldSignReservedController(controller, actorUsername, gameTime = getGameTime17()) {
   return Boolean(
@@ -12766,7 +12770,7 @@ function getControllerRoom(creep, controller) {
   var _a;
   return (_a = controller == null ? void 0 : controller.room) != null ? _a : creep.room;
 }
-function hasVisibleHostilePresence(room) {
+function hasVisibleHostilePresence2(room) {
   return findRoomObjects16(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects16(room, "FIND_HOSTILE_STRUCTURES").length > 0;
 }
 function findRoomObjects16(room, globalName) {
@@ -23819,7 +23823,7 @@ function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
   }
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -23844,7 +23848,7 @@ function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
 function isUpgraderBoostActive(creep, controller) {
-  return isUpgraderCreep(creep) && !hasVisibleHostilePresence2(creep.room) && isControllerNearLevelUp(controller);
+  return isUpgraderCreep(creep) && !hasVisibleHostilePresence3(creep.room) && isControllerNearLevelUp(controller);
 }
 function isUpgraderCreep(creep) {
   var _a, _b, _c, _d;
@@ -23965,7 +23969,7 @@ function hasLowWorkerThroughputRecoveryPressure(creep) {
   var _a;
   const room = creep.room;
   const controller = room.controller;
-  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker" || (controller == null ? void 0 : controller.my) !== true || getControllerLevel(controller) > 2 || shouldGuardControllerDowngrade2(controller) || hasVisibleHostilePresence2(room)) {
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker" || (controller == null ? void 0 : controller.my) !== true || getControllerLevel(controller) > 2 || shouldGuardControllerDowngrade2(controller) || hasVisibleHostilePresence3(room)) {
     return false;
   }
   const energyAvailable = getRoomEnergyAvailable9(room);
@@ -24024,7 +24028,7 @@ function hasEmergencySpawnExtensionRefillDemand(creep) {
   return hasTrueLowLoadSpawnExtensionRefillEmergency(creep);
 }
 function hasTrueLowLoadSpawnExtensionRefillEmergency(creep) {
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     return true;
   }
   if (isControllerDowngradeImminentForLowLoadReturn(creep.room.controller)) {
@@ -24111,7 +24115,7 @@ function applyMinimumUsefulLoadPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
     return task;
   }
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
@@ -24126,7 +24130,7 @@ function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
   if (!getLowLoadWorkerEnergyContext(creep)) {
     return task;
   }
-  if (hasVisibleHostilePresence2(creep.room)) {
+  if (hasVisibleHostilePresence3(creep.room)) {
     recordLowLoadReturnTelemetry(creep, task, "hostileSafety");
     return task;
   }
@@ -24262,7 +24266,7 @@ function isSpawnExtensionThroughputBottlenecked(room) {
 function selectStorageForSpawnExtensionRefill(creep) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const storageSources = findVisibleRoomStructures(creep.room).filter(
@@ -25673,7 +25677,7 @@ function matchesStructureType18(actual, globalName, fallback) {
 function selectStoredEnergySource(creep) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const storedEnergySources = findVisibleRoomStructures(creep.room).filter(
@@ -25805,7 +25809,7 @@ function selectConstructionBacklogEnergyAcquisitionTask(creep) {
 function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -26186,7 +26190,7 @@ function selectLowLoadWorkerEnergyContinuationCandidate(creep, maximumRange = LO
   );
 }
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
-  return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence2(creep.room);
+  return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence3(creep.room);
 }
 function selectLowLoadWorkerEnergyYieldAwareCandidate(creep, candidates, defaultCandidate, maximumRange) {
   const currentCandidate = selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
@@ -26316,7 +26320,7 @@ function isSafePersistedLowLoadWorkerWithdrawSource(creep, source) {
   const room = (_a = source.room) != null ? _a : creep.room;
   return isSafeStoredEnergySource(source, {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(room),
+    hasHostilePresence: hasVisibleHostilePresence3(room),
     room
   });
 }
@@ -26458,7 +26462,7 @@ function createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignme
 function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
-    hasHostilePresence: hasVisibleHostilePresence2(creep.room),
+    hasHostilePresence: hasVisibleHostilePresence3(creep.room),
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -27009,7 +27013,7 @@ function getCreepOwnerUsername2(creep) {
   const username = (_a = creep.owner) == null ? void 0 : _a.username;
   return typeof username === "string" && username.length > 0 ? username : null;
 }
-function hasVisibleHostilePresence2(room) {
+function hasVisibleHostilePresence3(room) {
   return findHostileCreeps3(room).length > 0 || findHostileStructures3(room).length > 0;
 }
 function findHostileCreeps3(room) {
@@ -27092,7 +27096,7 @@ function computeRoutineRampartMaintenanceRepairTarget(room) {
 }
 function canSelectRoutineBarrierMaintenanceRepairTarget(room) {
   var _a;
-  return ((_a = room.controller) == null ? void 0 : _a.my) === true && !hasVisibleHostilePresence2(room) && checkEnergyBufferForConstructionSpending(room);
+  return ((_a = room.controller) == null ? void 0 : _a.my) === true && !hasVisibleHostilePresence3(room) && checkEnergyBufferForConstructionSpending(room);
 }
 function selectCriticalInfrastructureRepairTarget(creep) {
   var _a;
@@ -27127,7 +27131,7 @@ function selectCriticalOwnedSpawnRepairTarget(creep, visibleStructures = findVis
 }
 function canRepairRemoteCriticalRoadInfrastructure(creep) {
   var _a;
-  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence2(creep.room)) {
+  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence3(creep.room)) {
     return false;
   }
   const controller = creep.room.controller;
@@ -27297,7 +27301,7 @@ function selectRcl3DefenseUnlockUpgradeTask(creep, controller) {
   return { type: "upgrade", targetId: controller.id };
 }
 function shouldUpgradeForRcl3DefenseUnlock(creep, controller) {
-  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && shouldGateTerritoryOnBootstrapDefenseFloor(creep.room) && isWorkerInColonyRoom(creep) && getUsedEnergy2(creep) > 0 && !hasVisibleHostilePresence2(creep.room) && !shouldGuardControllerDowngrade2(controller) && !isControllerUpgradeSaturated(creep, controller);
+  return (controller == null ? void 0 : controller.my) === true && controller.level === 2 && shouldGateTerritoryOnBootstrapDefenseFloor(creep.room) && isWorkerInColonyRoom(creep) && getUsedEnergy2(creep) > 0 && !hasVisibleHostilePresence3(creep.room) && !shouldGuardControllerDowngrade2(controller) && !isControllerUpgradeSaturated(creep, controller, { ignoreTerritoryExpansionPressure: true });
 }
 function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
   const carriedEnergy = getUsedEnergy2(creep);
@@ -27497,12 +27501,12 @@ function hasNonControllerWorkerEnergyDemand(creep) {
   return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null || selectRoutineBarrierMaintenanceRepairTarget(creep) !== null;
 }
 function hasPostConstructionControllerUpgradeEnergy(creep, controller) {
-  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence2(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
+  return isLowRclControllerProgressTarget(controller) && !hasVisibleHostilePresence3(creep.room) && !hasVisibleOwnedConstructionDemand(creep.room) && (findWorkerEnergyAcquisitionCandidates(creep).length > 0 || hasFullRoomEnergyForControllerProgress(creep.room));
 }
 function isLowRclControllerProgressTarget(controller) {
   return canLevelUpController2(controller) && controller.level >= 2 && controller.level <= 3;
 }
-function isControllerUpgradeSaturated(creep, controller) {
+function isControllerUpgradeSaturated(creep, controller, options = {}) {
   if (controller.my !== true || shouldGuardControllerDowngrade2(controller)) {
     return false;
   }
@@ -27518,7 +27522,7 @@ function isControllerUpgradeSaturated(creep, controller) {
     getControllerProgressWorkerLimit(
       creep,
       loadedWorkers.length,
-      hasActiveTerritoryExpansionPressure(creep)
+      options.ignoreTerritoryExpansionPressure !== true && hasActiveTerritoryExpansionPressure(creep)
     )
   );
   return otherControllerUpgraders >= controllerProgressWorkerLimit;
@@ -27564,7 +27568,7 @@ function selectSource2ControllerLaneHarvestSource(creep) {
   return topology.source;
 }
 function getSource2ControllerLaneTopology(room, controller) {
-  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition5(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence2(room)) {
+  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition5(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence3(room)) {
     return null;
   }
   const source = getSource2(room);
@@ -27905,7 +27909,7 @@ function findSourceContainerWithdrawCandidates(creep) {
     );
     if (candidate && isSafeStoredEnergySource(sourceContainer, {
       creepOwnerUsername: getCreepOwnerUsername2(creep),
-      hasHostilePresence: hasVisibleHostilePresence2(sourceRoom),
+      hasHostilePresence: hasVisibleHostilePresence3(sourceRoom),
       room: sourceRoom
     })) {
       candidates.push(candidate);
@@ -30408,7 +30412,7 @@ function getEnergyHaulingBacklogThreshold(room, options) {
 function shouldUseEarlyRclControllerRunwayThreshold(room) {
   var _a, _b, _c;
   const controllerLevel = normalizeNonNegativeInteger11((_b = (_a = room.controller) == null ? void 0 : _a.level) != null ? _b : 0);
-  return ((_c = room.controller) == null ? void 0 : _c.my) === true && controllerLevel >= EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL && controllerLevel <= EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL && !hasVisibleHostilePresence3(room) && !hasVisibleConstructionDemand(room) && !hasDurableEnergyStore(room) && hasEarlyRclRunwayDeliveryCapacity(room);
+  return ((_c = room.controller) == null ? void 0 : _c.my) === true && controllerLevel >= EARLY_RCL_CONTROLLER_RUNWAY_MIN_RCL && controllerLevel <= EARLY_RCL_CONTROLLER_RUNWAY_MAX_RCL && !hasVisibleHostilePresence4(room) && !hasVisibleConstructionDemand(room) && !hasDurableEnergyStore(room) && hasEarlyRclRunwayDeliveryCapacity(room);
 }
 function hasEarlyRclRunwayDeliveryCapacity(room) {
   return findEnergyHaulingDeliveryTargets(room).some(
@@ -30421,7 +30425,7 @@ function hasDurableEnergyStore(room) {
 function hasVisibleConstructionDemand(room) {
   return findRoomObjects23(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects23(room, "FIND_CONSTRUCTION_SITES").some((site) => site.my !== false);
 }
-function hasVisibleHostilePresence3(room) {
+function hasVisibleHostilePresence4(room) {
   return findRoomObjects23(room, "FIND_HOSTILE_CREEPS").length > 0 || findRoomObjects23(room, "FIND_HOSTILE_STRUCTURES").length > 0;
 }
 function countActiveLocalEnergyHaulers(roomName) {
@@ -35712,7 +35716,7 @@ function summarizeSurvival(colony, roleCounts) {
   };
 }
 function shouldReportRuntimeDefenseFloor(defenseFloor) {
-  return defenseFloor.assessable && (defenseFloor.anchors.length > 0 || defenseFloor.rcl >= 3);
+  return defenseFloor.assessable;
 }
 function toRuntimeDefenseFloorSummary(defenseFloor) {
   return {
@@ -40810,7 +40814,8 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   }
 }
 function shouldHoldTerritoryScout(colonyStageAssessment) {
-  return (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.suppressionReasons.includes("defenseFloor")) === true;
+  var _a;
+  return (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "BOOTSTRAP" || (colonyStageAssessment == null ? void 0 : colonyStageAssessment.mode) === "DEFENSE" || ((_a = colonyStageAssessment == null ? void 0 : colonyStageAssessment.suppressionReasons) == null ? void 0 : _a.includes("defenseFloor")) === true;
 }
 function logBestClaimTarget(homeRoom) {
   if (isJestRuntime()) {

@@ -257,7 +257,21 @@ describe('runtime telemetry summaries', () => {
             workerCapacity: 2,
             workerTarget: 4,
             survivalWorkerFloor: 3,
-            suppressionReasons: ['bootstrapWorkerFloor', 'spawnEnergyCritical']
+            suppressionReasons: ['bootstrapWorkerFloor', 'spawnEnergyCritical'],
+            defenseFloor: {
+              ready: true,
+              assessable: true,
+              rcl: 2,
+              anchorReady: true,
+              towerReady: true,
+              towerCount: 0,
+              pendingTowerCount: 0,
+              spawnRampartReady: false,
+              wallAnchorCount: 0,
+              requiredWallAnchorCount: 0,
+              missingAnchorCount: 0,
+              repairHitsCeiling: 25_000
+            }
           },
           territoryRecommendation: {
             candidates: [],
@@ -271,6 +285,37 @@ describe('runtime telemetry summaries', () => {
         bucket: 9000
       }
     });
+  });
+
+  it('reports assessable bootstrap defense floor telemetry before anchors exist', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      structures: [
+        {
+          id: 'spawn1',
+          structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+          my: true,
+          pos: { x: 17, y: 24, roomName: 'E29N55' },
+          store: makeEnergyStore(50)
+        }
+      ]
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<{ survival: { defenseFloor: { missingAnchorCount: number } } }>;
+    expect(room.survival.defenseFloor).toMatchObject({
+      ready: false,
+      assessable: true,
+      rcl: 2,
+      anchorReady: false,
+      towerReady: true,
+      towerCount: 0,
+      pendingTowerCount: 0
+    });
+    expect(room.survival.defenseFloor.missingAnchorCount).toBeGreaterThan(0);
   });
 
   it('does not emit on non-cadence ticks without events', () => {

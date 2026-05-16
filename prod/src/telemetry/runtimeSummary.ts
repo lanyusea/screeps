@@ -2609,7 +2609,7 @@ function summarizeSurvival(colony: ColonySnapshot, roleCounts: RoleCounts): Runt
 }
 
 function shouldReportRuntimeDefenseFloor(defenseFloor: BootstrapDefenseFloorReadiness): boolean {
-  return defenseFloor.assessable && (defenseFloor.anchors.length > 0 || defenseFloor.rcl >= 3);
+  return defenseFloor.assessable;
 }
 
 function toRuntimeDefenseFloorSummary(

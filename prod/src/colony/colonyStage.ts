@@ -112,7 +112,7 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = (input.hostileCreepCount ?? 0) > 0 || (input.hostileStructureCount ?? 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
-  const defenseFloorReady = input.defenseFloorReady !== false;
+  const defenseFloorReady = input.defenseFloorReady === true;
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
   const bootstrapRecovery =
@@ -304,6 +304,7 @@ export function recordClaimedRoomBootstrapStage(
     spawnEnergyAvailable: getRoomEnergyAvailable(room),
     previousMode: getPersistedRoomStageMode(room),
     controller: getControllerSurvivalState(room.controller),
+    defenseFloorReady: isBootstrapDefenseFloorSatisfiedForTerritory(room),
     hostileCreepCount: countRoomFind(room, 'FIND_HOSTILE_CREEPS'),
     hostileStructureCount: countRoomFind(room, 'FIND_HOSTILE_STRUCTURES')
   });

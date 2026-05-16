@@ -103,7 +103,11 @@ interface BootstrapDefenseFloorLookups {
   constructionSitesByPosition: Map<string, ConstructionSite[]>;
 }
 
-type FindConstantGlobal = 'FIND_STRUCTURES' | 'FIND_CONSTRUCTION_SITES';
+type FindConstantGlobal =
+  | 'FIND_STRUCTURES'
+  | 'FIND_CONSTRUCTION_SITES'
+  | 'FIND_HOSTILE_CREEPS'
+  | 'FIND_HOSTILE_STRUCTURES';
 type StructureConstantGlobal =
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_CONTAINER'
@@ -256,7 +260,7 @@ export function isBootstrapDefenseFloorSatisfiedForTerritory(room: Room): boolea
 }
 
 export function shouldUseBootstrapDefenseFloorRepairCap(room: Room): boolean {
-  return shouldGateTerritoryOnBootstrapDefenseFloor(room);
+  return shouldGateTerritoryOnBootstrapDefenseFloor(room) && !hasVisibleHostilePresence(room);
 }
 
 export function buildDefenderBody(energyAvailable: number, hostileCount: number): BodyPartConstant[] {
@@ -746,6 +750,13 @@ function canAssessBootstrapDefenseFloor(room: Room): boolean {
     typeof room.find === 'function' &&
     getGlobalNumber('FIND_STRUCTURES') !== null &&
     getGlobalNumber('FIND_CONSTRUCTION_SITES') !== null
+  );
+}
+
+function hasVisibleHostilePresence(room: Room): boolean {
+  return (
+    findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length > 0 ||
+    findRoomObjects<Structure>(room, 'FIND_HOSTILE_STRUCTURES').length > 0
   );
 }
 

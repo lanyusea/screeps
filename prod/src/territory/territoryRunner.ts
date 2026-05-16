@@ -210,7 +210,7 @@ function shouldHoldTerritoryScout(
   return (
     colonyStageAssessment?.mode === 'BOOTSTRAP' ||
     colonyStageAssessment?.mode === 'DEFENSE' ||
-    colonyStageAssessment?.suppressionReasons.includes('defenseFloor') === true
+    colonyStageAssessment?.suppressionReasons?.includes('defenseFloor') === true
   );
 }
 
