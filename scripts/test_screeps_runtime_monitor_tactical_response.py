@@ -206,6 +206,7 @@ def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
         controller_summary={},
         owned_creep_objects=[],
         task_counts={"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0},
+        worker_assignment_evidence_available=True,
         construction_sites=[{"type": "constructionSite"}],
         pending_build_progress=50,
         build_carried_energy=0,
@@ -1141,7 +1142,20 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
                         "structureType": "extension",
                         "progress": 0,
                         "progressTotal": 50,
-                    }
+                    },
+                    "worker-1": {
+                        "_id": "worker-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E26S49-1",
+                        "body": [
+                            {"type": "work", "hits": 100},
+                            {"type": "carry", "hits": 100},
+                        ],
+                        "store": {"energy": 0, "capacity": 50},
+                        "memory": {"role": "worker"},
+                    },
                 }
             ),
             tick=265632,
@@ -1158,6 +1172,272 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             "worker_assignment_gap",
         )
         self.assertEqual(payload["rooms"][0]["resources"]["productiveEnergy"]["constructionDeadlockTicks"], 1)
+
+    def test_runtime_summary_payload_keeps_zero_owned_creeps_assignment_evidence_free(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn-1": {
+                        "_id": "spawn-1",
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "Spawn1",
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+        summary = monitor.room_summary(snapshot)
+
+        self.assertEqual(summary["owned_spawns"], 1)
+        self.assertEqual(summary["owned_creeps"], 0)
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertEqual(productive_energy["constructionDeadlockTicks"], 0)
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
+
+    def test_zero_owned_creeps_without_spawn_still_routes_to_room_dead(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 300},
+            expected_owner="lanyusea",
+        )
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "lanyusea"},
+            now=100,
+            debounce_seconds=300,
+        )
+        report = monitor.build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": emitted})
+
+        self.assertEqual(suppressed, [])
+        self.assertIn("room_dead", [reason["kind"] for reason in emitted])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
+        self.assertIn("room_dead", report["categories"])
+        self.assertIn("spawn_collapse", report["categories"])
+
+    def test_runtime_summary_payload_does_not_classify_worker_gap_without_assignment_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "creep-1": {
+                        "_id": "creep-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N55-1",
+                        "store": {"energy": 12, "capacity": 50},
+                    },
+                    "creep-2": {
+                        "_id": "creep-2",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-E29N55-2",
+                        "store": {"energy": 36, "capacity": 50},
+                    },
+                }
+            ),
+            tick=999271,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(
+            room["taskCounts"],
+            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+        )
+        self.assertEqual(room["resources"]["workerCarriedEnergy"], 48)
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
+
+    def test_runtime_summary_payload_ignores_non_worker_assignment_evidence(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    },
+                    "claimer-1": {
+                        "_id": "claimer-1",
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "claimer-E29N55-1",
+                        "memory": {"role": "claimer", "task": {"type": "claim", "targetId": "controller1"}},
+                        "store": {"energy": 0, "capacity": 0},
+                    },
+                }
+            ),
+            tick=999272,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertFalse(room["workerAssignmentEvidenceAvailable"])
+        self.assertFalse(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(
+            room["taskCounts"],
+            {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+        )
+        self.assertEqual(room["constructionDeadlockTicks"], 0)
+        self.assertNotIn("buildBlockedReason", room)
+        self.assertNotIn("buildBlockedReason", productive_energy)
+
+    def test_runtime_summary_payload_uses_explicit_blocked_worker_telemetry_as_assignment_evidence(self) -> None:
+        explicit_workers = [
+            {
+                "name": "WorkerA",
+                "task": "upgrade",
+                "carriedEnergy": 50,
+                "freeCapacity": 0,
+                "buildBlockedReason": "build_blocked_controller_progress_preferred",
+                "repairBlockedReason": "repair_blocked_build_backlog_first",
+            }
+        ]
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "site-1": {
+                        "_id": "site-1",
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "extension",
+                        "progress": 0,
+                        "progressTotal": 50,
+                    }
+                }
+            ),
+            tick=999273,
+            owner="lanyusea",
+            info={
+                "energyAvailable": 333,
+                "resources": {
+                    "productiveEnergy": {
+                        "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                        "workerAssignmentBlockedWorkers": explicit_workers,
+                    }
+                },
+            },
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+        room = payload["rooms"][0]
+        productive_energy = room["resources"]["productiveEnergy"]
+
+        self.assertTrue(room["workerAssignmentEvidenceAvailable"])
+        self.assertTrue(productive_energy["workerAssignmentEvidenceAvailable"])
+        self.assertEqual(room["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(productive_energy["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
+        self.assertEqual(room["constructionDeadlockTicks"], 1)
+        self.assertEqual(productive_energy["constructionDeadlockTicks"], 1)
+        self.assertEqual(room["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(productive_energy["workerAssignmentBlockedDetail"], "spawn_reserving_energy")
+        self.assertEqual(room["workerAssignmentBlockedWorkers"], explicit_workers)
+        self.assertEqual(productive_energy["workerAssignmentBlockedWorkers"], explicit_workers)
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            snapshot.ref,
+            None,
+            monitor.compute_room_summary_metrics(snapshot),
+            {"start_tick": 999100, "last_tick": 999200, "consecutive_ticks": 100},
+            snapshot.tick,
+        )
+        self.assertIsNotNone(reason)
+        assert reason is not None
+        self.assertEqual(reason["kind"], monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND)
+        self.assertEqual(next_state["consecutive_ticks"], 173)
 
     def test_runtime_summary_payload_includes_worker_dispatch_diagnostics(self) -> None:
         snapshot = monitor.RoomSnapshot(
@@ -1320,11 +1600,13 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         }
         monitor_payload = {
             "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
             "tick": 995544,
             "rooms": [
                 {
                     "roomName": "E29N55",
                     "shard": "shardX",
+                    "workerAssignmentEvidenceAvailable": True,
                     "workerCount": 3,
                     "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
                     "constructionSiteCount": 11,
@@ -1381,11 +1663,13 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         }
         monitor_payload = {
             "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
             "tick": 995544,
             "rooms": [
                 {
                     "roomName": "E29N55",
                     "shard": "shardX",
+                    "workerAssignmentEvidenceAvailable": True,
                     "workerCount": 3,
                     "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
                     "constructionSiteCount": 11,
@@ -1496,6 +1780,305 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
         self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
+    def test_legacy_monitor_summary_without_assignment_evidence_does_not_sustain_worker_gap(self) -> None:
+        monitor_payload = {
+            "type": "runtime-summary",
+            "tick": 999271,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "constructionSiteCount": 9,
+                    "constructionDeadlockTicks": 1,
+                    "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-monitor-20260516T020155Z.log").write_text(
+                "#runtime-summary " + json.dumps(monitor_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertEqual(
+            runtime_room[monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY],
+            monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+        )
+        self.assertFalse(monitor.runtime_worker_assignment_evidence_available(runtime_room))
+
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 17,
+                        "y": 24,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "extension1": {
+                        "type": "extension",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 18,
+                        "y": 24,
+                        "hits": 1000,
+                        "hitsMax": 1000,
+                    },
+                    "ctrl": {
+                        "type": "controller",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "level": 2,
+                        "x": 5,
+                        "y": 36,
+                    },
+                    "worker-1": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-1",
+                    },
+                    "worker-2": {
+                        "type": "creep",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "name": "worker-2",
+                    },
+                    "site1": {
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "road",
+                        "progress": 0,
+                        "progressTotal": 50,
+                        "x": 19,
+                        "y": 24,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+            expected_owner="lanyusea",
+        )
+        previous_state = {
+            "baseline_established": True,
+            "owner": "lanyusea",
+            "rule_counts": {
+                monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: {
+                    "start_tick": 988884,
+                    "last_tick": 999271,
+                    "consecutive_ticks": 10387,
+                }
+            },
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous_state,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND, [reason["kind"] for reason in emitted])
+        self.assertEqual(next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND], 0)
+
+    def test_legacy_monitor_summary_blocked_worker_paths_count_as_assignment_evidence(self) -> None:
+        blocked_worker = {"name": "WorkerA", "task": "upgrade"}
+        cases = {
+            "root detail": {"workerAssignmentBlockedDetail": "spawn_reserving_energy"},
+            "resources workers": {
+                "resources": {"productiveEnergy": {"workerAssignmentBlockedWorkers": [blocked_worker]}}
+            },
+            "legacy productive detail": {
+                "productiveEnergy": {"workerAssignmentBlockedDetail": "spawn_reserving_energy"}
+            },
+        }
+
+        for name, fields in cases.items():
+            with self.subTest(name=name):
+                runtime_room = {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+                    **fields,
+                }
+
+                self.assertTrue(monitor.runtime_worker_assignment_evidence_available(runtime_room))
+
+    def test_legacy_monitor_summary_blocked_worker_detail_sustains_worker_gap_alert(self) -> None:
+        blocked_workers = [{"name": "WorkerA", "task": "upgrade", "carriedEnergy": 50}]
+        monitor_payload = {
+            "type": "runtime-summary",
+            "tick": 999274,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "shard": "shardX",
+                    "taskCounts": {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "constructionSiteCount": 9,
+                    "constructionDeadlockTicks": 1,
+                    "resources": {
+                        "productiveEnergy": {
+                            "buildBlockedReason": monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+                            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+                            "workerAssignmentBlockedWorkers": blocked_workers,
+                        }
+                    },
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-monitor-20260516T020200Z.log").write_text(
+                "#runtime-summary " + json.dumps(monitor_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E29N55")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E29N55"]
+        self.assertNotIn("workerAssignmentEvidenceAvailable", runtime_room)
+        self.assertTrue(monitor.runtime_worker_assignment_evidence_available(runtime_room))
+        self.assertTrue(monitor.runtime_reports_worker_assignment_gap(runtime_room))
+
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E29N55"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects=monitor.normalize_objects(
+                {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 17,
+                        "y": 24,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
+                    "extension1": {
+                        "type": "extension",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "x": 18,
+                        "y": 24,
+                        "hits": 1000,
+                        "hitsMax": 1000,
+                    },
+                    "ctrl": {
+                        "type": "controller",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "level": 2,
+                        "x": 5,
+                        "y": 36,
+                    },
+                    "worker-1": {"type": "creep", "my": True, "owner": {"username": "lanyusea"}, "name": "worker-1"},
+                    "worker-2": {"type": "creep", "my": True, "owner": {"username": "lanyusea"}, "name": "worker-2"},
+                    "site1": {
+                        "type": "constructionSite",
+                        "my": True,
+                        "owner": {"username": "lanyusea"},
+                        "structureType": "road",
+                        "progress": 0,
+                        "progressTotal": 50,
+                        "x": 19,
+                        "y": 24,
+                    },
+                }
+            ),
+            tick=999274,
+            owner="lanyusea",
+            info={"energyAvailable": 333},
+            expected_owner="lanyusea",
+        )
+        previous_state = {
+            "baseline_established": True,
+            "owner": "lanyusea",
+            "rule_counts": {
+                monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND: {
+                    "start_tick": 999100,
+                    "last_tick": 999200,
+                    "consecutive_ticks": 100,
+                }
+            },
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous_state,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        worker_gap_reasons = [
+            reason for reason in emitted if reason["kind"] == monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND
+        ]
+        self.assertEqual(len(worker_gap_reasons), 1)
+        self.assertEqual(
+            worker_gap_reasons[0]["buildBlockedReason"],
+            monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON,
+        )
+        self.assertEqual(
+            next_state["rule_counts"][monitor.WORKER_ASSIGNMENT_GAP_SUSTAINED_KIND]["consecutive_ticks"],
+            174,
+        )
+
+    def test_legacy_monitor_summary_blocked_worker_detail_allows_worker_gap_recovery(self) -> None:
+        runtime_room = {
+            "roomName": "E29N55",
+            "shard": "shardX",
+            monitor.RUNTIME_SUMMARY_SOURCE_METADATA_KEY: monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            monitor.RUNTIME_SUMMARY_TICK_METADATA_KEY: 1101,
+            "workerCount": 3,
+            "taskCounts": {"harvest": 1, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+            "constructionSiteCount": 9,
+            "constructionDeadlockTicks": 0,
+            "workerAssignmentBlockedDetail": "spawn_reserving_energy",
+        }
+
+        self.assertTrue(monitor.runtime_worker_assignment_evidence_available(runtime_room))
+        self.assertTrue(monitor.runtime_worker_assignment_gap_recovered(runtime_room))
+
+        reason, next_state = monitor.detect_worker_assignment_gap_sustained_reason(
+            monitor.RoomRef(shard="shardX", room="E29N55"),
+            runtime_room,
+            make_worker_assignment_gap_metrics(),
+            {"start_tick": 1000, "last_tick": 1100, "consecutive_ticks": 100},
+            1101,
+        )
+
+        self.assertIsNone(reason)
+        self.assertEqual(next_state, 0)
 
     def test_stale_recovered_summary_does_not_clear_newer_worker_assignment_gap(self) -> None:
         console_payload = {
