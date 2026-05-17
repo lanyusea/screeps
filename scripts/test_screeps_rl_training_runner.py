@@ -14,6 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_rl_training_runner as runner
+import screeps_rl_experiment_card as card_helper
 
 
 JsonObject = dict[str, Any]
@@ -862,6 +863,57 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(str(report["reportPath"]).endswith("reports/format-check.json"))
         self.assertEqual(simulator.calls[0]["ticks"], 2)
         self.assertEqual(simulator.calls[0]["variants"], ["baseline", "candidate"])
+
+    def test_policy_gradient_report_preserves_candidate_parameter_evidence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-report",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in variant_ids
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="policy-gradient-evidence",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(report["experimentCard"]["trainingApproach"], "policy_gradient")
+        self.assertEqual(report["policyGradient"]["target_family"], "construction-priority")
+        self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["report_preserves_candidate_parameters"])
+        self.assertEqual(simulator.calls[0]["ticks"], 100)
+        self.assertEqual(simulator.calls[0]["variants"], variant_ids)
+        self.assertEqual(
+            [variant["candidatePolicyId"] for variant in report["strategyVariants"]],
+            [candidate["candidatePolicyId"] for candidate in card["policy_gradient"]["candidate_parameter_vectors"]],
+        )
+        first_result = report["variantResults"][0]
+        self.assertEqual(first_result["candidatePolicyId"], "construction-priority.pg.incumbent-seed.v1")
+        self.assertEqual(
+            set(first_result["parameters"]),
+            {
+                "baseScoreWeight",
+                "territorySignalWeight",
+                "resourceSignalWeight",
+                "killSignalWeight",
+                "riskPenalty",
+            },
+        )
+        self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
     def test_report_id_with_dots_is_normalized_for_simulator_run_id(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])

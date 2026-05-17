@@ -50,10 +50,14 @@ class StrategyVariant:
 
     id: str
     parameters: JsonObject
+    candidate_policy_id: str | None = None
     family: str | None = None
+    parameter_evidence: JsonObject | None = None
     rollout_status: str | None = None
+    source_strategy_id: str | None = None
     source: str = "inline"
     title: str | None = None
+    training_role: str | None = None
 
     def to_json(self) -> JsonObject:
         payload: JsonObject = {
@@ -61,12 +65,20 @@ class StrategyVariant:
             "parameters": self.parameters,
             "source": self.source,
         }
+        if self.candidate_policy_id:
+            payload["candidatePolicyId"] = self.candidate_policy_id
         if self.family:
             payload["family"] = self.family
+        if self.parameter_evidence is not None:
+            payload["parameterEvidence"] = copy.deepcopy(self.parameter_evidence)
         if self.rollout_status:
             payload["rolloutStatus"] = self.rollout_status
+        if self.source_strategy_id:
+            payload["sourceStrategyId"] = self.source_strategy_id
         if self.title:
             payload["title"] = self.title
+        if self.training_role:
+            payload["trainingRole"] = self.training_role
         return payload
 
 
@@ -330,10 +342,14 @@ def expand_scale_environment_strategy_variants(
             StrategyVariant(
                 id=variant_id,
                 parameters=copy.deepcopy(base.parameters),
+                candidate_policy_id=base.candidate_policy_id,
                 family=base.family,
+                parameter_evidence=copy.deepcopy(base.parameter_evidence),
                 rollout_status=base.rollout_status,
+                source_strategy_id=base.source_strategy_id,
                 source=base.source,
                 title=(base.title + suffix) if base.title else None,
+                training_role=base.training_role,
             )
         )
     return expanded
@@ -358,7 +374,14 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
         source = registry_variant.source
     if parameters is None:
         parameters = {}
+    candidate_policy_id = text_or_none(raw.get("candidatePolicyId")) or text_or_none(raw.get("candidate_policy_id"))
+    if candidate_policy_id is not None:
+        validate_strategy_id(candidate_policy_id)
+    source_strategy_id = text_or_none(raw.get("sourceStrategyId")) or text_or_none(raw.get("source_strategy_id"))
+    if source_strategy_id is not None:
+        validate_strategy_id(source_strategy_id)
     family = text_or_none(raw.get("family")) or (registry_variant.family if registry_variant else None)
+    parameter_evidence = first_mapping(raw, ("parameterEvidence", "parameter_evidence"))
     rollout_status = (
         text_or_none(raw.get("rolloutStatus"))
         or text_or_none(raw.get("rollout_status"))
@@ -368,10 +391,14 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
     return StrategyVariant(
         id=variant_id,
         parameters=dict(sorted(parameters.items())),
+        candidate_policy_id=candidate_policy_id,
         family=family,
+        parameter_evidence=copy.deepcopy(parameter_evidence) if parameter_evidence is not None else None,
         rollout_status=rollout_status,
+        source_strategy_id=source_strategy_id,
         source=source,
         title=title,
+        training_role=text_or_none(raw.get("trainingRole")) or text_or_none(raw.get("training_role")),
     )
 
 
@@ -896,6 +923,7 @@ def build_training_report(
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
     scale_validation = build_scale_validation_summary(simulator_runs, config)
+    policy_gradient = policy_gradient_metadata_from_card(card)
 
     report = {
         "type": REPORT_TYPE,
@@ -964,6 +992,8 @@ def build_training_report(
     }
     if scale_validation is not None:
         report["scaleValidation"] = scale_validation
+    if policy_gradient is not None:
+        report["policyGradient"] = policy_gradient
     return report
 
 
@@ -1046,7 +1076,7 @@ def summarize_variant(
     reward_tuple[0] = reliability_score(scored_run_count=len(run_metrics), total_run_count=len(runs))
     metrics = aggregate_metrics(run_metrics)
     metrics["reliability"]["score"] = reward_tuple[0]
-    return {
+    summary: JsonObject = {
         "variantId": variant.id,
         "family": variant.family,
         "rolloutStatus": variant.rollout_status,
@@ -1072,6 +1102,15 @@ def summarize_variant(
             for run in runs
         ],
     }
+    if variant.candidate_policy_id:
+        summary["candidatePolicyId"] = variant.candidate_policy_id
+    if variant.source_strategy_id:
+        summary["sourceStrategyId"] = variant.source_strategy_id
+    if variant.parameter_evidence is not None:
+        summary["parameterEvidence"] = copy.deepcopy(variant.parameter_evidence)
+    if variant.training_role:
+        summary["trainingRole"] = variant.training_role
+    return summary
 
 
 def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObject:
@@ -1804,7 +1843,7 @@ def build_report_warnings(results: Sequence[JsonObject], simulator_runs: Sequenc
 
 
 def summarize_card(card: JsonObject, path: Path) -> JsonObject:
-    return {
+    summary = {
         "path": dataset_export.display_path(path),
         "cardId": card.get("card_id", card.get("cardId")),
         "datasetRunId": card.get("dataset_run_id", card.get("datasetRunId")),
@@ -1813,6 +1852,17 @@ def summarize_card(card: JsonObject, path: Path) -> JsonObject:
         "status": card.get("status", "shadow"),
         "safety": card.get("safety"),
     }
+    policy_gradient = policy_gradient_metadata_from_card(card)
+    if policy_gradient is not None:
+        summary["policyGradient"] = policy_gradient
+    return summary
+
+
+def policy_gradient_metadata_from_card(card: JsonObject) -> JsonObject | None:
+    raw = card.get("policy_gradient", card.get("policyGradient"))
+    if not isinstance(raw, dict):
+        return None
+    return copy.deepcopy(raw)
 
 
 def safety_metadata() -> JsonObject:
