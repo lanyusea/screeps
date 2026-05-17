@@ -258,7 +258,7 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(summary["sampleCount"], 1)
         self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
 
-    def test_monitor_summary_json_is_converted_to_sample(self) -> None:
+    def test_incomplete_postdeploy_monitor_summary_json_is_filtered_from_samples(self) -> None:
         monitor_payload = {
             "ok": True,
             "mode": "summary",
@@ -277,21 +277,20 @@ class RlDatasetExportTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            artifact = root / "monitor.json"
+            artifact = root / "postdeploy-observation-20260517T140626Z.json"
             artifact.write_text(json.dumps(monitor_payload, sort_keys=True), encoding="utf-8")
             out_dir = root / "datasets"
 
-            exporter.build_dataset([str(artifact)], out_dir, run_id="monitor-run", bot_commit="c" * 40)
+            summary = exporter.build_dataset([str(artifact)], out_dir, run_id="monitor-run", bot_commit="c" * 40)
             rows = read_ndjson(out_dir / "monitor-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "monitor-run" / "source_index.json")
 
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row["source"]["artifactKind"], "monitor-summary-json")
-        self.assertEqual(row["observation"]["roomName"], "E26S49")
-        self.assertEqual(row["observation"]["shard"], "shardX")
-        self.assertEqual(row["observation"]["workers"]["count"], 3)
-        self.assertEqual(row["observation"]["combat"]["hostileCreepCount"], 2)
-        self.assertEqual(row["observation"]["monitor"]["ownedSpawnCount"], 1)
+        self.assertEqual(summary["sampleCount"], 0)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 0)
+        self.assertEqual(len(rows), 0)
+        self.assertEqual(source_index["matchedArtifactCount"], 0)
+        self.assertEqual(source_index["skippedFiles"][0]["reason"], "incomplete_derived_runtime_summary")
+        self.assertEqual(source_index["skippedFiles"][0]["artifactKind"], "monitor-summary-json")
 
     def test_strategy_shadow_report_metadata_is_indexed_without_raw_report_copy(self) -> None:
         runtime_payload = {
