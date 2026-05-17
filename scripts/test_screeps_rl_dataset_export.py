@@ -292,6 +292,36 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(source_index["skippedFiles"][0]["reason"], "incomplete_derived_runtime_summary")
         self.assertEqual(source_index["skippedFiles"][0]["artifactKind"], "monitor-summary-json")
 
+    def test_incomplete_postdeploy_runtime_summary_json_is_filtered_by_basename(self) -> None:
+        runtime_payload = {
+            "type": "runtime-summary",
+            "tick": 123,
+            "rooms": [
+                {
+                    "roomName": "E29N55",
+                    "workerCount": 9,
+                    "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "postdeploy-observation-20260517T140626Z.json"
+            artifact.write_text(json.dumps(runtime_payload, sort_keys=True), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset([str(artifact)], out_dir, run_id="postdeploy-run", bot_commit="d" * 40)
+            rows = read_ndjson(out_dir / "postdeploy-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "postdeploy-run" / "source_index.json")
+
+        self.assertEqual(summary["sampleCount"], 0)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 0)
+        self.assertEqual(len(rows), 0)
+        self.assertEqual(source_index["matchedArtifactCount"], 0)
+        self.assertEqual(source_index["skippedFiles"][0]["reason"], "incomplete_derived_runtime_summary")
+        self.assertEqual(source_index["skippedFiles"][0]["artifactKind"], "runtime-summary-json")
+
     def test_strategy_shadow_report_metadata_is_indexed_without_raw_report_copy(self) -> None:
         runtime_payload = {
             "type": "runtime-summary",

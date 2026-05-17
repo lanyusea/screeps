@@ -40,7 +40,7 @@ DEFAULT_SAMPLE_LIMIT = 200
 DEFAULT_EVAL_RATIO = 0.2
 INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_summary"
 DERIVED_RUNTIME_SOURCE_MARKERS = ("screeps-runtime-monitor", "screeps-runtime-monitor-json")
-DERIVED_RUNTIME_PATH_MARKERS = ("postdeploy", "runtime-summary-monitor", "latest-summary-output")
+DERIVED_RUNTIME_BASENAME_PREFIXES = ("postdeploy-observation", "runtime-summary-monitor", "latest-summary-output")
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 ROOM_RE = re.compile(r"^(?:(?P<shard>[^/]+)/)?(?P<room>[WE]\d+[NS]\d+)$")
 SECRET_TEXT_RE = re.compile(
@@ -660,8 +660,12 @@ def is_derived_postdeploy_or_monitor_record(record: ArtifactRecord) -> bool:
     if record.artifact_kind == "monitor-summary-json":
         return True
 
-    source_text = f"{record.source.path}\n{record.source.display_path}".lower()
-    return any(marker in source_text for marker in DERIVED_RUNTIME_PATH_MARKERS)
+    source_names = {Path(record.source.path).name.lower(), Path(record.source.display_path).name.lower()}
+    return any(
+        source_name.startswith(prefix)
+        for source_name in source_names
+        for prefix in DERIVED_RUNTIME_BASENAME_PREFIXES
+    )
 
 
 def derived_room_has_console_gate_fields(room: JsonObject) -> bool:
