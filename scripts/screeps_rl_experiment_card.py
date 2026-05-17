@@ -443,8 +443,12 @@ def construction_priority_registry_defaults(registry_path: Path) -> dict[str, Js
     for variant_id in CONSTRUCTION_PRIORITY_REGISTRY_IDS:
         variant = registry[variant_id]
         parameters = construction_priority_parameters_or_none(variant.parameters)
-        if parameters is not None:
-            defaults[variant_id] = parameters
+        if parameters is None:
+            raise CardValidationError(
+                f"strategy registry {repo_relative(registry_path)} variant {variant_id} "
+                "must define finite construction-priority parameters"
+            )
+        defaults[variant_id] = parameters
     return defaults
 
 
@@ -535,13 +539,16 @@ def validate_card(raw: Any) -> None:
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
-    validate_strategy_variants(first_present(raw, ("strategy_variants", "strategyVariants", "variants")))
+    strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
+    validate_strategy_variants(strategy_variants)
     validate_simulation(first_present(raw, ("simulation", "simulator")))
     policy_gradient = first_present(raw, ("policy_gradient", "policyGradient"))
     if training_approach == "policy_gradient" and policy_gradient is None:
         raise CardValidationError("policy_gradient metadata is required when training_approach is policy_gradient")
     if policy_gradient is not None:
         validate_policy_gradient(policy_gradient)
+    if training_approach == "policy_gradient":
+        validate_policy_gradient_strategy_variants(policy_gradient, strategy_variants)
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -661,6 +668,52 @@ def validate_policy_gradient(raw: Any) -> None:
     safety = raw.get("safety")
     if safety is not None:
         validate_safety({"safety": safety})
+
+
+def validate_policy_gradient_strategy_variants(policy_gradient: Any, strategy_variants: Any) -> None:
+    if not isinstance(policy_gradient, dict):
+        return
+    candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(candidates, list) or not isinstance(strategy_variants, list):
+        return
+    if len(strategy_variants) != len(candidates):
+        raise CardValidationError(
+            "strategy_variants must mirror policy_gradient.candidate_parameter_vectors for policy_gradient cards"
+        )
+
+    seen_strategy_variant_ids: set[str] = set()
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict):
+            continue
+        strategy_variant = strategy_variants[index]
+        if not isinstance(strategy_variant, dict):
+            raise CardValidationError(
+                f"strategy_variants[{index}] must be an inline policy-gradient candidate variant"
+            )
+        expected_variant_id = candidate.get("strategyVariantId")
+        expected_candidate_policy_id = candidate.get("candidatePolicyId")
+        variant_id = strategy_variant.get("id")
+        if variant_id != expected_variant_id:
+            raise CardValidationError(
+                f"strategy_variants[{index}].id must match "
+                f"policy_gradient.candidate_parameter_vectors[{index}].strategyVariantId"
+            )
+        if variant_id in seen_strategy_variant_ids:
+            raise CardValidationError(f"duplicate policy_gradient strategyVariantId: {variant_id}")
+        seen_strategy_variant_ids.add(variant_id)
+
+        candidate_policy_id = first_present(strategy_variant, ("candidatePolicyId", "candidate_policy_id"))
+        if candidate_policy_id != expected_candidate_policy_id:
+            raise CardValidationError(
+                f"strategy_variants[{index}].candidatePolicyId must match "
+                f"policy_gradient.candidate_parameter_vectors[{index}].candidatePolicyId"
+            )
+        parameters = first_present(strategy_variant, ("parameters", "params", "defaultValues", "default_values"))
+        if parameters != candidate.get("parameters"):
+            raise CardValidationError(
+                f"strategy_variants[{index}].parameters must match "
+                f"policy_gradient.candidate_parameter_vectors[{index}].parameters"
+            )
 
 
 def validate_policy_gradient_candidate(raw: Any, index: int) -> None:

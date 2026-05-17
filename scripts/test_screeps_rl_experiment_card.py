@@ -159,6 +159,35 @@ class RlExperimentCardTest(unittest.TestCase):
                     registry_path=registry_path,
                 )
 
+    def test_policy_gradient_existing_registry_must_include_valid_construction_priority_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "strategyRegistry.ts"
+            registry_path.write_text("export const STRATEGY_REGISTRY = [];\n", encoding="utf-8")
+            incumbent_id = "construction-priority.incumbent.v1"
+            territory_id = "construction-priority.territory-shadow.v1"
+            incumbent_parameters = dict(card_helper.CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS[incumbent_id])
+            del incumbent_parameters["riskPenalty"]
+            registry = {
+                incumbent_id: runner.StrategyVariant(id=incumbent_id, parameters=incumbent_parameters),
+                territory_id: runner.StrategyVariant(
+                    id=territory_id,
+                    parameters=dict(card_helper.CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS[territory_id]),
+                ),
+            }
+
+            with mock.patch.object(runner, "load_strategy_registry", return_value=registry):
+                with self.assertRaisesRegex(
+                    card_helper.CardValidationError,
+                    "variant construction-priority\\.incumbent\\.v1 must define finite construction-priority parameters",
+                ):
+                    card_helper.build_card(
+                        dataset_run_id="rl-policy-gradient-invalid-registry-parameters",
+                        code_commit="f" * 40,
+                        training_approach="policy_gradient",
+                        created_at="2026-05-17T00:25:00Z",
+                        registry_path=registry_path,
+                    )
+
     def test_policy_gradient_registry_loader_errors_surface(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             registry_path = Path(temp_dir) / "strategyRegistry.ts"
@@ -201,6 +230,38 @@ class RlExperimentCardTest(unittest.TestCase):
 
         self.assertGreaterEqual(config.ticks, 100)
         self.assertGreaterEqual(config.repetitions, 5)
+
+    def test_policy_gradient_rejects_stale_strategy_variant_candidate_policy_id(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-stale-variant-id",
+            code_commit="4" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["strategy_variants"][0]["candidatePolicyId"] = "construction-priority.pg.stale-seed.v1"
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "strategy_variants\\[0\\]\\.candidatePolicyId must match",
+        ):
+            card_helper.validate_card(card)
+
+    def test_policy_gradient_rejects_strategy_variant_parameter_divergence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-stale-variant-parameters",
+            code_commit="5" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        variant_parameters = dict(card["strategy_variants"][0]["parameters"])
+        variant_parameters["territorySignalWeight"] = 7
+        card["strategy_variants"][0]["parameters"] = variant_parameters
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "strategy_variants\\[0\\]\\.parameters must match",
+        ):
+            card_helper.validate_card(card)
 
     def test_generated_simulation_paths_are_harness_defaults_from_arbitrary_cwd(self) -> None:
         card = card_helper.build_card(
