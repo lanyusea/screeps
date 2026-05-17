@@ -68,6 +68,24 @@ def runtime_payload(tick: int, stored_energy: int = 1000) -> JsonObject:
     }
 
 
+def incomplete_postdeploy_monitor_payload(tick: int = 1056627) -> JsonObject:
+    return {
+        "ok": True,
+        "mode": "summary",
+        "room_summaries": [
+            {
+                "room": "shardX/E29N55",
+                "tick": tick,
+                "objects": 68,
+                "structures": 56,
+                "owned_creeps": 9,
+                "owned_spawns": 1,
+                "hostiles": 0,
+            }
+        ],
+    }
+
+
 def baseline_kpi_window() -> JsonObject:
     return {
         "type": "screeps-rl-kpi-window",
@@ -205,7 +223,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            artifact = root / "runtime.log"
+            artifact = root / "runtime-summary-console-20260517T000000Z.log"
             dead_room = runtime_payload(100, stored_energy=0)
             room = dead_room["rooms"][0]
             room["roomName"] = "E29N55"
@@ -242,6 +260,72 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertIn("no_owned_creeps", report["quality_checks"]["rejection_reasons"])
         self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
         self.assertTrue(any(reason["gate"] == "quality_checks" for reason in report["blockingReasons"]))
+
+    def test_run_rejects_dead_room_console_capture_under_postdeploy_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "postdeploy" / "runtime-summary-console-20260517T000000Z.log"
+            artifact.parent.mkdir(parents=True)
+            dead_room = runtime_payload(100, stored_energy=0)
+            room = dead_room["rooms"][0]
+            room["roomName"] = "E29N55"
+            room["workerCount"] = 0
+            room["spawnStatus"] = []
+            room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
+            room.pop("energyAvailable", None)
+            room["resources"].pop("storedEnergy", None)
+            room["resources"].pop("workerCarriedEnergy", None)
+            artifact.write_text(runtime_line(dead_room), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-dead-room-postdeploy-console",
+                created_at="2026-05-17T14:20:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="e" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(report["quality_checks"]["status"], "fail")
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
+        self.assertIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
+        self.assertIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
+
+    def test_run_filters_incomplete_postdeploy_monitor_artifact_without_quality_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            console_artifact = root / "runtime-summary-console-20260517T140000Z.log"
+            valid_home_room = runtime_payload(1056600)
+            valid_home_room["rooms"][0]["roomName"] = "E29N55"
+            console_artifact.write_text(runtime_line(valid_home_room), encoding="utf-8")
+
+            postdeploy_artifact = root / "postdeploy-observation-20260517T140626Z.json"
+            write_json(postdeploy_artifact, incomplete_postdeploy_monitor_payload())
+
+            report = gate.run_gate(
+                [str(console_artifact), str(postdeploy_artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-filter-postdeploy",
+                created_at="2026-05-17T14:10:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="1" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(report["quality_checks"]["status"], "pass")
+        self.assertEqual(report["quality_checks"]["samples_accepted"], 1)
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+        self.assertNotIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
+        self.assertNotIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
 
     def test_run_allows_non_home_room_without_owned_spawns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

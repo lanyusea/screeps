@@ -38,6 +38,9 @@ DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-datasets")
 DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_SAMPLE_LIMIT = 200
 DEFAULT_EVAL_RATIO = 0.2
+INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_summary"
+DERIVED_RUNTIME_SOURCE_MARKERS = ("screeps-runtime-monitor", "screeps-runtime-monitor-json")
+DERIVED_RUNTIME_BASENAME_PREFIXES = ("postdeploy-observation", "runtime-summary-monitor", "latest-summary-output")
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 ROOM_RE = re.compile(r"^(?:(?P<shard>[^/]+)/)?(?P<room>[WE]\d+[NS]\d+)$")
 SECRET_TEXT_RE = re.compile(
@@ -590,6 +593,116 @@ def record_sort_key(record: ArtifactRecord) -> tuple[str, int, str, str]:
     )
 
 
+def filter_incomplete_derived_runtime_records(scan: ScanResult) -> None:
+    filtered_records: list[ArtifactRecord] = []
+    for record in scan.records:
+        filtered_record, skipped_rooms = prune_incomplete_derived_runtime_record(record)
+        if not skipped_rooms:
+            filtered_records.append(record)
+            continue
+
+        scan.skipped_files.append(
+            {
+                "path": record.source.display_path,
+                "reason": INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON,
+                "artifactKind": record.artifact_kind,
+                "lineNumber": record.line_number,
+                "skippedRooms": skipped_rooms,
+            }
+        )
+        if filtered_record is not None:
+            filtered_records.append(filtered_record)
+
+    scan.records = filtered_records
+
+
+def prune_incomplete_derived_runtime_record(record: ArtifactRecord) -> tuple[ArtifactRecord | None, list[str]]:
+    if not is_derived_postdeploy_or_monitor_record(record):
+        return record, []
+
+    rooms = record.payload.get("rooms")
+    if not isinstance(rooms, list):
+        return record, []
+
+    kept_rooms: list[JsonObject] = []
+    skipped_rooms: list[str] = []
+    for room in rooms:
+        if not isinstance(room, dict):
+            continue
+        if derived_room_has_console_gate_fields(room):
+            kept_rooms.append(room)
+            continue
+        room_name = room.get("roomName")
+        skipped_rooms.append(room_name if isinstance(room_name, str) and room_name else "unknown")
+
+    if not skipped_rooms:
+        return record, []
+    if not kept_rooms:
+        return None, skipped_rooms
+
+    payload = dict(record.payload)
+    payload["rooms"] = kept_rooms
+    return (
+        ArtifactRecord(
+            source=record.source,
+            artifact_kind=record.artifact_kind,
+            payload=payload,
+            line_number=record.line_number,
+        ),
+        skipped_rooms,
+    )
+
+
+def is_derived_postdeploy_or_monitor_record(record: ArtifactRecord) -> bool:
+    source_value = record.payload.get("source")
+    if isinstance(source_value, str) and any(marker in source_value.lower() for marker in DERIVED_RUNTIME_SOURCE_MARKERS):
+        return True
+    if record.artifact_kind == "monitor-summary-json":
+        return True
+
+    source_names = {Path(record.source.path).name.lower(), Path(record.source.display_path).name.lower()}
+    return any(
+        source_name.startswith(prefix)
+        for source_name in source_names
+        for prefix in DERIVED_RUNTIME_BASENAME_PREFIXES
+    )
+
+
+def derived_room_has_console_gate_fields(room: JsonObject) -> bool:
+    task_counts = room.get("taskCounts")
+    has_task_counts = isinstance(task_counts, dict) and any(is_number(value) for value in task_counts.values())
+    has_energy_field = any(
+        is_number(nested_get(room, path))
+        for path in (
+            ("energyAvailable",),
+            ("resources", "storedEnergy"),
+            ("resources", "workerCarriedEnergy"),
+        )
+    )
+    has_creep_ownership = any(
+        is_number(nested_get(room, path))
+        for path in (
+            ("workerCount",),
+            ("ownedCreeps",),
+            ("ownedCreepCount",),
+            ("creeps",),
+            ("owned_creeps",),
+        )
+    )
+    has_spawn_ownership = isinstance(room.get("spawnStatus"), list) or any(
+        is_number(nested_get(room, path))
+        for path in (
+            ("monitor", "ownedSpawnCount"),
+            ("ownedSpawns",),
+            ("ownedSpawnCount",),
+            ("spawnCount",),
+            ("spawns",),
+            ("owned_spawns",),
+        )
+    )
+    return has_task_counts and has_energy_field and has_creep_ownership and has_spawn_ownership
+
+
 def build_dataset(
     paths: Sequence[str],
     out_dir: Path,
@@ -605,6 +718,7 @@ def build_dataset(
     resolved_bot_commit = bot_commit or git_commit(repo)
     resolved_out_dir = out_dir.expanduser()
     scan = collect_artifact_records(paths, max_file_bytes=max_file_bytes, excluded_roots=[resolved_out_dir])
+    filter_incomplete_derived_runtime_records(scan)
     rows = build_tick_rows(scan.records, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     resolved_run_id = run_id or deterministic_run_id(scan, rows, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     validate_run_id(resolved_run_id)
