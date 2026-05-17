@@ -689,7 +689,7 @@ tar -czf remote-artifacts.tar.gz \
         scale_environments = resolve_scale_environment_count(self.args)
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
-            validate_scale_proof_result(scale_validation, scale_environments)
+            validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
@@ -1183,16 +1183,31 @@ def build_scale_proof_spec(
     }
 
 
-def validate_scale_proof_result(raw: Any, expected_environments: int) -> None:
+def validate_scale_proof_result(raw: Any, expected_environments: int, *, repetitions: int = 1) -> None:
     if not isinstance(raw, dict):
         raise BatchRunError("remote training report missing scaleValidation for multi-worker proof")
     total = raw.get("totalEnvironments")
     successful = raw.get("successfulEnvironments")
     reported_minimum = raw.get("minimumSuccessfulEnvironments")
-    local_minimum = minimum_successful_environments(expected_environments)
-    if not isinstance(total, int) or total != expected_environments:
+    reported_target = raw.get("targetEnvironments")
+    reported_repetitions = raw.get("repetitions")
+    expected_total = expected_environments * repetitions
+    local_minimum = minimum_successful_environments(expected_total)
+    if "targetEnvironments" in raw and (
+        not isinstance(reported_target, int) or reported_target != expected_environments
+    ):
         raise BatchRunError(
-            f"scale proof environment count invalid: {total!r} must equal {expected_environments}"
+            f"scale proof target environment count invalid: {reported_target!r} must equal {expected_environments}"
+        )
+    if "repetitions" in raw and (
+        not isinstance(reported_repetitions, int) or reported_repetitions != repetitions
+    ):
+        raise BatchRunError(
+            f"scale proof repetition count invalid: {reported_repetitions!r} must equal {repetitions}"
+        )
+    if not isinstance(total, int) or total != expected_total:
+        raise BatchRunError(
+            f"scale proof environment count invalid: {total!r} must equal {expected_total}"
         )
     if isinstance(reported_minimum, int) and not 0 <= reported_minimum <= total:
         raise BatchRunError(
