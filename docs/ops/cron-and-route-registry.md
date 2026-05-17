@@ -1,7 +1,7 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-16
-Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122
+Last updated: 2026-05-18
+Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170
 
 This registry is the expected-state contract for Screeps/Hermes cron jobs and Discord delivery routes. It is not passive documentation: P0 monitor, scheduler, and acceptance checks must compare live cron metadata against this file with `scripts/check_cron_registry.py`.
 
@@ -71,7 +71,7 @@ Repeat policy values:
 | Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
-| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Autonomous-system health monitor and registry-drift detector. |
+| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Autonomous-system health monitor, registry-drift detector, and consolidated Tencent Cloud cost guard. |
 | Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`. |
 | Screeps owner-decision escalation fanout | `bbc7f783075e` | `3,13,23,33,43,53 * * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P0 | Mirrors fresh unresolved owner-action decisions to the canonical decisions route. |
 | Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Runtime summary report/images for all owned rooms. |
@@ -82,12 +82,11 @@ Repeat policy values:
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
 | Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
-| Screeps RL flywheel steward | `aed8362e4501` | `17 */6 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
-| Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
-| Screeps RL training execution ledger | `5c869e7d8a1d` | `29 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns. |
-| Screeps RL policy online advantage ledger | `01609968392a` | `43 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
+| Screeps RL flywheel steward | `aed8362e4501` | `17 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
+| Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
+| Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
+| Screeps RL policy online advantage ledger | `01609968392a` | `27,57 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
 | Hermes state daily backup | `bf68a3951853` | `0 4 * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | Support | Daily private Hermes-state backup. |
-| Screeps Tencent Cloud $50 billing guard | `d3513ab57840` | `6 * * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `/root/screeps` | `high-horizon` | P1 | Local billing-safety guard for Tencent Cloud RL batch-compute experiments. |
 
 ## Transient and retired cron jobs
 
@@ -96,11 +95,16 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 | Job | ID | Status | Action |
 | --- | --- | --- | --- |
 | E29N55 postdeploy 15m observation | `6b006603d7fa` | Retired/stale one-shot from E29N55 recovery | Remove after backup; rely on recurring runtime summary/alert and explicit postdeploy artifacts instead. |
+| Screeps Tencent Cloud $50 billing guard | `d3513ab57840` | Retired standalone recurring job after 2026-05-18 owner correction | Cost monitoring is now reused inside P0 agent operations monitor `75cedbb77150`; do not recreate this standalone local cron. |
+| Screeps Tencent RL utilization controller | `dc78f1939bce` | Retired standalone recurring job after 2026-05-18 owner correction | Tencent utilization control is now reused inside RL training execution ledger `5c869e7d8a1d`; do not recreate a separate task-queue-delivering utilization cron. |
 
 ## Cron prompt drift rules
 
 - Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E29N55` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
 - P0 monitor and continuation/scheduler jobs must consult the registry diff before reporting cron health as OK or dispatching unrelated non-urgent work.
+- Tencent Cloud cost monitoring is owned by P0 agent operations monitor `75cedbb77150`; standalone billing-guard cron jobs are retired and must not be recreated.
+- Tencent RL batch utilization is owned by RL training execution ledger `5c869e7d8a1d`; standalone utilization-controller cron jobs are retired and must not deliver directly to Discord.
+- Incident/postdeploy/Project-field follow-ups should reuse runtime alert/summary, continuation worker, P0 monitor, or RL ledger mechanisms instead of creating ad-hoc temporary crons unless the owner explicitly approves a non-spamming new surface.
 - Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must include the generated `runtime-artifacts/rl-dashboard.html` file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
 - Gameplay Evolution cadence is 8h, not 12h.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
