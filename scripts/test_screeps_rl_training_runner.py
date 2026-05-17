@@ -915,6 +915,71 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
+    def test_loop_a_supply_report_preserves_card_supply_and_is_discoverably_consumed(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-loop-a-runner-report",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T02:25:00Z",
+            simulation_repetitions=1,
+            loop_a_card_supply=True,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in variant_ids
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            card_path = card_dir / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                report_dir,
+                report_id="loop-a-supply-report",
+                simulator_runner=simulator,
+            )
+            selected_after_report = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertEqual(report["experimentCard"]["status"], "shadow")
+        self.assertEqual(report["experimentCard"]["cardSupply"]["state"], "available")
+        self.assertEqual(report["experimentCard"]["cardSupply"]["consumer"], "loop-a-policy-gradient")
+        self.assertIsNone(selected_after_report)
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
+        self.assertTrue(report["safety"]["conservative_actions_only"])
+        self.assertTrue(report["safety"]["ood_rejection"])
+        self.assertEqual(report["rewardModel"]["componentOrder"], ["reliability", "territory", "resources", "kills"])
+        self.assertFalse(report["rewardModel"]["scalarWeightedSumAuthorized"])
+
+    def test_loop_a_available_supply_requires_policy_gradient(self) -> None:
+        card = base_card()
+        card["card_supply"] = {
+            "type": "screeps-rl-loop-a-card-supply",
+            "consumer": "loop-a-policy-gradient",
+            "state": "available",
+            "available_for_training": True,
+            "dataset_run_id": card["dataset_run_id"],
+            "training_approach": card["training_approach"],
+            "created_at": "2026-05-17T02:25:00Z",
+            "status_field": "status",
+            "safety_status": "shadow",
+            "consumed_at": None,
+            "consumed_by_report_id": None,
+        }
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "available Loop A card supply requires training_approach=policy_gradient",
+        ):
+            runner.validate_experiment_card(card)
+
     def test_report_id_with_dots_is_normalized_for_simulator_run_id(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
