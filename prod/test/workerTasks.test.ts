@@ -13654,6 +13654,58 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('does not defer RCL3 routine repair to an empty worker with stale repair memory', () => {
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const routineRoad = makeStructure('road-routine', 'road' as StructureConstant, 4_000, 5_000);
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      structures: [storage, routineRoad]
+    });
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'road-routine': 2,
+        controller1: 8
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    const emptyStaleRepairer = {
+      name: 'EmptyStaleRepairer',
+      memory: { role: 'worker', task: { type: 'repair', targetId: 'old-road' as Id<Structure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    const idleLoadedWorker = {
+      name: 'IdleLoadedWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'RepairCandidate',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      EmptyStaleRepairer: emptyStaleRepairer,
+      IdleLoadedWorker: idleLoadedWorker,
+      RepairCandidate: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-routine' });
+  });
+
   it('keeps critical container repair ahead of routine assignment caps', () => {
     const controller = { id: 'controller1', my: true } as StructureController;
     const container = makeStructure('container-critical', 'container' as StructureConstant, 500, 2_000);

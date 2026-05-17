@@ -6444,7 +6444,17 @@ function shouldDeferCoveredRcl3RoutineRepairToControllerProgress(
 ): boolean {
   return (
     shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) &&
-    hasSameRoomWorkerAssignedToTask(creep.room, creep, 'repair')
+    hasSameRoomLoadedRepairCoverage(creep)
+  );
+}
+
+function hasSameRoomLoadedRepairCoverage(creep: Creep): boolean {
+  return getSameRoomLoadedWorkers(creep).some(
+    (worker) =>
+      !isSameCreep(worker, creep) &&
+      worker.spawning !== true &&
+      worker.memory?.task?.type === 'repair' &&
+      getActiveWorkParts(worker) > 0
   );
 }
 
