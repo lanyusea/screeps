@@ -2366,6 +2366,82 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('emits healthy E29N55 E29N56 scout-only gate proof without reserve or claim targets', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
+    const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
+    const controller = room.controller as StructureController & { level: number; ticksToDowngrade: number };
+    const spawn = colony.spawns[0] as StructureSpawn & { my?: boolean; isActive?: jest.Mock };
+    const tower = {
+      id: 'tower1',
+      my: true,
+      structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+      store: makeEnergyStore(500)
+    };
+
+    room.energyAvailable = 800;
+    room.energyCapacityAvailable = 800;
+    controller.level = 3;
+    controller.ticksToDowngrade = 20_000;
+    colony.energyAvailable = 800;
+    colony.energyCapacityAvailable = 800;
+    spawn.my = true;
+    spawn.spawning = null;
+    spawn.isActive = jest.fn(() => true);
+    room.find.mockImplementation((findType: number): unknown[] => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_STRUCTURES:
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return [spawn, tower];
+        case TEST_GLOBALS.FIND_SOURCES:
+          return [{ id: 'source1' }, { id: 'source2' }];
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return [];
+        default:
+          return [];
+      }
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {}
+    };
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({
+        '1': 'E29N56',
+        '3': 'E30N55',
+        '5': 'E29N54',
+        '7': 'E28N55'
+      })),
+      findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [summaryRoom] = payload.rooms as Array<Record<string, unknown>>;
+    const territoryScout = summaryRoom.territoryScout as Record<string, unknown>;
+    expect(territoryScout.scoutOnlyTargets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          colony: 'E29N55',
+          roomName: 'E29N56',
+          recommendedAction: 'scout',
+          gateOpen: true,
+          status: 'pending'
+        })
+      ])
+    );
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter(
+        (intent) => intent.action === 'claim' || intent.action === 'reserve'
+      )
+    ).toEqual([]);
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);

@@ -34841,7 +34841,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
-    ...buildTerritoryScoutSummary(colony.room.name),
+    ...buildTerritoryScoutSummary(colony),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -34886,17 +34886,62 @@ function buildTerritoryExecutionHintSummary(colonyName) {
   const territoryExecutionHints = getActiveTerritoryFollowUpExecutionHints(colonyName);
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
 }
-function buildTerritoryScoutSummary(colonyName) {
+function buildTerritoryScoutSummary(colony) {
+  const colonyName = colony.room.name;
   const summary = getTerritoryScoutSummary(colonyName);
-  if (!summary) {
+  const scoutOnlyTargets = buildScoutOnlyTargetSummaries(colony, summary);
+  if (!summary && scoutOnlyTargets.length === 0) {
     return {};
   }
   return {
     territoryScout: {
-      ...summary.attempts.length > 0 ? { attempts: summary.attempts } : {},
-      ...summary.intel.length > 0 ? { intel: summary.intel } : {}
+      ...summary && summary.attempts.length > 0 ? { attempts: summary.attempts } : {},
+      ...summary && summary.intel.length > 0 ? { intel: summary.intel } : {},
+      ...scoutOnlyTargets.length > 0 ? { scoutOnlyTargets } : {}
     }
   };
+}
+function buildScoutOnlyTargetSummaries(colony, summary) {
+  var _a, _b;
+  const colonyName = colony.room.name;
+  const attemptsByRoom = new Map(((_a = summary == null ? void 0 : summary.attempts) != null ? _a : []).map((attempt) => [attempt.roomName, attempt]));
+  const intelByRoom = new Map(((_b = summary == null ? void 0 : summary.intel) != null ? _b : []).map((intel) => [intel.roomName, intel]));
+  const seenRooms = /* @__PURE__ */ new Set();
+  return getTerritoryExpansionScoutTargets(colonyName).flatMap((target) => {
+    if (target.colony !== colonyName || target.scoutOnly !== true || seenRooms.has(target.roomName)) {
+      return [];
+    }
+    seenRooms.add(target.roomName);
+    const attempt = attemptsByRoom.get(target.roomName);
+    const intel = intelByRoom.get(target.roomName);
+    const gateOpen = isPassiveScoutGateOpen(colony, target.roomName);
+    return [
+      {
+        colony: colonyName,
+        roomName: target.roomName,
+        recommendedAction: "scout",
+        gateOpen,
+        status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
+        ...(attempt == null ? void 0 : attempt.requestedAt) !== void 0 ? { requestedAt: attempt.requestedAt } : {},
+        ...(attempt == null ? void 0 : attempt.updatedAt) !== void 0 ? { updatedAt: attempt.updatedAt } : {},
+        ...(attempt == null ? void 0 : attempt.attemptCount) !== void 0 ? { attemptCount: attempt.attemptCount } : {},
+        ...(intel == null ? void 0 : intel.updatedAt) !== void 0 ? { intelUpdatedAt: intel.updatedAt } : {},
+        ...(intel == null ? void 0 : intel.sourceCount) !== void 0 ? { sourceCount: intel.sourceCount } : {},
+        ...(intel == null ? void 0 : intel.hostileCreepCount) !== void 0 ? { hostileCreepCount: intel.hostileCreepCount } : {},
+        ...(intel == null ? void 0 : intel.hostileStructureCount) !== void 0 ? { hostileStructureCount: intel.hostileStructureCount } : {},
+        ...(intel == null ? void 0 : intel.hostileSpawnCount) !== void 0 ? { hostileSpawnCount: intel.hostileSpawnCount } : {}
+      }
+    ];
+  });
+}
+function getScoutOnlyTargetStatus(gateOpen, attempt, intel) {
+  if (attempt) {
+    return attempt.status;
+  }
+  if (intel) {
+    return "observed";
+  }
+  return gateOpen ? "pending" : "blocked";
 }
 function summarizeSpawn(spawn) {
   if (!spawn.spawning) {

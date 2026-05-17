@@ -29,6 +29,8 @@ import {
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
+import { getTerritoryExpansionScoutTargets } from '../territory/expansionConfig';
+import { isPassiveScoutGateOpen } from '../territory/passiveScoutGate';
 import {
   checkEnergyBufferForCapacityEnablingConstruction,
   checkEnergyBufferForConstructionSpending,
@@ -283,6 +285,25 @@ interface RuntimeRoomSummary {
 interface RuntimeTerritoryScoutSummary {
   attempts?: TerritoryScoutAttemptMemory[];
   intel?: TerritoryScoutIntelMemory[];
+  scoutOnlyTargets?: RuntimeTerritoryScoutOnlyTargetSummary[];
+}
+
+type RuntimeTerritoryScoutOnlyTargetStatus = TerritoryScoutAttemptStatus | 'pending' | 'blocked';
+
+interface RuntimeTerritoryScoutOnlyTargetSummary {
+  colony: string;
+  roomName: string;
+  recommendedAction: 'scout';
+  gateOpen: boolean;
+  status: RuntimeTerritoryScoutOnlyTargetStatus;
+  requestedAt?: number;
+  updatedAt?: number;
+  attemptCount?: number;
+  intelUpdatedAt?: number;
+  sourceCount?: number;
+  hostileCreepCount?: number;
+  hostileStructureCount?: number;
+  hostileSpawnCount?: number;
 }
 
 interface RuntimeControllerSummary {
@@ -874,7 +895,7 @@ function summarizeRoom(
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
-    ...buildTerritoryScoutSummary(colony.room.name),
+    ...buildTerritoryScoutSummary(colony),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -951,18 +972,75 @@ function buildTerritoryExecutionHintSummary(
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
 }
 
-function buildTerritoryScoutSummary(colonyName: string): { territoryScout?: RuntimeTerritoryScoutSummary } {
+function buildTerritoryScoutSummary(colony: ColonySnapshot): { territoryScout?: RuntimeTerritoryScoutSummary } {
+  const colonyName = colony.room.name;
   const summary = getTerritoryScoutSummary(colonyName);
-  if (!summary) {
+  const scoutOnlyTargets = buildScoutOnlyTargetSummaries(colony, summary);
+  if (!summary && scoutOnlyTargets.length === 0) {
     return {};
   }
 
   return {
     territoryScout: {
-      ...(summary.attempts.length > 0 ? { attempts: summary.attempts } : {}),
-      ...(summary.intel.length > 0 ? { intel: summary.intel } : {})
+      ...(summary && summary.attempts.length > 0 ? { attempts: summary.attempts } : {}),
+      ...(summary && summary.intel.length > 0 ? { intel: summary.intel } : {}),
+      ...(scoutOnlyTargets.length > 0 ? { scoutOnlyTargets } : {})
     }
   };
+}
+
+function buildScoutOnlyTargetSummaries(
+  colony: ColonySnapshot,
+  summary: ReturnType<typeof getTerritoryScoutSummary>
+): RuntimeTerritoryScoutOnlyTargetSummary[] {
+  const colonyName = colony.room.name;
+  const attemptsByRoom = new Map((summary?.attempts ?? []).map((attempt) => [attempt.roomName, attempt]));
+  const intelByRoom = new Map((summary?.intel ?? []).map((intel) => [intel.roomName, intel]));
+  const seenRooms = new Set<string>();
+
+  return getTerritoryExpansionScoutTargets(colonyName).flatMap((target) => {
+    if (target.colony !== colonyName || target.scoutOnly !== true || seenRooms.has(target.roomName)) {
+      return [];
+    }
+    seenRooms.add(target.roomName);
+
+    const attempt = attemptsByRoom.get(target.roomName);
+    const intel = intelByRoom.get(target.roomName);
+    const gateOpen = isPassiveScoutGateOpen(colony, target.roomName);
+    return [
+      {
+        colony: colonyName,
+        roomName: target.roomName,
+        recommendedAction: 'scout' as const,
+        gateOpen,
+        status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
+        ...(attempt?.requestedAt !== undefined ? { requestedAt: attempt.requestedAt } : {}),
+        ...(attempt?.updatedAt !== undefined ? { updatedAt: attempt.updatedAt } : {}),
+        ...(attempt?.attemptCount !== undefined ? { attemptCount: attempt.attemptCount } : {}),
+        ...(intel?.updatedAt !== undefined ? { intelUpdatedAt: intel.updatedAt } : {}),
+        ...(intel?.sourceCount !== undefined ? { sourceCount: intel.sourceCount } : {}),
+        ...(intel?.hostileCreepCount !== undefined ? { hostileCreepCount: intel.hostileCreepCount } : {}),
+        ...(intel?.hostileStructureCount !== undefined ? { hostileStructureCount: intel.hostileStructureCount } : {}),
+        ...(intel?.hostileSpawnCount !== undefined ? { hostileSpawnCount: intel.hostileSpawnCount } : {})
+      }
+    ];
+  });
+}
+
+function getScoutOnlyTargetStatus(
+  gateOpen: boolean,
+  attempt: TerritoryScoutAttemptMemory | undefined,
+  intel: TerritoryScoutIntelMemory | undefined
+): RuntimeTerritoryScoutOnlyTargetStatus {
+  if (attempt) {
+    return attempt.status;
+  }
+
+  if (intel) {
+    return 'observed';
+  }
+
+  return gateOpen ? 'pending' : 'blocked';
 }
 
 function summarizeSpawn(spawn: StructureSpawn): RuntimeSpawnStatus {
