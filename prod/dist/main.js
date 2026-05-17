@@ -16432,7 +16432,7 @@ function suppressAutonomousTerritoryControlIntents(colonyName, gameTime) {
   }
   for (let index = 0; index < intents.length; index += 1) {
     const intent = intents[index];
-    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName)) {
+    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName, gameTime)) {
       continue;
     }
     intents[index] = {
@@ -16480,8 +16480,9 @@ function isVisibleOwnedTerritoryControlTarget(targetRoom, controllerId) {
 function shouldSuppressAutonomousTerritoryControlTarget(target, colonyName) {
   return target.colony === colonyName && target.enabled !== false && target.roomName !== colonyName && isTerritoryControlAction3(target.action) && !isVisibleOwnedTerritoryControlTarget(target.roomName, target.controllerId);
 }
-function shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName) {
-  return intent.colony === colonyName && intent.targetRoom !== colonyName && isTerritoryControlAction3(intent.action) && (intent.status === "planned" || intent.status === "active") && !isVisibleOwnedTerritoryControlTarget(intent.targetRoom, intent.controllerId);
+function shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName, gameTime) {
+  const shouldRefreshSuppressedIntent = intent.status === "suppressed" && (intent.reason === AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON || isRecoveredTerritoryFollowUpIntent(intent, gameTime));
+  return intent.colony === colonyName && intent.targetRoom !== colonyName && isTerritoryControlAction3(intent.action) && (intent.status === "planned" || intent.status === "active" || shouldRefreshSuppressedIntent) && !isVisibleOwnedTerritoryControlTarget(intent.targetRoom, intent.controllerId);
 }
 function getTerritoryIntentKey(colony, targetRoom, action) {
   return `${colony}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${targetRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${action}`;

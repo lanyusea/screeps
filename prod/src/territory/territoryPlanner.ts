@@ -896,7 +896,7 @@ function suppressAutonomousTerritoryControlIntents(
 
   for (let index = 0; index < intents.length; index += 1) {
     const intent = intents[index];
-    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName)) {
+    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName, gameTime)) {
       continue;
     }
 
@@ -976,13 +976,19 @@ function shouldSuppressAutonomousTerritoryControlTarget(
 
 function shouldSuppressAutonomousTerritoryControlIntent(
   intent: TerritoryIntentMemory,
-  colonyName: string
+  colonyName: string,
+  gameTime: number
 ): boolean {
+  const shouldRefreshSuppressedIntent =
+    intent.status === 'suppressed' &&
+    (intent.reason === AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON ||
+      isRecoveredTerritoryFollowUpIntent(intent, gameTime));
+
   return (
     intent.colony === colonyName &&
     intent.targetRoom !== colonyName &&
     isTerritoryControlAction(intent.action) &&
-    (intent.status === 'planned' || intent.status === 'active') &&
+    (intent.status === 'planned' || intent.status === 'active' || shouldRefreshSuppressedIntent) &&
     !isVisibleOwnedTerritoryControlTarget(intent.targetRoom, intent.controllerId)
   );
 }

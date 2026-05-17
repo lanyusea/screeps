@@ -188,6 +188,70 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it.each([
+    ['reserve', makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve')],
+    ['claim', makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim')]
+  ] as const)('refreshes stale suppressed recovered %s follow-ups while controller work is gated before RCL6', (
+    action,
+    followUp
+  ) => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300
+    });
+    const targetRoom = action === 'reserve' ? 'W3N1' : 'W4N1';
+    const suppressionTime = 842;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        [targetRoom]: makeRecommendationRoom(targetRoom)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom,
+            action,
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom,
+        action,
+        status: 'suppressed',
+        updatedAt: retryTime,
+        reason: 'controllerLevel',
+        followUp
+      }
+    ]);
+
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime + 1)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom,
+        action,
+        status: 'suppressed',
+        updatedAt: retryTime,
+        reason: 'controllerLevel',
+        followUp
+      }
+    ]);
+  });
+
   it('does not suppress visible-owned target controller work before RCL6', () => {
     const colony = makeSafeColony({
       controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
