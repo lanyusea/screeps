@@ -72,6 +72,286 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('suppresses controller-control territory intents before RCL6', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { id: 'controller2' as Id<StructureController>, my: false }
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 499
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 500)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 500,
+        reason: 'controllerLevel'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 500,
+        reason: 'controllerLevel'
+      }
+    ]);
+  });
+
+  it('continues allowed scouting when the best control candidate is gated before RCL6', () => {
+    const colony = makeSafeColony({
+      roomName: 'E17S59',
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 841,
+      rooms: {
+        E17S59: colony.room,
+        E17S60: {
+          name: 'E17S60',
+          controller: { id: 'controller-e17s60' as Id<StructureController>, my: false } as StructureController
+        } as Room
+      },
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'E17S59',
+            roomName: 'E17S60',
+            action: 'reserve',
+            controllerId: 'controller-e17s60' as Id<StructureController>
+          }
+        ],
+        routeDistances: {
+          'E17S59>E17S60': 1,
+          'E17S59>E18S59': 1
+        }
+      }
+    };
+    installE18S59ExpansionScoutTarget();
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 841)
+    ).toEqual({
+      colony: 'E17S59',
+      targetRoom: 'E18S59',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E17S59',
+        targetRoom: 'E17S60',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 841,
+        reason: 'controllerLevel',
+        controllerId: 'controller-e17s60'
+      },
+      {
+        colony: 'E17S59',
+        targetRoom: 'E18S59',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 841
+      }
+    ]);
+  });
+
+  it.each([
+    ['reserve', makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve')],
+    ['claim', makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim')]
+  ] as const)('refreshes stale suppressed recovered %s follow-ups while controller work is gated before RCL6', (
+    action,
+    followUp
+  ) => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300
+    });
+    const targetRoom = action === 'reserve' ? 'W3N1' : 'W4N1';
+    const suppressionTime = 842;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        [targetRoom]: makeRecommendationRoom(targetRoom)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom,
+            action,
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom,
+        action,
+        status: 'suppressed',
+        updatedAt: retryTime,
+        reason: 'controllerLevel',
+        followUp
+      }
+    ]);
+
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime + 1)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom,
+        action,
+        status: 'suppressed',
+        updatedAt: retryTime,
+        reason: 'controllerLevel',
+        followUp
+      }
+    ]);
+  });
+
+  it('does not suppress visible-owned target controller work before RCL6', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { id: 'controller2' as Id<StructureController>, my: true } as StructureController
+        } as Room,
+        W3N1: {
+          name: 'W3N1',
+          controller: { id: 'controller3' as Id<StructureController>, my: false } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W3N1',
+            action: 'reserve',
+            controllerId: 'controller3' as Id<StructureController>
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 499,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 500)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'active',
+        updatedAt: 499,
+        controllerId: 'controller2'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 500,
+        reason: 'controllerLevel',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('keeps scout-only territory intelligence available before RCL6', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        501,
+        { scoutOnly: true }
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 501
+      }
+    ]);
+  });
+
   it('holds configured territory execution while an E29N55-like RCL3 room has no tower', () => {
     const globals = globalThis as unknown as {
       FIND_STRUCTURES: number;
@@ -1334,7 +1614,12 @@ describe('planTerritoryIntent', () => {
           ...(scenario.ownedRoom
             ? {
                 W8N8: { name: 'W8N8', controller: { my: true, owner: { username: 'me' } } } as Room,
-                W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room
+                W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W10N10: { name: 'W10N10', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W11N11: { name: 'W11N11', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W12N12: { name: 'W12N12', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W13N13: { name: 'W13N13', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W14N14: { name: 'W14N14', controller: { my: true, owner: { username: 'me' } } } as Room
               }
             : {}),
           W1N2: makeRecommendationRoom('W1N2', {
@@ -7314,7 +7599,7 @@ function makeScoutIntel(
 
 function makeSafeColony({
   roomName = 'W1N1',
-  controller = { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+  controller = { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController,
   energyAvailable = 650,
   energyCapacityAvailable = 650
 }: {

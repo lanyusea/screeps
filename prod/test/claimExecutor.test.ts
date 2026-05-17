@@ -1643,7 +1643,7 @@ function makeColony({
   roomName = 'W1N1',
   energyAvailable = 650,
   energyCapacityAvailable = 650,
-  controllerLevel = 3,
+  controllerLevel = 6,
   sourceCount = 1,
   mineralType
 }: {

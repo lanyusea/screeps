@@ -27,6 +27,10 @@ import {
 import { selectBestClaimTarget } from './claimScoring';
 import { getRecordedColonyStageAssessment, suppressesTerritoryWork } from '../colony/colonyStage';
 import { getConfiguredExpansionRoomScoutingTargets } from './roomScouting';
+import {
+  AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
+  isAutonomousTerritoryControlAllowedForColonyName
+} from './controlGate';
 export {
   isClaimedRoomBootstrapActive,
   refreshClaimedRoomBootstrapperOwnership,
@@ -69,8 +73,18 @@ export function runTerritoryControllerCreep(
     if (shouldHoldTerritoryScout(colonyStageAssessment)) {
       return;
     }
-  } else if (suppressesTerritoryWork(colonyStageAssessment)) {
-    return;
+  } else {
+    if (
+      !isAutonomousTerritoryControlAllowedForColonyName(creep.memory.colony) &&
+      !isVisibleOwnedTerritoryAssignment(assignment)
+    ) {
+      suppressTerritoryAssignment(creep, assignment, AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON);
+      return;
+    }
+
+    if (suppressesTerritoryWork(colonyStageAssessment)) {
+      return;
+    }
   }
 
   if (isVisibleTerritoryAssignmentComplete(assignment, creep)) {
@@ -455,8 +469,12 @@ function tryFallbackClaimAssignmentToReserve(
   return true;
 }
 
-function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMemory): void {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime());
+function suppressTerritoryAssignment(
+  creep: Creep,
+  assignment: CreepTerritoryMemory,
+  reason?: TerritoryIntentSuppressionReason
+): void {
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime(), reason);
   completeTerritoryAssignment(creep);
 }
 
@@ -559,6 +577,10 @@ function selectVisibleTargetRoomController(assignment: CreepTerritoryMemory): St
   }
 
   return game?.rooms?.[assignment.targetRoom]?.controller ?? null;
+}
+
+function isVisibleOwnedTerritoryAssignment(assignment: CreepTerritoryMemory): boolean {
+  return selectVisibleTargetRoomController(assignment)?.my === true;
 }
 
 function getGameTime(): number {

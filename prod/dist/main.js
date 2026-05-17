@@ -3816,11 +3816,33 @@ function isNonEmptyString4(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+// src/territory/controlGate.ts
+var AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 6;
+var AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON = "controllerLevel";
+var AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON = "rcl6Gate";
+function isAutonomousTerritoryControlAllowedForColony(colony) {
+  return isAutonomousTerritoryControlAllowedForController(colony.room.controller);
+}
+function isAutonomousTerritoryControlAllowedForController(controller) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
+}
+function isAutonomousTerritoryControlAllowedForColonyName(colonyName) {
+  var _a, _b;
+  if (!colonyName) {
+    return false;
+  }
+  const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[colonyName];
+  if (!(room == null ? void 0 : room.controller)) {
+    return false;
+  }
+  return isAutonomousTerritoryControlAllowedForController(room == null ? void 0 : room.controller);
+}
+
 // src/territory/autoClaim.ts
 var GLOBAL_AUTO_CLAIM_MIN_RCL = globalThis.TERRITORY_AUTO_CLAIM_MIN_RCL;
 var GLOBAL_AUTO_CLAIM_RESERVATION_MIN_TICKS = globalThis.TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS;
 var GLOBAL_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY = globalThis.TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY;
-var DEFAULT_AUTO_CLAIM_MIN_RCL = 3;
+var DEFAULT_AUTO_CLAIM_MIN_RCL = AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 var DEFAULT_AUTO_CLAIM_RESERVATION_MIN_TICKS = 4e3;
 var DEFAULT_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY = 400;
 var TERRITORY_AUTO_CLAIM_MIN_RCL = typeof GLOBAL_AUTO_CLAIM_MIN_RCL === "number" && Number.isFinite(GLOBAL_AUTO_CLAIM_MIN_RCL) && GLOBAL_AUTO_CLAIM_MIN_RCL > 0 ? Math.floor(GLOBAL_AUTO_CLAIM_MIN_RCL) : DEFAULT_AUTO_CLAIM_MIN_RCL;
@@ -3900,7 +3922,7 @@ function isTerritoryIntentStatus(status) {
   return status === "planned" || status === "active" || status === "suppressed" || status === "inactive" || status === "completed";
 }
 function isTerritoryIntentSuppressionReason(reason) {
-  return reason === "deadZoneTarget" || reason === "deadZoneRoute";
+  return reason === "deadZoneTarget" || reason === "deadZoneRoute" || reason === "controllerLevel";
 }
 function isTerritoryFollowUpSource(source) {
   return source === "satisfiedClaimAdjacent" || source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent";
@@ -7511,6 +7533,14 @@ function refreshExpansionPlannerIntent(colony, gameTime = getGameTime16()) {
       candidates: []
     };
   }
+  if (!isAutonomousTerritoryControlAllowedForController(colony.room.controller)) {
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: "noCandidate",
+      candidates: []
+    };
+  }
   const territoryMemory = getTerritoryMemoryRecord4();
   if (territoryMemory) {
     refreshTerminalExpansionPlans(territoryMemory, colonyName, gameTime);
@@ -8455,7 +8485,7 @@ function selectExpansionIntentAction(colony) {
 }
 function isExpansionPlannerClaimReady(colony) {
   const controller = colony.room.controller;
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && hasActiveExpansionPlannerSpawn(colony) && !hasExpansionPlannerActiveHostiles(colony.room) && !hasExpansionPlannerPendingThreat(colony.room.name, getGameTime16()) && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
+  return isAutonomousTerritoryControlAllowedForController(controller) && hasActiveExpansionPlannerSpawn(colony) && !hasExpansionPlannerActiveHostiles(colony.room) && !hasExpansionPlannerPendingThreat(colony.room.name, getGameTime16()) && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
 }
 function hasActiveExpansionPlannerSpawn(colony) {
   var _a;
@@ -15091,7 +15121,7 @@ function isFiniteNumber8(value) {
 // src/territory/expansionTrigger.ts
 var DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 var DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
-var DEFAULT_EXPANSION_TRIGGER_MIN_RCL = 3;
+var DEFAULT_EXPANSION_TRIGGER_MIN_RCL = AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 var EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
 var EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5e3;
 var EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = ">";
@@ -15109,6 +15139,23 @@ function refreshAutonomousExpansionPipeline(colony, report, gameTime = getGameTi
     };
   }
   const activePipeline = getActiveExpansionPipeline(territoryMemory, colonyName);
+  if (!isAutonomousTerritoryControlAllowedForColony(colony)) {
+    if (activePipeline) {
+      return abortExpansionPipeline(
+        territoryMemory,
+        activePipeline,
+        AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON,
+        gameTime,
+        "unmetPreconditions"
+      );
+    }
+    prunePipelinePlans(territoryMemory, colonyName);
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: getPreControlGateSkipReason(report)
+    };
+  }
   if (activePipeline) {
     return refreshExpansionPipelineStage(colony, activePipeline, gameTime, telemetryEvents, territoryMemory);
   }
@@ -15402,6 +15449,15 @@ function getTriggerSkipReason(colony, report, territoryMemory, gameTime) {
     return "unmetPreconditions";
   }
   return "unavailable";
+}
+function getPreControlGateSkipReason(report) {
+  if (report.candidates.length === 0) {
+    return "noCandidate";
+  }
+  if (report.candidates.some((candidate) => candidate.evidenceStatus === "insufficient-evidence")) {
+    return "insufficientEvidence";
+  }
+  return "unmetPreconditions";
 }
 function createExpansionPipeline(colony, candidate, config, gameTime) {
   const directClaim = shouldDirectClaimScoutedCandidate(colony, candidate);
@@ -15848,7 +15904,7 @@ function isExpansionClaimState(state) {
   return state === "scouted" || state === "claiming" || state === "claimed";
 }
 function isExpansionAbortReason(reason) {
-  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing";
+  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing" || reason === "rcl6Gate";
 }
 function isFiniteNumber9(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -15930,6 +15986,15 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
   const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options);
   if (!selection) {
     return null;
+  }
+  if (!isAutonomousTerritoryControlSelectionAllowed(colony, selection)) {
+    if (shouldRefreshAutonomousTerritoryControlSuppression(colony, options)) {
+      suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
+    }
+    return null;
+  }
+  if (shouldRefreshAutonomousTerritoryControlSuppression(colony, options)) {
+    suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
   }
   const target = selection.target;
   const controllerId = (_b = target.controllerId) != null ? _b : isTerritoryControlAction3(selection.intentAction) ? (_a = getVisibleController2(target.roomName)) == null ? void 0 : _a.id : void 0;
@@ -16180,6 +16245,21 @@ function selectVisibleTerritoryControllerTask(creep) {
   if (!controller) {
     return null;
   }
+  if (isTerritoryControlAction3(intent.action) && !isAutonomousTerritoryControlAllowedForColonyName(intent.colony) && controller.my !== true) {
+    suppressTerritoryIntent(
+      intent.colony,
+      {
+        targetRoom: intent.targetRoom,
+        action: intent.action,
+        ...intent.controllerId ? { controllerId: intent.controllerId } : {},
+        ...intent.followUp ? { followUp: intent.followUp } : {}
+      },
+      getGameTime22(),
+      AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON
+    );
+    delete creep.memory.territory;
+    return null;
+  }
   if (intent.action === "reserve") {
     if (typeof creep.signController === "function" && shouldSignReservedController(controller, (_a = getTerritoryActorUsername(creep, intent.colony)) != null ? _a : void 0)) {
       return { type: "signController", targetId: controller.id };
@@ -16227,6 +16307,9 @@ function selectUrgentVisibleReservationRenewalTask(creep) {
   }
   const controller = selectCreepRoomController(creep, intent.controllerId);
   if (!controller) {
+    return null;
+  }
+  if (!isAutonomousTerritoryControlAllowedForColonyName(intent.colony) && controller.my !== true) {
     return null;
   }
   const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
@@ -16286,7 +16369,7 @@ function isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, cree
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
   return (controller == null ? void 0 : controller.my) === true && shouldSignOccupiedController(controller);
 }
-function suppressTerritoryIntent(colony, assignment, gameTime) {
+function suppressTerritoryIntent(colony, assignment, gameTime, reason) {
   if (!isNonEmptyString17(colony) || !isNonEmptyString17(assignment.targetRoom) || !isTerritoryIntentAction2(assignment.action)) {
     return;
   }
@@ -16310,6 +16393,7 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
     action: assignment.action,
     status: "suppressed",
     updatedAt: gameTime,
+    ...reason ? { reason } : {},
     ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...followUp ? { followUp } : {}
@@ -16317,6 +16401,91 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
   upsertTerritoryIntent4(intents, suppressedIntent);
   removeTerritoryFollowUpDemand(territoryMemory, colony, assignment.targetRoom, assignment.action);
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
+}
+function suppressAutonomousTerritoryControlIntents(colonyName, gameTime) {
+  const territoryMemory = getTerritoryMemoryRecord8();
+  if (!territoryMemory) {
+    return;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const suppressedKeys = /* @__PURE__ */ new Set();
+  if (Array.isArray(territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget3(rawTarget);
+      if (!target || !shouldSuppressAutonomousTerritoryControlTarget(target, colonyName)) {
+        continue;
+      }
+      upsertTerritoryIntent4(intents, {
+        colony: target.colony,
+        targetRoom: target.roomName,
+        action: target.action,
+        status: "suppressed",
+        updatedAt: gameTime,
+        reason: AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
+        ...target.createdBy ? { createdBy: target.createdBy } : {},
+        ...target.controllerId ? { controllerId: target.controllerId } : {},
+        ...target.postClaimBootstrapReserveEnergy ? { postClaimBootstrapReserveEnergy: target.postClaimBootstrapReserveEnergy } : {}
+      });
+      suppressedKeys.add(getTerritoryIntentKey(target.colony, target.roomName, target.action));
+    }
+  }
+  for (let index = 0; index < intents.length; index += 1) {
+    const intent = intents[index];
+    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName, gameTime)) {
+      continue;
+    }
+    intents[index] = {
+      ...intent,
+      status: "suppressed",
+      updatedAt: gameTime,
+      reason: AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON
+    };
+    suppressedKeys.add(getTerritoryIntentKey(intent.colony, intent.targetRoom, intent.action));
+  }
+  for (const suppressedKey of suppressedKeys) {
+    const [colony, targetRoom, action] = suppressedKey.split(TERRITORY_ROUTE_DISTANCE_SEPARATOR3);
+    if (isTerritoryControlAction3(action)) {
+      removeTerritoryFollowUpDemand(territoryMemory, colony, targetRoom, action);
+      removeTerritoryFollowUpExecutionHint(territoryMemory, colony, targetRoom, action);
+    }
+  }
+}
+function isAutonomousTerritoryControlSelectionAllowed(colony, selection) {
+  var _a;
+  if (!isTerritoryControlAction3(selection.intentAction)) {
+    return true;
+  }
+  if (isAutonomousTerritoryControlAllowedForColony(colony)) {
+    return true;
+  }
+  return ((_a = getVisibleController2(selection.target.roomName, selection.target.controllerId)) == null ? void 0 : _a.my) === true;
+}
+function shouldRefreshAutonomousTerritoryControlSuppression(colony, options) {
+  return options.scoutOnly !== true && !isAutonomousTerritoryControlAllowedForColony(colony);
+}
+function filterAutonomousTerritoryControlCandidatesForColony(colony, candidates) {
+  if (isAutonomousTerritoryControlAllowedForColony(colony)) {
+    return candidates;
+  }
+  const allowedCandidates = candidates.filter(
+    (candidate) => isAutonomousTerritoryControlSelectionAllowed(colony, candidate)
+  );
+  return allowedCandidates.length > 0 ? allowedCandidates : candidates;
+}
+function isVisibleOwnedTerritoryControlTarget(targetRoom, controllerId) {
+  var _a;
+  return ((_a = getVisibleController2(targetRoom, controllerId)) == null ? void 0 : _a.my) === true;
+}
+function shouldSuppressAutonomousTerritoryControlTarget(target, colonyName) {
+  return target.colony === colonyName && target.enabled !== false && target.roomName !== colonyName && isTerritoryControlAction3(target.action) && !isVisibleOwnedTerritoryControlTarget(target.roomName, target.controllerId);
+}
+function shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName, gameTime) {
+  const shouldRefreshSuppressedIntent = intent.status === "suppressed" && (intent.reason === AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON || isRecoveredTerritoryFollowUpIntent(intent, gameTime));
+  return intent.colony === colonyName && intent.targetRoom !== colonyName && isTerritoryControlAction3(intent.action) && (intent.status === "planned" || intent.status === "active" || shouldRefreshSuppressedIntent) && !isVisibleOwnedTerritoryControlTarget(intent.targetRoom, intent.controllerId);
+}
+function getTerritoryIntentKey(colony, targetRoom, action) {
+  return `${colony}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${targetRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${action}`;
 }
 function suppressSameRoomClaimTerritoryIntents(territoryMemory, intents, colony, targetRoom, gameTime) {
   let hasSuppressedClaimIntent = false;
@@ -16675,12 +16844,15 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     gameTime
   );
-  const primaryCandidates = getSpawnCapableTerritoryCandidates(
-    filterTerritoryCandidatesForPlanningOptions(
-      [...persistedIntentCandidates, ...configuredCandidates],
-      options
-    ),
-    colony
+  const primaryCandidates = filterAutonomousTerritoryControlCandidatesForColony(
+    colony,
+    getSpawnCapableTerritoryCandidates(
+      filterTerritoryCandidatesForPlanningOptions(
+        [...persistedIntentCandidates, ...configuredCandidates],
+        options
+      ),
+      colony
+    )
   );
   if (options.scoutOnly !== true) {
     const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
@@ -16773,7 +16945,10 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     options
   );
-  const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
+  const candidates = filterAutonomousTerritoryControlCandidatesForColony(
+    colony,
+    getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony)
+  );
   if (options.scoutOnly === true) {
     return toSelectedTerritoryTarget(
       (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates),
@@ -33553,7 +33728,7 @@ function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options)
   };
 }
 function planPostClaimControllerDefenseSpawn(context) {
-  if (context.survival.mode !== "TERRITORY_READY") {
+  if (context.survival.mode === "BOOTSTRAP") {
     return null;
   }
   const defensePlan = selectPostClaimControllerDefensePlan(context.colony);
@@ -41029,8 +41204,14 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     if (shouldHoldTerritoryScout(colonyStageAssessment)) {
       return;
     }
-  } else if (suppressesTerritoryWork(colonyStageAssessment)) {
-    return;
+  } else {
+    if (!isAutonomousTerritoryControlAllowedForColonyName(creep.memory.colony) && !isVisibleOwnedTerritoryAssignment(assignment)) {
+      suppressTerritoryAssignment(creep, assignment, AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON);
+      return;
+    }
+    if (suppressesTerritoryWork(colonyStageAssessment)) {
+      return;
+    }
   }
   if (isVisibleTerritoryAssignmentComplete(assignment, creep)) {
     completeTerritoryAssignment(creep);
@@ -41297,8 +41478,8 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   }
   return true;
 }
-function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime38());
+function suppressTerritoryAssignment(creep, assignment, reason) {
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime38(), reason);
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -41377,6 +41558,10 @@ function selectVisibleTargetRoomController(assignment) {
     }
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
+}
+function isVisibleOwnedTerritoryAssignment(assignment) {
+  var _a;
+  return ((_a = selectVisibleTargetRoomController(assignment)) == null ? void 0 : _a.my) === true;
 }
 function getGameTime38() {
   var _a;
@@ -41579,7 +41764,7 @@ function getExpansionExecutorAvailableEnergyState(energyAvailable) {
 }
 function isExpansionExecutorClaimReady(colony, gameTime) {
   const controller = colony.room.controller;
-  return (controller == null ? void 0 : controller.my) === true && isFiniteNumber11(controller.level) && controller.level >= 2 && countActiveExpansionExecutorSpawns(colony) > 0 && !hasExpansionExecutorActiveHostiles(colony.room) && getExpansionExecutorThreatState(colony.room.name, gameTime) === "none" && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
+  return isAutonomousTerritoryControlAllowedForController(controller) && countActiveExpansionExecutorSpawns(colony) > 0 && !hasExpansionExecutorActiveHostiles(colony.room) && getExpansionExecutorThreatState(colony.room.name, gameTime) === "none" && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
 }
 function getExpansionExecutorVisibleHostileState(room) {
   return hasExpansionExecutorActiveHostiles(room) ? "visibleHostile" : "visibleSafe";
@@ -41941,6 +42126,9 @@ function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime41()
 function selectAdjacentRoomReservationPlan(colony, options = {}) {
   var _a, _b;
   const colonyName = colony.room.name;
+  if (!isAutonomousTerritoryControlAllowedForController(colony.room.controller)) {
+    return { status: "skipped", colony: colonyName, reason: "controllerLevelLow" };
+  }
   const claimBlocker = (_b = (_a = getAdjacentRoomClaimBlocker(colony)) != null ? _a : options.claimBlocker) != null ? _b : null;
   if (!claimBlocker && options.reserveWhenClaimAllowed !== true) {
     return { status: "skipped", colony: colonyName, reason: "claimAllowed" };
@@ -43668,8 +43856,6 @@ function compareOptionalNumbers10(left, right) {
 var DEFAULT_STRATEGY_RECOMMENDATION_CONFIDENCE_THRESHOLD = 0.7;
 var MAX_RECOMMENDATIONS = 5;
 var LOW_RCL_ENERGY_CAPACITY_TARGET = 550;
-var TERRITORY_READY_RCL = 3;
-var EXPANSION_READY_RCL = 4;
 var HIGH_RCL = 5;
 var CRITICAL_REPAIR_BACKLOG_HITS = 1e5;
 function rejectUncertain(recommendations, threshold = DEFAULT_STRATEGY_RECOMMENDATION_CONFIDENCE_THRESHOLD) {
@@ -43700,7 +43886,7 @@ function generateStrategyRecommendations(roomState) {
         reasoning: `hostile pressure visible in ${state.roomName}; keep strategy shadowed on active defense posture`
       })
     );
-  } else if (state.controllerLevel >= TERRITORY_READY_RCL && state.towerCount === 0) {
+  } else if (state.controllerLevel >= 3 && state.towerCount === 0) {
     recommendations.push(
       makeRecommendation({
         constructionPreset: "tower-bootstrap",
@@ -43748,7 +43934,7 @@ function generateStrategyRecommendations(roomState) {
     );
   }
   const remoteTarget = selectBestTerritoryCandidate(state.territory.remoteTargets);
-  if (remoteTarget && state.controllerLevel >= TERRITORY_READY_RCL && state.workerCount >= 3 && hostilePressure === 0) {
+  if (remoteTarget && state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL && state.workerCount >= 3 && hostilePressure === 0) {
     recommendations.push(
       makeRecommendation({
         remoteTarget: remoteTarget.roomName,
@@ -43759,7 +43945,7 @@ function generateStrategyRecommendations(roomState) {
     );
   }
   const expansionCandidate = selectBestTerritoryCandidate(state.territory.expansionCandidates);
-  if (expansionCandidate && state.controllerLevel >= EXPANSION_READY_RCL && state.workerCount >= 4 && hostilePressure === 0) {
+  if (expansionCandidate && state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL && state.workerCount >= 4 && hostilePressure === 0) {
     recommendations.push(
       makeRecommendation({
         expansionCandidate: expansionCandidate.roomName,

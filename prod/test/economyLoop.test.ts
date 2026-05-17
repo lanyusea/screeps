@@ -692,7 +692,8 @@ describe('runEconomy', () => {
     const primaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W1N1',
       energyAvailable: 650,
-      energyCapacityAvailable: 650
+      energyCapacityAvailable: 650,
+      controllerLevel: 6
     });
     const secondaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W2N1',
@@ -742,7 +743,8 @@ describe('runEconomy', () => {
     const primaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W1N1',
       energyAvailable: 650,
-      energyCapacityAvailable: 650
+      energyCapacityAvailable: 650,
+      controllerLevel: 6
     });
     const secondaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W2N1',
@@ -807,7 +809,8 @@ describe('runEconomy', () => {
     const primaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W1N1',
       energyAvailable: 650,
-      energyCapacityAvailable: 650
+      energyCapacityAvailable: 650,
+      controllerLevel: 6
     });
     const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
     const spawn = {
@@ -855,12 +858,14 @@ describe('runEconomy', () => {
     const primaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W1N1',
       energyAvailable: 650,
-      energyCapacityAvailable: 650
+      energyCapacityAvailable: 650,
+      controllerLevel: 6
     });
     const secondaryRoom = makeSpawnCoordinationRoom({
       roomName: 'W2N1',
       energyAvailable: 650,
-      energyCapacityAvailable: 650
+      energyCapacityAvailable: 650,
+      controllerLevel: 6
     });
     const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
     const primarySpawn = {
@@ -1714,6 +1719,18 @@ describe('runEconomy', () => {
   });
 
   it('runs existing territory controller creeps', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const homeRoom = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
+    const makeReadyWorker = (name: string): Creep =>
+      ({
+        name,
+        memory: { role: 'worker', colony: 'W1N1' },
+        room: homeRoom,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        }
+      }) as unknown as Creep;
     const controller = { id: 'controller1', my: false } as StructureController;
     const creep = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
@@ -1724,9 +1741,14 @@ describe('runEconomy', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 300,
-      rooms: {},
+      rooms: { W1N1: homeRoom },
       spawns: {},
-      creeps: { Reserver1: creep }
+      creeps: {
+        Reserver1: creep,
+        Worker1: makeReadyWorker('Worker1'),
+        Worker2: makeReadyWorker('Worker2'),
+        Worker3: makeReadyWorker('Worker3')
+      }
     };
 
     runEconomy();
@@ -1739,7 +1761,8 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn = {
@@ -1828,7 +1851,8 @@ describe('runEconomy', () => {
     };
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 6
     });
     const spawn = {
       name: 'Spawn1',
@@ -1905,7 +1929,8 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn = {
@@ -1985,7 +2010,8 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn = {
@@ -2046,7 +2072,8 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 1_300,
-      energyCapacityAvailable: 1_300
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn = {
@@ -2081,13 +2108,18 @@ describe('runEconomy', () => {
       W1N1: room,
       W2N1: targetRoom,
       W3N1: makeOwnedEconomyRoom('W3N1'),
-      W4N1: makeOwnedEconomyRoom('W4N1')
+      W4N1: makeOwnedEconomyRoom('W4N1'),
+      W5N1: makeOwnedEconomyRoom('W5N1'),
+      W6N1: makeOwnedEconomyRoom('W6N1'),
+      W7N1: makeOwnedEconomyRoom('W7N1'),
+      W8N1: makeOwnedEconomyRoom('W8N1'),
+      W9N1: makeOwnedEconomyRoom('W9N1')
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(11);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',
@@ -2130,7 +2162,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const workers = {
       Worker1: makeEconomyWorker(room),
@@ -2202,7 +2234,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: { targets: [recommendationTarget] }
     };
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const workers = {
       Worker1: makeEconomyWorker(room),
@@ -2215,7 +2247,12 @@ describe('runEconomy', () => {
         W1N1: room,
         W2N1: targetRoom,
         W3N1: makeOwnedEconomyRoom('W3N1'),
-        W4N1: makeOwnedEconomyRoom('W4N1')
+        W4N1: makeOwnedEconomyRoom('W4N1'),
+        W5N1: makeOwnedEconomyRoom('W5N1'),
+        W6N1: makeOwnedEconomyRoom('W6N1'),
+        W7N1: makeOwnedEconomyRoom('W7N1'),
+        W8N1: makeOwnedEconomyRoom('W8N1'),
+        W9N1: makeOwnedEconomyRoom('W9N1')
       },
       spawns: {},
       creeps: workers,
@@ -2298,7 +2335,7 @@ describe('runEconomy', () => {
         ]
       }
     };
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
     const workers = {
       Worker1: makeEconomyWorker(room),
@@ -2311,7 +2348,12 @@ describe('runEconomy', () => {
         W1N1: room,
         W2N1: targetRoom,
         W3N1: makeOwnedEconomyRoom('W3N1'),
-        W4N1: makeOwnedEconomyRoom('W4N1')
+        W4N1: makeOwnedEconomyRoom('W4N1'),
+        W5N1: makeOwnedEconomyRoom('W5N1'),
+        W6N1: makeOwnedEconomyRoom('W6N1'),
+        W7N1: makeOwnedEconomyRoom('W7N1'),
+        W8N1: makeOwnedEconomyRoom('W8N1'),
+        W9N1: makeOwnedEconomyRoom('W9N1')
       },
       spawns: {},
       creeps: workers,
@@ -2377,7 +2419,8 @@ describe('runEconomy', () => {
     };
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 4_050,
-      energyCapacityAvailable: 4_050
+      energyCapacityAvailable: 4_050,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleForeignReservedRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn1 = {
@@ -2489,7 +2532,8 @@ describe('runEconomy', () => {
     };
     const room = makeTerritoryReadyEconomyRoom({
       energyAvailable: 4_050,
-      energyCapacityAvailable: 4_050
+      energyCapacityAvailable: 4_050,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
     let spawn = {} as StructureSpawn;
@@ -2688,6 +2732,7 @@ describe('runEconomy', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
         intents: [
           {
             colony: 'W1N1',
@@ -2701,8 +2746,9 @@ describe('runEconomy', () => {
       }
     };
     const room = makeTerritoryReadyEconomyRoom({
-      energyAvailable: 1_450,
-      energyCapacityAvailable: 1_450
+      energyAvailable: 2_200,
+      energyCapacityAvailable: 2_200,
+      controllerLevel: 6
     });
     const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn1 = {
@@ -2724,6 +2770,7 @@ describe('runEconomy', () => {
     };
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 324,
+      gcl: { level: 1 } as GlobalControlLevel,
       rooms: { W1N1: room, W2N1: targetRoom },
       spawns: { Spawn1: spawn1, Spawn2: spawn2 },
       creeps: workers,
@@ -2741,7 +2788,7 @@ describe('runEconomy', () => {
         memory: { role: 'worker', colony: 'W1N1' }
       }
     );
-    expect(spawn2.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-324-2', {
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(['claim', 'claim', 'move', 'move'], 'claimer-W1N1-W2N1-324-2', {
       memory: {
         role: 'claimer',
         colony: 'W1N1',
@@ -2761,6 +2808,7 @@ describe('runEconomy', () => {
         status: 'planned',
         updatedAt: 324,
         controllerId: 'controller2',
+        createdBy: 'occupationRecommendation',
         followUp
       }
     ]);
@@ -2799,7 +2847,7 @@ describe('runEconomy', () => {
         ]
       }
     };
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
     const followUpRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
     const configuredClaimRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
     const spawn = {
@@ -4007,9 +4055,11 @@ function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>, spawnTi
 function makeTerritoryReadyEconomyRoom(options: {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
+  controllerLevel?: number;
 } = {}): Room {
   const energyCapacityAvailable = options.energyCapacityAvailable ?? 650 + MIN_SPAWN_ENERGY_BUFFER;
   const energyAvailable = Math.min(options.energyAvailable ?? energyCapacityAvailable, energyCapacityAvailable);
+  const controllerLevel = options.controllerLevel ?? 3;
 
   return {
     name: 'W1N1',
@@ -4018,7 +4068,7 @@ function makeTerritoryReadyEconomyRoom(options: {
     controller: {
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'home-source' } as Source] : []))

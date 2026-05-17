@@ -3,6 +3,7 @@ import { buildTerritoryControllerBody } from '../src/spawn/bodyBuilder';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS } from '../src/territory/claimExecutor';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
+import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 
 describe('runClaimer', () => {
   beforeEach(() => {
@@ -13,6 +14,7 @@ describe('runClaimer', () => {
       time: 500,
       getObjectById: jest.fn().mockReturnValue(null)
     } as Partial<Game>;
+    installVisibleOwnedRcl6ColonyRoomDefault();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
   });
 

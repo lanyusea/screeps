@@ -46,6 +46,7 @@ import {
   TERRITORY_RESERVATION_RENEWAL_TICKS
 } from '../src/territory/territoryPlanner';
 import { MINIMUM_WORKER_SPAWN_ENERGY } from '../src/economy/energyBuffer';
+import { ensureVisibleOwnedRcl6ColonyRoom } from './helpers/territoryControlGate';
 
 const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
 const TEST_ERR_NO_PATH = -2 as const;
@@ -7722,6 +7723,7 @@ describe('selectWorkerTask', () => {
       },
       room
     } as unknown as Creep;
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
     expect(room.find).not.toHaveBeenCalledWith(FIND_MY_STRUCTURES, expect.anything());
@@ -7760,6 +7762,7 @@ describe('selectWorkerTask', () => {
         store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
         room
       }) as unknown as Creep;
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(makeCreep(1))).toEqual({ type: 'build', targetId: 'site1' });
     expect(selectWorkerTask(makeCreep(5))).toEqual({ type: 'reserve', targetId: 'controller2' });
@@ -7779,6 +7782,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
     expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
@@ -7954,6 +7958,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
     expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
@@ -8179,6 +8184,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
@@ -8206,22 +8212,26 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
 
   it('renews an emergency own visible reservation before local construction with one CLAIM part', () => {
+    const installActiveReserveIntent = (): void => {
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: {
+          intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
+        }
+      };
+    };
     const controller = {
       id: 'controller2',
       my: false,
       reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
     } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
-    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
-      territory: {
-        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
-      }
-    };
+    installActiveReserveIntent();
     const creep = {
       owner: { username: 'me' },
       memory: { role: 'worker', colony: 'W1N1' },
@@ -8233,6 +8243,20 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+    expect(Memory.territory?.intents).toEqual([
+      expect.objectContaining({
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        reason: 'controllerLevel'
+      })
+    ]);
+
+    installActiveReserveIntent();
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
@@ -8314,6 +8338,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
@@ -8363,6 +8388,7 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'claim', targetId: 'controller2' });
   });
@@ -8389,6 +8415,7 @@ describe('selectWorkerTask', () => {
         store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
         room
       }) as unknown as Creep;
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(makeCreep(1))).toEqual({ type: 'build', targetId: 'site1' });
     const pressureCreep = makeCreep(5);

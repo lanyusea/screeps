@@ -104,7 +104,7 @@ describe('strategy recommender', () => {
   it('recommends safe remote targets for territory-ready rooms', () => {
     const recommendations = generateStrategyRecommendations({
       ...makeStableLowRclRoom(),
-      controllerLevel: 3,
+      controllerLevel: 6,
       workerCount: 4,
       territory: {
         remoteTargets: [
@@ -120,6 +120,41 @@ describe('strategy recommender', () => {
       })
     );
   });
+
+  it.each([2, 3, 4, 5])(
+    'does not recommend controller-control territory at RCL %i',
+    (controllerLevel) => {
+      const recommendations = generateStrategyRecommendations({
+        ...makeStableHighRclRoom(),
+        controllerLevel,
+        territory: {
+          remoteTargets: [
+            {
+              roomName: 'W1N2',
+              action: 'reserve',
+              score: 900,
+              routeDistance: 1,
+              sourceCount: 2,
+              evidenceStatus: 'sufficient'
+            }
+          ],
+          expansionCandidates: [
+            {
+              roomName: 'W2N1',
+              action: 'claim',
+              score: 900,
+              routeDistance: 1,
+              sourceCount: 2,
+              evidenceStatus: 'sufficient'
+            }
+          ]
+        }
+      });
+
+      expect(recommendations.some((recommendation) => recommendation.remoteTarget)).toBe(false);
+      expect(recommendations.some((recommendation) => recommendation.expansionCandidate)).toBe(false);
+    }
+  );
 
   it('recommends expansion candidates for high-confidence high-RCL rooms', () => {
     const recommendations = generateStrategyRecommendations(makeStableHighRclRoom());
@@ -187,7 +222,7 @@ function makeStableLowRclRoom(): StrategyRecommendationRoomState {
 function makeStableHighRclRoom(): StrategyRecommendationRoomState {
   return {
     roomName: 'W1N1',
-    controllerLevel: 5,
+    controllerLevel: 6,
     creepCount: 8,
     workerCount: 6,
     energyAvailable: 1300,

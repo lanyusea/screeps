@@ -318,7 +318,7 @@ describe('E17S60 claimer dispatch and buildout', () => {
 function makeHomeColony(): ColonySnapshot {
   const room = makeRoom({
     roomName: 'E17S59',
-    controllerLevel: 4,
+    controllerLevel: 6,
     sources: [
       makeSource('source-e17s59-a', 10, 10, 'E17S59'),
       makeSource('source-e17s59-b', 40, 40, 'E17S59')

@@ -47,7 +47,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
     const selectedScore = scoreClaimTarget('W1N2', colony.room).score;
 
@@ -110,7 +110,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
     const selectedScore = scoreClaimTarget('W1N2', colony.room).score;
 
@@ -150,7 +150,7 @@ describe('colony expansion planner', () => {
       workerTarget: 3,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
 
     const evaluation = refreshColonyExpansionIntent(colony, bootstrapAssessment, 210);
@@ -207,7 +207,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
 
     const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 215);
@@ -257,7 +257,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 1_000,
       energyCapacityAvailable: 1_000,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
     const duplicateScore = scoreClaimTarget('W2N1', colony.room).score;
 
@@ -305,7 +305,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
     const eligibleScore = scoreClaimTarget('W2N1', colony.room).score;
     const subThresholdScore = scoreClaimTarget('W1N2', colony.room).score;
@@ -349,7 +349,7 @@ describe('colony expansion planner', () => {
       energyAvailable: 650,
       energyCapacityAvailable: 650,
       defenseFloorReady: true,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
     });
 
     const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 220);
@@ -393,7 +393,7 @@ function makeColony({
     mineralType,
     controller: {
       my: true,
-      level: 3,
+      level: 6,
       ticksToDowngrade: 10_000,
       owner: { username: 'me' }
     }
