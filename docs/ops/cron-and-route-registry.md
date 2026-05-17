@@ -87,6 +87,7 @@ Repeat policy values:
 | Screeps RL training execution ledger | `5c869e7d8a1d` | `29 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns. |
 | Screeps RL policy online advantage ledger | `01609968392a` | `43 */6 * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
 | Hermes state daily backup | `bf68a3951853` | `0 4 * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | Support | Daily private Hermes-state backup. |
+| Screeps Tencent Cloud $50 billing guard | `d3513ab57840` | `6 * * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `/root/screeps` | `high-horizon` | P1 | Local billing-safety guard for Tencent Cloud RL batch-compute experiments. |
 
 ## Transient and retired cron jobs
 
