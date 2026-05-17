@@ -101,6 +101,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(card["conservative_actions_only"])
         self.assertTrue(card["ood_rejection"])
         self.assertEqual(policy_gradient["target_family"], "construction-priority")
+        runner_support = policy_gradient["runner_support"]
         self.assertEqual(
             learnable_names,
             [
@@ -111,8 +112,10 @@ class RlExperimentCardTest(unittest.TestCase):
                 "riskPenalty",
             ],
         )
-        self.assertFalse(policy_gradient["runner_support"]["inline_candidates_applied_to_simulator"])
-        self.assertTrue(policy_gradient["runner_support"]["report_preserves_candidate_parameters"])
+        self.assertFalse(runner_support["inline_candidates_applied_to_simulator"])
+        self.assertEqual(runner_support["simulator_variant_transport"], "variant_ids_only")
+        self.assertTrue(runner_support["report_preserves_candidate_parameters"])
+        self.assertTrue(runner_support["candidate_policy_id_preserved"])
         self.assertEqual(
             [candidate["candidatePolicyId"] for candidate in candidates],
             [
@@ -216,6 +219,36 @@ class RlExperimentCardTest(unittest.TestCase):
         with self.assertRaisesRegex(
             card_helper.CardValidationError,
             "candidate_parameter_vectors\\[0\\].parameters.territorySignalWeight must be within registry knob bounds",
+        ):
+            card_helper.validate_card(card)
+
+    def test_validate_policy_gradient_rejects_unsupported_runner_transport(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-runner-transport",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["policy_gradient"]["runner_support"]["simulator_variant_transport"] = "inline_vectors"
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "runner_support.simulator_variant_transport must be variant_ids_only",
+        ):
+            card_helper.validate_card(card)
+
+    def test_validate_policy_gradient_rejects_unpreserved_candidate_policy_id(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-runner-candidate-id",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["policy_gradient"]["runner_support"]["candidate_policy_id_preserved"] = False
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "runner_support.candidate_policy_id_preserved must be true",
         ):
             card_helper.validate_card(card)
 

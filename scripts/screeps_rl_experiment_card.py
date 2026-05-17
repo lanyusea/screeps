@@ -658,12 +658,21 @@ def validate_policy_gradient(raw: Any) -> None:
     inline_applied = first_present(support, ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"))
     if inline_applied is not False:
         raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be false")
+    transport = first_present(support, ("simulator_variant_transport", "simulatorVariantTransport"))
+    if transport != "variant_ids_only":
+        raise CardValidationError("policy_gradient.runner_support.simulator_variant_transport must be variant_ids_only")
     preserves_parameters = first_present(
         support,
         ("report_preserves_candidate_parameters", "reportPreservesCandidateParameters"),
     )
     if preserves_parameters is not True:
         raise CardValidationError("policy_gradient.runner_support.report_preserves_candidate_parameters must be true")
+    preserves_candidate_policy_id = first_present(
+        support,
+        ("candidate_policy_id_preserved", "candidatePolicyIdPreserved"),
+    )
+    if preserves_candidate_policy_id is not True:
+        raise CardValidationError("policy_gradient.runner_support.candidate_policy_id_preserved must be true")
 
     safety = raw.get("safety")
     if safety is not None:
