@@ -70,6 +70,77 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(config.repetitions, 1)
         self.assertEqual(config.branch, "$activeWorld")
 
+    def test_policy_gradient_construction_priority_card_is_runner_valid(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-000001",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=5,
+        )
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+        variants = runner.load_strategy_variants(
+            card,
+            registry_path=REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts",
+        )
+        config = runner.simulation_config_from_card(card)
+        policy_gradient = card["policy_gradient"]
+        candidates = policy_gradient["candidate_parameter_vectors"]
+        learnable_names = [item["name"] for item in policy_gradient["learnable_parameters"]]
+
+        self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(config.ticks, 100)
+        self.assertEqual(config.repetitions, 5)
+        self.assertFalse(card["liveEffect"])
+        self.assertFalse(card["officialMmoWrites"])
+        self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertTrue(card["conservative_actions_only"])
+        self.assertTrue(card["ood_rejection"])
+        self.assertEqual(policy_gradient["target_family"], "construction-priority")
+        self.assertEqual(
+            learnable_names,
+            [
+                "baseScoreWeight",
+                "territorySignalWeight",
+                "resourceSignalWeight",
+                "killSignalWeight",
+                "riskPenalty",
+            ],
+        )
+        self.assertFalse(policy_gradient["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(policy_gradient["runner_support"]["report_preserves_candidate_parameters"])
+        self.assertEqual(
+            [candidate["candidatePolicyId"] for candidate in candidates],
+            [
+                "construction-priority.pg.incumbent-seed.v1",
+                "construction-priority.pg.territory-seed.v1",
+                "construction-priority.pg.resource-seed.v1",
+                "construction-priority.pg.risk-aware-seed.v1",
+            ],
+        )
+        self.assertEqual([variant.candidate_policy_id for variant in variants], [candidate["candidatePolicyId"] for candidate in candidates])
+        self.assertEqual(variants[0].parameters["baseScoreWeight"], 1)
+        self.assertEqual(variants[1].parameters["territorySignalWeight"], 22)
+        for candidate in candidates:
+            self.assertEqual(set(candidate["parameters"]), set(learnable_names))
+            self.assertFalse(candidate["parameterEvidence"]["liveEffect"])
+            self.assertFalse(candidate["parameterEvidence"]["officialMmoWrites"])
+
+    def test_default_policy_gradient_card_requests_loop_a_run_floor(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-defaults",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        config = runner.simulation_config_from_card(card)
+
+        self.assertGreaterEqual(config.ticks, 100)
+        self.assertGreaterEqual(config.repetitions, 5)
+
     def test_generated_simulation_paths_are_harness_defaults_from_arbitrary_cwd(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-cwd-safe-000000",
@@ -140,6 +211,20 @@ class RlExperimentCardTest(unittest.TestCase):
                 self.assertEqual(config.repetitions, 1)
                 self.assertEqual(config.host_port_start, 24125)
 
+    def test_validate_rejects_top_level_true_safety_regression(self) -> None:
+        for field in ("conservative_actions_only", "ood_rejection"):
+            with self.subTest(field=field):
+                card = card_helper.build_card(
+                    dataset_run_id=f"rl-safety-{field}",
+                    code_commit="2" * 40,
+                    training_approach="policy_gradient",
+                    created_at="2026-05-17T00:25:00Z",
+                )
+                card[field] = False
+
+                with self.assertRaisesRegex(card_helper.CardValidationError, f"{field} must be true"):
+                    card_helper.validate_card(card)
+
     def test_cli_generation_outputs_training_runner_valid_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "card.json"
@@ -162,6 +247,40 @@ class RlExperimentCardTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
+
+    def test_cli_generation_accepts_policy_gradient_ticks_and_repetitions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "card.json"
+            exit_code = card_helper.main(
+                [
+                    "--dataset-run-id",
+                    "rl-policy-gradient-cli",
+                    "--code-commit",
+                    "3" * 40,
+                    "--training-approach",
+                    "policy_gradient",
+                    "--created-at",
+                    "2026-05-17T00:25:00Z",
+                    "--ticks",
+                    "125",
+                    "--repetitions",
+                    "6",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.ticks, 125)
+        self.assertEqual(config.repetitions, 6)
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
 
 
 if __name__ == "__main__":

@@ -33,8 +33,74 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SIMULATION_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
 DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
+DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
+DEFAULT_SIMULATION_TICKS = 50
+DEFAULT_SIMULATION_REPETITIONS = 1
+DEFAULT_SIMULATION_WORKERS = 1
+POLICY_GRADIENT_SIMULATION_TICKS = 100
+POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
 
 JsonObject = dict[str, Any]
+
+CONSTRUCTION_PRIORITY_FAMILY = "construction-priority"
+CONSTRUCTION_PRIORITY_REGISTRY_IDS = (
+    "construction-priority.incumbent.v1",
+    "construction-priority.territory-shadow.v1",
+)
+CONSTRUCTION_PRIORITY_KNOBS: tuple[JsonObject, ...] = (
+    {
+        "name": "baseScoreWeight",
+        "min": 0,
+        "max": 3,
+        "step": 0.1,
+        "description": "Weight applied to the already-emitted incumbent construction score.",
+    },
+    {
+        "name": "territorySignalWeight",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "description": "Weight for territory-first expected KPI signals.",
+    },
+    {
+        "name": "resourceSignalWeight",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "description": "Weight for resource-scaling expected KPI signals.",
+    },
+    {
+        "name": "killSignalWeight",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "description": "Weight for enemy-kill or defense-posture signals.",
+    },
+    {
+        "name": "riskPenalty",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "description": "Penalty per visible risk or blocking precondition.",
+    },
+)
+CONSTRUCTION_PRIORITY_KNOB_NAMES = tuple(str(knob["name"]) for knob in CONSTRUCTION_PRIORITY_KNOBS)
+CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS: dict[str, JsonObject] = {
+    "construction-priority.incumbent.v1": {
+        "baseScoreWeight": 1,
+        "territorySignalWeight": 6,
+        "resourceSignalWeight": 4,
+        "killSignalWeight": 6,
+        "riskPenalty": 4,
+    },
+    "construction-priority.territory-shadow.v1": {
+        "baseScoreWeight": 1,
+        "territorySignalWeight": 22,
+        "resourceSignalWeight": 3,
+        "killSignalWeight": 5,
+        "riskPenalty": 4,
+    },
+}
 
 
 class CardValidationError(ValueError):
@@ -105,17 +171,22 @@ def safety_block() -> JsonObject:
     }
 
 
-def simulation_block() -> JsonObject:
+def simulation_block(
+    *,
+    ticks: int = DEFAULT_SIMULATION_TICKS,
+    workers: int = DEFAULT_SIMULATION_WORKERS,
+    repetitions: int = DEFAULT_SIMULATION_REPETITIONS,
+) -> JsonObject:
     return {
         "branch": "$activeWorld",
         "code_path": str(DEFAULT_SIMULATION_CODE_PATH),
         "map_source_file": str(DEFAULT_SIMULATION_MAP_SOURCE_FILE),
-        "repetitions": 1,
+        "repetitions": repetitions,
         "room": "E1S1",
         "shard": "shardX",
         "simulator_out_dir": str(DEFAULT_SIMULATION_OUT_DIR),
-        "ticks": 50,
-        "workers": 1,
+        "ticks": ticks,
+        "workers": workers,
     }
 
 
@@ -125,12 +196,32 @@ def build_card(
     code_commit: str,
     training_approach: str,
     created_at: str,
+    simulation_ticks: int | None = None,
+    simulation_repetitions: int | None = None,
+    simulation_workers: int | None = None,
+    registry_path: Path | None = None,
 ) -> JsonObject:
     validate_dataset_run_id(dataset_run_id)
     validate_code_commit(code_commit)
     validate_created_at(created_at)
     if training_approach not in TRAINING_APPROACHES:
         raise CardValidationError(f"training_approach must be one of: {', '.join(TRAINING_APPROACHES)}")
+
+    default_ticks = POLICY_GRADIENT_SIMULATION_TICKS if training_approach == "policy_gradient" else DEFAULT_SIMULATION_TICKS
+    default_repetitions = (
+        POLICY_GRADIENT_SIMULATION_REPETITIONS
+        if training_approach == "policy_gradient"
+        else DEFAULT_SIMULATION_REPETITIONS
+    )
+    ticks = require_positive_int(simulation_ticks if simulation_ticks is not None else default_ticks, "simulation.ticks")
+    repetitions = require_positive_int(
+        simulation_repetitions if simulation_repetitions is not None else default_repetitions,
+        "simulation.repetitions",
+    )
+    workers = require_positive_int(
+        simulation_workers if simulation_workers is not None else DEFAULT_SIMULATION_WORKERS,
+        "simulation.workers",
+    )
 
     commit_prefix = code_commit[:12].lower()
     card = {
@@ -145,13 +236,241 @@ def build_card(
         "ood_rejection": True,
         "reward_model": reward_model(),
         "safety": safety_block(),
-        "simulation": simulation_block(),
+        "simulation": simulation_block(ticks=ticks, workers=workers, repetitions=repetitions),
         "status": "shadow",
         "strategy_variants": list(DEFAULT_STRATEGY_VARIANTS),
         "training_approach": training_approach,
     }
+    if training_approach == "policy_gradient":
+        policy_gradient = policy_gradient_block(registry_path or DEFAULT_STRATEGY_REGISTRY_PATH)
+        card["policy_gradient"] = policy_gradient
+        card["strategy_variants"] = policy_gradient_strategy_variants(policy_gradient)
     validate_card(card)
     return card
+
+
+def require_positive_int(value: Any, label: str) -> int:
+    parsed = positive_int(value)
+    if parsed is None:
+        raise CardValidationError(f"{label} must be a positive integer")
+    return parsed
+
+
+def repo_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def policy_gradient_block(registry_path: Path) -> JsonObject:
+    candidates = policy_gradient_candidate_vectors(registry_path)
+    return {
+        "type": "construction-priority-policy-gradient-card",
+        "target_family": CONSTRUCTION_PRIORITY_FAMILY,
+        "candidate_policy_id_field": "candidatePolicyId",
+        "source_registry": repo_relative(registry_path),
+        "owning_issues": ["#1032", "#879", "#924"],
+        "learnable_parameters": construction_priority_learnable_parameters(registry_path),
+        "candidate_parameter_vectors": candidates,
+        "runner_support": {
+            "inline_candidates_applied_to_simulator": False,
+            "simulator_variant_transport": "variant_ids_only",
+            "report_preserves_candidate_parameters": True,
+            "candidate_policy_id_preserved": True,
+            "limitation": (
+                "scripts/screeps_rl_training_runner.py currently sends simulator variants by id only; "
+                "inline policy-gradient parameter vectors are preserved in card/report artifacts as offline evidence."
+            ),
+        },
+        "safety": safety_block(),
+    }
+
+
+def construction_priority_learnable_parameters(registry_path: Path) -> list[JsonObject]:
+    registry_source = repo_relative(registry_path)
+    return [
+        {
+            **dict(knob),
+            "source": f"{registry_source} knobBounds",
+            "family": CONSTRUCTION_PRIORITY_FAMILY,
+        }
+        for knob in CONSTRUCTION_PRIORITY_KNOBS
+    ]
+
+
+def policy_gradient_strategy_variants(policy_gradient: JsonObject) -> list[JsonObject]:
+    candidates = policy_gradient.get("candidate_parameter_vectors")
+    if not isinstance(candidates, list):
+        return []
+    variants: list[JsonObject] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        strategy_variant_id = candidate.get("strategyVariantId")
+        if not isinstance(strategy_variant_id, str):
+            continue
+        variants.append(
+            {
+                "id": strategy_variant_id,
+                "candidatePolicyId": candidate.get("candidatePolicyId"),
+                "sourceStrategyId": candidate.get("sourceStrategyId"),
+                "family": candidate.get("family"),
+                "rolloutStatus": candidate.get("rolloutStatus"),
+                "title": candidate.get("title"),
+                "trainingRole": "policy_gradient_candidate",
+                "parameters": candidate.get("parameters"),
+                "parameterEvidence": candidate.get("parameterEvidence"),
+            }
+        )
+    return variants
+
+
+def policy_gradient_candidate_vectors(registry_path: Path) -> list[JsonObject]:
+    registry_defaults = construction_priority_registry_defaults(registry_path)
+    incumbent_id = "construction-priority.incumbent.v1"
+    territory_id = "construction-priority.territory-shadow.v1"
+    incumbent = registry_defaults[incumbent_id]
+    territory = registry_defaults[territory_id]
+    candidates = [
+        policy_gradient_candidate(
+            candidate_policy_id="construction-priority.pg.incumbent-seed.v1",
+            source_strategy_id=incumbent_id,
+            rollout_status="incumbent",
+            title="Policy-gradient incumbent construction-priority seed",
+            parameters=incumbent,
+            derivation="registry defaultValues seed",
+            registry_path=registry_path,
+        ),
+        policy_gradient_candidate(
+            candidate_policy_id="construction-priority.pg.territory-seed.v1",
+            source_strategy_id=territory_id,
+            rollout_status="shadow",
+            title="Policy-gradient territory construction-priority seed",
+            parameters=territory,
+            derivation="registry defaultValues seed",
+            registry_path=registry_path,
+        ),
+        policy_gradient_candidate(
+            candidate_policy_id="construction-priority.pg.resource-seed.v1",
+            source_strategy_id=incumbent_id,
+            rollout_status="shadow",
+            title="Policy-gradient resource construction-priority seed",
+            parameters=bounded_construction_priority_parameters(
+                {
+                    **incumbent,
+                    "territorySignalWeight": 10,
+                    "resourceSignalWeight": 18,
+                    "killSignalWeight": 4,
+                    "riskPenalty": 4,
+                }
+            ),
+            derivation="bounded registry-knob perturbation from incumbent defaultValues",
+            registry_path=registry_path,
+        ),
+        policy_gradient_candidate(
+            candidate_policy_id="construction-priority.pg.risk-aware-seed.v1",
+            source_strategy_id=territory_id,
+            rollout_status="shadow",
+            title="Policy-gradient risk-aware construction-priority seed",
+            parameters=bounded_construction_priority_parameters(
+                {
+                    **territory,
+                    "territorySignalWeight": 18,
+                    "resourceSignalWeight": 5,
+                    "killSignalWeight": 6,
+                    "riskPenalty": 10,
+                }
+            ),
+            derivation="bounded registry-knob perturbation from territory-shadow defaultValues",
+            registry_path=registry_path,
+        ),
+    ]
+    return candidates
+
+
+def policy_gradient_candidate(
+    *,
+    candidate_policy_id: str,
+    source_strategy_id: str,
+    rollout_status: str,
+    title: str,
+    parameters: JsonObject,
+    derivation: str,
+    registry_path: Path,
+) -> JsonObject:
+    parameter_vector = bounded_construction_priority_parameters(parameters)
+    return {
+        "candidatePolicyId": candidate_policy_id,
+        "strategyVariantId": candidate_policy_id,
+        "sourceStrategyId": source_strategy_id,
+        "family": CONSTRUCTION_PRIORITY_FAMILY,
+        "rolloutStatus": rollout_status,
+        "title": title,
+        "parameters": parameter_vector,
+        "parameterEvidence": {
+            "sourceRegistry": repo_relative(registry_path),
+            "sourceStrategyId": source_strategy_id,
+            "learnableKnobs": list(CONSTRUCTION_PRIORITY_KNOB_NAMES),
+            "derivation": derivation,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    }
+
+
+def construction_priority_registry_defaults(registry_path: Path) -> dict[str, JsonObject]:
+    defaults = {
+        variant_id: dict(parameters)
+        for variant_id, parameters in CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS.items()
+    }
+    try:
+        import screeps_rl_training_runner as training_runner
+
+        registry = training_runner.load_strategy_registry(registry_path)
+    except Exception:
+        return defaults
+    for variant_id in CONSTRUCTION_PRIORITY_REGISTRY_IDS:
+        variant = registry.get(variant_id)
+        if variant is None:
+            continue
+        parameters = construction_priority_parameters_or_none(variant.parameters)
+        if parameters is not None:
+            defaults[variant_id] = parameters
+    return defaults
+
+
+def construction_priority_parameters_or_none(raw: Any) -> JsonObject | None:
+    if not isinstance(raw, dict):
+        return None
+    parameters: JsonObject = {}
+    for knob in CONSTRUCTION_PRIORITY_KNOB_NAMES:
+        value = raw.get(knob)
+        if not is_finite_number(value):
+            return None
+        parameters[knob] = value
+    return bounded_construction_priority_parameters(parameters)
+
+
+def bounded_construction_priority_parameters(raw: JsonObject) -> JsonObject:
+    bounded: JsonObject = {}
+    for knob in CONSTRUCTION_PRIORITY_KNOBS:
+        name = str(knob["name"])
+        value = raw.get(name)
+        if not is_finite_number(value):
+            raise CardValidationError(f"construction-priority parameter {name} must be a finite number")
+        minimum = float(knob["min"])
+        maximum = float(knob["max"])
+        numeric = float(value)
+        if numeric < minimum or numeric > maximum:
+            raise CardValidationError(f"construction-priority parameter {name} must be within registry knob bounds")
+        bounded[name] = int(numeric) if numeric.is_integer() else numeric
+    return bounded
+
+
+def is_finite_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
 
 
 def load_json(path: Path) -> Any:
@@ -203,6 +522,11 @@ def validate_card(raw: Any) -> None:
     validate_reward_model(raw.get("reward_model"))
     validate_strategy_variants(first_present(raw, ("strategy_variants", "strategyVariants", "variants")))
     validate_simulation(first_present(raw, ("simulation", "simulator")))
+    policy_gradient = first_present(raw, ("policy_gradient", "policyGradient"))
+    if training_approach == "policy_gradient" and policy_gradient is None:
+        raise CardValidationError("policy_gradient metadata is required when training_approach is policy_gradient")
+    if policy_gradient is not None:
+        validate_policy_gradient(policy_gradient)
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -226,6 +550,8 @@ def validate_safety(raw: JsonObject) -> None:
     for field in SAFETY_TRUE_FIELDS:
         if safety.get(field) is not True:
             raise CardValidationError(f"safety.{field} must be true")
+        if field in raw and raw[field] is not True:
+            raise CardValidationError(f"{field} must be true when present")
 
 
 def validate_reward_model(raw: Any) -> None:
@@ -271,6 +597,81 @@ def validate_strategy_variants(raw: Any) -> None:
 def validate_strategy_id(value: str, label: str) -> None:
     if not STRATEGY_ID_RE.fullmatch(value) or value in {".", ".."}:
         raise CardValidationError(f"{label} may contain only letters, numbers, dot, colon, underscore, and hyphen")
+
+
+def validate_policy_gradient(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError("policy_gradient must be a JSON object")
+    if raw.get("target_family", raw.get("targetFamily")) != CONSTRUCTION_PRIORITY_FAMILY:
+        raise CardValidationError("policy_gradient.target_family must be construction-priority")
+    learnable = first_present(raw, ("learnable_parameters", "learnableParameters"))
+    if not isinstance(learnable, list):
+        raise CardValidationError("policy_gradient.learnable_parameters must be a list")
+    learnable_names = []
+    for index, item in enumerate(learnable):
+        if not isinstance(item, dict):
+            raise CardValidationError(f"policy_gradient.learnable_parameters[{index}] must be an object")
+        name = item.get("name")
+        if not isinstance(name, str):
+            raise CardValidationError(f"policy_gradient.learnable_parameters[{index}].name must be a string")
+        learnable_names.append(name)
+    if learnable_names != list(CONSTRUCTION_PRIORITY_KNOB_NAMES):
+        raise CardValidationError("policy_gradient.learnable_parameters must match construction-priority registry knobs")
+
+    candidates = first_present(raw, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(candidates, list) or len(candidates) == 0:
+        raise CardValidationError("policy_gradient.candidate_parameter_vectors must contain at least one vector")
+    candidate_ids: set[str] = set()
+    for index, candidate in enumerate(candidates):
+        validate_policy_gradient_candidate(candidate, index)
+        assert isinstance(candidate, dict)
+        candidate_policy_id = candidate["candidatePolicyId"]
+        if candidate_policy_id in candidate_ids:
+            raise CardValidationError(f"duplicate policy_gradient candidatePolicyId: {candidate_policy_id}")
+        candidate_ids.add(candidate_policy_id)
+
+    support = first_present(raw, ("runner_support", "runnerSupport"))
+    if not isinstance(support, dict):
+        raise CardValidationError("policy_gradient.runner_support must be a JSON object")
+    inline_applied = first_present(support, ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"))
+    if inline_applied is not False:
+        raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be false")
+    preserves_parameters = first_present(
+        support,
+        ("report_preserves_candidate_parameters", "reportPreservesCandidateParameters"),
+    )
+    if preserves_parameters is not True:
+        raise CardValidationError("policy_gradient.runner_support.report_preserves_candidate_parameters must be true")
+
+    safety = raw.get("safety")
+    if safety is not None:
+        validate_safety({"safety": safety})
+
+
+def validate_policy_gradient_candidate(raw: Any, index: int) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}] must be an object")
+    for field in ("candidatePolicyId", "strategyVariantId", "sourceStrategyId", "family", "rolloutStatus"):
+        value = raw.get(field)
+        if not isinstance(value, str) or not value:
+            raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}].{field} must be a string")
+    validate_strategy_id(raw["candidatePolicyId"], f"policy_gradient.candidate_parameter_vectors[{index}].candidatePolicyId")
+    validate_strategy_id(raw["strategyVariantId"], f"policy_gradient.candidate_parameter_vectors[{index}].strategyVariantId")
+    validate_strategy_id(raw["sourceStrategyId"], f"policy_gradient.candidate_parameter_vectors[{index}].sourceStrategyId")
+    if raw["family"] != CONSTRUCTION_PRIORITY_FAMILY:
+        raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}].family must be construction-priority")
+    parameters = raw.get("parameters")
+    if not isinstance(parameters, dict):
+        raise CardValidationError(f"policy_gradient.candidate_parameter_vectors[{index}].parameters must be an object")
+    for knob in CONSTRUCTION_PRIORITY_KNOB_NAMES:
+        if knob not in parameters:
+            raise CardValidationError(
+                f"policy_gradient.candidate_parameter_vectors[{index}].parameters.{knob} is required"
+            )
+        if not is_finite_number(parameters[knob]):
+            raise CardValidationError(
+                f"policy_gradient.candidate_parameter_vectors[{index}].parameters.{knob} must be a finite number"
+            )
 
 
 def first_present(raw: JsonObject, keys: tuple[str, ...]) -> Any:
@@ -356,6 +757,16 @@ def run_self_test(stdout: TextIO) -> int:
     return 0
 
 
+def positive_int_arg(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate or validate offline/shadow Screeps RL experiment cards.",
@@ -383,6 +794,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--created-at",
         help="ISO UTC timestamp to record. Defaults to current UTC second.",
+    )
+    parser.add_argument(
+        "--ticks",
+        type=positive_int_arg,
+        help=(
+            "Simulation ticks to request. Defaults to 50, or 100 for policy_gradient cards."
+        ),
+    )
+    parser.add_argument(
+        "--repetitions",
+        type=positive_int_arg,
+        help=(
+            "Simulation repetitions to request. Defaults to 1, or 5 for policy_gradient cards."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=positive_int_arg,
+        help="Simulator worker count to request. Defaults to 1.",
     )
     parser.add_argument(
         "--dry-run",
@@ -440,6 +870,9 @@ def main(
             code_commit=args.code_commit or git_commit(repo),
             training_approach=args.training_approach,
             created_at=args.created_at or utc_now_iso(),
+            simulation_ticks=args.ticks,
+            simulation_repetitions=args.repetitions,
+            simulation_workers=args.workers,
         )
         write_output(card, args.output, stdout)
         return 0
