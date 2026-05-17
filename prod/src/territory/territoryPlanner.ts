@@ -132,6 +132,8 @@ export interface TerritoryIntentPlanningOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
   scoutOnly?: boolean;
+  scoutOnlyTargetRooms?: readonly string[];
+  blockedScoutTargetRooms?: readonly string[];
 }
 
 export interface RemoteMiningSetupOptions {
@@ -142,6 +144,8 @@ interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
   scoutOnly?: boolean;
+  scoutOnlyTargetRooms?: readonly string[];
+  blockedScoutTargetRooms?: readonly string[];
 }
 
 interface MemoryRecord {
@@ -1224,6 +1228,7 @@ function selectTerritoryTarget(
         routeDistanceLookupContext
       ),
       ...getConfiguredExpansionScoutCandidates(
+        colony,
         colonyName,
         colonyOwnerUsername,
         territoryMemory,
@@ -1405,7 +1410,16 @@ function filterTerritoryCandidatesForPlanningOptions(
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
   if (options.scoutOnly === true) {
-    return candidates.filter((candidate) => candidate.intentAction === 'scout');
+    let scoutCandidates = candidates.filter((candidate) => candidate.intentAction === 'scout');
+    const targetRooms = options.scoutOnlyTargetRooms;
+    if (targetRooms && targetRooms.length > 0) {
+      scoutCandidates = scoutCandidates.filter((candidate) => targetRooms.includes(candidate.target.roomName));
+    }
+
+    const blockedTargetRooms = options.blockedScoutTargetRooms;
+    return blockedTargetRooms && blockedTargetRooms.length > 0
+      ? scoutCandidates.filter((candidate) => !blockedTargetRooms.includes(candidate.target.roomName))
+      : scoutCandidates;
   }
 
   if (options.controllerPressureOnly === true) {
@@ -1756,6 +1770,7 @@ function getConfiguredTerritoryCandidates(
 }
 
 function getConfiguredExpansionScoutCandidates(
+  colony: ColonySnapshot,
   colonyName: string,
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
@@ -1764,7 +1779,7 @@ function getConfiguredExpansionScoutCandidates(
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget[] {
   const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
-  return getConfiguredExpansionRoomScoutingTargets(colonyName, gameTime).flatMap((target, order) => {
+  return getConfiguredExpansionRoomScoutingTargets(colony, gameTime).flatMap((target, order) => {
     if (
       configuredTargetRooms.has(target.roomName) ||
       hasRunnableTerritoryIntentForTarget(intents, colonyName, target.roomName, gameTime) ||

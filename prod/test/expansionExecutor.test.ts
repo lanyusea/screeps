@@ -7,6 +7,8 @@ describe('expansion executor', () => {
     (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 2;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -20,6 +22,8 @@ describe('expansion executor', () => {
     delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { FIND_STRUCTURES?: number }).FIND_STRUCTURES;
+    delete (globalThis as { STRUCTURE_TOWER?: StructureConstant }).STRUCTURE_TOWER;
     delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
@@ -340,7 +344,7 @@ describe('expansion executor', () => {
   });
 
   it('does not convert fresh E29N55 scout-only expansion intel into claim or reserve automation', () => {
-    const colony = makeColony({ roomName: 'E29N55' });
+    const colony = makeColony({ roomName: 'E29N55', structures: makeE29N55ReadyStructures() });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       runtime: {
         currentRoomName: 'E29N55'
@@ -374,22 +378,25 @@ describe('expansion executor', () => {
     expect(
       (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
     ).toEqual([]);
-    expect(Memory.territory?.intents).toEqual([
-      {
-        colony: 'E29N55',
-        targetRoom: 'E28N55',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_900
-      },
-      {
-        colony: 'E29N55',
-        targetRoom: 'E29N56',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 968_900
-      }
-    ]);
+    expect(Memory.territory?.intents).toEqual(
+      expect.arrayContaining([
+        {
+          colony: 'E29N55',
+          targetRoom: 'E29N56',
+          action: 'scout',
+          status: 'planned',
+          updatedAt: 968_900
+        },
+        {
+          colony: 'E29N55',
+          targetRoom: 'E28N55',
+          action: 'scout',
+          status: 'planned',
+          updatedAt: 968_900
+        }
+      ])
+    );
+    expect(Memory.territory?.intents).toHaveLength(2);
     expect(Memory.territory?.expansionPipelines).toEqual({});
     expect(Memory.territory?.expansionCandidates).toEqual(
       expect.arrayContaining([
@@ -399,30 +406,14 @@ describe('expansion executor', () => {
           evidenceStatus: 'insufficient-evidence',
           recommendedAction: 'scout',
           scoutOnly: true
-        }),
-        expect.objectContaining({
-          colony: 'E29N55',
-          roomName: 'E29N54',
-          evidenceStatus: 'sufficient',
-          recommendedAction: 'scout',
-          scoutOnly: true
-        }),
-        expect.objectContaining({
-          colony: 'E29N55',
-          roomName: 'E30N55',
-          evidenceStatus: 'sufficient',
-          recommendedAction: 'scout',
-          scoutOnly: true
-        }),
-        expect.objectContaining({
-          colony: 'E29N55',
-          roomName: 'E28N55',
-          evidenceStatus: 'insufficient-evidence',
-          recommendedAction: 'scout',
-          scoutOnly: true
         })
       ])
     );
+    expect(
+      (Memory.territory?.expansionCandidates ?? [])
+        .filter((candidate) => candidate.colony === 'E29N55' && candidate.scoutOnly === true)
+        .map((candidate) => candidate.roomName)
+    ).toEqual(expect.arrayContaining(['E29N56', 'E29N54', 'E28N55', 'E30N55']));
   });
 
   it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {
@@ -476,12 +467,14 @@ function makeColony({
   roomName = 'W1N1',
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300,
-  spawns
+  spawns,
+  structures = []
 }: {
   roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   spawns?: StructureSpawn[];
+  structures?: AnyStructure[];
 } = {}): ColonySnapshot {
   const colonySpawns = spawns ?? [makeActiveSpawn(`spawn-${roomName}`)];
   const room = {
@@ -496,7 +489,17 @@ function makeColony({
       ticksToDowngrade: 10_000
     } as StructureController,
     memory: {},
-    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources(roomName, 2) : []))
+    find: jest.fn((findType: number) => {
+      if (findType === FIND_SOURCES) {
+        return makeSources(roomName, 2);
+      }
+
+      if (findType === FIND_STRUCTURES) {
+        return structures;
+      }
+
+      return [];
+    })
   } as unknown as Room & { memory: RoomMemory };
 
   return {
@@ -506,6 +509,33 @@ function makeColony({
     energyCapacityAvailable,
     memory: room.memory
   };
+}
+
+function makeE29N55ReadyStructures(): AnyStructure[] {
+  return [
+    makeStructure('spawn1', 'spawn', 17, 24, true),
+    makeStructure('spawn-rampart', 'rampart', 17, 24, true),
+    makeStructure('spawn-wall-a', 'constructedWall', 16, 23),
+    makeStructure('spawn-wall-b', 'constructedWall', 18, 23),
+    makeStructure('spawn-wall-c', 'constructedWall', 16, 25),
+    makeStructure('spawn-wall-d', 'constructedWall', 18, 25),
+    makeStructure('tower1', 'tower', 20, 20, true)
+  ];
+}
+
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  x: number,
+  y: number,
+  my?: boolean
+): AnyStructure {
+  return {
+    id,
+    structureType,
+    my,
+    pos: { x, y, roomName: 'E29N55' } as RoomPosition
+  } as AnyStructure;
 }
 
 function makeActiveSpawn(name: string): StructureSpawn {

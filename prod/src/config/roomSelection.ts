@@ -85,8 +85,19 @@ export const LOGISTICS_ROOM_SELECTION = {
 
 const activeRoom = ACTIVE_OFFICIAL_ROOM_SELECTION.roomName;
 
+export const ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION = {
+  colony: activeRoom,
+  roomName: 'E29N56',
+  nearestOwnedRoom: activeRoom,
+  nearestOwnedRoomDistance: 1,
+  routeDistance: 1,
+  adjacentToOwnedRoom: true,
+  scoutOnly: true
+} as const;
+
 export const TERRITORY_EXPANSION_ROOM_SELECTION = {
   scoutTargets: [
+    ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION,
     {
       colony: activeRoom,
       roomName: 'E29N54',

@@ -1,4 +1,8 @@
 import { getRuntimeCurrentRoomName } from '../config/runtimeRooms';
+import {
+  ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION,
+  TERRITORY_EXPANSION_ROOM_SELECTION
+} from '../config/roomSelection';
 
 export interface TerritoryExpansionScoutTargetConfig {
   colony: string;
@@ -29,15 +33,19 @@ export function getRuntimeCurrentRoomScoutOnlyTargets(
     return [];
   }
 
-  return getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).map((roomName) => ({
-    colony: currentRoomName,
-    roomName,
-    nearestOwnedRoom: currentRoomName,
-    nearestOwnedRoomDistance: 1,
-    routeDistance: 1,
-    adjacentToOwnedRoom: true,
-    scoutOnly: true
-  }));
+  if (currentRoomName === ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION.colony) {
+    const officialTarget = { ...ACTIVE_OFFICIAL_PASSIVE_SCOUT_TARGET_SELECTION };
+    return [
+      officialTarget,
+      ...getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName)
+        .filter((roomName) => roomName !== officialTarget.roomName)
+        .map((roomName) => buildRuntimeCurrentRoomScoutOnlyTarget(currentRoomName, roomName))
+    ];
+  }
+
+  return getCurrentRoomScoutOnlyAdjacentRoomNames(currentRoomName).map((roomName) =>
+    buildRuntimeCurrentRoomScoutOnlyTarget(currentRoomName, roomName)
+  );
 }
 
 export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): string[] {
@@ -55,7 +63,7 @@ export function getCurrentRoomScoutOnlyAdjacentRoomNames(roomName: string): stri
 }
 
 export function isConfiguredExpansionScoutOnlyTarget(colony: string, roomName: string): boolean {
-  return getTerritoryExpansionScoutTargets(colony).some(
+  return [...getTerritoryExpansionScoutTargets(colony), ...TERRITORY_EXPANSION_ROOM_SELECTION.scoutTargets].some(
     (target) => target.colony === colony && target.roomName === roomName && target.scoutOnly === true
   );
 }
@@ -86,6 +94,21 @@ function getEnabledRuntimeCurrentRoomScoutOnlyTargets(
   }
 
   return getRuntimeCurrentRoomScoutOnlyTargets(colonyName);
+}
+
+function buildRuntimeCurrentRoomScoutOnlyTarget(
+  currentRoomName: string,
+  roomName: string
+): TerritoryExpansionScoutTargetConfig {
+  return {
+    colony: currentRoomName,
+    roomName,
+    nearestOwnedRoom: currentRoomName,
+    nearestOwnedRoomDistance: 1,
+    routeDistance: 1,
+    adjacentToOwnedRoom: true,
+    scoutOnly: true
+  };
 }
 
 function isRuntimeCurrentRoomScoutTargetsEnabled(colonyName: string): boolean {

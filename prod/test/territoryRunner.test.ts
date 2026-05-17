@@ -150,12 +150,18 @@ describe('runTerritoryControllerCreep', () => {
         })
       },
       moveTo: jest.fn(),
+      attackController: jest.fn(),
+      claimController: jest.fn(),
+      reserveController: jest.fn(),
       signController: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep, telemetryEvents);
 
     expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N1' });
+    expect(creep.attackController).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.scoutIntel?.['W1N1>W1N2']).toEqual({

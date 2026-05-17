@@ -72,6 +72,10 @@ import {
 } from '../territory/multiRoomUpgrader';
 import { NEXT_EXPANSION_TARGET_CREATOR } from '../territory/expansionScoring';
 import {
+  getPassiveScoutOnlyTargetRooms,
+  isPassiveScoutGateOpen
+} from '../territory/passiveScoutGate';
+import {
   buildControllerUpgradeCreepMemory,
   selectControllerUpgradeSpawnDemand
 } from '../territory/controllerManager';
@@ -1452,7 +1456,15 @@ function getTerritoryIntentPlanningOptions(
     };
   }
 
-  return shouldPlanLocalStableTerritoryScout(context) ? { scoutOnly: true } : null;
+  if (!shouldPlanLocalStableTerritoryScout(context)) {
+    return null;
+  }
+
+  const blockedScoutTargetRooms = getClosedPassiveScoutOnlyTargetRooms(context);
+  return {
+    scoutOnly: true,
+    ...(blockedScoutTargetRooms.length > 0 ? { blockedScoutTargetRooms } : {})
+  };
 }
 
 function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boolean {
@@ -1463,6 +1475,12 @@ function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boo
     context.workerCapacity >= context.workerTarget &&
     context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST &&
     context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST
+  );
+}
+
+function getClosedPassiveScoutOnlyTargetRooms(context: SpawnPlanningContext): readonly string[] {
+  return getPassiveScoutOnlyTargetRooms(context.colony.room.name).filter(
+    (targetRoom) => !isPassiveScoutGateOpen(context.colony, targetRoom, context.gameTime)
   );
 }
 
