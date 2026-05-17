@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -128,6 +129,66 @@ class RlExperimentCardTest(unittest.TestCase):
             self.assertEqual(set(candidate["parameters"]), set(learnable_names))
             self.assertFalse(candidate["parameterEvidence"]["liveEffect"])
             self.assertFalse(candidate["parameterEvidence"]["officialMmoWrites"])
+
+    def test_policy_gradient_missing_registry_uses_fallback_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            card = card_helper.build_card(
+                dataset_run_id="rl-policy-gradient-missing-registry",
+                code_commit="f" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T00:25:00Z",
+                registry_path=Path(temp_dir) / "missing-registry.ts",
+            )
+
+        card_helper.validate_card(card)
+        candidates = card["policy_gradient"]["candidate_parameter_vectors"]
+        self.assertEqual(candidates[0]["parameters"]["territorySignalWeight"], 6)
+        self.assertEqual(candidates[1]["parameters"]["territorySignalWeight"], 22)
+
+    def test_policy_gradient_existing_registry_must_include_construction_priority_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "strategyRegistry.ts"
+            registry_path.write_text("export const STRATEGY_REGISTRY = [];\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "missing construction-priority variants"):
+                card_helper.build_card(
+                    dataset_run_id="rl-policy-gradient-empty-registry",
+                    code_commit="f" * 40,
+                    training_approach="policy_gradient",
+                    created_at="2026-05-17T00:25:00Z",
+                    registry_path=registry_path,
+                )
+
+    def test_policy_gradient_registry_loader_errors_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "strategyRegistry.ts"
+            registry_path.write_text("export const STRATEGY_REGISTRY = [];\n", encoding="utf-8")
+
+            with mock.patch.object(runner, "load_strategy_registry", side_effect=RuntimeError("registry broke")):
+                with self.assertRaisesRegex(RuntimeError, "registry broke"):
+                    card_helper.build_card(
+                        dataset_run_id="rl-policy-gradient-loader-error",
+                        code_commit="f" * 40,
+                        training_approach="policy_gradient",
+                        created_at="2026-05-17T00:25:00Z",
+                        registry_path=registry_path,
+                    )
+
+    def test_validate_policy_gradient_rejects_out_of_range_candidate_parameters(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-bounds",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        candidate = card["policy_gradient"]["candidate_parameter_vectors"][0]
+        candidate["parameters"]["territorySignalWeight"] = 31
+
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            "candidate_parameter_vectors\\[0\\].parameters.territorySignalWeight must be within registry knob bounds",
+        ):
+            card_helper.validate_card(card)
 
     def test_default_policy_gradient_card_requests_loop_a_run_floor(self) -> None:
         card = card_helper.build_card(

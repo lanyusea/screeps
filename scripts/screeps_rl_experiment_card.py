@@ -85,6 +85,9 @@ CONSTRUCTION_PRIORITY_KNOBS: tuple[JsonObject, ...] = (
     },
 )
 CONSTRUCTION_PRIORITY_KNOB_NAMES = tuple(str(knob["name"]) for knob in CONSTRUCTION_PRIORITY_KNOBS)
+CONSTRUCTION_PRIORITY_PARAMETER_LIMITS = {
+    str(knob["name"]): (float(knob["min"]), float(knob["max"])) for knob in CONSTRUCTION_PRIORITY_KNOBS
+}
 CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS: dict[str, JsonObject] = {
     "construction-priority.incumbent.v1": {
         "baseScoreWeight": 1,
@@ -425,16 +428,20 @@ def construction_priority_registry_defaults(registry_path: Path) -> dict[str, Js
         variant_id: dict(parameters)
         for variant_id, parameters in CONSTRUCTION_PRIORITY_FALLBACK_DEFAULTS.items()
     }
-    try:
-        import screeps_rl_training_runner as training_runner
-
-        registry = training_runner.load_strategy_registry(registry_path)
-    except Exception:
+    if not registry_path.exists():
         return defaults
+
+    import screeps_rl_training_runner as training_runner
+
+    registry = training_runner.load_strategy_registry(registry_path)
+    missing = [variant_id for variant_id in CONSTRUCTION_PRIORITY_REGISTRY_IDS if variant_id not in registry]
+    if missing:
+        missing_list = ", ".join(missing)
+        raise CardValidationError(
+            f"strategy registry {repo_relative(registry_path)} is missing construction-priority variants: {missing_list}"
+        )
     for variant_id in CONSTRUCTION_PRIORITY_REGISTRY_IDS:
-        variant = registry.get(variant_id)
-        if variant is None:
-            continue
+        variant = registry[variant_id]
         parameters = construction_priority_parameters_or_none(variant.parameters)
         if parameters is not None:
             defaults[variant_id] = parameters
@@ -458,15 +465,23 @@ def bounded_construction_priority_parameters(raw: JsonObject) -> JsonObject:
     for knob in CONSTRUCTION_PRIORITY_KNOBS:
         name = str(knob["name"])
         value = raw.get(name)
-        if not is_finite_number(value):
-            raise CardValidationError(f"construction-priority parameter {name} must be a finite number")
-        minimum = float(knob["min"])
-        maximum = float(knob["max"])
-        numeric = float(value)
-        if numeric < minimum or numeric > maximum:
-            raise CardValidationError(f"construction-priority parameter {name} must be within registry knob bounds")
+        numeric = validate_construction_priority_parameter_value(
+            value,
+            name,
+            f"construction-priority parameter {name}",
+        )
         bounded[name] = int(numeric) if numeric.is_integer() else numeric
     return bounded
+
+
+def validate_construction_priority_parameter_value(value: Any, knob: str, label: str) -> float:
+    if not is_finite_number(value):
+        raise CardValidationError(f"{label} must be a finite number")
+    minimum, maximum = CONSTRUCTION_PRIORITY_PARAMETER_LIMITS[knob]
+    numeric = float(value)
+    if numeric < minimum or numeric > maximum:
+        raise CardValidationError(f"{label} must be within registry knob bounds")
+    return numeric
 
 
 def is_finite_number(value: Any) -> bool:
@@ -668,10 +683,11 @@ def validate_policy_gradient_candidate(raw: Any, index: int) -> None:
             raise CardValidationError(
                 f"policy_gradient.candidate_parameter_vectors[{index}].parameters.{knob} is required"
             )
-        if not is_finite_number(parameters[knob]):
-            raise CardValidationError(
-                f"policy_gradient.candidate_parameter_vectors[{index}].parameters.{knob} must be a finite number"
-            )
+        validate_construction_priority_parameter_value(
+            parameters[knob],
+            knob,
+            f"policy_gradient.candidate_parameter_vectors[{index}].parameters.{knob}",
+        )
 
 
 def first_present(raw: JsonObject, keys: tuple[str, ...]) -> Any:
