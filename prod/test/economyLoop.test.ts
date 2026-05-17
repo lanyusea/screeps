@@ -1719,6 +1719,18 @@ describe('runEconomy', () => {
   });
 
   it('runs existing territory controller creeps', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const homeRoom = makeTerritoryReadyEconomyRoom({ controllerLevel: 6 });
+    const makeReadyWorker = (name: string): Creep =>
+      ({
+        name,
+        memory: { role: 'worker', colony: 'W1N1' },
+        room: homeRoom,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        }
+      }) as unknown as Creep;
     const controller = { id: 'controller1', my: false } as StructureController;
     const creep = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
@@ -1729,9 +1741,14 @@ describe('runEconomy', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 300,
-      rooms: {},
+      rooms: { W1N1: homeRoom },
       spawns: {},
-      creeps: { Reserver1: creep }
+      creeps: {
+        Reserver1: creep,
+        Worker1: makeReadyWorker('Worker1'),
+        Worker2: makeReadyWorker('Worker2'),
+        Worker3: makeReadyWorker('Worker3')
+      }
     };
 
     runEconomy();

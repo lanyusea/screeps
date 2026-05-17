@@ -29,7 +29,7 @@ export function isAutonomousTerritoryControlAllowedForColonyName(
 
   const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[colonyName];
   if (!room?.controller) {
-    return true;
+    return false;
   }
 
   return isAutonomousTerritoryControlAllowedForController(room?.controller);

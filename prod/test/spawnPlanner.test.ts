@@ -3024,7 +3024,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -3106,7 +3106,7 @@ describe('planSpawn', () => {
       constructionSiteCount: 1,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -4724,7 +4724,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 600,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -5246,7 +5246,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {

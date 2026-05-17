@@ -10,6 +10,7 @@ import {
   clearColonyStageAssessmentCache,
   recordColonyStageAssessment
 } from '../src/colony/colonyStage';
+import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
@@ -28,6 +29,7 @@ describe('runTerritoryControllerCreep', () => {
       time: 500,
       getObjectById: jest.fn().mockReturnValue(null)
     };
+    installVisibleOwnedRcl6ColonyRoomDefault();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     clearColonyStageAssessmentCache();
   });

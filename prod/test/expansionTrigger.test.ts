@@ -35,6 +35,7 @@ describe('autonomous expansion trigger pipeline', () => {
       .TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY;
     delete (globalThis as { TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD?: number })
       .TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD;
+    delete (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL;
   });
 
   it('keeps the RCL 3 expansion energy threshold within room capacity', () => {
@@ -103,12 +104,13 @@ describe('autonomous expansion trigger pipeline', () => {
   });
 
   it('does not start controller-control expansion before RCL6', () => {
-    const threshold = getExpansionTriggerRequiredEnergy(5);
+    (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL = 5;
+    const threshold = getExpansionTriggerRequiredEnergy(6);
     const colony = makeColony({
       storageEnergy: 2_000,
       rcl: 5,
       energyAvailable: threshold,
-      energyCapacityAvailable: 1800
+      energyCapacityAvailable: 2300
     });
     const report = makeReport([
       makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })

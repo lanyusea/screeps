@@ -45,6 +45,7 @@ describe('E18S59 claim pipeline', () => {
     delete (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
     delete (globalThis as { BODYPART_COST?: Record<BodyPartConstant, number> }).BODYPART_COST;
     delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
+    delete (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL;
   });
 
   it('plans a direct E18S59 claim from viable legacy scout evidence', () => {
@@ -94,7 +95,13 @@ describe('E18S59 claim pipeline', () => {
   });
 
   it('does not trigger an E18S59 claim before RCL6 even when GCL capacity and claim energy are ready', () => {
-    const colony = makeColony({ controllerLevel: 5, energyCapacityAvailable: 1_800 });
+    (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL = 5;
+    const threshold = getExpansionTriggerRequiredEnergy(6);
+    const colony = makeColony({
+      controllerLevel: 5,
+      energyAvailable: threshold,
+      energyCapacityAvailable: 2_300
+    });
     setGame(colony, 827, { includeE17S58: true, gclLevel: 3 });
     setSafeHomeThreat('E17S59', 827);
     Memory.scout = {
@@ -252,6 +259,10 @@ describe('E18S59 claim pipeline', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 826,
       rooms: {
+        E17S59: {
+          name: 'E17S59',
+          controller: { my: true, level: 6 } as StructureController
+        } as Room,
         E18S59: { name: 'E18S59', controller } as Room
       },
       getObjectById: jest.fn().mockReturnValue(controller)

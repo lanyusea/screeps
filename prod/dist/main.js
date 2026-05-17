@@ -3833,7 +3833,7 @@ function isAutonomousTerritoryControlAllowedForColonyName(colonyName) {
   }
   const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[colonyName];
   if (!(room == null ? void 0 : room.controller)) {
-    return true;
+    return false;
   }
   return isAutonomousTerritoryControlAllowedForController(room == null ? void 0 : room.controller);
 }
@@ -3922,7 +3922,7 @@ function isTerritoryIntentStatus(status) {
   return status === "planned" || status === "active" || status === "suppressed" || status === "inactive" || status === "completed";
 }
 function isTerritoryIntentSuppressionReason(reason) {
-  return reason === "deadZoneTarget" || reason === "deadZoneRoute";
+  return reason === "deadZoneTarget" || reason === "deadZoneRoute" || reason === "controllerLevel";
 }
 function isTerritoryFollowUpSource(source) {
   return source === "satisfiedClaimAdjacent" || source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent";
@@ -15988,8 +15988,13 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
     return null;
   }
   if (!isAutonomousTerritoryControlSelectionAllowed(colony, selection)) {
-    suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
+    if (shouldRefreshAutonomousTerritoryControlSuppression(colony, options)) {
+      suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
+    }
     return null;
+  }
+  if (shouldRefreshAutonomousTerritoryControlSuppression(colony, options)) {
+    suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
   }
   const target = selection.target;
   const controllerId = (_b = target.controllerId) != null ? _b : isTerritoryControlAction3(selection.intentAction) ? (_a = getVisibleController2(target.roomName)) == null ? void 0 : _a.id : void 0;
@@ -16453,11 +16458,27 @@ function isAutonomousTerritoryControlSelectionAllowed(colony, selection) {
   }
   return ((_a = getVisibleController2(selection.target.roomName, selection.target.controllerId)) == null ? void 0 : _a.my) === true;
 }
+function shouldRefreshAutonomousTerritoryControlSuppression(colony, options) {
+  return options.scoutOnly !== true && !isAutonomousTerritoryControlAllowedForColony(colony);
+}
+function filterAutonomousTerritoryControlCandidatesForColony(colony, candidates) {
+  if (isAutonomousTerritoryControlAllowedForColony(colony)) {
+    return candidates;
+  }
+  const allowedCandidates = candidates.filter(
+    (candidate) => isAutonomousTerritoryControlSelectionAllowed(colony, candidate)
+  );
+  return allowedCandidates.length > 0 ? allowedCandidates : candidates;
+}
+function isVisibleOwnedTerritoryControlTarget(targetRoom, controllerId) {
+  var _a;
+  return ((_a = getVisibleController2(targetRoom, controllerId)) == null ? void 0 : _a.my) === true;
+}
 function shouldSuppressAutonomousTerritoryControlTarget(target, colonyName) {
-  return target.colony === colonyName && target.enabled !== false && target.roomName !== colonyName && isTerritoryControlAction3(target.action);
+  return target.colony === colonyName && target.enabled !== false && target.roomName !== colonyName && isTerritoryControlAction3(target.action) && !isVisibleOwnedTerritoryControlTarget(target.roomName, target.controllerId);
 }
 function shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName) {
-  return intent.colony === colonyName && intent.targetRoom !== colonyName && isTerritoryControlAction3(intent.action) && (intent.status === "planned" || intent.status === "active");
+  return intent.colony === colonyName && intent.targetRoom !== colonyName && isTerritoryControlAction3(intent.action) && (intent.status === "planned" || intent.status === "active") && !isVisibleOwnedTerritoryControlTarget(intent.targetRoom, intent.controllerId);
 }
 function getTerritoryIntentKey(colony, targetRoom, action) {
   return `${colony}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${targetRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${action}`;
@@ -16819,12 +16840,15 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     gameTime
   );
-  const primaryCandidates = getSpawnCapableTerritoryCandidates(
-    filterTerritoryCandidatesForPlanningOptions(
-      [...persistedIntentCandidates, ...configuredCandidates],
-      options
-    ),
-    colony
+  const primaryCandidates = filterAutonomousTerritoryControlCandidatesForColony(
+    colony,
+    getSpawnCapableTerritoryCandidates(
+      filterTerritoryCandidatesForPlanningOptions(
+        [...persistedIntentCandidates, ...configuredCandidates],
+        options
+      ),
+      colony
+    )
   );
   if (options.scoutOnly !== true) {
     const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
@@ -16917,7 +16941,10 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     options
   );
-  const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
+  const candidates = filterAutonomousTerritoryControlCandidatesForColony(
+    colony,
+    getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony)
+  );
   if (options.scoutOnly === true) {
     return toSelectedTerritoryTarget(
       (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates),
