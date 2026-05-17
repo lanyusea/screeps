@@ -133,6 +133,155 @@ class RlExperimentCardTest(unittest.TestCase):
             self.assertFalse(candidate["parameterEvidence"]["liveEffect"])
             self.assertFalse(candidate["parameterEvidence"]["officialMmoWrites"])
 
+    def test_loop_a_policy_gradient_supply_card_remains_shadow_and_available(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-loop-a-supply-000001",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T01:25:00Z",
+            loop_a_card_supply=True,
+        )
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+
+        supply = card["card_supply"]
+        self.assertEqual(card["status"], "shadow")
+        self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(supply["state"], "available")
+        self.assertTrue(supply["available_for_training"])
+        self.assertEqual(supply["consumer"], "loop-a-policy-gradient")
+        self.assertEqual(supply["safety_status"], "shadow")
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(card))
+        self.assertFalse(card["liveEffect"])
+        self.assertFalse(card["officialMmoWrites"])
+        self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertTrue(card["conservative_actions_only"])
+        self.assertTrue(card["ood_rejection"])
+        self.assertEqual(card["reward_model"]["component_order"], ["reliability", "territory", "resources", "kills"])
+        self.assertFalse(card["reward_model"]["scalar_weighted_sum_authorized"])
+
+    def test_loop_a_supply_rejects_bandit_card(self) -> None:
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requires training_approach=policy_gradient"):
+            card_helper.build_card(
+                dataset_run_id="rl-loop-a-bandit",
+                code_commit="f" * 40,
+                training_approach="bandit",
+                created_at="2026-05-17T01:25:00Z",
+                loop_a_card_supply=True,
+            )
+
+    def test_cli_generates_loop_a_supply_from_latest_accepted_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            card_dir = root / "cards"
+            older_gate = gate_root / "older" / "gate_report.json"
+            newer_gate = gate_root / "newer" / "gate_report.json"
+            failed_gate = gate_root / "failed" / "gate_report.json"
+            older_gate.parent.mkdir(parents=True)
+            newer_gate.parent.mkdir(parents=True)
+            failed_gate.parent.mkdir(parents=True)
+            older_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T01:00:00Z",
+                        "dataset": {"runId": "rl-accepted-older"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            newer_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T02:00:00Z",
+                        "dataset": {"runId": "rl-accepted-newer"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            failed_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "createdAt": "2026-05-17T03:00:00Z",
+                        "dataset": {"runId": "rl-rejected-newest"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-policy-gradient-supply",
+                    "--from-latest-accepted-dataset",
+                    "--dataset-gate-root",
+                    str(gate_root),
+                    "--code-commit",
+                    "6" * 40,
+                    "--created-at",
+                    "2026-05-17T02:05:00Z",
+                    "--output-dir",
+                    str(card_dir),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(Path(summary["path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["dataset_run_id"], "rl-accepted-newer")
+        self.assertEqual(summary["card_supply"]["state"], "available")
+        self.assertEqual(generated["dataset_run_id"], "rl-accepted-newer")
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["status"], "shadow")
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+
+    def test_select_loop_a_card_skips_training_report_consumed_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            consumed = card_helper.build_card(
+                dataset_run_id="rl-loop-a-consumed",
+                code_commit="1" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T02:00:00Z",
+                loop_a_card_supply=True,
+            )
+            available = card_helper.build_card(
+                dataset_run_id="rl-loop-a-available",
+                code_commit="2" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T01:00:00Z",
+                loop_a_card_supply=True,
+            )
+            (card_dir / "consumed.json").write_text(json.dumps(consumed), encoding="utf-8")
+            (card_dir / "available.json").write_text(json.dumps(available), encoding="utf-8")
+            report_dir.mkdir()
+            (report_dir / "training.json").write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-training-report",
+                        "experimentCard": {"cardId": consumed["card_id"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["card_id"], available["card_id"])
+        self.assertEqual(selected["card_supply"]["state"], "available")
+
     def test_policy_gradient_missing_registry_uses_fallback_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             card = card_helper.build_card(

@@ -23,6 +23,11 @@ STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
+LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
+LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
+LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
+LOOP_A_CARD_SUPPLY_CONSUMED = "consumed"
+LOOP_A_CARD_SUPPLY_STATES = (LOOP_A_CARD_SUPPLY_AVAILABLE, LOOP_A_CARD_SUPPLY_CONSUMED)
 DEFAULT_STRATEGY_VARIANTS = (
     "construction-priority.incumbent.v1",
     "construction-priority.territory-shadow.v1",
@@ -33,6 +38,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SIMULATION_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
 DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
+DEFAULT_EXPERIMENT_CARD_DIR = REPO_ROOT / "runtime-artifacts" / "rl-experiment-cards"
+DEFAULT_DATASET_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-dataset-gates"
+DEFAULT_TRAINING_REPORT_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-training"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
 DEFAULT_SIMULATION_TICKS = 50
 DEFAULT_SIMULATION_REPETITIONS = 1
@@ -203,12 +211,15 @@ def build_card(
     simulation_repetitions: int | None = None,
     simulation_workers: int | None = None,
     registry_path: Path | None = None,
+    loop_a_card_supply: bool = False,
 ) -> JsonObject:
     validate_dataset_run_id(dataset_run_id)
     validate_code_commit(code_commit)
     validate_created_at(created_at)
     if training_approach not in TRAINING_APPROACHES:
         raise CardValidationError(f"training_approach must be one of: {', '.join(TRAINING_APPROACHES)}")
+    if loop_a_card_supply and training_approach != "policy_gradient":
+        raise CardValidationError("Loop A card supply requires training_approach=policy_gradient")
 
     default_ticks = POLICY_GRADIENT_SIMULATION_TICKS if training_approach == "policy_gradient" else DEFAULT_SIMULATION_TICKS
     default_repetitions = (
@@ -248,8 +259,30 @@ def build_card(
         policy_gradient = policy_gradient_block(registry_path or DEFAULT_STRATEGY_REGISTRY_PATH)
         card["policy_gradient"] = policy_gradient
         card["strategy_variants"] = policy_gradient_strategy_variants(policy_gradient)
+    if loop_a_card_supply:
+        card["card_supply"] = loop_a_card_supply_block(
+            dataset_run_id=dataset_run_id,
+            training_approach=training_approach,
+            created_at=created_at,
+        )
     validate_card(card)
     return card
+
+
+def loop_a_card_supply_block(*, dataset_run_id: str, training_approach: str, created_at: str) -> JsonObject:
+    return {
+        "type": LOOP_A_CARD_SUPPLY_TYPE,
+        "consumer": LOOP_A_CARD_SUPPLY_CONSUMER,
+        "state": LOOP_A_CARD_SUPPLY_AVAILABLE,
+        "available_for_training": True,
+        "dataset_run_id": dataset_run_id,
+        "training_approach": training_approach,
+        "created_at": created_at,
+        "status_field": "status",
+        "safety_status": "shadow",
+        "consumed_at": None,
+        "consumed_by_report_id": None,
+    }
 
 
 def require_positive_int(value: Any, label: str) -> int:
@@ -539,6 +572,7 @@ def validate_card(raw: Any) -> None:
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
+    validate_card_supply(raw)
     strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
     validate_strategy_variants(strategy_variants)
     validate_simulation(first_present(raw, ("simulation", "simulator")))
@@ -549,6 +583,176 @@ def validate_card(raw: Any) -> None:
         validate_policy_gradient(policy_gradient)
     if training_approach == "policy_gradient":
         validate_policy_gradient_strategy_variants(policy_gradient, strategy_variants)
+
+
+def validate_card_supply(card: JsonObject) -> None:
+    raw = first_present(card, ("card_supply", "cardSupply"))
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise CardValidationError("card_supply must be a JSON object")
+    if raw.get("type") != LOOP_A_CARD_SUPPLY_TYPE:
+        raise CardValidationError(f"card_supply.type must be {LOOP_A_CARD_SUPPLY_TYPE}")
+    if raw.get("consumer") != LOOP_A_CARD_SUPPLY_CONSUMER:
+        raise CardValidationError(f"card_supply.consumer must be {LOOP_A_CARD_SUPPLY_CONSUMER}")
+    state = raw.get("state")
+    if state not in LOOP_A_CARD_SUPPLY_STATES:
+        raise CardValidationError("card_supply.state must be available or consumed")
+    if raw.get("dataset_run_id") != card.get("dataset_run_id"):
+        raise CardValidationError("card_supply.dataset_run_id must match dataset_run_id")
+    if raw.get("training_approach") != card.get("training_approach"):
+        raise CardValidationError("card_supply.training_approach must match training_approach")
+    if raw.get("safety_status") != "shadow":
+        raise CardValidationError("card_supply.safety_status must be shadow")
+    if raw.get("status_field") != "status":
+        raise CardValidationError("card_supply.status_field must be status")
+    created_at = raw.get("created_at")
+    if not isinstance(created_at, str):
+        raise CardValidationError("card_supply.created_at must be an ISO UTC timestamp")
+    validate_created_at(created_at)
+
+    if state == LOOP_A_CARD_SUPPLY_AVAILABLE:
+        if card.get("status") != "shadow":
+            raise CardValidationError("available Loop A card supply requires status=shadow")
+        if card.get("training_approach") != "policy_gradient":
+            raise CardValidationError("available Loop A card supply requires training_approach=policy_gradient")
+        if raw.get("available_for_training") is not True:
+            raise CardValidationError("card_supply.available_for_training must be true for available supply")
+        if raw.get("consumed_at") is not None:
+            raise CardValidationError("available Loop A card supply must not set consumed_at")
+        if raw.get("consumed_by_report_id") is not None:
+            raise CardValidationError("available Loop A card supply must not set consumed_by_report_id")
+    else:
+        if raw.get("available_for_training") is not False:
+            raise CardValidationError("consumed Loop A card supply must set available_for_training=false")
+        consumed_at = raw.get("consumed_at")
+        if not isinstance(consumed_at, str):
+            raise CardValidationError("consumed Loop A card supply requires consumed_at")
+        validate_created_at(consumed_at)
+        if not isinstance(raw.get("consumed_by_report_id"), str) or not raw.get("consumed_by_report_id"):
+            raise CardValidationError("consumed Loop A card supply requires consumed_by_report_id")
+
+
+def is_loop_a_card_available_for_training(card: JsonObject, consumed_card_ids: set[str] | None = None) -> bool:
+    try:
+        validate_card(card)
+    except CardValidationError:
+        return False
+    supply = first_present(card, ("card_supply", "cardSupply"))
+    if not isinstance(supply, dict):
+        return False
+    card_id = card.get("card_id")
+    if consumed_card_ids is not None and isinstance(card_id, str) and card_id in consumed_card_ids:
+        return False
+    return (
+        card.get("status") == "shadow"
+        and card.get("training_approach") == "policy_gradient"
+        and supply.get("state") == LOOP_A_CARD_SUPPLY_AVAILABLE
+        and supply.get("available_for_training") is True
+        and supply.get("consumer") == LOOP_A_CARD_SUPPLY_CONSUMER
+    )
+
+
+def consumed_card_ids_from_training_reports(report_root: Path) -> set[str]:
+    consumed: set[str] = set()
+    if not report_root.exists():
+        return consumed
+    for path in sorted(report_root.rglob("*.json")):
+        try:
+            payload = load_json(path)
+        except CardValidationError:
+            continue
+        if not isinstance(payload, dict) or payload.get("type") != "screeps-rl-training-report":
+            continue
+        card = payload.get("experimentCard")
+        if not isinstance(card, dict):
+            continue
+        card_id = card.get("cardId", card.get("card_id"))
+        if isinstance(card_id, str) and card_id:
+            consumed.add(card_id)
+    return consumed
+
+
+def select_loop_a_card_supply(card_dir: Path, training_report_root: Path) -> JsonObject | None:
+    consumed_card_ids = consumed_card_ids_from_training_reports(training_report_root)
+    candidates: list[tuple[str, str, Path, JsonObject]] = []
+    if not card_dir.exists():
+        return None
+    for path in sorted(card_dir.rglob("*.json")):
+        try:
+            card = load_json(path)
+        except CardValidationError:
+            continue
+        if not isinstance(card, dict):
+            continue
+        if not is_loop_a_card_available_for_training(card, consumed_card_ids):
+            continue
+        created_at = str(card.get("created_at") or "")
+        card_id = str(card.get("card_id") or "")
+        candidates.append((created_at, card_id, path, card))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
+    _, _, path, card = candidates[0]
+    return loop_a_selection_summary(path, card, consumed_card_ids)
+
+
+def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: set[str]) -> JsonObject:
+    return {
+        "ok": True,
+        "card_path": str(path),
+        "card_id": card.get("card_id"),
+        "dataset_run_id": card.get("dataset_run_id"),
+        "training_approach": card.get("training_approach"),
+        "status": card.get("status"),
+        "card_supply": first_present(card, ("card_supply", "cardSupply")),
+        "consumed_card_count": len(consumed_card_ids),
+    }
+
+
+def latest_accepted_dataset_run_id(gate_root: Path) -> str:
+    candidates: list[tuple[str, float, str, Path]] = []
+    if not gate_root.exists():
+        raise CardValidationError(f"dataset gate root does not exist: {gate_root}")
+    for path in sorted(gate_root.rglob("*.json")):
+        try:
+            payload = load_json(path)
+        except CardValidationError:
+            continue
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            continue
+        run_id = accepted_dataset_run_id(payload)
+        if run_id is None:
+            continue
+        created_at = accepted_dataset_created_at(payload)
+        mtime = path.stat().st_mtime
+        candidates.append((created_at or "", mtime, run_id, path))
+    if not candidates:
+        raise CardValidationError(f"no accepted dataset gate with datasetRunId found under {gate_root}")
+    candidates.sort(key=lambda item: (item[0], item[1], str(item[3])), reverse=True)
+    return candidates[0][2]
+
+
+def accepted_dataset_run_id(payload: JsonObject) -> str | None:
+    direct = payload.get("datasetRunId")
+    if isinstance(direct, str) and direct:
+        validate_dataset_run_id(direct)
+        return direct
+    dataset = payload.get("dataset")
+    if isinstance(dataset, dict):
+        run_id = dataset.get("runId")
+        if isinstance(run_id, str) and run_id:
+            validate_dataset_run_id(run_id)
+            return run_id
+    return None
+
+
+def accepted_dataset_created_at(payload: JsonObject) -> str | None:
+    for key in ("createdAt", "generatedAt"):
+        value = payload.get(key)
+        if isinstance(value, str) and ISO_TIMESTAMP_RE.fullmatch(value):
+            return value
+    return None
 
 
 def require_string(raw: JsonObject, field: str) -> str:
@@ -802,7 +1006,7 @@ def write_output(payload: Any, output: Path | None, stdout: TextIO) -> None:
 
 def validation_summary(card: JsonObject) -> JsonObject:
     safety = card.get("safety") if isinstance(card.get("safety"), dict) else {}
-    return {
+    summary = {
         "card_id": card.get("card_id"),
         "dataset_run_id": card.get("dataset_run_id"),
         "ok": True,
@@ -812,6 +1016,19 @@ def validation_summary(card: JsonObject) -> JsonObject:
         },
         "status": card.get("status"),
     }
+    card_supply = first_present(card, ("card_supply", "cardSupply"))
+    if isinstance(card_supply, dict):
+        summary["card_supply"] = card_supply
+        summary["loop_a_available_for_training"] = is_loop_a_card_available_for_training(card)
+    return summary
+
+
+def generated_card_summary(card: JsonObject, output_path: Path) -> JsonObject:
+    summary = validation_summary(card)
+    summary["path"] = str(output_path)
+    summary["created_at"] = card.get("created_at")
+    summary["training_approach"] = card.get("training_approach")
+    return summary
 
 
 def run_self_test(stdout: TextIO) -> int:
@@ -898,6 +1115,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate a synthetic offline card without requiring a real dataset run artifact.",
     )
     parser.add_argument(
+        "--loop-a-policy-gradient-supply",
+        action="store_true",
+        help=(
+            "Generate an offline/shadow policy_gradient card with explicit Loop A "
+            "available-for-training supply metadata."
+        ),
+    )
+    parser.add_argument(
+        "--from-latest-accepted-dataset",
+        action="store_true",
+        help="Use the latest accepted dataset gate under --dataset-gate-root as dataset_run_id.",
+    )
+    parser.add_argument(
+        "--dataset-gate-root",
+        type=Path,
+        default=DEFAULT_DATASET_GATE_ROOT,
+        help=f"Root scanned by --from-latest-accepted-dataset. Default: {DEFAULT_DATASET_GATE_ROOT}.",
+    )
+    parser.add_argument(
+        "--select-loop-a-card",
+        action="store_true",
+        help="Select the newest Loop A card_supply.available card not already referenced by a training report.",
+    )
+    parser.add_argument(
+        "--card-dir",
+        type=Path,
+        default=DEFAULT_EXPERIMENT_CARD_DIR,
+        help=f"Experiment card directory scanned by --select-loop-a-card. Default: {DEFAULT_EXPERIMENT_CARD_DIR}.",
+    )
+    parser.add_argument(
+        "--training-report-dir",
+        type=Path,
+        default=DEFAULT_TRAINING_REPORT_ROOT,
+        help=f"Training report directory scanned by --select-loop-a-card. Default: {DEFAULT_TRAINING_REPORT_ROOT}.",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Validate an existing card JSON instead of generating one.",
@@ -911,6 +1164,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         help="Write generated card or validation summary to this path instead of stdout.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Write generated card to <output-dir>/<card_id>.json and print a compact summary.",
     )
     return parser
 
@@ -929,6 +1187,28 @@ def main(
         if args.command == "self-test":
             return run_self_test(stdout)
 
+        if args.output is not None and args.output_dir is not None:
+            raise CardValidationError("--output and --output-dir are mutually exclusive")
+
+        if args.select_loop_a_card:
+            if args.validate:
+                raise CardValidationError("--select-loop-a-card cannot be combined with --validate")
+            selected = select_loop_a_card_supply(args.card_dir, args.training_report_dir)
+            if selected is None:
+                write_output(
+                    {
+                        "ok": False,
+                        "reason": "NO_AVAILABLE_LOOP_A_CARD",
+                        "card_dir": str(args.card_dir),
+                        "training_report_dir": str(args.training_report_dir),
+                    },
+                    args.output,
+                    stdout,
+                )
+                return 1
+            write_output(selected, args.output, stdout)
+            return 0
+
         if args.validate:
             if args.input is None:
                 raise CardValidationError("--validate requires --input")
@@ -938,20 +1218,31 @@ def main(
             return 0
 
         dataset_run_id = args.dataset_run_id
+        if args.from_latest_accepted_dataset:
+            if dataset_run_id is not None:
+                raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
+            dataset_run_id = latest_accepted_dataset_run_id(args.dataset_gate_root)
         if dataset_run_id is None:
             if not args.dry_run:
                 raise CardValidationError("--dataset-run-id is required unless --dry-run is used")
             dataset_run_id = DRY_RUN_DATASET_RUN_ID
 
+        training_approach = "policy_gradient" if args.loop_a_policy_gradient_supply else args.training_approach
         card = build_card(
             dataset_run_id=dataset_run_id,
             code_commit=args.code_commit or git_commit(repo),
-            training_approach=args.training_approach,
+            training_approach=training_approach,
             created_at=args.created_at or utc_now_iso(),
             simulation_ticks=args.ticks,
             simulation_repetitions=args.repetitions,
             simulation_workers=args.workers,
+            loop_a_card_supply=args.loop_a_policy_gradient_supply,
         )
+        if args.output_dir is not None:
+            output_path = args.output_dir / f"{card['card_id']}.json"
+            write_output(card, output_path, stdout)
+            stdout.write(canonical_json(generated_card_summary(card, output_path)))
+            return 0
         write_output(card, args.output, stdout)
         return 0
     except CardValidationError as error:

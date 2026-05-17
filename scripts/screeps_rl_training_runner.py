@@ -34,8 +34,14 @@ STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
+LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
+LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
+LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
+LOOP_A_CARD_SUPPLY_CONSUMED = "consumed"
+LOOP_A_CARD_SUPPLY_STATES = (LOOP_A_CARD_SUPPLY_AVAILABLE, LOOP_A_CARD_SUPPLY_CONSUMED)
 REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 JsonObject = dict[str, Any]
 SimulatorRunner = Callable[..., JsonObject]
 
@@ -254,6 +260,8 @@ def validate_experiment_card(card: JsonObject) -> None:
     if scalar_authorized is not False:
         raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false")
 
+    validate_card_supply(card)
+
     raw_variants = raw_variant_definitions(card)
     if not isinstance(raw_variants, list) or len(raw_variants) == 0:
         raise TrainingCardError("experiment card must define at least one strategy variant")
@@ -277,6 +285,52 @@ def validate_experiment_card(card: JsonObject) -> None:
         and positive_int_value(simulation.get("host_port_start", simulation.get("hostPortStart"))) is None
     ):
         raise TrainingCardError("simulation.host_port_start must be a positive integer")
+
+
+def validate_card_supply(card: JsonObject) -> None:
+    raw = card.get("card_supply", card.get("cardSupply"))
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise TrainingCardError("card_supply must be an object")
+    if raw.get("type") != LOOP_A_CARD_SUPPLY_TYPE:
+        raise TrainingCardError(f"card_supply.type must be {LOOP_A_CARD_SUPPLY_TYPE}")
+    if raw.get("consumer") != LOOP_A_CARD_SUPPLY_CONSUMER:
+        raise TrainingCardError(f"card_supply.consumer must be {LOOP_A_CARD_SUPPLY_CONSUMER}")
+    state = raw.get("state")
+    if state not in LOOP_A_CARD_SUPPLY_STATES:
+        raise TrainingCardError("card_supply.state must be available or consumed")
+    if raw.get("dataset_run_id") != card.get("dataset_run_id", card.get("datasetRunId")):
+        raise TrainingCardError("card_supply.dataset_run_id must match dataset_run_id")
+    if raw.get("training_approach") != card.get("training_approach", card.get("trainingApproach")):
+        raise TrainingCardError("card_supply.training_approach must match training_approach")
+    if raw.get("safety_status") != "shadow":
+        raise TrainingCardError("card_supply.safety_status must be shadow")
+    if raw.get("status_field") != "status":
+        raise TrainingCardError("card_supply.status_field must be status")
+    created_at = raw.get("created_at")
+    if not isinstance(created_at, str) or not ISO_TIMESTAMP_RE.fullmatch(created_at):
+        raise TrainingCardError("card_supply.created_at must be an ISO UTC timestamp")
+
+    if state == LOOP_A_CARD_SUPPLY_AVAILABLE:
+        if card.get("status") != "shadow":
+            raise TrainingCardError("available Loop A card supply requires status=shadow")
+        if card.get("training_approach", card.get("trainingApproach")) != "policy_gradient":
+            raise TrainingCardError("available Loop A card supply requires training_approach=policy_gradient")
+        if raw.get("available_for_training") is not True:
+            raise TrainingCardError("card_supply.available_for_training must be true for available supply")
+        if raw.get("consumed_at") is not None:
+            raise TrainingCardError("available Loop A card supply must not set consumed_at")
+        if raw.get("consumed_by_report_id") is not None:
+            raise TrainingCardError("available Loop A card supply must not set consumed_by_report_id")
+    else:
+        if raw.get("available_for_training") is not False:
+            raise TrainingCardError("consumed Loop A card supply must set available_for_training=false")
+        consumed_at = raw.get("consumed_at")
+        if not isinstance(consumed_at, str) or not ISO_TIMESTAMP_RE.fullmatch(consumed_at):
+            raise TrainingCardError("consumed Loop A card supply requires consumed_at")
+        if not isinstance(raw.get("consumed_by_report_id"), str) or not raw.get("consumed_by_report_id"):
+            raise TrainingCardError("consumed Loop A card supply requires consumed_by_report_id")
 
 
 def raw_variant_definitions(card: JsonObject) -> Any:
@@ -1855,6 +1909,9 @@ def summarize_card(card: JsonObject, path: Path) -> JsonObject:
     policy_gradient = policy_gradient_metadata_from_card(card)
     if policy_gradient is not None:
         summary["policyGradient"] = policy_gradient
+    card_supply = card.get("card_supply", card.get("cardSupply"))
+    if isinstance(card_supply, dict):
+        summary["cardSupply"] = copy.deepcopy(card_supply)
     return summary
 
 
