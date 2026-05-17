@@ -667,10 +667,21 @@ def consumed_card_ids_from_training_reports(report_root: Path) -> set[str]:
         card = payload.get("experimentCard")
         if not isinstance(card, dict):
             continue
+        card_supply = first_present(card, ("cardSupply", "card_supply"))
+        if not is_loop_a_card_supply_metadata(card_supply):
+            continue
         card_id = card.get("cardId", card.get("card_id"))
         if isinstance(card_id, str) and card_id:
             consumed.add(card_id)
     return consumed
+
+
+def is_loop_a_card_supply_metadata(raw: Any) -> bool:
+    return (
+        isinstance(raw, dict)
+        and raw.get("type") == LOOP_A_CARD_SUPPLY_TYPE
+        and raw.get("consumer") == LOOP_A_CARD_SUPPLY_CONSUMER
+    )
 
 
 def select_loop_a_card_supply(card_dir: Path, training_report_root: Path) -> JsonObject | None:
@@ -721,11 +732,14 @@ def latest_accepted_dataset_run_id(gate_root: Path) -> str:
             continue
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             continue
-        run_id = accepted_dataset_run_id(payload)
-        if run_id is None:
+        try:
+            run_id = accepted_dataset_run_id(payload)
+            if run_id is None:
+                continue
+            created_at = accepted_dataset_created_at(payload)
+            mtime = path.stat().st_mtime
+        except (CardValidationError, OSError):
             continue
-        created_at = accepted_dataset_created_at(payload)
-        mtime = path.stat().st_mtime
         candidates.append((created_at or "", mtime, run_id, path))
     if not candidates:
         raise CardValidationError(f"no accepted dataset gate with datasetRunId found under {gate_root}")

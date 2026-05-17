@@ -242,6 +242,79 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["status"], "shadow")
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
+    def test_latest_accepted_dataset_skips_malformed_accepted_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            valid_gate = gate_root / "valid" / "gate_report.json"
+            malformed_gate = gate_root / "malformed" / "gate_report.json"
+            valid_gate.parent.mkdir(parents=True)
+            malformed_gate.parent.mkdir(parents=True)
+            valid_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T01:00:00Z",
+                        "dataset": {"runId": "rl-accepted-valid"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            malformed_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T02:00:00Z",
+                        "dataset": {"runId": "invalid run id"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.latest_accepted_dataset_run_id(gate_root)
+
+        self.assertEqual(selected, "rl-accepted-valid")
+
+    def test_latest_accepted_dataset_skips_gate_deleted_during_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            valid_gate = gate_root / "valid" / "gate_report.json"
+            vanished_gate = gate_root / "vanished" / "gate_report.json"
+            valid_gate.parent.mkdir(parents=True)
+            vanished_gate.parent.mkdir(parents=True)
+            valid_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T01:00:00Z",
+                        "dataset": {"runId": "rl-accepted-valid"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            vanished_gate.write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "createdAt": "2026-05-17T02:00:00Z",
+                        "dataset": {"runId": "rl-accepted-vanished"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_stat = Path.stat
+
+            def stat_or_raise(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+                if path == vanished_gate:
+                    raise OSError("deleted during scan")
+                return original_stat(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "stat", stat_or_raise):
+                selected = card_helper.latest_accepted_dataset_run_id(gate_root)
+
+        self.assertEqual(selected, "rl-accepted-valid")
+
     def test_select_loop_a_card_skips_training_report_consumed_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -269,7 +342,10 @@ class RlExperimentCardTest(unittest.TestCase):
                 json.dumps(
                     {
                         "type": "screeps-rl-training-report",
-                        "experimentCard": {"cardId": consumed["card_id"]},
+                        "experimentCard": {
+                            "cardId": consumed["card_id"],
+                            "cardSupply": consumed["card_supply"],
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -281,6 +357,52 @@ class RlExperimentCardTest(unittest.TestCase):
         assert selected is not None
         self.assertEqual(selected["card_id"], available["card_id"])
         self.assertEqual(selected["card_supply"]["state"], "available")
+
+    def test_select_loop_a_card_ignores_non_loop_a_training_report_with_same_card_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            report_dir.mkdir()
+            available = card_helper.build_card(
+                dataset_run_id="rl-loop-a-available",
+                code_commit="2" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T01:00:00Z",
+                loop_a_card_supply=True,
+            )
+            (card_dir / "available.json").write_text(json.dumps(available), encoding="utf-8")
+            (report_dir / "bare-card-id.json").write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-training-report",
+                        "experimentCard": {"cardId": available["card_id"]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (report_dir / "wrong-supply-type.json").write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-training-report",
+                        "experimentCard": {
+                            "cardId": available["card_id"],
+                            "cardSupply": {
+                                "type": "unrelated-supply",
+                                "consumer": "loop-a-policy-gradient",
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["card_id"], available["card_id"])
 
     def test_policy_gradient_missing_registry_uses_fallback_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
