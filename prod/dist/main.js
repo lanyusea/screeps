@@ -16309,6 +16309,9 @@ function selectUrgentVisibleReservationRenewalTask(creep) {
   if (!controller) {
     return null;
   }
+  if (!isAutonomousTerritoryControlAllowedForColonyName(intent.colony) && controller.my !== true) {
+    return null;
+  }
   const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
     controller,
     getTerritoryActorUsername(creep, intent.colony)

@@ -8218,17 +8218,20 @@ describe('selectWorkerTask', () => {
   });
 
   it('renews an emergency own visible reservation before local construction with one CLAIM part', () => {
+    const installActiveReserveIntent = (): void => {
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: {
+          intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
+        }
+      };
+    };
     const controller = {
       id: 'controller2',
       my: false,
       reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
     } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
-    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
-      territory: {
-        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
-      }
-    };
+    installActiveReserveIntent();
     const creep = {
       owner: { username: 'me' },
       memory: { role: 'worker', colony: 'W1N1' },
@@ -8240,6 +8243,20 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+    expect(Memory.territory?.intents).toEqual([
+      expect.objectContaining({
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        reason: 'controllerLevel'
+      })
+    ]);
+
+    installActiveReserveIntent();
+    ensureVisibleOwnedRcl6ColonyRoom();
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
