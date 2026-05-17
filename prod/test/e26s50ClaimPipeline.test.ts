@@ -93,19 +93,18 @@ describe('E18S59 claim pipeline', () => {
     ]);
   });
 
-  it('triggers an E18S59 claim at RCL 3 when GCL capacity and claim energy are ready', () => {
-    const colony = makeColony({ controllerLevel: 3 });
+  it('does not trigger an E18S59 claim before RCL6 even when GCL capacity and claim energy are ready', () => {
+    const colony = makeColony({ controllerLevel: 5, energyCapacityAvailable: 1_800 });
     setGame(colony, 827, { includeE17S58: true, gclLevel: 3 });
     setSafeHomeThreat('E17S59', 827);
     Memory.scout = {
       E18S59: makeLegacyScoutIntel()
     };
 
-    expect(refreshExpansionExecutorIntent(colony, 827)).toMatchObject({
-      status: 'planned',
+    expect(refreshExpansionExecutorIntent(colony, 827)).toEqual({
+      status: 'skipped',
       colony: 'E17S59',
-      targetRoom: 'E18S59',
-      controllerId: 'controller-e18s59'
+      reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
       colony: 'E17S59',
@@ -117,24 +116,15 @@ describe('E18S59 claim pipeline', () => {
       routeDistance: 1
     });
     expect(Memory.territory?.expansionCandidates?.[0]).not.toHaveProperty('preconditions');
-    expect(Memory.territory?.targets).toEqual([
-      {
-        colony: 'E17S59',
-        roomName: 'E18S59',
-        action: 'claim',
-        createdBy: 'nextExpansionScoring',
-        controllerId: 'controller-e18s59',
-        postClaimBootstrapReserveEnergy: 400
-      }
-    ]);
+    expect(Memory.territory?.targets).toBeUndefined();
   });
 
-  it('skips the E18S59 trigger when current energy is below RCL 3 expansion readiness', () => {
-    const threshold = getExpansionTriggerRequiredEnergy(3);
+  it('skips the E18S59 trigger when current energy is below RCL6 expansion readiness', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(6);
     const colony = makeColony({
-      controllerLevel: 3,
+      controllerLevel: 6,
       energyAvailable: threshold - 1,
-      energyCapacityAvailable: 800
+      energyCapacityAvailable: 2_300
     });
     setGame(colony, 828, { includeE17S58: true, gclLevel: 3 });
     setSafeHomeThreat('E17S59', 828);
@@ -336,7 +326,7 @@ describe('E18S59 claim pipeline', () => {
 });
 
 function makeColony({
-  controllerLevel = 4,
+  controllerLevel = 6,
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300
 }: {

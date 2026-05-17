@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL } from '../territory/controlGate';
 
 export type StrategyDefensePosture = 'passive' | 'alert' | 'active';
 
@@ -72,8 +73,6 @@ export const DEFAULT_STRATEGY_RECOMMENDATION_CONFIDENCE_THRESHOLD = 0.7;
 
 const MAX_RECOMMENDATIONS = 5;
 const LOW_RCL_ENERGY_CAPACITY_TARGET = 550;
-const TERRITORY_READY_RCL = 3;
-const EXPANSION_READY_RCL = 4;
 const HIGH_RCL = 5;
 const CRITICAL_REPAIR_BACKLOG_HITS = 100_000;
 
@@ -114,7 +113,7 @@ export function generateStrategyRecommendations(
         reasoning: `hostile pressure visible in ${state.roomName}; keep strategy shadowed on active defense posture`
       })
     );
-  } else if (state.controllerLevel >= TERRITORY_READY_RCL && state.towerCount === 0) {
+  } else if (state.controllerLevel >= 3 && state.towerCount === 0) {
     recommendations.push(
       makeRecommendation({
         constructionPreset: 'tower-bootstrap',
@@ -164,7 +163,12 @@ export function generateStrategyRecommendations(
   }
 
   const remoteTarget = selectBestTerritoryCandidate(state.territory.remoteTargets);
-  if (remoteTarget && state.controllerLevel >= TERRITORY_READY_RCL && state.workerCount >= 3 && hostilePressure === 0) {
+  if (
+    remoteTarget &&
+    state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL &&
+    state.workerCount >= 3 &&
+    hostilePressure === 0
+  ) {
     recommendations.push(
       makeRecommendation({
         remoteTarget: remoteTarget.roomName,
@@ -176,7 +180,12 @@ export function generateStrategyRecommendations(
   }
 
   const expansionCandidate = selectBestTerritoryCandidate(state.territory.expansionCandidates);
-  if (expansionCandidate && state.controllerLevel >= EXPANSION_READY_RCL && state.workerCount >= 4 && hostilePressure === 0) {
+  if (
+    expansionCandidate &&
+    state.controllerLevel >= AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL &&
+    state.workerCount >= 4 &&
+    hostilePressure === 0
+  ) {
     recommendations.push(
       makeRecommendation({
         expansionCandidate: expansionCandidate.roomName,

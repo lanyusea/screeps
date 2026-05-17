@@ -171,6 +171,47 @@ describe('colony bootstrap stage', () => {
     });
   });
 
+  it.each([2, 3, 4, 5])(
+    'keeps healthy RCL %i colonies territory-ready for local stage semantics',
+    (level) => {
+      expect(
+        assessColonyStage({
+          roomName: 'E29N55',
+          totalCreeps: 9,
+          workerCapacity: 5,
+          workerTarget: 5,
+          energyAvailable: 1300,
+          energyCapacityAvailable: 1300,
+          defenseFloorReady: true,
+          controller: { my: true, level, ticksToDowngrade: 10_000 }
+        })
+      ).toMatchObject({
+        mode: 'TERRITORY_READY',
+        territoryReady: true,
+        suppressionReasons: []
+      });
+    }
+  );
+
+  it('marks an RCL6 stable room as territory-ready', () => {
+    expect(
+      assessColonyStage({
+        roomName: 'E29N55',
+        totalCreeps: 9,
+        workerCapacity: 5,
+        workerTarget: 5,
+        energyAvailable: 1300,
+        energyCapacityAvailable: 1300,
+        defenseFloorReady: true,
+        controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
+      })
+    ).toMatchObject({
+      mode: 'TERRITORY_READY',
+      territoryReady: true,
+      suppressionReasons: []
+    });
+  });
+
   it('orders spawn tiers from emergency bootstrap through territory work', () => {
     expect(getColonySpawnPriorityTiers()).toEqual([
       'emergencyBootstrap',

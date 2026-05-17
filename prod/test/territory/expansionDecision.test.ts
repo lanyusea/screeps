@@ -340,7 +340,7 @@ function makeColony(): { colony: ColonySnapshot; spawn: StructureSpawn } {
     controller: {
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: 6,
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn((findType: number): unknown[] => {

@@ -3,6 +3,7 @@ import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
 
 export const EXPANSION_PLANNER_MIN_SOURCE_COUNT = 2;
 export const EXPANSION_PLANNER_MAX_ROUTE_DISTANCE = 2;
@@ -343,6 +344,15 @@ export function refreshExpansionPlannerIntent(
       status: 'skipped',
       colony: colonyName,
       reason: 'memoryUnavailable',
+      candidates: []
+    };
+  }
+
+  if (!isAutonomousTerritoryControlAllowedForController(colony.room.controller)) {
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'noCandidate',
       candidates: []
     };
   }
@@ -1759,9 +1769,7 @@ function selectExpansionIntentAction(colony: ColonySnapshot): TerritoryControlAc
 function isExpansionPlannerClaimReady(colony: ColonySnapshot): boolean {
   const controller = colony.room.controller;
   return (
-    controller?.my === true &&
-    typeof controller.level === 'number' &&
-    controller.level >= 2 &&
+    isAutonomousTerritoryControlAllowedForController(controller) &&
     hasActiveExpansionPlannerSpawn(colony) &&
     !hasExpansionPlannerActiveHostiles(colony.room) &&
     !hasExpansionPlannerPendingThreat(colony.room.name, getGameTime()) &&

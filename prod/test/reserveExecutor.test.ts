@@ -127,7 +127,7 @@ function makeColony(): ColonySnapshot {
       id: 'controller1' as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: 6,
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'source1' } as Source] : []))

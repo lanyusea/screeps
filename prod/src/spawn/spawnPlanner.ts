@@ -1241,7 +1241,7 @@ interface PostClaimControllerDefensePlan {
 }
 
 function planPostClaimControllerDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (context.survival.mode !== 'TERRITORY_READY') {
+  if (context.survival.mode === 'BOOTSTRAP') {
     return null;
   }
 

@@ -43,6 +43,11 @@ import {
   pruneLowerPriorityDuplicateClaimPlans
 } from './multiRoomTerritory';
 import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import {
+  AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
+  isAutonomousTerritoryControlAllowedForColony,
+  isAutonomousTerritoryControlAllowedForColonyName
+} from './controlGate';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -230,6 +235,11 @@ export function planTerritoryIntent(
 
   const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options);
   if (!selection) {
+    return null;
+  }
+
+  if (!isAutonomousTerritoryControlSelectionAllowed(colony, selection)) {
+    suppressAutonomousTerritoryControlIntents(colony.room.name, gameTime);
     return null;
   }
 
@@ -592,6 +602,26 @@ export function selectVisibleTerritoryControllerTask(creep: Creep): CreepTaskMem
     return null;
   }
 
+  if (
+    isTerritoryControlAction(intent.action) &&
+    !isAutonomousTerritoryControlAllowedForColonyName(intent.colony) &&
+    controller.my !== true
+  ) {
+    suppressTerritoryIntent(
+      intent.colony,
+      {
+        targetRoom: intent.targetRoom,
+        action: intent.action,
+        ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
+        ...(intent.followUp ? { followUp: intent.followUp } : {})
+      },
+      getGameTime(),
+      AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON
+    );
+    delete creep.memory.territory;
+    return null;
+  }
+
   if (intent.action === 'reserve') {
     if (
       typeof creep.signController === 'function' &&
@@ -774,7 +804,8 @@ export function isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(
 export function suppressTerritoryIntent(
   colony: string | undefined,
   assignment: CreepTerritoryMemory,
-  gameTime: number
+  gameTime: number,
+  reason?: TerritoryIntentSuppressionReason
 ): void {
   if (
     !isNonEmptyString(colony) ||
@@ -805,6 +836,7 @@ export function suppressTerritoryIntent(
     action: assignment.action,
     status: 'suppressed',
     updatedAt: gameTime,
+    ...(reason ? { reason } : {}),
     ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {})
@@ -813,6 +845,110 @@ export function suppressTerritoryIntent(
   upsertTerritoryIntent(intents, suppressedIntent);
   removeTerritoryFollowUpDemand(territoryMemory, colony, assignment.targetRoom, assignment.action);
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
+}
+
+function suppressAutonomousTerritoryControlIntents(
+  colonyName: string,
+  gameTime: number
+): void {
+  const territoryMemory = getTerritoryMemoryRecord() as TerritoryMemory | null;
+  if (!territoryMemory) {
+    return;
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const suppressedKeys = new Set<string>();
+
+  if (Array.isArray(territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (!target || !shouldSuppressAutonomousTerritoryControlTarget(target, colonyName)) {
+        continue;
+      }
+
+      upsertTerritoryIntent(intents, {
+        colony: target.colony,
+        targetRoom: target.roomName,
+        action: target.action,
+        status: 'suppressed',
+        updatedAt: gameTime,
+        reason: AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON,
+        ...(target.createdBy ? { createdBy: target.createdBy } : {}),
+        ...(target.controllerId ? { controllerId: target.controllerId } : {}),
+        ...(target.postClaimBootstrapReserveEnergy
+          ? { postClaimBootstrapReserveEnergy: target.postClaimBootstrapReserveEnergy }
+          : {})
+      });
+      suppressedKeys.add(getTerritoryIntentKey(target.colony, target.roomName, target.action));
+    }
+  }
+
+  for (let index = 0; index < intents.length; index += 1) {
+    const intent = intents[index];
+    if (!shouldSuppressAutonomousTerritoryControlIntent(intent, colonyName)) {
+      continue;
+    }
+
+    intents[index] = {
+      ...intent,
+      status: 'suppressed',
+      updatedAt: gameTime,
+      reason: AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON
+    };
+    suppressedKeys.add(getTerritoryIntentKey(intent.colony, intent.targetRoom, intent.action));
+  }
+
+  for (const suppressedKey of suppressedKeys) {
+    const [colony, targetRoom, action] = suppressedKey.split(TERRITORY_ROUTE_DISTANCE_SEPARATOR);
+    if (isTerritoryControlAction(action)) {
+      removeTerritoryFollowUpDemand(territoryMemory, colony, targetRoom, action);
+      removeTerritoryFollowUpExecutionHint(territoryMemory, colony, targetRoom, action);
+    }
+  }
+}
+
+function isAutonomousTerritoryControlSelectionAllowed(
+  colony: ColonySnapshot,
+  selection: SelectedTerritoryTarget
+): boolean {
+  if (!isTerritoryControlAction(selection.intentAction)) {
+    return true;
+  }
+
+  if (isAutonomousTerritoryControlAllowedForColony(colony)) {
+    return true;
+  }
+
+  return getVisibleController(selection.target.roomName, selection.target.controllerId)?.my === true;
+}
+
+function shouldSuppressAutonomousTerritoryControlTarget(
+  target: TerritoryTargetMemory,
+  colonyName: string
+): boolean {
+  return (
+    target.colony === colonyName &&
+    target.enabled !== false &&
+    target.roomName !== colonyName &&
+    isTerritoryControlAction(target.action)
+  );
+}
+
+function shouldSuppressAutonomousTerritoryControlIntent(
+  intent: TerritoryIntentMemory,
+  colonyName: string
+): boolean {
+  return (
+    intent.colony === colonyName &&
+    intent.targetRoom !== colonyName &&
+    isTerritoryControlAction(intent.action) &&
+    (intent.status === 'planned' || intent.status === 'active')
+  );
+}
+
+function getTerritoryIntentKey(colony: string, targetRoom: string, action: TerritoryIntentAction): string {
+  return `${colony}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${action}`;
 }
 
 function suppressSameRoomClaimTerritoryIntents(

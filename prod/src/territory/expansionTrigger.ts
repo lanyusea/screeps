@@ -26,10 +26,15 @@ import {
   isConfiguredExpansionScoutOnlyTarget
 } from './expansionConfig';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyTemplates';
+import {
+  AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON,
+  AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL,
+  isAutonomousTerritoryControlAllowedForColony
+} from './controlGate';
 
 const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
-const DEFAULT_EXPANSION_TRIGGER_MIN_RCL = 3;
+const DEFAULT_EXPANSION_TRIGGER_MIN_RCL = AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL;
 const EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
 const EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = '>';
@@ -65,6 +70,25 @@ export function refreshAutonomousExpansionPipeline(
   }
 
   const activePipeline = getActiveExpansionPipeline(territoryMemory, colonyName);
+  if (!isAutonomousTerritoryControlAllowedForColony(colony)) {
+    if (activePipeline) {
+      return abortExpansionPipeline(
+        territoryMemory,
+        activePipeline,
+        AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON,
+        gameTime,
+        'unmetPreconditions'
+      );
+    }
+
+    prunePipelinePlans(territoryMemory, colonyName);
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: getPreControlGateSkipReason(report)
+    };
+  }
+
   if (activePipeline) {
     return refreshExpansionPipelineStage(colony, activePipeline, gameTime, telemetryEvents, territoryMemory);
   }
@@ -473,6 +497,18 @@ function getTriggerSkipReason(
   }
 
   return 'unavailable';
+}
+
+function getPreControlGateSkipReason(report: ExpansionCandidateReport): NextExpansionTargetSelection['reason'] {
+  if (report.candidates.length === 0) {
+    return 'noCandidate';
+  }
+
+  if (report.candidates.some((candidate) => candidate.evidenceStatus === 'insufficient-evidence')) {
+    return 'insufficientEvidence';
+  }
+
+  return 'unmetPreconditions';
 }
 
 function createExpansionPipeline(
@@ -1142,7 +1178,8 @@ function isExpansionAbortReason(reason: unknown): reason is TerritoryExpansionAb
     reason === 'controllerReserved' ||
     reason === 'reservationLost' ||
     reason === 'targetHostile' ||
-    reason === 'sourcesMissing'
+    reason === 'sourcesMissing' ||
+    reason === 'rcl6Gate'
   );
 }
 

@@ -196,10 +196,15 @@ describe('adjacent room reservation planner', () => {
   it('plans reservations when the RCL room limit blocks another claim', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
-      gclLevel: 5,
+      gclLevel: 10,
       rooms: {
         W3N1: makeOwnedRoom('W3N1'),
         W4N1: makeOwnedRoom('W4N1'),
+        W5N1: makeOwnedRoom('W5N1'),
+        W6N1: makeOwnedRoom('W6N1'),
+        W7N1: makeOwnedRoom('W7N1'),
+        W8N1: makeOwnedRoom('W8N1'),
+        W9N1: makeOwnedRoom('W9N1'),
         W1N2: makeReservationRoom('W1N2', { sourceCount: 2 })
       },
       exits: { W1N1: { '1': 'W1N2' } }
@@ -502,7 +507,7 @@ function makeOwnedController(roomName: string): StructureController {
   return {
     id: `controller-${roomName}` as Id<StructureController>,
     my: true,
-    level: 3,
+    level: 6,
     ticksToDowngrade: 10_000,
     owner: { username: 'me' }
   } as StructureController;

@@ -244,7 +244,7 @@ describe('E17S60 claim pipeline', () => {
 });
 
 function makeColony(): ColonySnapshot {
-  const room = makeOwnedRoom('E17S59');
+  const room = makeOwnedRoom('E17S59', 6);
   const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
 
   return {
@@ -257,7 +257,7 @@ function makeColony(): ColonySnapshot {
   };
 }
 
-function makeOwnedRoom(roomName: string): Room & { memory: RoomMemory } {
+function makeOwnedRoom(roomName: string, controllerLevel = 4): Room & { memory: RoomMemory } {
   return {
     name: roomName,
     energyAvailable: 1_300,
@@ -266,7 +266,7 @@ function makeOwnedRoom(roomName: string): Room & { memory: RoomMemory } {
       id: `controller-${roomName.toLowerCase()}` as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
-      level: 4,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     storage: {

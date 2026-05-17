@@ -72,6 +72,95 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('suppresses controller-control territory intents before RCL6', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { id: 'controller2' as Id<StructureController>, my: false }
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 499
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 500)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual(
+      expect.arrayContaining([
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'suppressed',
+          updatedAt: 500,
+          reason: 'controllerLevel'
+        },
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          status: 'suppressed',
+          updatedAt: 500,
+          reason: 'controllerLevel'
+        }
+      ])
+    );
+  });
+
+  it('keeps scout-only territory intelligence available before RCL6', () => {
+    const colony = makeSafeColony({
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        501,
+        { scoutOnly: true }
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 501
+      }
+    ]);
+  });
+
   it('holds configured territory execution while an E29N55-like RCL3 room has no tower', () => {
     const globals = globalThis as unknown as {
       FIND_STRUCTURES: number;
@@ -1334,7 +1423,12 @@ describe('planTerritoryIntent', () => {
           ...(scenario.ownedRoom
             ? {
                 W8N8: { name: 'W8N8', controller: { my: true, owner: { username: 'me' } } } as Room,
-                W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room
+                W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W10N10: { name: 'W10N10', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W11N11: { name: 'W11N11', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W12N12: { name: 'W12N12', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W13N13: { name: 'W13N13', controller: { my: true, owner: { username: 'me' } } } as Room,
+                W14N14: { name: 'W14N14', controller: { my: true, owner: { username: 'me' } } } as Room
               }
             : {}),
           W1N2: makeRecommendationRoom('W1N2', {
@@ -7314,7 +7408,7 @@ function makeScoutIntel(
 
 function makeSafeColony({
   roomName = 'W1N1',
-  controller = { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+  controller = { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController,
   energyAvailable = 650,
   energyCapacityAvailable = 650
 }: {

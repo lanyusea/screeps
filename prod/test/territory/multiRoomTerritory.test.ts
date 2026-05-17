@@ -144,7 +144,7 @@ function makeColony(
   const room = makeOwnedRoom(roomName, {
     energyAvailable,
     energyCapacityAvailable,
-    controllerLevel: options.controllerLevel ?? 4
+    controllerLevel: options.controllerLevel ?? 6
   });
   const spawn = makeActiveSpawn(`spawn-${roomName}`, room);
 

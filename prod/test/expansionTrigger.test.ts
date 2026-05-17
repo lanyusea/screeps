@@ -41,13 +41,13 @@ describe('autonomous expansion trigger pipeline', () => {
     expect(getExpansionTriggerRequiredEnergy(3)).toBeLessThanOrEqual(800);
   });
 
-  it('starts an RCL 3 pipeline when room energy reaches the capped threshold', () => {
-    const threshold = getExpansionTriggerRequiredEnergy(3);
+  it('starts an RCL6 pipeline when room energy reaches the capped threshold', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(6);
     const colony = makeColony({
       storageEnergy: 2_000,
-      rcl: 3,
+      rcl: 6,
       energyAvailable: threshold,
-      energyCapacityAvailable: 800
+      energyCapacityAvailable: 2300
     });
     const report = makeReport([
       makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
@@ -74,13 +74,13 @@ describe('autonomous expansion trigger pipeline', () => {
     });
   });
 
-  it('waits at RCL 3 when room energy is below the capped threshold', () => {
-    const threshold = getExpansionTriggerRequiredEnergy(3);
+  it('waits at RCL6 when room energy is below the capped threshold', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(6);
     const colony = makeColony({
       storageEnergy: 2_000,
-      rcl: 3,
+      rcl: 6,
       energyAvailable: threshold - 1,
-      energyCapacityAvailable: 800
+      energyCapacityAvailable: 2300
     });
     const report = makeReport([
       makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
@@ -100,6 +100,35 @@ describe('autonomous expansion trigger pipeline', () => {
       reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.expansionPipelines).toEqual({});
+  });
+
+  it('does not start controller-control expansion before RCL6', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(5);
+    const colony = makeColony({
+      storageEnergy: 2_000,
+      rcl: 5,
+      energyAvailable: threshold,
+      energyCapacityAvailable: 1800
+    });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 9,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+    setSafeHomeThreat('W1N1', 9);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 9)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines).toEqual({});
+    expect(Memory.territory?.targets).toBeUndefined();
   });
 
   it('gates the trigger on configured storage energy before starting the reserve stage', () => {
@@ -368,6 +397,73 @@ describe('autonomous expansion trigger pipeline', () => {
     expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
+  it('aborts active expansion pipelines before RCL6 and clears persisted control plans', () => {
+    const colony = makeColony({ storageEnergy: 2_000, rcl: 5, energyCapacityAvailable: 1800 });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {
+          W1N1: {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            status: 'active',
+            stage: 'claiming',
+            score: 900,
+            threshold: 700,
+            startedAt: 40,
+            updatedAt: 40,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        },
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'claim',
+            createdBy: 'nextExpansionScoring',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 40,
+            createdBy: 'nextExpansionScoring',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    setSafeHomeThreat('W1N1', 40);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 41,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, makeReport([]), 41)).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'aborted',
+      abortReason: 'rcl6Gate',
+      abortedAt: 41
+    });
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(Memory.territory?.expansionReevaluations?.['W1N1>W2N1']).toMatchObject({
+      reason: 'rcl6Gate',
+      updatedAt: 41
+    });
+  });
+
   it('blocks new pipelines while claim work is already in flight', () => {
     const colony = makeColony({ storageEnergy: 2_000 });
     const report = makeReport([
@@ -563,7 +659,7 @@ function makeCandidate({
 
 function makeColony({
   storageEnergy = 0,
-  rcl = 3,
+  rcl = 6,
   ticksToDowngrade = 10_000,
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300
