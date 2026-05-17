@@ -739,7 +739,15 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const routineBarrierMaintenanceTarget = selectRoutineBarrierMaintenanceRepairTarget(creep);
-  if (routineBarrierMaintenanceTarget) {
+  if (
+    routineBarrierMaintenanceTarget &&
+    !shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(
+      creep,
+      controller,
+      constructionSites,
+      routineBarrierMaintenanceTarget
+    )
+  ) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'repair',
       targetId: routineBarrierMaintenanceTarget.id as Id<Structure>
@@ -786,7 +794,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const repairTarget = selectRepairTarget(creep);
-  if (repairTarget) {
+  if (
+    repairTarget &&
+    !shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(creep, controller, constructionSites, repairTarget)
+  ) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'repair', targetId: repairTarget.id as Id<Structure> });
   }
 
@@ -3524,7 +3535,11 @@ function selectNearbyProductiveEnergySinkTask(
         )
       ),
     ...findVisibleRoomStructures(creep.room)
-      .filter((structure) => isRoutineRepairTargetForWorker(creep, structure))
+      .filter(
+        (structure): structure is RepairableWorkerStructure =>
+          isRoutineRepairTargetForWorker(creep, structure) &&
+          !shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(creep, controller, constructionSites, structure)
+      )
       .map((structure) =>
         createProductiveEnergySinkCandidate(
           creep,
@@ -6402,6 +6417,44 @@ function selectAvailableRoutineRepairTarget<T extends RepairableWorkerStructure>
   repairTargets: T[]
 ): T | null {
   return repairTargets.find((structure) => hasRoutineRepairAssignmentCapacity(creep, structure)) ?? null;
+}
+
+function shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[],
+  repairTarget: RepairableWorkerStructure
+): boolean {
+  return (
+    !isUrgentRepairTargetForControllerProgressBudget(repairTarget) &&
+    shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) &&
+    hasSameRoomWorkerAssignedToTask(creep.room, creep, 'repair')
+  );
+}
+
+function shouldBoundHealthyRcl3RoutineRepairs(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[]
+): boolean {
+  return (
+    controller?.my === true &&
+    getControllerLevel(controller) === 3 &&
+    canLevelUpController(controller) &&
+    constructionSites.length === 0 &&
+    !hasVisibleHostilePresence(creep.room) &&
+    hasHealthyRoomEnergyBuffer(creep.room) &&
+    getSameRoomLoadedWorkers(creep).length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS
+  );
+}
+
+function isUrgentRepairTargetForControllerProgressBudget(repairTarget: RepairableWorkerStructure): boolean {
+  return (
+    isUrgentBarrierRepairTarget(repairTarget) ||
+    isCriticalOwnedSpawnRepairTarget(repairTarget) ||
+    (isRoadOrContainerRepairTarget(repairTarget) &&
+      getHitsRatio(repairTarget) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO)
+  );
 }
 
 function canSelectRoutineBarrierMaintenanceRepairTarget(room: Room): boolean {

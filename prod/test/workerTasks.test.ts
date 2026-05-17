@@ -13673,6 +13673,70 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
   });
 
+  it('keeps urgent RCL3 barrier repair ahead of controller progress when routine repair is already covered', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const urgentWall = makeStructure(
+      'wall-urgent',
+      'constructedWall' as StructureConstant,
+      BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      structures: [urgentWall]
+    });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'wall-urgent' as Id<Structure> });
+    const creep = {
+      name: 'UrgentRepairWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, UrgentRepairWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'wall-urgent' });
+  });
+
+  it('keeps RCL3 construction before bounded routine barrier repair', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const extensionSite = { id: 'extension-site1', my: true, structureType: 'extension' } as ConstructionSite;
+    const routineWall = makeStructure(
+      'wall-routine',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 300,
+      300_000_000
+    );
+    const room = makeWorkerTaskRoom({
+      constructionSites: [extensionSite],
+      controller,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      structures: [routineWall]
+    });
+    const repairer = makeLoadedWorker(room, { type: 'repair', targetId: 'wall-routine' as Id<Structure> });
+    const creep = {
+      name: 'BuilderWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Repairer: repairer, BuilderWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
   it('chooses repair targets deterministically and avoids hostile structures', () => {
     const controller = { id: 'controller1', my: true } as StructureController;
     const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 100, 1_000, {
