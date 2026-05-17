@@ -1,7 +1,7 @@
 # Screeps Cron and Route Registry
 
 Last updated: 2026-05-18
-Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170
+Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170, https://github.com/lanyusea/screeps/issues/1178
 
 This registry is the expected-state contract for Screeps/Hermes cron jobs and Discord delivery routes. It is not passive documentation: P0 monitor, scheduler, and acceptance checks must compare live cron metadata against this file with `scripts/check_cron_registry.py`.
 
@@ -84,7 +84,7 @@ Repeat policy values:
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
 | Screeps RL flywheel steward | `aed8362e4501` | `17 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
 | Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
-| Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
+| Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `-` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
 | Screeps RL policy online advantage ledger | `01609968392a` | `27,57 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
 | Hermes state daily backup | `bf68a3951853` | `0 4 * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | Support | Daily private Hermes-state backup. |
 
@@ -114,3 +114,4 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 - Cron prompt updates require a pre-change snapshot and post-change `cronjob list` verification.
 - Long-lived recurring Screeps jobs should be configured as `forever` or with a very high repeat horizon. A finite `999` cap on critical recurring jobs is abnormal because it can silently stop automation after enough successful runs.
 - Repo/worktree-manipulating cron jobs must keep a stable current directory. Use `/root/screeps` as the default controller cwd, prefer `git -C <path>` or subshells over persistent `cd`, and return to `/root/screeps` before deleting any linked worktree.
+- Metrics/ledger jobs that can use absolute repo paths and a preflight script should not hold a durable cron `workdir` if doing so prevents natural scheduler sessions. The Loop A training execution ledger `5c869e7d8a1d` intentionally has `Workdir=-` after #1178; do not restore `/root/screeps` unless a verified run proves it no longer starves behind the repo workdir lane.
