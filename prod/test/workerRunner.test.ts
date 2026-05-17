@@ -2376,6 +2376,98 @@ describe('runWorker', () => {
     expect(workers.every((worker) => (worker.transfer as jest.Mock).mock.calls.length === 0)).toBe(true);
   });
 
+  it('bounds healthy E29N55 RCL3 routine repair saturation after construction clears', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 1_000,
+      progressTotal: 135_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000,
+      pos: { x: 25, y: 25, roomName: 'E29N55' } as RoomPosition
+    } as StructureController;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      my: true,
+      structureType: 'spawn',
+      spawning: null,
+      pos: { x: 17, y: 24, roomName: 'E29N55' } as RoomPosition,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(300),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureSpawn;
+    const repairTargets = Array.from({ length: 4 }, (_, index) => ({
+      id: `wall-routine-${index + 1}`,
+      structureType: 'constructedWall',
+      hits: IDLE_RAMPART_REPAIR_HITS_CEILING - 300 - index,
+      hitsMax: 300_000_000,
+      pos: { x: 20 + index, y: 23, roomName: 'E29N55' } as RoomPosition
+    })) as unknown as StructureWall[];
+    const workers: Creep[] = [];
+    const room = {
+      name: 'E29N55',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return workers;
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [spawn, ...repairTargets] as unknown as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const makeWorker = (index: number): Creep =>
+      ({
+        name: `worker-E29N55-${index}`,
+        memory: {
+          role: 'worker',
+          colony: 'E29N55',
+          task: { type: 'repair', targetId: `wall-routine-${index}` as Id<Structure> }
+        },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(0),
+          getCapacity: jest.fn().mockReturnValue(50)
+        },
+        pos: { getRangeTo: jest.fn().mockReturnValue(4) },
+        room,
+        repair: jest.fn().mockReturnValue(0),
+        upgradeController: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+        moveTo: jest.fn()
+      }) as unknown as Creep;
+    workers.push(...Array.from({ length: 4 }, (_, index) => makeWorker(index + 1)));
+    const objectsById = new Map<string, StructureController | StructureSpawn | StructureWall>([
+      ['controller1', controller],
+      ['spawn1', spawn],
+      ...repairTargets.map((target) => [String(target.id), target] as [string, StructureWall])
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_040_188,
+      creeps: Object.fromEntries(workers.map((worker) => [worker.name, worker])),
+      getObjectById: jest.fn((id: string) => objectsById.get(id) ?? null)
+    };
+
+    workers.forEach(runWorker);
+
+    const assignedTasks = workers.map((worker) => worker.memory.task?.type);
+    expect(assignedTasks.filter((task) => task === 'repair')).toHaveLength(1);
+    expect(assignedTasks.filter((task) => task === 'upgrade')).toHaveLength(3);
+    expect(workers.filter((worker) => (worker.upgradeController as jest.Mock).mock.calls.length > 0)).toHaveLength(3);
+    expect(workers.filter((worker) => (worker.repair as jest.Mock).mock.calls.length > 0)).toHaveLength(1);
+  });
+
   it('keeps emergency spawn-extension refill ahead of E29N55 construction backlog balancing', () => {
     const site = {
       id: 'tower-site1',
