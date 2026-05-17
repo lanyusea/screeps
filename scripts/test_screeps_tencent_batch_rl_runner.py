@@ -421,6 +421,42 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         self.assertEqual(controller.result["trainingReport"]["scaleValidation"]["successfulEnvironments"], 4)
 
+    def test_verify_remote_training_report_accepts_repeated_scale_proof_totals(self) -> None:
+        args = controller_args()
+        args.workers = 5
+        args.repetitions = 5
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "reportId": "run-test",
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "artifactCount": 25,
+                "scaleValidation": {
+                    "ok": True,
+                    "targetEnvironments": 5,
+                    "minimumSuccessfulEnvironments": 4,
+                    "totalEnvironments": 25,
+                    "successfulEnvironments": 24,
+                    "failedEnvironments": 1,
+                    "repetitions": 5,
+                },
+            }
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+            data["scaleValidation"]["totalEnvironments"] = 24
+            report.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(runner.BatchRunError, "scale proof environment count"):
+                controller.verify_remote_training_report()
+
+        self.assertEqual(controller.result["trainingReport"]["scaleValidation"]["successfulEnvironments"], 24)
+
     def test_scale_proof_result_rejects_malformed_remote_counts(self) -> None:
         valid = {
             "ok": True,
