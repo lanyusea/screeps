@@ -1414,7 +1414,7 @@ describe('next expansion scoring', () => {
   });
 
   it('leaves reserve intent planning available when the next expansion claim gate is at its room limit', () => {
-    const colony = makeSafeColony({ controllerLevel: 2 });
+    const colony = makeSafeColony({ controllerLevel: 6 });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
@@ -1428,13 +1428,13 @@ describe('next expansion scoring', () => {
 
     const report = scoreExpansionCandidates(
       makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
-        controllerLevel: 2,
-        ownedRoomCount: 1
+        controllerLevel: 6,
+        ownedRoomCount: 8
       })
     );
 
     expect(report.next?.preconditions).toContain(
-      'limit expansion to 1 owned rooms for current controller level'
+      'limit expansion to 8 owned rooms for current controller level'
     );
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 211)).toEqual({
       colony: 'W1N1',
@@ -1540,7 +1540,7 @@ function makeInput(
     colonyName: 'W1N1',
     colonyOwnerUsername: 'me',
     energyCapacityAvailable: 650,
-    controllerLevel: 3,
+    controllerLevel: 6,
     ownedRoomCount: 1,
     ticksToDowngrade: 10_000,
     candidates,
@@ -1617,7 +1617,7 @@ function makeRoomScoutReport(
 }
 
 function makeSafeColony({
-  controllerLevel = 3
+  controllerLevel = 6
 }: {
   controllerLevel?: number;
 } = {}): ColonySnapshot {

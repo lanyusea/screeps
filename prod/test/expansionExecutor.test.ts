@@ -29,7 +29,7 @@ describe('expansion executor', () => {
   });
 
   it('persists the highest-scored scouted expansion as a reserve target and reuses the active pipeline', () => {
-    const colony = makeColony();
+    const colony = makeColony({ controllerLevel: 6 });
     const getRoomTerrain = jest.fn(() => makeTerrain(0));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 100,
@@ -88,7 +88,7 @@ describe('expansion executor', () => {
   });
 
   it('revalidates claim readiness before reusing a cached planned selection', () => {
-    const colony = makeColony();
+    const colony = makeColony({ controllerLevel: 6 });
     const homeSources = makeSources('W1N1', 2);
     let hostileCreepCount = 0;
     (colony.room.find as jest.Mock).mockImplementation((findType: number) => {
@@ -467,12 +467,14 @@ function makeColony({
   roomName = 'W1N1',
   energyAvailable = 1_300,
   energyCapacityAvailable = 1_300,
+  controllerLevel = 3,
   spawns,
   structures = []
 }: {
   roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
+  controllerLevel?: number;
   spawns?: StructureSpawn[];
   structures?: AnyStructure[];
 } = {}): ColonySnapshot {
@@ -485,7 +487,7 @@ function makeColony({
       id: `controller-${roomName}` as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     memory: {},

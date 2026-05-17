@@ -104,7 +104,7 @@ function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemo
 }
 
 function isTerritoryIntentSuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
-  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute';
+  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute' || reason === 'controllerLevel';
 }
 
 function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {

@@ -18,6 +18,7 @@ import {
   hasActiveAutonomousExpansionPipeline,
   refreshAutonomousExpansionPipeline
 } from './expansionTrigger';
+import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
 import {
   getConfiguredExpansionRoomScoutingTargets,
   refreshExpansionRoomScouting,
@@ -284,9 +285,7 @@ function getExpansionExecutorAvailableEnergyState(energyAvailable: number): stri
 function isExpansionExecutorClaimReady(colony: ColonySnapshot, gameTime: number): boolean {
   const controller = colony.room.controller;
   return (
-    controller?.my === true &&
-    isFiniteNumber(controller.level) &&
-    controller.level >= 2 &&
+    isAutonomousTerritoryControlAllowedForController(controller) &&
     countActiveExpansionExecutorSpawns(colony) > 0 &&
     !hasExpansionExecutorActiveHostiles(colony.room) &&
     getExpansionExecutorThreatState(colony.room.name, gameTime) === 'none' &&

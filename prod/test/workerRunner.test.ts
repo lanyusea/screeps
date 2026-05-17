@@ -13,6 +13,7 @@ import {
 } from '../src/colony/survivalMode';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
+import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
   return {
@@ -72,6 +73,7 @@ describe('runWorker', () => {
     delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    installVisibleOwnedRcl6ColonyRoomDefault();
     clearColonySurvivalAssessmentCache();
   });
 

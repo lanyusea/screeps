@@ -178,8 +178,8 @@ describe('planSpawn', () => {
     return { colony, spawn, find };
   }
 
-  function makeSafeOwnedController(): StructureController {
-    return { my: true, level: 3, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController;
+  function makeSafeOwnedController(level = 3): StructureController {
+    return { my: true, level, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController;
   }
 
   function makeController(id: string, level: number): StructureController {
@@ -1883,7 +1883,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -1925,11 +1925,11 @@ describe('planSpawn', () => {
     });
   });
 
-  it('uses the home spawn for a post-claim room defender when the target controller is attack-blocked', () => {
+  it('uses the home spawn for post-claim room defense even before RCL6 expansion control', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: { my: true, level: 5, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3024,7 +3024,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -3053,13 +3053,60 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('suppresses stale controller-control intents before RCL6 without spawning a claimer', () => {
+    const { colony } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controller: { my: true, level: 5, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: { name: 'W2N1', controller: { id: 'controller2', my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 138
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        { worker: 3, sourceHarvester: 0, claimer: 0, claimersByTargetRoom: {} },
+        139
+      )
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 139,
+        reason: 'controllerLevel'
+      }
+    ]);
+  });
+
   it('plans territory scouting once the construction-adjusted worker target is satisfied', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N10',
       constructionSiteCount: 1,
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -3092,7 +3139,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap,
@@ -3134,7 +3181,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 1_950,
       energyCapacityAvailable: 1_950,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3191,7 +3238,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     const controller = {
       my: false,
@@ -3231,7 +3278,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap,
@@ -3357,7 +3404,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3419,7 +3466,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3466,7 +3513,7 @@ describe('planSpawn', () => {
     const { colony: visibleColony } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3494,7 +3541,7 @@ describe('planSpawn', () => {
     const { colony: darkColony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3554,7 +3601,7 @@ describe('planSpawn', () => {
       colonyOwnerUsername: 'me',
       energyCapacityAvailable: 3250,
       workerCount: 3,
-      controllerLevel: 3,
+      controllerLevel: 6,
       ticksToDowngrade: 10_000,
       candidates: [
         {
@@ -3594,7 +3641,7 @@ describe('planSpawn', () => {
     const { colony: darkColony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3621,7 +3668,7 @@ describe('planSpawn', () => {
     const { colony: visibleColony } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3655,7 +3702,7 @@ describe('planSpawn', () => {
       colonyOwnerUsername: 'me',
       energyCapacityAvailable: 3250,
       workerCount: 3,
-      controllerLevel: 3,
+      controllerLevel: 6,
       ticksToDowngrade: 10_000,
       candidates: [
         {
@@ -3691,7 +3738,7 @@ describe('planSpawn', () => {
     const { colony: darkColony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -3717,7 +3764,7 @@ describe('planSpawn', () => {
     const { colony: visibleColony } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3741,7 +3788,7 @@ describe('planSpawn', () => {
     const { colony: darkColony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3766,7 +3813,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3821,7 +3868,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 2_000,
       energyCapacityAvailable: 2_000,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3867,7 +3914,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3955,7 +4002,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4015,7 +4062,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4079,7 +4126,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 3250,
       energyCapacityAvailable: 3250,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4165,7 +4212,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4225,7 +4272,7 @@ describe('planSpawn', () => {
       originAction: 'reserve'
     };
     const ownedController = {
-      ...makeSafeOwnedController(),
+      ...makeSafeOwnedController(6),
       owner: { username: 'player' }
     } as StructureController;
     const { colony, spawn } = makeColony({
@@ -4304,13 +4351,13 @@ describe('planSpawn', () => {
     const { colony: busyColony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController(),
+      controller: makeSafeOwnedController(6),
       spawning: busy
     });
     const { colony: idleColony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     const recoveringRoleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
     const readyRoleCounts = { worker: 4, claimer: 0, claimersByTargetRoom: {} };
@@ -4444,7 +4491,7 @@ describe('planSpawn', () => {
     const { colony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     const roleCounts = {
       worker: 4,
@@ -4508,7 +4555,7 @@ describe('planSpawn', () => {
     const { colony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController(),
+      controller: makeSafeOwnedController(6),
       spawning: busy
     });
     const roleCounts = {
@@ -4565,7 +4612,7 @@ describe('planSpawn', () => {
     const { colony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4613,7 +4660,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -4677,7 +4724,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 600,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -5140,7 +5187,7 @@ describe('planSpawn', () => {
       roomName: 'E17S59',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -5199,7 +5246,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -5285,7 +5332,7 @@ describe('planSpawn', () => {
     const { colony } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -5309,7 +5356,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -5365,7 +5412,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 6, ticksToDowngrade: 10_000 } as StructureController
     });
     const activeReserveIntent: TerritoryIntentMemory = {
       colony: 'W1N1',
@@ -5427,7 +5474,7 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(6)
     });
     const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

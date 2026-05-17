@@ -77,7 +77,7 @@ declare global {
     | 'workerFallback';
   type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
   type DefenseThreatLevel = 'none' | 'hostile_present' | 'under_attack';
-  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
+  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute' | 'controllerLevel';
 
   interface IntelMemory {
     scoutReports?: Record<string, RoomScoutReportMemory>;
@@ -695,7 +695,8 @@ declare global {
     | 'controllerReserved'
     | 'reservationLost'
     | 'targetHostile'
-    | 'sourcesMissing';
+    | 'sourcesMissing'
+    | 'rcl6Gate';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'

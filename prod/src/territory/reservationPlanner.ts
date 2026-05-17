@@ -8,6 +8,7 @@ import {
 import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import { isAutonomousTerritoryControlAllowedForController } from './controlGate';
 
 export const ADJACENT_ROOM_RESERVATION_TARGET_CREATOR: TerritoryAutomationSource =
   'adjacentRoomReservation';
@@ -24,6 +25,7 @@ export type AdjacentRoomReservationClaimBlocker =
 
 export type AdjacentRoomReservationSkipReason =
   | 'claimAllowed'
+  | 'controllerLevelLow'
   | 'energyCapacityLow'
   | 'existingTerritoryPlan'
   | 'noCandidate'
@@ -92,6 +94,10 @@ export function selectAdjacentRoomReservationPlan(
   options: AdjacentRoomReservationPlanningOptions = {}
 ): AdjacentRoomReservationEvaluation {
   const colonyName = colony.room.name;
+  if (!isAutonomousTerritoryControlAllowedForController(colony.room.controller)) {
+    return { status: 'skipped', colony: colonyName, reason: 'controllerLevelLow' };
+  }
+
   const claimBlocker = getAdjacentRoomClaimBlocker(colony) ?? options.claimBlocker ?? null;
   if (!claimBlocker && options.reserveWhenClaimAllowed !== true) {
     return { status: 'skipped', colony: colonyName, reason: 'claimAllowed' };

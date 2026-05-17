@@ -10,6 +10,7 @@ import {
   clearColonyStageAssessmentCache,
   recordColonyStageAssessment
 } from '../src/colony/colonyStage';
+import { installVisibleOwnedRcl6ColonyRoomDefault } from './helpers/territoryControlGate';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
@@ -28,6 +29,7 @@ describe('runTerritoryControllerCreep', () => {
       time: 500,
       getObjectById: jest.fn().mockReturnValue(null)
     };
+    installVisibleOwnedRcl6ColonyRoomDefault();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     clearColonyStageAssessmentCache();
   });
@@ -118,6 +120,56 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([
       { colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve', status: 'suppressed', updatedAt: 501 }
+    ]);
+  });
+
+  it('suppresses stale controller-control assignments before RCL6 without moving or acting', () => {
+    const controller = { id: 'controller1', my: false } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 502,
+      rooms: {
+        W1N1: {
+          name: 'W1N1',
+          controller: { my: true, level: 5, ticksToDowngrade: 10_000 } as StructureController
+        } as Room,
+        W1N2: {
+          name: 'W1N2',
+          controller,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W1N2', action: 'claim', status: 'active', updatedAt: 500 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn(),
+      attackController: jest.fn(),
+      claimController: jest.fn(),
+      reserveController: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.attackController).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 502,
+        reason: 'controllerLevel'
+      }
     ]);
   });
 

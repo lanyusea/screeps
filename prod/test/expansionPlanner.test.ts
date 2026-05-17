@@ -464,6 +464,33 @@ describe('expansion planner', () => {
     ]);
   });
 
+  it('does not create expansion planner control intents before RCL6', () => {
+    const { colony } = makeColony({
+      controllerLevel: 5,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+
+    expect(refreshExpansionPlannerIntent(colony, 101)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'noCandidate',
+      candidates: []
+    });
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 101)
+    ).toBeNull();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents ?? []).toEqual([]);
+  });
+
   it('keeps visible E29N55 scout-only rooms out of expansion planner control candidates and intents', () => {
     const { colony } = makeColony({
       roomName: 'E29N55',
@@ -664,7 +691,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 3
+      controllerLevel: 6
     });
     Memory.territory = {
       targets: [
@@ -744,7 +771,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 3
+      controllerLevel: 6
     });
     Memory.territory = {
       targets: [
@@ -829,7 +856,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 3
+      controllerLevel: 6
     });
     installGame(colony, {
       gclLevel: 2,
@@ -857,7 +884,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 3
+      controllerLevel: 6
     });
     Memory.territory = {
       targets: [
@@ -1404,7 +1431,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 4
+      controllerLevel: 6
     });
     Memory.territory = {
       targets: [
@@ -1507,7 +1534,7 @@ describe('expansion planner', () => {
     const { colony } = makeColony({
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controllerLevel: 4
+      controllerLevel: 6
     });
     Memory.territory = {
       intents: [
@@ -1597,7 +1624,7 @@ function makeColony({
   roomName = 'W1N1',
   energyAvailable = 650,
   energyCapacityAvailable = 650,
-  controllerLevel = 3,
+  controllerLevel = 6,
   hostileCreepCount = 0,
   hostileStructureCount = 0,
   spawns = [makeActiveSpawn(`spawn-${roomName}`)],
