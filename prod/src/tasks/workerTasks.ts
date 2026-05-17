@@ -3518,6 +3518,11 @@ function selectNearbyProductiveEnergySinkTask(
   }
 
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const shouldDeferCoveredRcl3RoutineRepair = shouldDeferCoveredRcl3RoutineRepairToControllerProgress(
+    creep,
+    controller,
+    constructionSites
+  );
   const candidates = [
     ...constructionSites
       .filter(
@@ -3538,7 +3543,8 @@ function selectNearbyProductiveEnergySinkTask(
       .filter(
         (structure): structure is RepairableWorkerStructure =>
           isRoutineRepairTargetForWorker(creep, structure) &&
-          !shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(creep, controller, constructionSites, structure)
+          (!shouldDeferCoveredRcl3RoutineRepair ||
+            isUrgentRepairTargetForControllerProgressBudget(structure))
       )
       .map((structure) =>
         createProductiveEnergySinkCandidate(
@@ -6427,6 +6433,16 @@ function shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(
 ): boolean {
   return (
     !isUrgentRepairTargetForControllerProgressBudget(repairTarget) &&
+    shouldDeferCoveredRcl3RoutineRepairToControllerProgress(creep, controller, constructionSites)
+  );
+}
+
+function shouldDeferCoveredRcl3RoutineRepairToControllerProgress(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[]
+): boolean {
+  return (
     shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) &&
     hasSameRoomWorkerAssignedToTask(creep.room, creep, 'repair')
   );

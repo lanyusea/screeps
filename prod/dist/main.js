@@ -25525,6 +25525,11 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const shouldDeferCoveredRcl3RoutineRepair = shouldDeferCoveredRcl3RoutineRepairToControllerProgress(
+    creep,
+    controller,
+    constructionSites
+  );
   const candidates = [
     ...constructionSites.filter(
       (site) => canSpendCreepEnergyOnConstructionSite(creep, site, constructionPriorityContext) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
@@ -25538,7 +25543,7 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
       )
     ),
     ...findVisibleRoomStructures(creep.room).filter(
-      (structure) => isRoutineRepairTargetForWorker(creep, structure) && !shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(creep, controller, constructionSites, structure)
+      (structure) => isRoutineRepairTargetForWorker(creep, structure) && (!shouldDeferCoveredRcl3RoutineRepair || isUrgentRepairTargetForControllerProgressBudget(structure))
     ).map(
       (structure) => createProductiveEnergySinkCandidate(
         creep,
@@ -27322,7 +27327,10 @@ function selectAvailableRoutineRepairTarget(creep, repairTargets) {
   return (_a = repairTargets.find((structure) => hasRoutineRepairAssignmentCapacity(creep, structure))) != null ? _a : null;
 }
 function shouldDeferRoutineRepairToCoveredRcl3ControllerProgress(creep, controller, constructionSites, repairTarget) {
-  return !isUrgentRepairTargetForControllerProgressBudget(repairTarget) && shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) && hasSameRoomWorkerAssignedToTask(creep.room, creep, "repair");
+  return !isUrgentRepairTargetForControllerProgressBudget(repairTarget) && shouldDeferCoveredRcl3RoutineRepairToControllerProgress(creep, controller, constructionSites);
+}
+function shouldDeferCoveredRcl3RoutineRepairToControllerProgress(creep, controller, constructionSites) {
+  return shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) && hasSameRoomWorkerAssignedToTask(creep.room, creep, "repair");
 }
 function shouldBoundHealthyRcl3RoutineRepairs(creep, controller, constructionSites) {
   return (controller == null ? void 0 : controller.my) === true && getControllerLevel(controller) === 3 && canLevelUpController2(controller) && constructionSites.length === 0 && !hasVisibleHostilePresence3(creep.room) && hasHealthyRoomEnergyBuffer(creep.room) && getSameRoomLoadedWorkers(creep).length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS;
