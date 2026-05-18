@@ -161,11 +161,58 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(scenario["capabilities"]["hostile_combat_signal"])
         self.assertTrue(scenario["suitability"]["multi_tier_policy_comparison"])
         self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(scenario))
-        self.assertEqual(scenario["evidence"]["implementation_status"], "metadata_only_guarded")
+        self.assertEqual(scenario["evidence"]["implementation_status"], "active_fixture_validated")
+        self.assertEqual(scenario["evidence"]["anchor_room"], "E1S1")
+        self.assertEqual(scenario["evidence"]["adjacent_room"], "E2S1")
+        self.assertEqual(scenario["evidence"]["room_count"], 2)
+        self.assertEqual(scenario["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(scenario["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(Path(card["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
         for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
             self.assertFalse(card[field])
             self.assertFalse(card["safety"][field])
             self.assertFalse(scenario["safety"][field])
+
+    def test_multi_tier_scenario_rejects_metadata_only_guarded_evidence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-stale",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+        )
+        card["scenario"]["evidence"]["implementation_status"] = "metadata_only_guarded"
+
+        self.assertFalse(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
+        with self.assertRaisesRegex(card_helper.CardValidationError, "metadata-only guarded"):
+            card_helper.validate_card(card)
+        with self.assertRaisesRegex(runner.TrainingCardError, "metadata-only guarded"):
+            runner.validate_experiment_card(card)
+
+    def test_multi_tier_scenario_rejects_zero_hostile_fixture(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-zero-hostile",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+        )
+        fixture = card_helper.load_json(card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
+        hostile_room = next(room for room in fixture["rooms"] if room.get("room") == "E2S1")
+        hostile_room["objects"] = [
+            item
+            for item in hostile_room["objects"]
+            if item.get("user") != "2"
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_path = Path(temp_dir) / "zero-hostile-map.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            card["simulation"]["map_source_file"] = str(fixture_path)
+            card["scenario"]["evidence"]["map_source_file"] = str(fixture_path)
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "hostile creep fixtures"):
+                card_helper.validate_card(card)
 
     def test_multi_tier_requirement_rejects_single_room_no_hostile_scenario(self) -> None:
         with self.assertRaisesRegex(card_helper.CardValidationError, "multi-tier policy comparisons require"):

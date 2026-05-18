@@ -1328,6 +1328,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("--require-multi-tier-scenario", generate_cmd)
         self.assertEqual(card["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(card["scenario"]["capabilities"]["hostile_combat_signal"])
+        self.assertEqual(card["simulation"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
+        self.assertEqual(card["scenario"]["evidence"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
         self.assertFalse(card["safety"]["officialMmoWritesAllowed"])
 
     def test_verify_remote_training_report_requires_scale_proof_success_for_workers_five(self) -> None:

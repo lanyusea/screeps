@@ -31,7 +31,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
-from screeps_rl_experiment_card import DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID, SCENARIO_IDS
+from screeps_rl_experiment_card import (
+    DEFAULT_SCENARIO_ID,
+    MULTI_TIER_SCENARIO_ID,
+    MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
+    SCENARIO_IDS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
@@ -504,13 +509,19 @@ class Controller:
         simulation = payload.setdefault("simulation", {})
         ticks = effective_training_ticks(self.args)
         scale_environments = resolve_scale_environment_count(self.args)
+        scenario_id = getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID)
+        map_source_file = (
+            MULTI_TIER_SIMULATION_MAP_SOURCE_REL
+            if scenario_id == MULTI_TIER_SCENARIO_ID
+            else "maps/map-0b6758af.json"
+        )
         simulation.update({
             "ticks": ticks,
             "workers": self.args.workers,
             "repetitions": self.args.repetitions,
             "host_port_start": self.args.host_port_start,
             "code_path": "prod/dist/main.js",
-            "map_source_file": "maps/map-0b6758af.json",
+            "map_source_file": map_source_file,
             # Keep smoke worker dirs outside the bundled repo. The private smoke
             # harness refuses to write secrets under a non-gitignored in-repo
             # runtime-artifacts path; the remote bundle intentionally excludes
