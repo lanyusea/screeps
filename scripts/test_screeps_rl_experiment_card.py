@@ -439,6 +439,8 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["simulation"]["ticks"], 500)
         self.assertEqual(generated["simulation"]["workers"], 5)
         self.assertEqual(generated["simulation"]["repetitions"], 5)
+        self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
     def test_cli_writes_loop_a_local_fallback_standalone_card_from_requested_gate(self) -> None:
@@ -519,6 +521,12 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["source_gate"]["dataset_run_id"], dataset_run_id)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
+        self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(generated["scenario"]["suitability"]["multi_tier_policy_comparison"])
+        self.assertEqual(generated["scenario"]["evidence"]["adjacent_room"], "E2S1")
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(Path(generated["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
 
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
@@ -548,6 +556,49 @@ class RlExperimentCardTest(unittest.TestCase):
             nested_live_regression["safety"][field] = True
             with self.assertRaises(card_helper.CardValidationError):
                 card_helper.validate_card(nested_live_regression)
+
+    def test_loop_a_local_fallback_rejects_explicit_single_room_scenario(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260518T025000Z-postmerge1188"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-dataset-evaluation-gate",
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-18T02:50:00Z",
+                        "dataset": {"runId": "rl-ebf33fae619f", "sampleCount": 200},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--source-gate-id",
+                    gate_id,
+                    "--dataset-gate-root",
+                    str(gate_root),
+                    "--scenario-id",
+                    card_helper.DEFAULT_SCENARIO_ID,
+                    "--code-commit",
+                    "7" * 40,
+                    "--created-at",
+                    "2026-05-18T03:12:00Z",
+                ],
+                stdout=io.StringIO(),
+                stderr=stderr,
+                repo_root=REPO_ROOT,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Loop A policy-gradient proof requires", stderr.getvalue())
 
     def test_source_gate_block_uses_stable_provenance_path(self) -> None:
         gate_id = "rl-gate-93bf1aa18b62"

@@ -24,17 +24,27 @@ Preflight, without creating a worker:
 ```bash
 cd /root/screeps
 python3 scripts/screeps_tencent_batch_rl_runner.py preflight \
-  --run-id tencent-single-preflight-$(date -u +%Y%m%dt%H%M%Sz | tr 'TZ' 'tz')
+  --run-id tencent-multitier-preflight-$(date -u +%Y%m%dt%H%M%Sz | tr 'TZ' 'tz') \
+  --training-approach policy_gradient \
+  --scenario-id multi-tier-territory-combat-v0 \
+  --require-multi-tier-scenario
 ```
 
-Single-worker validation run:
+Single-worker policy-gradient validation run:
 
 ```bash
 cd /root/screeps
 python3 scripts/screeps_tencent_batch_rl_runner.py run-single \
-  --run-id tencent-single-$(date -u +%Y%m%dt%H%M%Sz | tr 'TZ' 'tz') \
-  --ticks 50 --workers 1 --repetitions 1
+  --run-id tencent-multitier-$(date -u +%Y%m%dt%H%M%Sz | tr 'TZ' 'tz') \
+  --training-approach policy_gradient \
+  --scenario-id multi-tier-territory-combat-v0 \
+  --require-multi-tier-scenario \
+  --ticks 500 --workers 5 --repetitions 5
 ```
+
+The policy-gradient path must use `scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json`.
+The runner validates adjacent-room hostile fixture evidence before scale-up and rejects E1S1-only
+policy-gradient proof requests.
 
 The runner writes controller evidence under:
 
