@@ -73,6 +73,35 @@ POLICY_UPDATE_SAFETY_FIELD_ALIASES = {
     "officialMmoWrites": ("officialMmoWrites", "official_mmo_writes"),
     "officialMmoWritesAllowed": ("officialMmoWritesAllowed", "official_mmo_writes_allowed"),
 }
+ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
+    "algorithm",
+    "anchor",
+    "candidateCount",
+    "candidateRewards",
+    "gradient",
+    "iterations",
+    "learningRate",
+    "liveEffect",
+    "officialMmoWrites",
+    "officialMmoWritesAllowed",
+    "safety",
+    "schemaVersion",
+    "skippedReason",
+    "targetFamily",
+    "type",
+}
+ZERO_ITERATION_POLICY_UPDATE_FORBIDDEN_KEYS = {
+    "artifactPath",
+    "artifact_path",
+    "nextCandidatePolicy",
+    "next_candidate_policy",
+    "parameterDelta",
+    "parameter_delta",
+    "policyUpdateArtifactPath",
+    "policy_update_artifact_path",
+    "updatedParameters",
+    "updated_parameters",
+}
 
 
 class BatchRunError(RuntimeError):
@@ -1149,15 +1178,21 @@ def verified_remote_policy_update_fields(
     if isinstance(safe_policy_update, dict) and "iterations" in safe_policy_update:
         update_iterations = policy_update_iterations(safe_policy_update.get("iterations"), "policyUpdate.iterations")
     if iterations <= 0 and update_iterations <= 0:
-        if safe_policy_update not in (None, {}, []):
-            raise BatchRunError("remote policyUpdate is present without positive policyUpdateIterations")
         if raw_artifact_path is not None:
             raise BatchRunError("remote policyUpdateArtifactPath is present without positive policyUpdateIterations")
-        return {
-            "policyUpdateIterations": iterations,
-            "policyUpdateArtifactPath": None,
-            "policyUpdate": None,
-        }
+        if safe_policy_update in (None, {}, []):
+            return {
+                "policyUpdateIterations": iterations,
+                "policyUpdateArtifactPath": None,
+                "policyUpdate": None,
+            }
+        if is_safe_zero_iteration_policy_update(safe_policy_update):
+            return {
+                "policyUpdateIterations": iterations,
+                "policyUpdateArtifactPath": None,
+                "policyUpdate": safe_policy_update,
+            }
+        raise BatchRunError("remote policyUpdate is present without positive policyUpdateIterations")
     if iterations <= 0:
         raise BatchRunError("remote policyUpdateIterations must be positive when policyUpdate claims an update")
 
@@ -1205,6 +1240,52 @@ def validate_positive_policy_update(raw: Any) -> None:
         raise BatchRunError("remote policyUpdate.iterations must be positive when policyUpdateIterations is positive")
     if not isinstance(raw.get("nextCandidatePolicy"), dict):
         raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
+
+
+def is_safe_zero_iteration_policy_update(raw: Any) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    if raw.get("iterations") != 0:
+        return False
+    skipped_reason = raw.get("skippedReason")
+    if not isinstance(skipped_reason, str) or not skipped_reason.strip():
+        return False
+    forbidden_paths = zero_iteration_policy_update_forbidden_paths(raw, "policyUpdate")
+    if forbidden_paths:
+        raise BatchRunError(
+            "remote policyUpdate zero-iteration no-op contains update data: "
+            + ", ".join(forbidden_paths)
+        )
+    unexpected_keys = sorted(
+        repr(key)
+        for key in raw
+        if not isinstance(key, str) or key not in ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS
+    )
+    if unexpected_keys:
+        raise BatchRunError(
+            "remote policyUpdate zero-iteration no-op has unexpected fields: "
+            + ", ".join(unexpected_keys)
+        )
+    return True
+
+
+def zero_iteration_policy_update_forbidden_paths(value: Any, label: str) -> list[str]:
+    if isinstance(value, dict):
+        paths: list[str] = []
+        for key, nested in value.items():
+            key_label = f"{label}.{key}"
+            if isinstance(key, str) and key in ZERO_ITERATION_POLICY_UPDATE_FORBIDDEN_KEYS:
+                paths.append(key_label)
+            if isinstance(nested, (dict, list)):
+                paths.extend(zero_iteration_policy_update_forbidden_paths(nested, key_label))
+        return paths
+    if isinstance(value, list):
+        paths = []
+        for index, item in enumerate(value):
+            if isinstance(item, (dict, list)):
+                paths.extend(zero_iteration_policy_update_forbidden_paths(item, f"{label}[{index}]"))
+        return paths
+    return []
 
 
 def safe_policy_update_artifact_path(raw: Any, label: str = "policyUpdateArtifactPath") -> Path:

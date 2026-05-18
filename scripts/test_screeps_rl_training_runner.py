@@ -1031,6 +1031,60 @@ export const STRATEGY_REGISTRY = [
             ],
         )
 
+    def test_policy_gradient_noop_update_preserves_structured_skip_evidence(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 5}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 1.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 2.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 1.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 2.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-noop",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], "no_nonzero_reward_advantage")
+        self.assertEqual(update["candidateCount"], 2)
+        self.assertEqual(update["anchor"]["candidatePolicyId"], "candidate-a")
+        self.assertEqual(len(update["candidateRewards"]), 2)
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertFalse(update["safety"]["liveEffect"])
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("parameterDelta", update)
+
     def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-update",

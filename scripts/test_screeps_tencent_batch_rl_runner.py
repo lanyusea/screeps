@@ -314,6 +314,70 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         },
                     )
 
+    def test_verified_remote_policy_update_accepts_structured_zero_iteration_noop_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = {
+            "type": "screeps-rl-policy-update",
+            "schemaVersion": 1,
+            "iterations": 0,
+            "algorithm": "rank_weighted_finite_difference_v1",
+            "targetFamily": "test-family",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "officialMmoControl": False,
+            },
+            "skippedReason": "no_nonzero_reward_advantage",
+            "candidateCount": 2,
+            "anchor": {
+                "candidatePolicyId": "candidate-a",
+                "strategyVariantId": "variant-a",
+                "rolloutStatus": "incumbent",
+                "rewardTuple": [1, 0, 0, 0],
+                "sampleCount": 1,
+                "parameters": {"territorySignalWeight": 1.0},
+            },
+            "candidateRewards": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "rewardTuple": [1, 0, 0, 0],
+                    "sampleCount": 1,
+                    "parameters": {"territorySignalWeight": 1.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "rewardTuple": [1, 0, 0, 0],
+                    "sampleCount": 1,
+                    "parameters": {"territorySignalWeight": 2.0},
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertEqual(
+                runner.verified_remote_policy_update_fields(
+                    {"policyUpdateIterations": 0, "policyUpdate": policy_update},
+                    top_level_safety,
+                    Path(temp_dir),
+                ),
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdateArtifactPath": None,
+                    "policyUpdate": policy_update,
+                },
+            )
+
     def test_verified_remote_policy_update_rejects_non_empty_zero_iteration_update(self) -> None:
         top_level_safety = {
             "liveEffect": False,
@@ -336,6 +400,39 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             (
                 {"policyUpdateIterations": 0, "policyUpdate": [{"iterations": 0}]},
                 "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "no_nonzero_reward_advantage",
+                        "nextCandidatePolicy": {},
+                    },
+                },
+                "zero-iteration no-op contains update data",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "bounded_update_no_parameter_change",
+                        "updatedParameters": {"territorySignalWeight": 2},
+                    },
+                },
+                "zero-iteration no-op contains update data",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "no_nonzero_reward_advantage",
+                        "unexpectedField": True,
+                    },
+                },
+                "zero-iteration no-op has unexpected fields",
             ),
             (
                 {"policyUpdate": {"iterations": -1}},
@@ -366,6 +463,46 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "policyUpdateArtifactPath is present without positive policyUpdateIterations",
                 ):
                     runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
+    def test_verified_remote_policy_update_accepts_positive_update_with_collected_artifact(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = {
+            "iterations": 1,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "artifactPath": artifact_path,
+            "nextCandidatePolicy": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+
+            self.assertEqual(
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                ),
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": policy_update,
+                },
+            )
 
     def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
