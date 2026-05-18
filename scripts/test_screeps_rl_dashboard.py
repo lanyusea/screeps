@@ -28,6 +28,9 @@ def policy_gradient_card(
     safe: bool = True,
     include_card_supply: bool = True,
     card_supply_state: str = "available",
+    card_id: str = "rl-exp-rl-accepted-123456789abc",
+    dataset_run_id: str = "rl-accepted",
+    created_at: str = "2026-05-18T10:35:11Z",
 ) -> JsonObject:
     safety = {
         "conservative_actions_only": safe,
@@ -37,11 +40,11 @@ def policy_gradient_card(
         "ood_rejection": safe,
     }
     card: JsonObject = {
-        "card_id": "rl-exp-rl-accepted-123456789abc",
+        "card_id": card_id,
         "code_commit": "1" * 40,
         "conservative_actions_only": safe,
-        "created_at": "2026-05-18T10:35:11Z",
-        "dataset_run_id": "rl-accepted",
+        "created_at": created_at,
+        "dataset_run_id": dataset_run_id,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -71,9 +74,9 @@ def policy_gradient_card(
             "consumer": "loop-a-policy-gradient",
             "state": card_supply_state,
             "available_for_training": available_for_training,
-            "dataset_run_id": card["dataset_run_id"],
+            "dataset_run_id": dataset_run_id,
             "training_approach": card["training_approach"],
-            "created_at": card["created_at"],
+            "created_at": created_at,
             "status_field": "status",
             "safety_status": "shadow",
             "consumed_at": consumed_at,
@@ -646,6 +649,251 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(card_supply["cardSupply"]["state"], "available")
         self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
         self.assertIsNone(training["blocker"])
+
+    def test_training_identity_matches_consumed_report_over_unrelated_available_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            available_run = root / "tencent-cloud" / "batch-runs" / "tencent-pg-available-a"
+            consumed_run = root / "tencent-cloud" / "batch-runs" / "tencent-pg-consumed-b"
+            write_json(
+                available_run / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-available-a",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-available-aaaaaaaaaaaa"}},
+                },
+            )
+            write_json(
+                available_run / "experiment_card.json",
+                policy_gradient_card(
+                    card_id="rl-exp-rl-available-aaaaaaaaaaaa",
+                    dataset_run_id="rl-available",
+                ),
+            )
+            write_json(
+                consumed_run / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-consumed-b",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-consumed-bbbbbbbbbbbb"}},
+                },
+            )
+            consumed_card = policy_gradient_card(
+                card_supply_state="consumed",
+                card_id="rl-exp-rl-consumed-bbbbbbbbbbbb",
+                dataset_run_id="rl-consumed",
+                created_at="2026-05-18T10:45:11Z",
+            )
+            write_json(
+                consumed_run / "remote" / "runtime-artifacts" / "rl-training" / "report-consumed.json",
+                {
+                    "type": "screeps-rl-training-execution-report",
+                    "reportId": "report-consumed-card",
+                    "status": "shadow",
+                    "safety": consumed_card["safety"],
+                    "experimentCard": consumed_card,
+                },
+            )
+
+            candidates = dashboard.discover_tencent_internal_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN",
+                        "trainingDidRun": True,
+                        "artifactCount": 1,
+                        "trainingArtifacts": {
+                            "tencentInternalCardSupply": {
+                                "runId": "tencent-pg-consumed-b",
+                                "cardId": "rl-exp-rl-consumed-bbbbbbbbbbbb",
+                                "datasetRunId": "rl-consumed",
+                            },
+                        },
+                    },
+                ),
+                tencent_internal_card_supply_candidates=candidates,
+            )
+
+        self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(training["cardSupply"]["runId"], "tencent-pg-consumed-b")
+        self.assertEqual(training["cardSupply"]["source"], "tencent_internal_training_report")
+        self.assertEqual(training["cardSupply"]["cardSupply"]["state"], "consumed")
+
+    def test_training_identity_prefers_consumed_report_over_stale_available_same_run_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-same-card"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-same-card",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-same-cccccccccccc"}},
+                },
+            )
+            write_json(
+                run_dir / "experiment_card.json",
+                policy_gradient_card(
+                    card_id="rl-exp-rl-same-cccccccccccc",
+                    dataset_run_id="rl-same",
+                    created_at="2026-05-18T10:35:11Z",
+                ),
+            )
+            consumed_card = policy_gradient_card(
+                card_supply_state="consumed",
+                card_id="rl-exp-rl-same-cccccccccccc",
+                dataset_run_id="rl-same",
+                created_at="2026-05-18T10:45:11Z",
+            )
+            write_json(
+                run_dir / "remote" / "runtime-artifacts" / "rl-training" / "report-consumed.json",
+                {
+                    "type": "screeps-rl-training-execution-report",
+                    "reportId": "report-consumed-card",
+                    "status": "shadow",
+                    "safety": consumed_card["safety"],
+                    "experimentCard": consumed_card,
+                },
+            )
+
+            candidates = dashboard.discover_tencent_internal_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN",
+                        "trainingDidRun": True,
+                        "artifactCount": 1,
+                        "trainingArtifacts": {
+                            "tencentInternalCardSupply": {
+                                "runId": "tencent-pg-same-card",
+                                "cardId": "rl-exp-rl-same-cccccccccccc",
+                                "datasetRunId": "rl-same",
+                            },
+                        },
+                    },
+                ),
+                tencent_internal_card_supply_candidates=candidates,
+            )
+
+        self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(training["cardSupply"]["source"], "tencent_internal_training_report")
+        self.assertEqual(training["cardSupply"]["cardSupply"]["state"], "consumed")
+
+    def test_not_run_candidate_list_prefers_available_over_consumed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            available_run = root / "tencent-cloud" / "batch-runs" / "tencent-pg-available-a"
+            consumed_run = root / "tencent-cloud" / "batch-runs" / "tencent-pg-consumed-b"
+            write_json(
+                available_run / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-available-a",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-available-aaaaaaaaaaaa"}},
+                },
+            )
+            write_json(
+                available_run / "experiment_card.json",
+                policy_gradient_card(
+                    card_id="rl-exp-rl-available-aaaaaaaaaaaa",
+                    dataset_run_id="rl-available",
+                ),
+            )
+            write_json(
+                consumed_run / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-consumed-b",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-consumed-bbbbbbbbbbbb"}},
+                },
+            )
+            write_json(
+                consumed_run / "experiment_card.json",
+                policy_gradient_card(
+                    card_supply_state="consumed",
+                    card_id="rl-exp-rl-consumed-bbbbbbbbbbbb",
+                    dataset_run_id="rl-consumed",
+                    created_at="2026-05-18T10:45:11Z",
+                ),
+            )
+
+            candidates = dashboard.discover_tencent_internal_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "NOT_RUN",
+                        "trainingDidRun": False,
+                        "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    },
+                ),
+                tencent_internal_card_supply_candidates=candidates,
+            )
+
+        self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(training["cardSupply"]["runId"], "tencent-pg-available-a")
+        self.assertEqual(training["cardSupply"]["cardSupply"]["state"], "available")
+        self.assertIsNone(training["blocker"])
+
+    def test_not_run_candidate_list_consumed_only_stays_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-consumed-only"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-consumed-only",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-consumed-bbbbbbbbbbbb"}},
+                },
+            )
+            write_json(
+                run_dir / "experiment_card.json",
+                policy_gradient_card(
+                    card_supply_state="consumed",
+                    card_id="rl-exp-rl-consumed-bbbbbbbbbbbb",
+                    dataset_run_id="rl-consumed",
+                ),
+            )
+
+            candidates = dashboard.discover_tencent_internal_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "NOT_RUN",
+                        "trainingDidRun": False,
+                        "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    },
+                ),
+                tencent_internal_card_supply_candidates=candidates,
+            )
+
+        self.assertEqual(training["cardSupply"]["status"], "BLOCKED")
+        self.assertEqual(training["cardSupply"]["severity"], "P0")
+        self.assertEqual(training["blocker"], "NO_UNCONSUMED_EXPERIMENT_CARD")
 
     def test_non_tencent_training_run_without_embedded_supply_stays_degraded(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -480,44 +480,104 @@ def card_supply_from_training_report(path: Path, warnings: list[str], repo_root:
     )
 
 
-def card_supply_from_controller_summary(
-    artifact: LoadedArtifact,
+def card_supply_candidates_from_tencent_run_dir(
+    run_dir: Path,
     warnings: list[str],
     repo_root: Path,
-) -> JsonObject | None:
-    payload = artifact.payload
-    if payload.get("type") != "screeps-tencent-batch-rl-run" and "tencent-cloud" not in str(artifact.path):
-        return None
-    run_id = tencent_summary_run_id(payload, artifact.path)
+    *,
+    run_id: str,
+    summary_artifact: LoadedArtifact | None = None,
+) -> list[JsonObject]:
     candidates: list[JsonObject] = []
 
-    output_card = as_dict(as_dict(payload.get("outputs")).get("experimentCard"))
-    if valid_policy_gradient_card(output_card):
-        candidates.append(
-            loop_a_card_supply_summary(
-                card=output_card,
-                path=artifact.path,
-                source="tencent_controller_summary",
-                run_id=run_id,
+    if summary_artifact is not None:
+        output_card = as_dict(as_dict(summary_artifact.payload.get("outputs")).get("experimentCard"))
+        if valid_policy_gradient_card(output_card):
+            candidates.append(
+                loop_a_card_supply_summary(
+                    card=output_card,
+                    path=summary_artifact.path,
+                    source="tencent_controller_summary",
+                    run_id=run_id,
+                )
             )
-        )
 
-    full_card = artifact.path.parent / "experiment_card.json"
+    full_card = run_dir / "experiment_card.json"
     if full_card.is_file():
         evidence = card_supply_from_full_card(full_card, warnings, repo_root, run_id=run_id)
         if evidence is not None:
             candidates.append(evidence)
 
-    report_dir = artifact.path.parent / "remote" / "runtime-artifacts" / "rl-training"
+    report_dir = run_dir / "remote" / "runtime-artifacts" / "rl-training"
     if report_dir.is_dir():
         for report in sorted(report_dir.glob("*.json")):
             evidence = card_supply_from_training_report(report, warnings, repo_root, run_id=run_id)
             if evidence is not None:
                 candidates.append(evidence)
 
+    return candidates
+
+
+def card_supply_candidates_from_controller_summary(
+    artifact: LoadedArtifact,
+    warnings: list[str],
+    repo_root: Path,
+) -> list[JsonObject]:
+    payload = artifact.payload
+    if payload.get("type") != "screeps-tencent-batch-rl-run" and "tencent-cloud" not in str(artifact.path):
+        return []
+    run_id = tencent_summary_run_id(payload, artifact.path)
+    return card_supply_candidates_from_tencent_run_dir(
+        artifact.path.parent,
+        warnings,
+        repo_root,
+        run_id=run_id,
+        summary_artifact=artifact,
+    )
+
+
+def card_supply_from_controller_summary(
+    artifact: LoadedArtifact,
+    warnings: list[str],
+    repo_root: Path,
+) -> JsonObject | None:
+    candidates = card_supply_candidates_from_controller_summary(artifact, warnings, repo_root)
     if not candidates:
         return None
     return max(candidates, key=card_supply_candidate_key)
+
+
+def discover_tencent_internal_card_supply_candidates(
+    artifact_root: Path,
+    *,
+    warnings: list[str],
+    repo_root: Path,
+) -> list[JsonObject]:
+    candidates: list[JsonObject] = []
+    root = artifact_root / "tencent-cloud" / "batch-runs"
+    seen_run_dirs: set[Path] = set()
+
+    for path in existing_globs(root, ("*/controller-summary.json",)):
+        artifact = load_artifact(path, warnings, repo_root)
+        if artifact is None:
+            continue
+        candidates.extend(card_supply_candidates_from_controller_summary(artifact, warnings, repo_root))
+        seen_run_dirs.add(path.parent)
+
+    if root.is_dir():
+        for run_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+            if run_dir in seen_run_dirs:
+                continue
+            candidates.extend(
+                card_supply_candidates_from_tencent_run_dir(
+                    run_dir,
+                    warnings,
+                    repo_root,
+                    run_id=run_dir.name,
+                )
+            )
+
+    return sorted(candidates, key=card_supply_candidate_key, reverse=True)
 
 
 def discover_tencent_internal_card_supply(
@@ -526,24 +586,14 @@ def discover_tencent_internal_card_supply(
     warnings: list[str],
     repo_root: Path,
 ) -> JsonObject | None:
-    candidates: list[tuple[datetime, str, JsonObject]] = []
-    root = artifact_root / "tencent-cloud" / "batch-runs"
-    for path in existing_globs(root, ("*/controller-summary.json",)):
-        artifact = load_artifact(path, warnings, repo_root)
-        if artifact is None:
-            continue
-        evidence = card_supply_from_controller_summary(artifact, warnings, repo_root)
-        if evidence is None:
-            continue
-        created = parse_iso_datetime(text_value(evidence.get("createdAt")) or "") or artifact.timestamp
-        candidates.append((created, str(path), evidence))
+    candidates = discover_tencent_internal_card_supply_candidates(
+        artifact_root,
+        warnings=warnings,
+        repo_root=repo_root,
+    )
     if not candidates:
         return None
-    candidates.sort(
-        key=lambda item: (card_supply_available_for_training(item[2]), item[0], item[1]),
-        reverse=True,
-    )
-    return candidates[0][2]
+    return candidates[0]
 
 
 def nested_value(value: Any, path: Sequence[str]) -> Any:
@@ -1030,6 +1080,44 @@ def tencent_card_identity_candidates(value: Any) -> list[dict[str, set[str]]]:
     return candidates
 
 
+def coherent_tencent_card_identity(value: JsonObject) -> dict[str, set[str]] | None:
+    identity = tencent_card_identity_values(value)
+    if all(len(identity[field]) == 1 for field in TENCENT_CARD_IDENTITY_FIELDS):
+        return identity
+    return None
+
+
+def training_payload_tencent_card_identities(payload: JsonObject) -> list[dict[str, set[str]]]:
+    identities: list[dict[str, set[str]]] = []
+
+    def add_identity(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        identity = coherent_tencent_card_identity(value)
+        if identity is not None and identity not in identities:
+            identities.append(identity)
+
+    training_artifacts = as_dict(payload.get("trainingArtifacts"))
+    for key, value in training_artifacts.items():
+        if normalized_key(str(key)) in {
+            "tencentinternalcardsupply",
+            "tencentcardsupply",
+            "tencentcardidentity",
+        }:
+            add_identity(value)
+    add_identity(training_artifacts)
+
+    for key, value in payload.items():
+        if normalized_key(str(key)) in {
+            "tencentinternalcardsupply",
+            "tencentcardsupply",
+            "tencentcardidentity",
+        }:
+            add_identity(value)
+    add_identity(payload)
+    return identities
+
+
 def card_supply_identity(card_supply: JsonObject) -> dict[str, str | None]:
     supply = as_dict(card_supply.get("cardSupply"))
     return {
@@ -1056,11 +1144,10 @@ def training_payload_matches_tencent_card_supply(
     payload: JsonObject,
     card_supply: JsonObject,
 ) -> bool:
-    artifact_identities = tencent_card_identity_candidates(as_dict(payload.get("trainingArtifacts")))
-    if any(tencent_card_identity_matches_supply(identity, card_supply) for identity in artifact_identities):
-        return True
-    payload_identities = tencent_card_identity_candidates(payload)
-    return any(tencent_card_identity_matches_supply(identity, card_supply) for identity in payload_identities)
+    return any(
+        tencent_card_identity_matches_supply(identity, card_supply)
+        for identity in training_payload_tencent_card_identities(payload)
+    )
 
 
 def card_supply_blocker_marker_present(value: Any) -> bool:
@@ -1168,11 +1255,65 @@ def card_supply_candidate_key(card_supply: JsonObject) -> tuple[int, datetime, s
     )
 
 
+def training_card_supply_candidate_rank(card_supply: JsonObject) -> int:
+    supply = as_dict(card_supply.get("cardSupply"))
+    if supply.get("state") == "consumed":
+        return 4
+    return card_supply_candidate_rank(card_supply)
+
+
+def training_card_supply_candidate_key(card_supply: JsonObject) -> tuple[int, datetime, str, str]:
+    created = parse_iso_datetime(text_value(card_supply.get("createdAt")) or "")
+    if created is None:
+        created = datetime.min.replace(tzinfo=timezone.utc)
+    return (
+        training_card_supply_candidate_rank(card_supply),
+        created,
+        text_value(card_supply.get("source")) or "",
+        text_value(card_supply.get("path")) or "",
+    )
+
+
+def combined_tencent_card_supply_candidates(
+    tencent_internal_card_supply: JsonObject | None,
+    tencent_internal_card_supply_candidates: Sequence[JsonObject] | None,
+) -> list[JsonObject]:
+    candidates = list(tencent_internal_card_supply_candidates or [])
+    if tencent_internal_card_supply is not None:
+        candidates.append(tencent_internal_card_supply)
+    return candidates
+
+
+def best_available_tencent_card_supply(candidates: Sequence[JsonObject]) -> JsonObject | None:
+    available = [candidate for candidate in candidates if card_supply_available_for_training(candidate)]
+    if not available:
+        return None
+    return max(available, key=card_supply_candidate_key)
+
+
+def matching_tencent_card_supply_for_training(
+    payload: JsonObject,
+    candidates: Sequence[JsonObject],
+) -> JsonObject | None:
+    identities = training_payload_tencent_card_identities(payload)
+    if not identities:
+        return None
+    matches = [
+        candidate
+        for candidate in candidates
+        if any(tencent_card_identity_matches_supply(identity, candidate) for identity in identities)
+    ]
+    if not matches:
+        return None
+    return max(matches, key=training_card_supply_candidate_key)
+
+
 def reconcile_card_supply_for_training(
     payload: JsonObject,
     *,
     latest_path: Path | None,
     tencent_internal_card_supply: JsonObject | None,
+    tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
 ) -> JsonObject:
     artifact_count = number_value(payload.get("artifactCount"))
     iteration = as_dict(payload.get("iterationExecution"))
@@ -1187,17 +1328,18 @@ def reconcile_card_supply_for_training(
     embedded_supply = card_supply_from_training_payload(payload, latest_path)
     if training_did_run and embedded_supply is not None:
         return embedded_supply
-    if (
-        tencent_internal_card_supply is not None
-        and (
-            (not training_did_run and card_supply_available_for_training(tencent_internal_card_supply))
-            or (
-                training_did_run
-                and training_payload_matches_tencent_card_supply(payload, tencent_internal_card_supply)
-            )
-        )
-    ):
-        return dict(tencent_internal_card_supply)
+    tencent_candidates = combined_tencent_card_supply_candidates(
+        tencent_internal_card_supply,
+        tencent_internal_card_supply_candidates,
+    )
+    if not training_did_run:
+        available_supply = best_available_tencent_card_supply(tencent_candidates)
+        if available_supply is not None:
+            return dict(available_supply)
+    else:
+        matching_supply = matching_tencent_card_supply_for_training(payload, tencent_candidates)
+        if matching_supply is not None:
+            return dict(matching_supply)
     if training_did_run:
         return {
             "status": "DEGRADED",
@@ -1218,6 +1360,7 @@ def training_execution(
     latest_training: LoadedArtifact | None,
     *,
     tencent_internal_card_supply: JsonObject | None = None,
+    tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
 ) -> JsonObject:
     if latest_training is None:
         return {
@@ -1243,6 +1386,7 @@ def training_execution(
         payload,
         latest_path=latest_training.path,
         tencent_internal_card_supply=tencent_internal_card_supply,
+        tencent_internal_card_supply_candidates=tencent_internal_card_supply_candidates,
     )
     blocker = text_value(payload.get("trainingBlocker")) or text_value(payload.get("nextTrainingCapabilityAction"))
     blocker = clear_satisfied_card_supply_blocker(blocker, card_supply)
@@ -1473,13 +1617,18 @@ def build_dashboard(repo_root: Path, artifact_root: Path, generated_at: str) -> 
         latest_metrics=latest_metrics,
     )
     gate = latest_gate(gates)
-    tencent_card_supply = discover_tencent_internal_card_supply(
+    tencent_card_supply_candidates = discover_tencent_internal_card_supply_candidates(
         artifact_root,
         warnings=warnings,
         repo_root=repo_root,
     )
+    tencent_card_supply = tencent_card_supply_candidates[0] if tencent_card_supply_candidates else None
     simulator = simulator_health(artifact_root, repo_root=repo_root, warnings=warnings, latest_training=latest_training)
-    training = training_execution(latest_training, tencent_internal_card_supply=tencent_card_supply)
+    training = training_execution(
+        latest_training,
+        tencent_internal_card_supply=tencent_card_supply,
+        tencent_internal_card_supply_candidates=tencent_card_supply_candidates,
+    )
     policy = policy_advantage(latest_policy, latest_metrics, training=training)
     conclusions = conclusion_summary(conclusion_artifact)
     lanes = lane_statuses(gate, simulator, training, policy)
