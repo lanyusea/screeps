@@ -264,6 +264,28 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 root / "remote" / "runtime-artifacts" / "rl-training" / "run-1.json",
             )
 
+    def test_safe_policy_update_artifact_path_accepts_candidate_json(self) -> None:
+        artifact_path = runner.safe_policy_update_artifact_path(
+            "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        )
+
+        self.assertEqual(
+            artifact_path,
+            Path("runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"),
+        )
+
+    def test_safe_policy_update_artifact_path_rejects_non_candidate_or_unsafe_paths(self) -> None:
+        cases = (
+            ("runtime-artifacts/rl-training/run-test.json", "outside rl-training policy candidate artifacts"),
+            ("runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.txt", "JSON policy candidate"),
+            ("/runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json", "unsafe"),
+            ("runtime-artifacts/rl-training/policy-candidates/../run-test-next-policy.json", "unsafe"),
+            ("runtime-artifacts\\rl-training\\policy-candidates\\run-test-next-policy.json", "unsafe"),
+        )
+        for raw, expected_error in cases:
+            with self.subTest(raw=raw), self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                runner.safe_policy_update_artifact_path(raw)
+
     def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

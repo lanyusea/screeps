@@ -1213,8 +1213,15 @@ def safe_policy_update_artifact_path(raw: Any, label: str = "policyUpdateArtifac
     path = Path(raw)
     if path.is_absolute() or ".." in path.parts:
         raise BatchRunError(f"remote {label} is unsafe: {raw!r}")
-    if len(path.parts) < 3 or path.parts[0] != "runtime-artifacts" or path.parts[1] != "rl-training":
-        raise BatchRunError(f"remote {label} is outside rl-training artifacts: {raw!r}")
+    if (
+        len(path.parts) < 4
+        or path.parts[0] != "runtime-artifacts"
+        or path.parts[1] != "rl-training"
+        or path.parts[2] != "policy-candidates"
+    ):
+        raise BatchRunError(f"remote {label} is outside rl-training policy candidate artifacts: {raw!r}")
+    if path.suffix != ".json":
+        raise BatchRunError(f"remote {label} must be a JSON policy candidate artifact: {raw!r}")
     return path
 
 
