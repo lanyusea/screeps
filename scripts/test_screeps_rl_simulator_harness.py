@@ -1569,6 +1569,109 @@ cli:
         )
         self.assertTrue(str(result["launcherRepairMod"]).endswith(harness.SIMULATOR_REPAIR_MOD_FILENAME))
 
+    def test_run_variant_reads_fixture_summary_from_prepared_default_map(self) -> None:
+        run_command_calls = 0
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = "https://example.invalid/default-map.json"
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                return None
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                cfg.map_path.parent.mkdir(parents=True, exist_ok=True)
+                cfg.map_path.write_text(
+                    json.dumps(
+                        {
+                            "type": harness.PRIVATE_MAP_FIXTURE_TYPE,
+                            "owner": {"id": "owner-1", "username": "rl-sim"},
+                            "rooms": [
+                                {
+                                    "room": "E1S1",
+                                    "objects": [
+                                        {"type": "controller", "level": 1, "user": "owner-1"},
+                                        {"type": "spawn", "user": "owner-1"},
+                                        {"type": "creep", "user": "owner-1"},
+                                    ],
+                                },
+                                {
+                                    "room": "E2S1",
+                                    "objects": [
+                                        {
+                                            "type": "controller",
+                                            "level": 2,
+                                            "my": False,
+                                            "user": "invader",
+                                            "owner": {"username": "Invader"},
+                                        },
+                                        {"type": "creep", "user": "invader"},
+                                        {"type": "spawn", "user": "invader"},
+                                    ],
+                                },
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            def run_command(self, command: list[str], cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = command, cfg, timeout
+                nonlocal run_command_calls
+                run_command_calls += 1
+                if run_command_calls == 1:
+                    raise RuntimeError("stop after prepared fixture parse")
+                return {"returncode": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="prepared-fixture",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=harness.DEFAULT_MAP_SOURCE_FILE,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["scenarioFixture"]["roomCount"], 2)
+        self.assertEqual(result["scenarioFixture"]["ownedRoomCount"], 1)
+        self.assertTrue(result["scenarioFixture"]["objectiveSignalPresent"])
+
     def test_run_variant_rewrites_launcher_config_before_compose_start(self) -> None:
         events: list[str] = []
 

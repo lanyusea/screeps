@@ -2773,8 +2773,8 @@ def _run_variant(
     evidence_errors: list[str] = []
     launcher_auto_map_import_disabled = False
     scenario_map_source_file = map_source_file
-    fixture_room_summaries = _private_map_fixture_room_summaries(map_source_file)
-    fixture_room_names = list(fixture_room_summaries)
+    fixture_room_summaries: dict[str, JsonObject] = {}
+    fixture_room_names: list[str] = []
     compose: list[str] | None = None
     try:
         smoke = _load_private_smoke_module()
@@ -2841,6 +2841,8 @@ def _run_variant(
         )
         smoke.prepare_map(cfg)
         scenario_map_source_file = smoke_map_source_file or cfg.map_path
+        fixture_room_summaries = _private_map_fixture_room_summaries(scenario_map_source_file)
+        fixture_room_names = list(fixture_room_summaries)
         _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))
 
         # Reset server-owned state by removing any leftover stack and volumes first.

@@ -292,6 +292,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(report["variantResults"][0]["metrics"]["territory"]["ownedRoomCount"], 1)
         self.assertEqual(report["variantResults"][0]["metrics"]["objectiveSignal"]["finalObservedRoomCount"], 2)
         self.assertIn("multi-tier activation proof blocked", report["warnings"][-1])
+        self.assertFalse(runner.build_generation_summary(report)["ok"])
 
     def test_multi_tier_activation_proof_requires_hostile_signal_for_transport(self) -> None:
         card = card_helper.build_card(
@@ -380,6 +381,86 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(proof["bestObserved"]["hostileKills"], 1.0)
         self.assertNotIn("passingVariants", proof)
         self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED")
+
+    def test_multi_tier_activation_proof_rejects_stitched_sample_average(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-stitched-samples",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:24:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        variant = runner.StrategyVariant(id="candidate", family="test-family", parameters={})
+        transport_only = variant_result(
+            "candidate",
+            [
+                tick(1, [room("E1S1", energy=100), hostile_fixture_room()]),
+                tick(2, [room("E1S1", energy=100), hostile_fixture_room()]),
+            ],
+        )
+        transport_only["metrics"] = {"territoryDelta": 0, "hostileKills": 0}
+        score_only = variant_result(
+            "candidate",
+            [
+                tick(3, [room("E1S1", energy=100)]),
+                tick(4, [room("E1S1", energy=100)]),
+            ],
+        )
+        score_only["metrics"] = {"territoryDelta": 6, "hostileKills": 0}
+        result = runner.summarize_variant(
+            variant,
+            [transport_only, score_only],
+            {"resourceNormalizer": 1000},
+        )
+
+        proof = runner.build_multi_tier_activation_proof(
+            results=[result],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertTrue(proof["transport"]["objectiveSignalObserved"])
+        self.assertFalse(proof["variants"][0]["passesActivation"])
+        self.assertEqual(proof["variants"][0]["activationSampleCount"], 2)
+        self.assertEqual(
+            [sample["passesActivation"] for sample in proof["variants"][0]["activationSamples"]],
+            [False, False],
+        )
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 3.0)
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED")
+
+    def test_multi_tier_activation_proof_reports_missing_samples_separately(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-no-samples",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:25:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 0,
+                    "metrics": runner.aggregate_metrics([]),
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_NO_SUCCESSFUL_SAMPLES")
+        self.assertIn("no successful simulator samples", proof["blocker"]["evidence"])
 
     def test_multi_tier_activation_proof_passes_when_variant_has_hostile_kill_signal(self) -> None:
         card = card_helper.build_card(
@@ -664,6 +745,23 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(metrics["territory"]["ownedRoomCount"], 1)
         self.assertEqual(metrics["territory"]["rclLevels"], {"E1S1": 2})
         self.assertEqual(metrics["resources"]["storedEnergyDelta"], 50)
+
+    def test_run_metrics_count_owned_controller_owner_object_without_my_flag(self) -> None:
+        owned_room = room("E1S1", spawns=1, creeps=2, energy=300, rcl=2)
+        owned_room["controller"] = {"level": 2, "owner": {"username": "rl-sim"}}
+        run = variant_result(
+            "candidate",
+            [
+                tick(1, [owned_room]),
+                tick(2, [owned_room]),
+            ],
+        )
+
+        metrics = runner.compute_run_metrics(run, {"resourceNormalizer": 1000})
+
+        self.assertEqual(metrics["territory"]["ownedRoomCount"], 1)
+        self.assertEqual(metrics["territory"]["survivedEndRooms"], ["E1S1"])
+        self.assertEqual(metrics["territory"]["rclLevels"], {"E1S1": 2})
 
     def test_experiment_card_loading_and_validation_accepts_yaml_inline_variants(self) -> None:
         yaml_text = """

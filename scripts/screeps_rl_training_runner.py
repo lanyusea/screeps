@@ -1910,6 +1910,10 @@ def summarize_variant(
     reward_tuple[0] = reliability_score(scored_run_count=len(run_metrics), total_run_count=len(runs))
     metrics = aggregate_metrics(run_metrics)
     metrics["reliability"]["score"] = reward_tuple[0]
+    activation_samples = [
+        multi_tier_activation_metric_evidence(metric, sample_index=index)
+        for index, metric in enumerate(run_metrics)
+    ]
     summary: JsonObject = {
         "variantId": variant.id,
         "family": variant.family,
@@ -1926,6 +1930,7 @@ def summarize_variant(
             "sampleStdDev": reward_sample_stddev(run_metrics_by_attempt),
         },
         "metrics": metrics,
+        "multiTierActivationSamples": activation_samples,
         "runs": [
             {
                 "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
@@ -2155,8 +2160,14 @@ def room_has_own_controller(summary: JsonObject) -> bool:
     if isinstance(controller, dict):
         if controller.get("my") is True or controller.get("owned") is True:
             return True
+        if controller.get("my") is False or controller.get("owned") is False:
+            return False
         owner = controller.get("owner")
         if isinstance(owner, str) and owner in {"me", "self", "owned"}:
+            return True
+        if isinstance(owner, str) and owner.strip():
+            return True
+        if isinstance(owner, dict) and any(text_or_none(owner.get(key)) for key in ("username", "name", "id", "_id")):
             return True
     return False
 
@@ -2768,7 +2779,8 @@ def build_multi_tier_activation_proof(
     if not scenario_supports_multi_tier_policy_comparison(scenario):
         return None
     rows = [multi_tier_activation_variant_row(result) for result in results]
-    passed_rows = [row for row in rows if row["passesActivation"]]
+    usable_rows = [row for row in rows if (int_or_none(row.get("sampleCount")) or 0) > 0]
+    passed_rows = [row for row in usable_rows if row["passesActivation"]]
     transport_observed = any(row["objectiveSignalObserved"] for row in rows)
     status = "passed" if passed_rows else "blocked"
     proof: JsonObject = {
@@ -2800,28 +2812,54 @@ def build_multi_tier_activation_proof(
     if passed_rows:
         proof["passingVariants"] = [row["variantId"] for row in passed_rows]
     else:
-        classification = (
-            "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED"
-            if transport_observed
-            else "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED"
-        )
+        if not usable_rows:
+            classification = "SIMULATOR_NO_SUCCESSFUL_SAMPLES"
+            evidence = "no successful simulator samples were available for multi-tier activation proof"
+        elif transport_observed:
+            classification = "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED"
+            evidence = (
+                "multi-tier fixture signal reached variant metrics, but no single successful sample exceeded "
+                f"territory score {MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD} or hostile kills "
+                f"{MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD}"
+            )
+        else:
+            classification = "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED"
+            evidence = "multi-tier card fixture evidence did not reach variant objective metrics"
         proof["blocker"] = {
             "classification": classification,
             "criticality": "P0",
-            "evidence": (
-                "multi-tier fixture signal reached variant metrics, but no variant exceeded territory score "
-                f"{MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD} or hostile kills "
-                f"{MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD}"
-                if transport_observed
-                else "multi-tier card fixture evidence did not reach variant objective metrics"
-            ),
+            "evidence": evidence,
             "action": "repair local/private simulator objective activation before paid Tencent validation",
         }
     return proof
 
 
 def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
+    raw_samples = result.get("multiTierActivationSamples")
+    samples = [sample for sample in raw_samples if isinstance(sample, dict)] if isinstance(raw_samples, list) else []
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    aggregate_evidence = multi_tier_activation_metric_evidence(metrics) if metrics else empty_multi_tier_activation_evidence()
+    sample_count = int_or_none(result.get("sampleCount")) or 0
+    evidence_samples = samples or ([aggregate_evidence] if sample_count > 0 and metrics else [])
+    territory_score = aggregate_evidence["territoryScore"]
+    hostile_kills = aggregate_evidence["hostileKills"]
+    observed = any(sample.get("objectiveSignalObserved") is True for sample in evidence_samples)
+    passes = any(sample.get("passesActivation") is True for sample in evidence_samples)
+    objective = metrics.get("objectiveSignal") if isinstance(metrics.get("objectiveSignal"), dict) else {}
+    return {
+        "variantId": result.get("variantId"),
+        "sampleCount": result.get("sampleCount", 0),
+        "territoryScore": round_float(territory_score),
+        "hostileKills": round_float(hostile_kills),
+        "objectiveSignalObserved": observed,
+        "passesActivation": passes,
+        "activationSampleCount": len(evidence_samples),
+        "activationSamples": copy.deepcopy(evidence_samples),
+        "objectiveSignal": copy.deepcopy(objective),
+    }
+
+
+def multi_tier_activation_metric_evidence(metrics: JsonObject, *, sample_index: int | None = None) -> JsonObject:
     territory = metrics.get("territory") if isinstance(metrics.get("territory"), dict) else {}
     kills = metrics.get("kills") if isinstance(metrics.get("kills"), dict) else {}
     objective = metrics.get("objectiveSignal") if isinstance(metrics.get("objectiveSignal"), dict) else {}
@@ -2835,15 +2873,25 @@ def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
         float(territory_score) > MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD
         or float(hostile_kills) > MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD
     )
-    passes = observed and activation_score_passes
-    return {
-        "variantId": result.get("variantId"),
-        "sampleCount": result.get("sampleCount", 0),
+    evidence: JsonObject = {
         "territoryScore": round_float(territory_score),
         "hostileKills": round_float(hostile_kills),
         "objectiveSignalObserved": observed,
-        "passesActivation": passes,
-        "objectiveSignal": copy.deepcopy(objective),
+        "activationScorePasses": activation_score_passes,
+        "passesActivation": observed and activation_score_passes,
+    }
+    if sample_index is not None:
+        evidence["sampleIndex"] = sample_index
+    return evidence
+
+
+def empty_multi_tier_activation_evidence() -> JsonObject:
+    return {
+        "territoryScore": 0,
+        "hostileKills": 0,
+        "objectiveSignalObserved": False,
+        "activationScorePasses": False,
+        "passesActivation": False,
     }
 
 
@@ -2996,8 +3044,13 @@ def write_json_atomic(path: Path, payload: Any) -> None:
 
 
 def build_generation_summary(report: JsonObject) -> JsonObject:
+    activation_proof = report.get("activationProof")
+    summary_ok = not (
+        isinstance(activation_proof, dict)
+        and (activation_proof.get("ok") is False or isinstance(activation_proof.get("blocker"), dict))
+    )
     summary = {
-        "ok": True,
+        "ok": summary_ok,
         "type": SUMMARY_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "reportId": report["reportId"],
@@ -3018,8 +3071,8 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
     }
     if "scaleValidation" in report:
         summary["scaleValidation"] = report["scaleValidation"]
-    if "activationProof" in report:
-        proof = report["activationProof"]
+    if isinstance(activation_proof, dict):
+        proof = activation_proof
         summary["activationProof"] = {
             "status": proof.get("status"),
             "ok": proof.get("ok"),
