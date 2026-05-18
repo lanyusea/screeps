@@ -589,6 +589,69 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(clear_steps[0].ok)
         self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
 
+    def test_scale_up_retries_failed_known_host_cleanup_for_same_ip(self) -> None:
+        args = controller_args()
+        events: list[tuple[str, object]] = []
+
+        class FakeController(runner.Controller):
+            def tccli(self, name: str, *params: str, check: bool = True, timeout: int = 90) -> dict[str, object]:
+                return {}
+
+            def describe_asg_instances(self) -> list[dict[str, object]]:
+                return [{"InstanceId": "ins-test"}]
+
+            def describe_cvm_instances(self, instance_ids: list[str]) -> list[dict[str, object]]:
+                return [
+                    {
+                        "InstanceId": "ins-test",
+                        "InstanceState": "RUNNING",
+                        "PublicIpAddresses": ["203.0.113.10"],
+                        "PrivateIpAddresses": ["10.0.0.10"],
+                        "InstanceType": "S5.SMALL1",
+                    }
+                ]
+
+            def latest_scale_out_failure(self, *, after_epoch: float) -> dict[str, object] | None:
+                return None
+
+            def wait_for_ssh(self) -> bool:
+                events.append(("wait_for_ssh", {"public_ip": self.public_ip}))
+                return len([event for event in events if event[0] == "wait_for_ssh"]) >= 2
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            cleanup_results = [
+                subprocess.CompletedProcess(["ssh-keygen"], 255, "", "permission denied\n"),
+                subprocess.CompletedProcess(["ssh-keygen"], 0, "removed\n", ""),
+            ]
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                events.append(("clear_known_host", {"cmd": cmd, "public_ip": controller.public_ip}))
+                result = cleanup_results.pop(0)
+                return subprocess.CompletedProcess(cmd, result.returncode, result.stdout, result.stderr)
+
+            with (
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None),
+            ):
+                controller.scale_up_and_wait()
+
+        self.assertEqual(
+            [event[0] for event in events],
+            ["clear_known_host", "wait_for_ssh", "clear_known_host", "wait_for_ssh"],
+        )
+        cleanup_events = [event[1] for event in events if event[0] == "clear_known_host"]
+        self.assertEqual(len(cleanup_events), 2)
+        for cleanup_event in cleanup_events:
+            self.assertIsInstance(cleanup_event, dict)
+            self.assertEqual(cleanup_event["public_ip"], "203.0.113.10")
+            self.assertEqual(cleanup_event["cmd"], ["ssh-keygen", "-R", "203.0.113.10", "-f", args.known_hosts_path])
+        clear_steps = [step for step in controller.steps if step.name == "clear_worker_known_host"]
+        self.assertEqual([step.ok for step in clear_steps], [False, True])
+        self.assertIn("203.0.113.10", controller.known_hosts_cleaned_public_ips)
+        self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
+
     def test_clear_known_host_skips_when_public_ip_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))

@@ -256,7 +256,6 @@ class Controller:
             return
         if self.public_ip in self.known_hosts_cleaned_public_ips:
             return
-        self.known_hosts_cleaned_public_ips.add(self.public_ip)
         cmd = ["ssh-keygen", "-R", self.public_ip, "-f", str(self.known_hosts_path)]
         started = time.time()
         try:
@@ -272,6 +271,8 @@ class Controller:
             cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
         ok = cp.returncode == 0
         self.record_step("clear_worker_known_host", started, ok, cp, argv=redacted_argv(cmd))
+        if ok:
+            self.known_hosts_cleaned_public_ips.add(self.public_ip)
 
     def experiment_card_path(self) -> Path:
         return self.artifact_dir / "experiment_card.json"
