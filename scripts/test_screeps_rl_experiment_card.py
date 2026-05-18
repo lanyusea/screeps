@@ -93,7 +93,7 @@ class RlExperimentCardTest(unittest.TestCase):
         learnable_names = [item["name"] for item in policy_gradient["learnable_parameters"]]
 
         self.assertEqual(card["training_approach"], "policy_gradient")
-        self.assertEqual(config.ticks, 100)
+        self.assertEqual(config.ticks, 500)
         self.assertEqual(config.repetitions, 5)
         self.assertFalse(card["liveEffect"])
         self.assertFalse(card["officialMmoWrites"])
@@ -144,10 +144,14 @@ class RlExperimentCardTest(unittest.TestCase):
 
         card_helper.validate_card(card)
         runner.validate_experiment_card(card)
+        config = runner.simulation_config_from_card(card)
 
         supply = card["card_supply"]
         self.assertEqual(card["status"], "shadow")
         self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.repetitions, 5)
         self.assertEqual(supply["state"], "available")
         self.assertTrue(supply["available_for_training"])
         self.assertEqual(supply["consumer"], "loop-a-policy-gradient")
@@ -198,10 +202,21 @@ class RlExperimentCardTest(unittest.TestCase):
                 json.dumps(
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
-                        "ok": True,
-                        "gateId": "newer",
+                        "ok": False,
+                        "gateId": "gate-20260517T181846Z-postmerge1176",
                         "createdAt": "2026-05-17T02:00:00Z",
-                        "dataset": {"runId": "rl-accepted-newer"},
+                        "dataset": {"ok": True, "runId": "rl-accepted-newer", "sampleCount": 200},
+                        "datasetGate": {"status": "pass"},
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [
+                            {
+                                "gate": "quality_checks",
+                                "name": "sample_quality",
+                                "status": "fail",
+                                "samplesAccepted": 191,
+                                "samplesRejected": 9,
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -242,10 +257,16 @@ class RlExperimentCardTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(summary["dataset_run_id"], "rl-accepted-newer")
+        self.assertEqual(summary["source_gate"]["gate_id"], "gate-20260517T181846Z-postmerge1176")
+        self.assertFalse(summary["source_gate"]["gate_report_ok"])
+        self.assertGreaterEqual(summary["source_gate"]["quality_acceptance_rate"], 0.95)
         self.assertEqual(summary["card_supply"]["state"], "available")
         self.assertEqual(generated["dataset_run_id"], "rl-accepted-newer")
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["status"], "shadow")
+        self.assertEqual(generated["simulation"]["ticks"], 500)
+        self.assertEqual(generated["simulation"]["workers"], 5)
+        self.assertEqual(generated["simulation"]["repetitions"], 5)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
     def test_cli_writes_loop_a_local_fallback_standalone_card_from_requested_gate(self) -> None:
@@ -300,6 +321,20 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             summary = json.loads(stdout.getvalue())
             generated = json.loads(output_path.read_text(encoding="utf-8"))
+            selected_stdout = io.StringIO()
+            selected_exit_code = card_helper.main(
+                [
+                    "--select-loop-a-card",
+                    "--card-dir",
+                    str(output_path.parent),
+                    "--training-report-dir",
+                    str(root / "runtime-artifacts" / "rl-training"),
+                ],
+                stdout=selected_stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            selected = json.loads(selected_stdout.getvalue())
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(output_path.name, "experiment_card.json")
@@ -316,7 +351,7 @@ class RlExperimentCardTest(unittest.TestCase):
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
         self.assertEqual(config.repetitions, 5)
-        self.assertEqual(config.ticks, 200)
+        self.assertEqual(config.ticks, 500)
 
         supply = generated["card_supply"]
         self.assertEqual(generated["status"], "shadow")
@@ -325,6 +360,9 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertIsNone(supply["consumed_at"])
         self.assertIsNone(supply["consumed_by_report_id"])
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+        self.assertEqual(selected_exit_code, 0)
+        self.assertEqual(selected["card_path"], str(output_path))
+        self.assertEqual(selected["card_supply"]["state"], "available")
         for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
             self.assertFalse(generated[field])
             self.assertFalse(generated["safety"][field])
@@ -475,6 +513,57 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(selected["gate_id"], "rl-gate-real")
         self.assertEqual(selected["dataset_run_id"], "rl-accepted-real")
         self.assertTrue(selected["gate_report_path"].endswith("gates/rl-gate-real/gate_report.json"))
+
+    def test_latest_accepted_dataset_scans_control_loop_postmerge_gate_over_stale_dataset_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-stale" / "gate_report.json"
+            fresh_gate = runtime_root / "rl-control-loop" / "gate-20260517T181846Z-postmerge1176" / "gate_report.json"
+            stale_gate.parent.mkdir(parents=True)
+            fresh_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "rl-gate-stale",
+                        "createdAt": "2026-05-14T04:22:20Z",
+                        "dataset": {"runId": "rl-stale-gate"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fresh_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": False,
+                        "gateId": "gate-20260517T181846Z-postmerge1176",
+                        "createdAt": "2026-05-17T18:18:47Z",
+                        "dataset": {"ok": True, "runId": "rl-fresh-postmerge", "sampleCount": 200},
+                        "datasetGate": {"status": "pass"},
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [
+                            {
+                                "gate": "quality_checks",
+                                "name": "sample_quality",
+                                "status": "fail",
+                                "samplesAccepted": 191,
+                                "samplesRejected": 9,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_accepted_dataset_gate(runtime_root)
+
+        self.assertEqual(selected["gate_id"], "gate-20260517T181846Z-postmerge1176")
+        self.assertEqual(selected["dataset_run_id"], "rl-fresh-postmerge")
+        self.assertFalse(selected["gate_report_ok"])
+        self.assertTrue(selected["gate_report_path"].endswith("rl-control-loop/gate-20260517T181846Z-postmerge1176/gate_report.json"))
 
     def test_latest_accepted_dataset_skips_gate_deleted_during_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -737,8 +826,20 @@ class RlExperimentCardTest(unittest.TestCase):
         )
         config = runner.simulation_config_from_card(card)
 
-        self.assertGreaterEqual(config.ticks, 100)
+        self.assertGreaterEqual(config.ticks, 500)
         self.assertGreaterEqual(config.repetitions, 5)
+
+    def test_validate_rejects_policy_gradient_below_long_horizon_floor(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-short-horizon",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["ticks"] = 499
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.ticks >= 500"):
+            card_helper.validate_card(card)
 
     def test_policy_gradient_rejects_stale_strategy_variant_candidate_policy_id(self) -> None:
         card = card_helper.build_card(
@@ -879,7 +980,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
 
-    def test_cli_generation_accepts_policy_gradient_ticks_and_repetitions(self) -> None:
+    def test_cli_generation_floors_policy_gradient_ticks_and_accepts_repetitions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "card.json"
             exit_code = card_helper.main(
@@ -908,7 +1009,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
-        self.assertEqual(config.ticks, 125)
+        self.assertEqual(config.ticks, 500)
         self.assertEqual(config.repetitions, 6)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
