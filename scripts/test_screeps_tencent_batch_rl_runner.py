@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -162,6 +163,131 @@ def generated_experiment_card() -> dict[str, object]:
         },
         "strategy_variants": ["construction-priority.incumbent.v1"],
     }
+
+
+def write_tencent_guard_summary(
+    artifact_root: Path,
+    run_id: str,
+    *,
+    scenario_id: str = runner.DEFAULT_SCENARIO_ID,
+    ticks: int = 500,
+    final_status: str = "completed",
+    territory_kills: tuple[tuple[float, float], ...] = ((2, 0), (2, 0)),
+    room: str = "E1S1",
+    map_source_file: str = "maps/map-0b6758af.json",
+) -> Path:
+    run_dir = artifact_root / run_id
+    report_path = runner.remote_training_report_path(run_dir, run_id)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    card = generated_experiment_card()
+    scenario = card["scenario"]
+    assert isinstance(scenario, dict)
+    if scenario_id == runner.MULTI_TIER_SCENARIO_ID:
+        scenario = dict(scenario)
+        scenario["scenario_id"] = runner.MULTI_TIER_SCENARIO_ID
+        scenario["capabilities"] = {
+            "multi_room_capable": True,
+            "adjacent_room_territory_signal": True,
+            "hostile_combat_signal": True,
+            "multi_tier_policy_comparison": True,
+        }
+        scenario["suitability"] = {
+            "multi_tier_policy_comparison": True,
+            "territory_combat_differentiation": True,
+            "classification": "suitable_for_multi_tier_policy_comparison",
+            "reasons": [],
+        }
+    ranking = [
+        {
+            "variantId": f"variant-{index}",
+            "rewardTuple": [1, territory, 0, kills],
+        }
+        for index, (territory, kills) in enumerate(territory_kills)
+    ]
+    variant_results = [
+        {
+            "variantId": item["variantId"],
+            "reward": {"tuple": item["rewardTuple"]},
+        }
+        for item in ranking
+    ]
+    report = {
+        "type": "screeps-rl-training-report",
+        "reportId": run_id,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "artifactCount": len(variant_results),
+        "rewardModel": {"componentOrder": ["reliability", "territory", "resources", "kills"]},
+        "scenario": scenario,
+        "simulation": {
+            "ticks": ticks,
+            "room": room,
+            "mapSourceFile": map_source_file,
+        },
+        "source": {
+            "initialConditions": {
+                "ticks": ticks,
+                "room": room,
+                "mapSourceFile": map_source_file,
+            }
+        },
+        "variantResults": variant_results,
+        "ranking": ranking,
+        "kpiSummary": {
+            "territory": {"score": ranking[0]["rewardTuple"][1]},
+            "kills": {"score": ranking[0]["rewardTuple"][3]},
+        },
+    }
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    summary = {
+        "type": "screeps-tencent-batch-rl-run",
+        "schemaVersion": 1,
+        "runId": run_id,
+        "finishedAt": "2026-05-18T00:00:00Z",
+        "finalStatus": final_status,
+        "inputs": {
+            "ticks": ticks,
+            "scenarioId": scenario_id,
+            "trainingApproach": "policy_gradient",
+        },
+        "outputs": {
+            "trainingReport": {
+                "path": str(report_path),
+                "reportId": run_id,
+                "ranking": ranking,
+                "simulation": report["simulation"],
+            }
+        },
+    }
+    summary_path = run_dir / "controller-summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
+def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    training_report = summary["outputs"]["trainingReport"]
+    report_path = Path(training_report["path"])
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    for container in (
+        report.get("simulation"),
+        runner.path_value(report, "source", "initialConditions"),
+        training_report.get("simulation"),
+    ):
+        if isinstance(container, dict):
+            for key in ("room", "mapSourceFile", "map_source_file"):
+                container.pop(key, None)
+    for scenario in (
+        report.get("scenario"),
+        runner.path_value(report, "experimentCard", "scenario"),
+    ):
+        evidence = runner.path_value(scenario, "evidence")
+        if isinstance(evidence, dict):
+            for key in ("anchor_room", "anchorRoom", "room", "map_source_file", "mapSourceFile"):
+                evidence.pop(key, None)
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
 
 
 class TencentBatchRlRunnerTest(unittest.TestCase):
@@ -858,6 +984,180 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
             )
             self.assertFalse(summary["outputs"]["trainingReport"]["policyUpdate"]["liveEffect"])
+
+    def test_e1s1_repeat_launch_guard_blocks_after_three_dead_tier_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                write_tencent_guard_summary(artifact_root, run_id)
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], "blocked")
+        self.assertEqual(guard["evidence"]["count"], 3)
+        self.assertIn("multi-tier", guard["nextAction"])
+        self.assertFalse(guard["safety"]["scaleOutAttempted"])
+        self.assertEqual({item["territory"] for item in guard["evidence"]["runs"]}, {2})
+        self.assertEqual({item["kills"] for item in guard["evidence"]["runs"]}, {0})
+
+    def test_e1s1_repeat_launch_guard_scans_past_recent_irrelevant_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            valid_paths = [
+                write_tencent_guard_summary(artifact_root, f"tencent-pg-valid-{index}") for index in range(3)
+            ]
+            noisy_paths = [
+                write_tencent_guard_summary(artifact_root, f"tencent-pg-preflight-{index}", final_status="preflight_ok")
+                for index in range(runner.E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT)
+            ]
+            for index, summary_path in enumerate(valid_paths):
+                timestamp = 1_700_000_000 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            for index, summary_path in enumerate(noisy_paths):
+                timestamp = 1_700_000_100 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["evidence"]["count"], 3)
+        self.assertEqual(
+            {item["runId"] for item in guard["evidence"]["runs"]},
+            {"tencent-pg-valid-0", "tencent-pg-valid-1", "tencent-pg-valid-2"},
+        )
+
+    def test_e1s1_repeat_launch_guard_requires_explicit_room_and_map_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                strip_tencent_guard_location_evidence(write_tencent_guard_summary(artifact_root, run_id))
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], "clear")
+        self.assertEqual(guard["evidence"]["count"], 0)
+
+    def test_e1s1_repeat_launch_guard_allows_insufficient_dead_tier_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            write_tencent_guard_summary(artifact_root, "tencent-pg-1")
+            write_tencent_guard_summary(artifact_root, "tencent-pg-2")
+            write_tencent_guard_summary(
+                artifact_root,
+                "tencent-pg-with-kills",
+                territory_kills=((2, 0), (2, 1)),
+            )
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], "clear")
+        self.assertEqual(guard["evidence"]["count"], 2)
+        self.assertIsNone(guard["nextAction"])
+
+    def test_e1s1_repeat_launch_guard_allows_non_e1s1_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                write_tencent_guard_summary(artifact_root, run_id)
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+            args.require_multi_tier_scenario = True
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(guard["evidence"]["count"], 0)
+
+    def test_preflight_repeat_launch_guard_writes_skip_artifact_without_remote_side_effects(self) -> None:
+        events: list[str] = []
+
+        class FakeController(runner.Controller):
+            def ensure_map_present(self) -> None:
+                events.append("map")
+
+            def ensure_dist_present(self) -> None:
+                events.append("dist")
+
+            def run_billing_guard(self) -> None:
+                events.append("billing")
+
+            def verify_security_group(self) -> None:
+                events.append("security_group")
+
+            def generate_experiment_card(self) -> None:
+                events.append("experiment_card")
+
+            def scale_up_and_wait(self) -> None:
+                events.append("scale_up")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                write_tencent_guard_summary(artifact_root, run_id)
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.preflight_only = True
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+            artifact_dir = artifact_root / "new-run"
+            controller = FakeController(args=args, run_id="new-run", artifact_dir=artifact_dir)
+
+            with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+                controller.run()
+
+            guard = json.loads((artifact_dir / "launch_guard.json").read_text(encoding="utf-8"))
+            summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(events, [])
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], "blocked")
+        self.assertEqual(controller.final_status, runner.E1S1_REPEAT_GUARD_FINAL_STATUS)
+        self.assertEqual(summary["finalStatus"], runner.E1S1_REPEAT_GUARD_FINAL_STATUS)
+        self.assertFalse(summary["safety"]["scaleDownAttempted"])
+        self.assertEqual(summary["outputs"]["launchGuard"]["status"], "blocked")
 
     def test_static_validation_accepts_bounded_multi_worker_scale_proof(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
