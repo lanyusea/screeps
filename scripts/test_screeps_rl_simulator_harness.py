@@ -931,6 +931,88 @@ cli:
         self.assertEqual(tick_entry["overview"]["roomCount"], 1)
         self.assertEqual(tick_entry["rooms"]["E1S1"]["structures"]["spawn"], 1)
 
+    def test_multi_tier_fixture_rooms_merge_into_tick_when_private_api_lacks_visibility(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            43,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "user": {"id": "user-1", "username": "rl-sim"},
+                        "objects": [
+                            {"type": "spawn", "user": "user-1", "store": {"energy": 300}},
+                            {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                        ],
+                    },
+                }
+            },
+            ["E1S1", "E2S1"],
+        )
+
+        merged = harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+
+        self.assertIn("E2S1", merged)
+        self.assertIn("map-fixture", tick_entry["roomStateSources"])
+        self.assertEqual(tick_entry["rooms"]["E2S1"]["combat"]["hostileCreeps"], 2)
+        self.assertEqual(tick_entry["rooms"]["E2S1"]["combat"]["hostileStructures"], 1)
+        self.assertFalse(tick_entry["rooms"]["E2S1"]["owned"])
+        metrics = harness.build_variant_metrics([tick_entry])
+        self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
+        self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
+
+    def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
+        class Result:
+            def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:
+                self.payload = payload
+                self.headers = headers or {}
+
+        class OptionalRoomError(RuntimeError):
+            def __init__(self) -> None:
+                super().__init__("optional room unavailable")
+                self.headers = {"X-Token": "token-from-optional-error"}
+
+        class FakeSmoke:
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                for key, value in headers.items():
+                    if key.lower() == "x-token":
+                        return value
+                return token
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok") == 1
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, path
+                params = kwargs.get("params")
+                room_name = params.get("room") if isinstance(params, dict) else None
+                if room_name == "E2S1":
+                    raise OptionalRoomError()
+                return Result(
+                    {"ok": 1, "room": room_name, "roomData": {}},
+                    {"X-Token": "token-after-required-room"},
+                )
+
+        token, payloads = harness._fetch_room_overviews(
+            argparse.Namespace(server_url="http://127.0.0.1"),
+            FakeSmoke(),
+            "initial-token",
+            ["E1S1"],
+            "shardX",
+            optional_rooms=["E2S1"],
+        )
+
+        self.assertEqual(token, "token-from-optional-error")
+        self.assertEqual(sorted(payloads), ["E1S1"])
+
     def test_build_tick_entry_normalizes_private_object_maps_into_owned_scorecard_fields(self) -> None:
         tick_entry = harness._build_tick_entry(
             "shardX",
@@ -1486,6 +1568,109 @@ cli:
             ],
         )
         self.assertTrue(str(result["launcherRepairMod"]).endswith(harness.SIMULATOR_REPAIR_MOD_FILENAME))
+
+    def test_run_variant_reads_fixture_summary_from_prepared_default_map(self) -> None:
+        run_command_calls = 0
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = "https://example.invalid/default-map.json"
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                return None
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                cfg.map_path.parent.mkdir(parents=True, exist_ok=True)
+                cfg.map_path.write_text(
+                    json.dumps(
+                        {
+                            "type": harness.PRIVATE_MAP_FIXTURE_TYPE,
+                            "owner": {"id": "owner-1", "username": "rl-sim"},
+                            "rooms": [
+                                {
+                                    "room": "E1S1",
+                                    "objects": [
+                                        {"type": "controller", "level": 1, "user": "owner-1"},
+                                        {"type": "spawn", "user": "owner-1"},
+                                        {"type": "creep", "user": "owner-1"},
+                                    ],
+                                },
+                                {
+                                    "room": "E2S1",
+                                    "objects": [
+                                        {
+                                            "type": "controller",
+                                            "level": 2,
+                                            "my": False,
+                                            "user": "invader",
+                                            "owner": {"username": "Invader"},
+                                        },
+                                        {"type": "creep", "user": "invader"},
+                                        {"type": "spawn", "user": "invader"},
+                                    ],
+                                },
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            def run_command(self, command: list[str], cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = command, cfg, timeout
+                nonlocal run_command_calls
+                run_command_calls += 1
+                if run_command_calls == 1:
+                    raise RuntimeError("stop after prepared fixture parse")
+                return {"returncode": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="prepared-fixture",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=harness.DEFAULT_MAP_SOURCE_FILE,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["scenarioFixture"]["roomCount"], 2)
+        self.assertEqual(result["scenarioFixture"]["ownedRoomCount"], 1)
+        self.assertTrue(result["scenarioFixture"]["objectiveSignalPresent"])
 
     def test_run_variant_rewrites_launcher_config_before_compose_start(self) -> None:
         events: list[str] = []

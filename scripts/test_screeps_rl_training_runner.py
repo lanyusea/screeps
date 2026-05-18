@@ -118,6 +118,20 @@ def room(
     return payload
 
 
+def hostile_fixture_room(room_name: str = "E2S1", *, hostile_creeps: int = 2, hostile_structures: int = 1) -> JsonObject:
+    return {
+        "roomName": room_name,
+        "controller": {"level": 2, "my": False, "owner": {"username": "Invader"}},
+        "structures": {"spawn": hostile_structures},
+        "creeps": hostile_creeps,
+        "combat": {
+            "hostileCreeps": hostile_creeps,
+            "hostileStructures": hostile_structures,
+            "events": {},
+        },
+    }
+
+
 def tick(tick_number: int, rooms: list[JsonObject]) -> JsonObject:
     return {
         "tick": tick_number,
@@ -239,6 +253,249 @@ class RlTrainingRunnerTest(unittest.TestCase):
             "experiment card scenario is classified as not suitable for multi-tier territory/combat policy comparison",
             report["warnings"],
         )
+
+    def test_multi_tier_activation_proof_blocks_when_fixture_signal_has_no_objective_movement(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-blocked",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:21:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("E1S1", energy=100), hostile_fixture_room()])
+        finish = tick(2, [room("E1S1", energy=150), hostile_fixture_room()])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            result = variant_result(variant_id, [start, finish])
+            result["metrics"] = {"territoryDelta": 2, "hostileKills": 0}
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-blocked",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "blocked")
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED")
+        self.assertTrue(proof["transport"]["objectiveSignalObserved"])
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 2.0)
+        self.assertEqual(proof["bestObserved"]["hostileKills"], 0.0)
+        self.assertEqual(report["variantResults"][0]["metrics"]["territory"]["ownedRoomCount"], 1)
+        self.assertEqual(report["variantResults"][0]["metrics"]["objectiveSignal"]["finalObservedRoomCount"], 2)
+        self.assertIn("multi-tier activation proof blocked", report["warnings"][-1])
+        self.assertFalse(runner.build_generation_summary(report)["ok"])
+
+    def test_multi_tier_activation_proof_requires_hostile_signal_for_transport(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-missing-fixture-signal",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:22:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "metrics": {
+                        "territory": {"delta": 2},
+                        "kills": {"hostileKills": 0},
+                        "objectiveSignal": {
+                            "initialObservedRoomCount": 2,
+                            "finalObservedRoomCount": 2,
+                            "initialHostileCreeps": 0,
+                            "finalHostileCreeps": 0,
+                            "initialHostileStructures": 0,
+                            "finalHostileStructures": 0,
+                            "initialObjectiveSignalPresent": False,
+                            "finalObjectiveSignalPresent": False,
+                        },
+                    },
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertFalse(proof["transport"]["objectiveSignalObserved"])
+        self.assertEqual(proof["transport"]["classification"], "not_observed_in_variant_metrics")
+        self.assertFalse(proof["variants"][0]["objectiveSignalObserved"])
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED")
+
+    def test_multi_tier_activation_proof_rejects_legacy_progress_without_transport(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-legacy-progress",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:23:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "metrics": {
+                        "territory": {"delta": 3},
+                        "kills": {"hostileKills": 1},
+                        "objectiveSignal": {
+                            "initialObservedRoomCount": 2,
+                            "finalObservedRoomCount": 2,
+                            "initialHostileCreeps": 0,
+                            "finalHostileCreeps": 0,
+                            "initialHostileStructures": 0,
+                            "finalHostileStructures": 0,
+                            "initialObjectiveSignalPresent": False,
+                            "finalObjectiveSignalPresent": False,
+                        },
+                    },
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertFalse(proof["ok"])
+        self.assertFalse(proof["transport"]["objectiveSignalObserved"])
+        self.assertFalse(proof["variants"][0]["passesActivation"])
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 3.0)
+        self.assertEqual(proof["bestObserved"]["hostileKills"], 1.0)
+        self.assertNotIn("passingVariants", proof)
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED")
+
+    def test_multi_tier_activation_proof_rejects_stitched_sample_average(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-stitched-samples",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:24:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        variant = runner.StrategyVariant(id="candidate", family="test-family", parameters={})
+        transport_only = variant_result(
+            "candidate",
+            [
+                tick(1, [room("E1S1", energy=100), hostile_fixture_room()]),
+                tick(2, [room("E1S1", energy=100), hostile_fixture_room()]),
+            ],
+        )
+        transport_only["metrics"] = {"territoryDelta": 0, "hostileKills": 0}
+        score_only = variant_result(
+            "candidate",
+            [
+                tick(3, [room("E1S1", energy=100)]),
+                tick(4, [room("E1S1", energy=100)]),
+            ],
+        )
+        score_only["metrics"] = {"territoryDelta": 6, "hostileKills": 0}
+        result = runner.summarize_variant(
+            variant,
+            [transport_only, score_only],
+            {"resourceNormalizer": 1000},
+        )
+
+        proof = runner.build_multi_tier_activation_proof(
+            results=[result],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertTrue(proof["transport"]["objectiveSignalObserved"])
+        self.assertFalse(proof["variants"][0]["passesActivation"])
+        self.assertEqual(proof["variants"][0]["activationSampleCount"], 2)
+        self.assertEqual(
+            [sample["passesActivation"] for sample in proof["variants"][0]["activationSamples"]],
+            [False, False],
+        )
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 3.0)
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED")
+
+    def test_multi_tier_activation_proof_reports_missing_samples_separately(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-no-samples",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:25:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 0,
+                    "metrics": runner.aggregate_metrics([]),
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_NO_SUCCESSFUL_SAMPLES")
+        self.assertIn("no successful simulator samples", proof["blocker"]["evidence"])
+
+    def test_multi_tier_activation_proof_passes_when_variant_has_hostile_kill_signal(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-passed",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:22:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("E1S1", energy=100), hostile_fixture_room()])
+        finish = tick(2, [room("E1S1", energy=150), hostile_fixture_room(hostile_creeps=1)])
+        simulator_results: dict[str, JsonObject] = {}
+        for index, variant_id in enumerate(variant_ids):
+            result = variant_result(variant_id, [start, finish])
+            result["metrics"] = {"territoryDelta": 2, "hostileKills": 1 if index == 0 else 0}
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-passed",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        self.assertTrue(proof["ok"])
+        self.assertEqual(proof["passingVariants"], [variant_ids[0]])
+        self.assertNotIn("blocker", proof)
 
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
@@ -488,6 +745,23 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(metrics["territory"]["ownedRoomCount"], 1)
         self.assertEqual(metrics["territory"]["rclLevels"], {"E1S1": 2})
         self.assertEqual(metrics["resources"]["storedEnergyDelta"], 50)
+
+    def test_run_metrics_count_owned_controller_owner_object_without_my_flag(self) -> None:
+        owned_room = room("E1S1", spawns=1, creeps=2, energy=300, rcl=2)
+        owned_room["controller"] = {"level": 2, "owner": {"username": "rl-sim"}}
+        run = variant_result(
+            "candidate",
+            [
+                tick(1, [owned_room]),
+                tick(2, [owned_room]),
+            ],
+        )
+
+        metrics = runner.compute_run_metrics(run, {"resourceNormalizer": 1000})
+
+        self.assertEqual(metrics["territory"]["ownedRoomCount"], 1)
+        self.assertEqual(metrics["territory"]["survivedEndRooms"], ["E1S1"])
+        self.assertEqual(metrics["territory"]["rclLevels"], {"E1S1": 2})
 
     def test_experiment_card_loading_and_validation_accepts_yaml_inline_variants(self) -> None:
         yaml_text = """
