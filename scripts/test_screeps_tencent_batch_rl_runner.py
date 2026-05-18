@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -262,6 +263,31 @@ def write_tencent_guard_summary(
     summary_path = run_dir / "controller-summary.json"
     summary_path.write_text(json.dumps(summary), encoding="utf-8")
     return summary_path
+
+
+def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    training_report = summary["outputs"]["trainingReport"]
+    report_path = Path(training_report["path"])
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    for container in (
+        report.get("simulation"),
+        runner.path_value(report, "source", "initialConditions"),
+        training_report.get("simulation"),
+    ):
+        if isinstance(container, dict):
+            for key in ("room", "mapSourceFile", "map_source_file"):
+                container.pop(key, None)
+    for scenario in (
+        report.get("scenario"),
+        runner.path_value(report, "experimentCard", "scenario"),
+    ):
+        evidence = runner.path_value(scenario, "evidence")
+        if isinstance(evidence, dict):
+            for key in ("anchor_room", "anchorRoom", "room", "map_source_file", "mapSourceFile"):
+                evidence.pop(key, None)
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
 
 
 class TencentBatchRlRunnerTest(unittest.TestCase):
@@ -982,6 +1008,60 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(guard["safety"]["scaleOutAttempted"])
         self.assertEqual({item["territory"] for item in guard["evidence"]["runs"]}, {2})
         self.assertEqual({item["kills"] for item in guard["evidence"]["runs"]}, {0})
+
+    def test_e1s1_repeat_launch_guard_scans_past_recent_irrelevant_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            valid_paths = [
+                write_tencent_guard_summary(artifact_root, f"tencent-pg-valid-{index}") for index in range(3)
+            ]
+            noisy_paths = [
+                write_tencent_guard_summary(artifact_root, f"tencent-pg-preflight-{index}", final_status="preflight_ok")
+                for index in range(runner.E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT)
+            ]
+            for index, summary_path in enumerate(valid_paths):
+                timestamp = 1_700_000_000 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            for index, summary_path in enumerate(noisy_paths):
+                timestamp = 1_700_000_100 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["evidence"]["count"], 3)
+        self.assertEqual(
+            {item["runId"] for item in guard["evidence"]["runs"]},
+            {"tencent-pg-valid-0", "tencent-pg-valid-1", "tencent-pg-valid-2"},
+        )
+
+    def test_e1s1_repeat_launch_guard_requires_explicit_room_and_map_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                strip_tencent_guard_location_evidence(write_tencent_guard_summary(artifact_root, run_id))
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], "clear")
+        self.assertEqual(guard["evidence"]["count"], 0)
 
     def test_e1s1_repeat_launch_guard_allows_insufficient_dead_tier_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1048,7 +1048,7 @@ def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path)
     except OSError:
         return []
     evidence: list[dict[str, Any]] = []
-    for summary_path in summary_paths[:E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT]:
+    for summary_path in summary_paths:
         try:
             if summary_path.parent.resolve() == current_dir:
                 continue
@@ -1058,6 +1058,8 @@ def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path)
         item = e1s1_dead_tier_evidence_from_summary(summary, summary_path)
         if item is not None:
             evidence.append(item)
+            if len(evidence) >= E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT:
+                break
     return evidence
 
 
@@ -1145,11 +1147,11 @@ def summary_matches_e1s1_single_room_no_hostile(
         return False
     if scenario_id is None and scenario is None:
         return False
-    room = first_text(reports, (("simulation", "room"), ("source", "initialConditions", "room")))
-    if room is not None and room != "E1S1":
+    room = extract_training_room(reports)
+    if room != "E1S1":
         return False
     map_source_file = extract_map_source_file(reports)
-    if map_source_file is not None and Path(map_source_file).name != "map-0b6758af.json":
+    if map_source_file is None or Path(map_source_file).name != "map-0b6758af.json":
         return False
     return True
 
@@ -1183,6 +1185,23 @@ def extract_scenario_id(summary: dict[str, Any], reports: Sequence[dict[str, Any
     )
 
 
+def extract_training_room(reports: Sequence[dict[str, Any]]) -> str | None:
+    return first_text(
+        reports,
+        (
+            ("simulation", "room"),
+            ("source", "initialConditions", "room"),
+            ("experimentCard", "simulation", "room"),
+            ("scenario", "evidence", "anchor_room"),
+            ("scenario", "evidence", "anchorRoom"),
+            ("scenario", "evidence", "room"),
+            ("experimentCard", "scenario", "evidence", "anchor_room"),
+            ("experimentCard", "scenario", "evidence", "anchorRoom"),
+            ("experimentCard", "scenario", "evidence", "room"),
+        ),
+    )
+
+
 def extract_map_source_file(reports: Sequence[dict[str, Any]]) -> str | None:
     return first_text(
         reports,
@@ -1191,6 +1210,11 @@ def extract_map_source_file(reports: Sequence[dict[str, Any]]) -> str | None:
             ("simulation", "map_source_file"),
             ("source", "initialConditions", "mapSourceFile"),
             ("experimentCard", "simulation", "mapSourceFile"),
+            ("experimentCard", "simulation", "map_source_file"),
+            ("scenario", "evidence", "map_source_file"),
+            ("scenario", "evidence", "mapSourceFile"),
+            ("experimentCard", "scenario", "evidence", "map_source_file"),
+            ("experimentCard", "scenario", "evidence", "mapSourceFile"),
         ),
     )
 
