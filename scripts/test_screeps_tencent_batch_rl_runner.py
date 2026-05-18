@@ -292,6 +292,39 @@ def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
 
 
 class TencentBatchRlRunnerTest(unittest.TestCase):
+    def run_stubbed_preflight(
+        self,
+        args: argparse.Namespace,
+        artifact_dir: Path,
+    ) -> tuple[list[str], runner.Controller, dict[str, object], dict[str, object]]:
+        events: list[str] = []
+
+        class FakeController(runner.Controller):
+            def ensure_map_present(self) -> None:
+                events.append("map")
+
+            def ensure_dist_present(self) -> None:
+                events.append("dist")
+
+            def run_billing_guard(self) -> None:
+                events.append("billing")
+
+            def verify_security_group(self) -> None:
+                events.append("security_group")
+
+            def generate_experiment_card(self) -> None:
+                events.append("experiment_card")
+
+            def scale_up_and_wait(self) -> None:
+                events.append("scale_up")
+
+        controller = FakeController(args=args, run_id=args.run_id, artifact_dir=artifact_dir)
+        with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+            controller.run()
+        guard = json.loads((artifact_dir / "launch_guard.json").read_text(encoding="utf-8"))
+        summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+        return events, controller, guard, summary
+
     def test_security_group_guard_accepts_single_controller_ssh_rule(self) -> None:
         ingress = [
             {"Action": "ACCEPT", "Protocol": "TCP", "Port": "22", "CidrBlock": CONTROLLER_IP},
@@ -1116,6 +1149,100 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 2)
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
         self.assertEqual(guard["evidence"]["count"], 0)
+
+    def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_without_repeat_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                write_tencent_guard_summary(artifact_root, run_id)
+            args = runner.parse_cli_args([
+                "preflight",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_preflight(args, artifact_dir)
+
+        self.assertEqual(args.training_approach, "policy_gradient")
+        self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(args.require_multi_tier_scenario)
+        self.assertEqual(controller.final_status, "preflight_ok")
+        self.assertEqual(summary["finalStatus"], "preflight_ok")
+        self.assertEqual(summary["inputs"]["trainingApproach"], "policy_gradient")
+        self.assertEqual(summary["inputs"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(summary["inputs"]["requireMultiTierScenario"])
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], "clear")
+        self.assertFalse(guard["currentLaunch"]["isE1S1SingleRoomNoHostile"])
+        self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(guard["currentLaunch"]["effectiveTicks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(guard["evidence"]["count"], 0)
+        self.assertIn("experiment_card", events)
+        self.assertNotIn("scale_up", events)
+
+    def test_explicit_e1s1_bandit_preflight_still_triggers_repeat_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-1", "tencent-pg-2", "tencent-pg-3"):
+                write_tencent_guard_summary(artifact_root, run_id)
+            args = runner.parse_cli_args([
+                "preflight",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "bandit",
+                "--scenario-id",
+                runner.DEFAULT_SCENARIO_ID,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_preflight(args, artifact_dir)
+
+        self.assertEqual(args.training_approach, "bandit")
+        self.assertEqual(args.scenario_id, runner.DEFAULT_SCENARIO_ID)
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.E1S1_REPEAT_GUARD_FINAL_STATUS)
+        self.assertEqual(summary["finalStatus"], runner.E1S1_REPEAT_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.DEFAULT_SCENARIO_ID)
+        self.assertTrue(guard["currentLaunch"]["isE1S1SingleRoomNoHostile"])
+        self.assertEqual(guard["currentLaunch"]["trainingApproach"], "bandit")
+        self.assertEqual(guard["evidence"]["count"], 3)
+
+    def test_explicit_multi_tier_preflight_includes_fixture_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args = runner.parse_cli_args([
+                "preflight",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_preflight(args, artifact_dir)
+
+        self.assertEqual(controller.final_status, "preflight_ok")
+        self.assertEqual(summary["inputs"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(summary["inputs"]["requireMultiTierScenario"])
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(guard["currentLaunch"]["requireMultiTierScenario"])
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["adjacentRoom"], "E2S1")
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
+        self.assertIn("experiment_card", events)
+        self.assertNotIn("scale_up", events)
 
     def test_preflight_repeat_launch_guard_writes_skip_artifact_without_remote_side_effects(self) -> None:
         events: list[str] = []
