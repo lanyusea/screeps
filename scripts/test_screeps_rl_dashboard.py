@@ -190,8 +190,44 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(training["status"], "NOT_RUN")
         self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
         self.assertEqual(training["cardSupply"]["severity"], "OK")
+        self.assertIsNone(training["blocker"])
         self.assertEqual(policy["cardSupplyFinding"]["status"], "FALLBACK_DEGRADED")
         self.assertEqual(policy["cardSupplyFinding"]["severity"], "P2")
+
+    def test_tencent_training_report_with_nested_safety_satisfies_card_supply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-report"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-report",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-accepted-123456789abc"}},
+                },
+            )
+            card = policy_gradient_card()
+            write_json(
+                run_dir / "remote" / "runtime-artifacts" / "rl-training" / "report.json",
+                {
+                    "type": "screeps-rl-training-execution-report",
+                    "reportId": "report-nested-safety",
+                    "status": "shadow",
+                    "safety": card["safety"],
+                    "experimentCard": card,
+                },
+            )
+
+            card_supply = dashboard.discover_tencent_internal_card_supply(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+
+        self.assertIsNotNone(card_supply)
+        assert card_supply is not None
+        self.assertEqual(card_supply["source"], "tencent_internal_training_report")
+        self.assertEqual(card_supply["status"], "PRIMARY_SATISFIED")
 
     def test_missing_training_and_card_evidence_keeps_card_supply_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -212,6 +248,28 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(training["cardSupply"]["status"], "BLOCKED")
         self.assertEqual(training["cardSupply"]["severity"], "P0")
         self.assertEqual(training["blocker"], "NO_UNCONSUMED_EXPERIMENT_CARD")
+
+    def test_policy_history_text_does_not_create_card_supply_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            policy = dashboard.policy_advantage(
+                loaded_artifact(
+                    root / "rl-control-loop" / "policy-advantage.json",
+                    {
+                        "type": "screeps-rl-policy-online-advantage-report",
+                        "onlineUtilityStatus": "UNPROVEN",
+                        "candidatePolicyId": "candidate",
+                        "baselinePolicyId": "incumbent",
+                        "notes": [
+                            "Resolved prior standaloneExperimentCard cardPipelineStalled finding after Tencent supply."
+                        ],
+                    },
+                ),
+                None,
+                training=None,
+            )
+
+        self.assertIsNone(policy["cardSupplyFinding"])
 
     def test_tencent_internal_card_evidence_requires_safety_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

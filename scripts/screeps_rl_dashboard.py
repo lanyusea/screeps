@@ -45,6 +45,35 @@ CARD_SUPPLY_BLOCKER_MARKERS = (
     "standalonecardsupply",
     "cardsupplystarvation",
 )
+CARD_SUPPLY_BLOCKER_FIELD_MARKERS = (
+    "loopacardpathstalledcycles",
+    "loopacardpipelinestalled",
+    "cardpipelinestalled",
+    "nostandaloneexperimentcard",
+    "nounconsumedexperimentcard",
+    "standalonecardsupply",
+    "cardsupplystarvation",
+)
+CARD_SUPPLY_BLOCKER_TEXT_FIELDS = (
+    "trainingBlocker",
+    "nextTrainingCapabilityAction",
+    "blocker",
+    "activeBlocker",
+    "cardSupplyBlocker",
+    "requiredAction",
+    "nextAction",
+)
+CARD_SUPPLY_BLOCKER_OBJECT_FIELDS = ("evidenceWindows",)
+INACTIVE_CARD_SUPPLY_BLOCKER_VALUES = (
+    "",
+    "0",
+    "false",
+    "inactive",
+    "na",
+    "none",
+    "null",
+    "resolved",
+)
 TIMESTAMP_KEYS = (
     "createdAt",
     "producedAt",
@@ -421,8 +450,7 @@ def card_supply_from_training_report(path: Path, warnings: list[str], repo_root:
     if artifact is None:
         return None
     payload = artifact.payload
-    safety = {field: payload.get(field) for field in SAFETY_FALSE_FIELDS}
-    if any(value is not False for value in safety.values()):
+    if not safety_flags_are_shadow(payload):
         return None
     card = as_dict(payload.get("experimentCard"))
     if not valid_policy_gradient_card(card, reward_container=payload):
@@ -953,9 +981,57 @@ def card_supply_from_training_payload(payload: JsonObject, path: Path | None) ->
     return None
 
 
-def card_supply_blocker_text_present(payload: JsonObject) -> bool:
-    text = normalized_key(canonical_json(payload))
+def card_supply_blocker_marker_present(value: Any) -> bool:
+    text = normalized_key(canonical_json(value))
     return any(marker in text for marker in CARD_SUPPLY_BLOCKER_MARKERS)
+
+
+def card_supply_blocker_value_active(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    numeric = number_value(value)
+    if numeric is not None:
+        return numeric > 0
+    if isinstance(value, str):
+        return normalized_key(value) not in INACTIVE_CARD_SUPPLY_BLOCKER_VALUES
+    if isinstance(value, (dict, list)):
+        return bool(value)
+    return True
+
+
+def active_card_supply_blocker_field_present(payload: JsonObject) -> bool:
+    for key, value in payload.items():
+        normalized = normalized_key(str(key))
+        if (
+            normalized in CARD_SUPPLY_BLOCKER_FIELD_MARKERS
+            and card_supply_blocker_value_active(value)
+        ):
+            return True
+    return False
+
+
+def card_supply_blocker_text_present(payload: JsonObject) -> bool:
+    for field in CARD_SUPPLY_BLOCKER_TEXT_FIELDS:
+        if card_supply_blocker_marker_present(payload.get(field)):
+            return True
+    if active_card_supply_blocker_field_present(payload):
+        return True
+    for field in CARD_SUPPLY_BLOCKER_OBJECT_FIELDS:
+        if active_card_supply_blocker_field_present(as_dict(payload.get(field))):
+            return True
+    return False
+
+
+def clear_satisfied_card_supply_blocker(blocker: str | None, card_supply: JsonObject) -> str | None:
+    if (
+        card_supply.get("status") == "PRIMARY_SATISFIED"
+        and blocker
+        and card_supply_blocker_marker_present(blocker)
+    ):
+        return None
+    return blocker
 
 
 def reconcile_card_supply_for_training(
@@ -1026,6 +1102,7 @@ def training_execution(
         tencent_internal_card_supply=tencent_internal_card_supply,
     )
     blocker = text_value(payload.get("trainingBlocker")) or text_value(payload.get("nextTrainingCapabilityAction"))
+    blocker = clear_satisfied_card_supply_blocker(blocker, card_supply)
     if (
         payload.get("trainingDidRun") is not True
         and card_supply.get("status") == "BLOCKED"
