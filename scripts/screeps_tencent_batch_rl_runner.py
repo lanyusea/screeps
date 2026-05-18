@@ -489,6 +489,8 @@ class Controller:
             "--scenario-id", getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
             "--output", str(card),
         ]
+        if self.args.training_approach == "policy_gradient":
+            cmd.append("--loop-a-policy-gradient-supply")
         if getattr(self.args, "require_multi_tier_scenario", False):
             cmd.append("--require-multi-tier-scenario")
         cp = self.run_cp(
@@ -536,7 +538,19 @@ class Controller:
             [sys.executable, "scripts/screeps_rl_experiment_card.py", "--validate", "--input", str(card)],
             timeout=60,
         )
-        self.result["experimentCard"] = {"path": str(card), "createdAt": created_at, "cardId": payload.get("card_id")}
+        experiment_card_summary = {
+            "path": str(card),
+            "createdAt": created_at,
+            "cardId": payload.get("card_id"),
+            "trainingApproach": payload.get("training_approach"),
+            "status": payload.get("status"),
+            "safety": payload.get("safety"),
+            "rewardModel": payload.get("reward_model"),
+        }
+        card_supply = payload.get("card_supply")
+        if isinstance(card_supply, dict):
+            experiment_card_summary["cardSupply"] = card_supply
+        self.result["experimentCard"] = experiment_card_summary
         if scale_environments is not None:
             self.write_scale_proof_spec(scale_environments=scale_environments, experiment_card=payload)
 
@@ -1908,8 +1922,11 @@ def build_scale_proof_spec(
         "experimentCardPath": str(experiment_card_path),
         "experimentCard": {
             "cardId": experiment_card.get("card_id"),
+            "trainingApproach": experiment_card.get("training_approach"),
             "status": experiment_card.get("status"),
             "safety": experiment_card.get("safety"),
+            "rewardModel": experiment_card.get("reward_model"),
+            "cardSupply": experiment_card.get("card_supply"),
             "scenario": experiment_card.get("scenario"),
         },
         "scaleProof": {
