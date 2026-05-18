@@ -1149,6 +1149,8 @@ def verified_remote_policy_update_fields(
     if isinstance(safe_policy_update, dict) and "iterations" in safe_policy_update:
         update_iterations = policy_update_iterations(safe_policy_update.get("iterations"), "policyUpdate.iterations")
     if iterations <= 0 and update_iterations <= 0:
+        if safe_policy_update not in (None, {}, []):
+            raise BatchRunError("remote policyUpdate is present without positive policyUpdateIterations")
         if raw_artifact_path is not None:
             raise BatchRunError("remote policyUpdateArtifactPath is present without positive policyUpdateIterations")
         return {

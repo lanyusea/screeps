@@ -286,6 +286,87 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaisesRegex(runner.BatchRunError, expected_error):
                 runner.safe_policy_update_artifact_path(raw)
 
+    def test_verified_remote_policy_update_accepts_empty_zero_iteration_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            {},
+            {"policyUpdateIterations": 0},
+            {"policyUpdate": None},
+            {"policyUpdate": {}},
+            {"policyUpdate": []},
+            {"policyUpdateIterations": 0, "policyUpdate": None},
+            {"policyUpdateIterations": 0, "policyUpdate": {}},
+            {"policyUpdateIterations": 0, "policyUpdate": []},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data in cases:
+                with self.subTest(data=data):
+                    self.assertEqual(
+                        runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir)),
+                        {
+                            "policyUpdateIterations": 0,
+                            "policyUpdateArtifactPath": None,
+                            "policyUpdate": None,
+                        },
+                    )
+
+    def test_verified_remote_policy_update_rejects_non_empty_zero_iteration_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            (
+                {"policyUpdate": {"nextCandidatePolicy": {}}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": {"nextCandidatePolicy": {}}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": {"iterations": 0}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": [{"iterations": 0}]},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdate": {"iterations": -1}},
+                "policyUpdate.iterations invalid",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data, expected_error in cases:
+                with self.subTest(data=data), self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
+    def test_verified_remote_policy_update_rejects_artifact_path_without_positive_iterations(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        cases = (
+            {"policyUpdateArtifactPath": artifact_path},
+            {"policyUpdateIterations": 0, "policyUpdateArtifactPath": artifact_path},
+            {"policyUpdateIterations": 0, "policyUpdate": {}, "policyUpdateArtifactPath": artifact_path},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data in cases:
+                with self.subTest(data=data), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    "policyUpdateArtifactPath is present without positive policyUpdateIterations",
+                ):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
     def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
