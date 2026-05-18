@@ -18,6 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence, TextIO
 
+from screeps_rl_experiment_card import (
+    scenario_supports_multi_tier_policy_comparison,
+    validate_scenario_metadata,
+)
 import screeps_rl_dataset_export as dataset_export
 import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
@@ -37,8 +41,6 @@ POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
-SCENARIO_METADATA_TYPE = "screeps-rl-training-scenario"
-SCENARIO_IDS = ("e1s1-single-room-no-hostile", "multi-tier-territory-combat-v0")
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
 LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
@@ -266,7 +268,7 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false")
 
     validate_card_supply(card)
-    validate_scenario_metadata(card)
+    validate_scenario_metadata(card, error_cls=TrainingCardError, require_presence=True)
 
     raw_variants = raw_variant_definitions(card)
     if not isinstance(raw_variants, list) or len(raw_variants) == 0:
@@ -337,70 +339,6 @@ def validate_card_supply(card: JsonObject) -> None:
             raise TrainingCardError("consumed Loop A card supply requires consumed_at")
         if not isinstance(raw.get("consumed_by_report_id"), str) or not raw.get("consumed_by_report_id"):
             raise TrainingCardError("consumed Loop A card supply requires consumed_by_report_id")
-
-
-def validate_scenario_metadata(card: JsonObject) -> None:
-    raw = card.get("scenario", card.get("trainingScenario"))
-    if raw is None:
-        return
-    if not isinstance(raw, dict):
-        raise TrainingCardError("scenario must be an object")
-    if raw.get("type") != SCENARIO_METADATA_TYPE:
-        raise TrainingCardError(f"scenario.type must be {SCENARIO_METADATA_TYPE}")
-    scenario_id = raw.get("scenario_id", raw.get("scenarioId"))
-    if scenario_id not in SCENARIO_IDS:
-        raise TrainingCardError(f"scenario.scenario_id must be one of: {', '.join(SCENARIO_IDS)}")
-    capabilities = raw.get("capabilities")
-    if not isinstance(capabilities, dict):
-        raise TrainingCardError("scenario.capabilities must be an object")
-    for field in (
-        "multi_room_capable",
-        "adjacent_room_territory_signal",
-        "hostile_combat_signal",
-        "multi_tier_policy_comparison",
-    ):
-        if capabilities.get(field) not in (True, False):
-            raise TrainingCardError(f"scenario.capabilities.{field} must be a boolean")
-    suitability = raw.get("suitability")
-    if not isinstance(suitability, dict):
-        raise TrainingCardError("scenario.suitability must be an object")
-    for field in ("multi_tier_policy_comparison", "territory_combat_differentiation"):
-        if suitability.get(field) not in (True, False):
-            raise TrainingCardError(f"scenario.suitability.{field} must be a boolean")
-    if not isinstance(suitability.get("classification"), str) or not suitability.get("classification"):
-        raise TrainingCardError("scenario.suitability.classification must be a non-empty string")
-    reasons = suitability.get("reasons")
-    if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
-        raise TrainingCardError("scenario.suitability.reasons must be a list of strings")
-    if not scenario_supports_multi_tier_policy_comparison(raw) and suitability.get("multi_tier_policy_comparison") is True:
-        raise TrainingCardError(
-            "scenario marked multi-tier suitable without multi-room, territory, and hostile combat capabilities"
-        )
-    scenario_safety = raw.get("safety")
-    if isinstance(scenario_safety, dict):
-        for field in SAFETY_FALSE_FIELDS:
-            if scenario_safety.get(field) is not False:
-                raise TrainingCardError(f"scenario.safety.{field} must be false")
-        for field in SAFETY_TRUE_FIELDS:
-            if scenario_safety.get(field) is not True:
-                raise TrainingCardError(f"scenario.safety.{field} must be true")
-
-
-def scenario_supports_multi_tier_policy_comparison(raw: Any) -> bool:
-    if not isinstance(raw, dict):
-        return False
-    capabilities = raw.get("capabilities")
-    suitability = raw.get("suitability")
-    if not isinstance(capabilities, dict) or not isinstance(suitability, dict):
-        return False
-    return (
-        capabilities.get("multi_room_capable") is True
-        and capabilities.get("adjacent_room_territory_signal") is True
-        and capabilities.get("hostile_combat_signal") is True
-        and capabilities.get("multi_tier_policy_comparison") is True
-        and suitability.get("multi_tier_policy_comparison") is True
-        and suitability.get("territory_combat_differentiation") is True
-    )
 
 
 def raw_variant_definitions(card: JsonObject) -> Any:

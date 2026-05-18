@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
+from screeps_rl_experiment_card import DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID, SCENARIO_IDS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
 DEFAULT_BILLING_GUARD = Path("/root/.hermes/scripts/screeps-tencent-billing-guard.py")
@@ -46,9 +48,6 @@ DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
 MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
-DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
-MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
-SCENARIO_IDS = (DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID)
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
 SSH_CONNECT_OPTIONS = (
     "-o", "BatchMode=yes",

@@ -822,22 +822,34 @@ def validate_source_gate(card: JsonObject) -> None:
         validate_created_at(created_at)
 
 
-def validate_scenario(card: JsonObject) -> None:
+def validate_scenario_metadata(
+    card: JsonObject,
+    *,
+    error_cls: type[ValueError] = CardValidationError,
+    require_presence: bool = False,
+    require_scenario_tier: bool = False,
+    json_object_wording: bool = False,
+) -> None:
+    object_noun = "JSON object" if json_object_wording else "object"
+    article = "a" if json_object_wording else "an"
+
     raw = first_present(card, ("scenario", "trainingScenario"))
     if raw is None:
+        if require_presence:
+            raise error_cls("scenario metadata is required")
         return
     if not isinstance(raw, dict):
-        raise CardValidationError("scenario must be a JSON object")
+        raise error_cls(f"scenario must be {article} {object_noun}")
     if raw.get("type") != SCENARIO_METADATA_TYPE:
-        raise CardValidationError(f"scenario.type must be {SCENARIO_METADATA_TYPE}")
+        raise error_cls(f"scenario.type must be {SCENARIO_METADATA_TYPE}")
     scenario_id = raw.get("scenario_id", raw.get("scenarioId"))
     if scenario_id not in SCENARIO_IDS:
-        raise CardValidationError(f"scenario.scenario_id must be one of: {', '.join(SCENARIO_IDS)}")
-    if not isinstance(raw.get("scenario_tier", raw.get("scenarioTier")), str):
-        raise CardValidationError("scenario.scenario_tier must be a string")
+        raise error_cls(f"scenario.scenario_id must be one of: {', '.join(SCENARIO_IDS)}")
+    if require_scenario_tier and not isinstance(raw.get("scenario_tier", raw.get("scenarioTier")), str):
+        raise error_cls("scenario.scenario_tier must be a string")
     capabilities = raw.get("capabilities")
     if not isinstance(capabilities, dict):
-        raise CardValidationError("scenario.capabilities must be a JSON object")
+        raise error_cls(f"scenario.capabilities must be {article} {object_noun}")
     for field in (
         "multi_room_capable",
         "adjacent_room_territory_signal",
@@ -845,30 +857,34 @@ def validate_scenario(card: JsonObject) -> None:
         "multi_tier_policy_comparison",
     ):
         if capabilities.get(field) not in (True, False):
-            raise CardValidationError(f"scenario.capabilities.{field} must be a boolean")
+            raise error_cls(f"scenario.capabilities.{field} must be a boolean")
     suitability = raw.get("suitability")
     if not isinstance(suitability, dict):
-        raise CardValidationError("scenario.suitability must be a JSON object")
+        raise error_cls(f"scenario.suitability must be {article} {object_noun}")
     for field in ("multi_tier_policy_comparison", "territory_combat_differentiation"):
         if suitability.get(field) not in (True, False):
-            raise CardValidationError(f"scenario.suitability.{field} must be a boolean")
+            raise error_cls(f"scenario.suitability.{field} must be a boolean")
     if not isinstance(suitability.get("classification"), str) or not suitability.get("classification"):
-        raise CardValidationError("scenario.suitability.classification must be a non-empty string")
+        raise error_cls("scenario.suitability.classification must be a non-empty string")
     reasons = suitability.get("reasons")
     if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
-        raise CardValidationError("scenario.suitability.reasons must be a list of strings")
+        raise error_cls("scenario.suitability.reasons must be a list of strings")
     if not scenario_supports_multi_tier_policy_comparison(raw) and suitability.get("multi_tier_policy_comparison") is True:
-        raise CardValidationError(
+        raise error_cls(
             "scenario marked multi-tier suitable without multi-room, territory, and hostile combat capabilities"
         )
     scenario_safety = raw.get("safety")
     if isinstance(scenario_safety, dict):
         for field in SAFETY_FALSE_FIELDS:
             if scenario_safety.get(field) is not False:
-                raise CardValidationError(f"scenario.safety.{field} must be false")
+                raise error_cls(f"scenario.safety.{field} must be false")
         for field in SAFETY_TRUE_FIELDS:
             if scenario_safety.get(field) is not True:
-                raise CardValidationError(f"scenario.safety.{field} must be true")
+                raise error_cls(f"scenario.safety.{field} must be true")
+
+
+def validate_scenario(card: JsonObject) -> None:
+    validate_scenario_metadata(card, require_scenario_tier=True, json_object_wording=True)
 
 
 def is_loop_a_card_available_for_training(card: JsonObject, consumed_card_ids: set[str] | None = None) -> bool:
