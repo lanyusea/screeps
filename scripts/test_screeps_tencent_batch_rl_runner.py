@@ -496,6 +496,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
     def test_scale_up_clears_known_host_once_before_first_ssh_probe(self) -> None:
         args = controller_args()
+        args.scale_timeout_seconds = 5
         events: list[tuple[str, object]] = []
 
         class FakeController(runner.Controller):
@@ -589,8 +590,53 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(clear_steps[0].ok)
         self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
 
+    def test_scale_up_known_host_cleanup_timeout_does_not_raise_or_mark_cleaned(self) -> None:
+        args = controller_args()
+
+        class FakeController(runner.Controller):
+            def tccli(self, name: str, *params: str, check: bool = True, timeout: int = 90) -> dict[str, object]:
+                return {}
+
+            def describe_asg_instances(self) -> list[dict[str, object]]:
+                return [{"InstanceId": "ins-test"}]
+
+            def describe_cvm_instances(self, instance_ids: list[str]) -> list[dict[str, object]]:
+                return [
+                    {
+                        "InstanceId": "ins-test",
+                        "InstanceState": "RUNNING",
+                        "PublicIpAddresses": ["203.0.113.10"],
+                        "PrivateIpAddresses": [],
+                    }
+                ]
+
+            def latest_scale_out_failure(self, *, after_epoch: float) -> dict[str, object] | None:
+                return None
+
+            def wait_for_ssh(self) -> bool:
+                return True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            with mock.patch.object(
+                runner.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(["ssh-keygen"], 30, output="", stderr="timed out\n"),
+            ):
+                controller.scale_up_and_wait()
+
+        clear_steps = [step for step in controller.steps if step.name == "clear_worker_known_host"]
+        self.assertEqual(len(clear_steps), 1)
+        self.assertFalse(clear_steps[0].ok)
+        self.assertEqual(clear_steps[0].returncode, 124)
+        self.assertIn("TimeoutExpired", clear_steps[0].stderr_tail or "")
+        self.assertNotIn("203.0.113.10", controller.known_hosts_cleaned_public_ips)
+        self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
+
     def test_scale_up_retries_failed_known_host_cleanup_for_same_ip(self) -> None:
         args = controller_args()
+        args.scale_timeout_seconds = 5
         events: list[tuple[str, object]] = []
 
         class FakeController(runner.Controller):

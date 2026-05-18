@@ -267,6 +267,11 @@ class Controller:
                 timeout=30,
                 check=False,
             )
+        except subprocess.TimeoutExpired as error:
+            stdout = error.output.decode("utf-8", errors="replace") if isinstance(error.output, bytes) else (error.output or "")
+            stderr = error.stderr.decode("utf-8", errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+            stderr = "\n".join(part for part in (f"{type(error).__name__}: {error}", stderr) if part)
+            cp = subprocess.CompletedProcess(cmd, 124, stdout, stderr)
         except OSError as error:
             cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
         ok = cp.returncode == 0
