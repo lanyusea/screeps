@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import sqlite3
+import sys
+import tempfile
+import threading
+import unittest
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import screeps_rl_live_dashboard as live
+
+
+JsonObject = dict[str, Any]
+
+
+def write_json(path: Path, payload: JsonObject) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def write_runtime_summary(path: Path) -> None:
+    payload = {
+        "type": "runtime-summary",
+        "tick": 12345,
+        "shard": "shardX",
+        "cpu": {"bucket": 9000, "used": 7.5},
+        "reliability": {"loopExceptionCount": 0, "telemetrySilenceTicks": 0},
+        "rooms": [
+            {
+                "roomName": "E29N55",
+                "controller": {"my": True, "level": 3},
+                "rclLevel": 3,
+                "workerCount": 4,
+                "spawnStatus": [{"name": "Spawn1", "status": "idle"}],
+                "taskCounts": {"harvest": 1, "build": 1, "upgrade": 2},
+                "energyAvailable": 300,
+                "resources": {"storedEnergy": 900, "workerCarriedEnergy": 50},
+                "combat": {"hostileCreepCount": 0},
+                "structures": {"spawn": 1, "tower": 1, "rampart": 0},
+            }
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
+
+
+def write_live_artifacts(root: Path) -> None:
+    write_runtime_summary(root / "runtime-summary-console" / "runtime.log")
+    write_json(
+        root / "rl-dataset-gates" / "e1-live" / "gate_summary.json",
+        {
+            "type": "screeps-rl-dataset-evaluation-gate",
+            "gateId": "e1-live",
+            "datasetGate": {"status": "pass", "sampleCount": 100},
+            "quality_checks": {"status": "pass", "samples_accepted": 95, "samples_rejected": 5},
+            "createdAt": "2026-05-18T10:00:00Z",
+        },
+    )
+    write_json(
+        root / "rl-control-loop" / "training-ledger.json",
+        {
+            "type": "screeps-rl-training-execution-ledger",
+            "status": "RUN",
+            "trainingDidRun": True,
+            "iterationExecution": {
+                "episodesRun": 7,
+                "policyUpdateIterations": 3,
+                "simulatorTicksRun": 1400,
+            },
+            "environmentExecution": {"completed": 2, "failed": 0, "lastNewRunAt": "2026-05-18T10:05:00Z"},
+            "createdAt": "2026-05-18T10:05:00Z",
+        },
+    )
+    write_json(
+        root / "rl-control-loop" / "policy-advantage.json",
+        {
+            "type": "screeps-rl-policy-online-advantage-report",
+            "onlineUtilityStatus": "PROVEN",
+            "candidatePolicyId": "candidate-policy",
+            "baselinePolicyId": "incumbent-policy",
+            "metricsByCategory": {
+                "territory": {"status": "ADVANTAGE", "candidateValue": 3, "baselineValue": 2, "delta": 1},
+            },
+            "createdAt": "2026-05-18T10:06:00Z",
+        },
+    )
+    write_json(
+        root / "rl-control-loop" / "scorecards" / "scorecard.json",
+        {
+            "type": "screeps-rl-evaluation-scorecard",
+            "runId": "scorecard-live",
+            "overallGate": {"status": "PASS", "safetyRegressions": []},
+            "requiredActions": [],
+            "createdAt": "2026-05-18T10:07:00Z",
+        },
+    )
+    write_json(
+        root / "tencent-cloud" / "batch-runs" / "tencent-live" / "controller-summary.json",
+        {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-live",
+            "startedAt": "2026-05-18T10:01:00Z",
+            "finishedAt": "2026-05-18T10:08:00Z",
+            "finalStatus": "completed",
+            "partial": False,
+            "instanceId": "ins-live",
+            "workerUser": "screeps-batch",
+            "inputs": {"ticks": 500, "workers": 5, "repetitions": 5},
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "billingGuardBeforeScale": True,
+                "scaleDownAttempted": True,
+            },
+        },
+    )
+    (root / "rl-training").mkdir(parents=True, exist_ok=True)
+
+
+def count_rows(db_path: Path, table: str) -> int:
+    with sqlite3.connect(db_path) as conn:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+class ScreepsRlLiveDashboardTest(unittest.TestCase):
+    def test_refresh_is_repeatable_and_summary_covers_live_observability(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+
+            first_refresh = live.refresh_metrics(db_path, artifact_root)
+            first_counts = {
+                table: count_rows(db_path, table)
+                for table in ("metric_observations", "rl_dataset_gate_metrics", "metric_coverage_gaps")
+            }
+            second_refresh = live.refresh_metrics(db_path, artifact_root)
+            second_counts = {
+                table: count_rows(db_path, table)
+                for table in ("metric_observations", "rl_dataset_gate_metrics", "metric_coverage_gaps")
+            }
+            summary = live.build_live_summary(
+                repo_root,
+                artifact_root,
+                db_path,
+                generated_at="2026-05-18T10:09:00Z",
+            )
+            html = live.render_live_html(
+                summary,
+                live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path),
+            )
+
+        self.assertTrue(first_refresh["ok"])
+        self.assertTrue(second_refresh["ok"])
+        self.assertEqual(second_counts, first_counts)
+        self.assertTrue(summary["health"]["ok"])
+        self.assertEqual(summary["e1Gate"]["acceptanceRate"], 0.95)
+        self.assertEqual(summary["loopA"]["environment"]["ticksRun"], 1400)
+        self.assertEqual(summary["loopA"]["training"]["episodes"], 7.0)
+        self.assertEqual(summary["loopB"]["onlineUtilityStatus"], "PROVEN")
+        self.assertEqual(summary["loopB"]["scorecard"]["status"], "PASS")
+        self.assertEqual(summary["tencentBatch"]["latest"]["runId"], "tencent-live")
+        self.assertEqual(summary["safety"]["status"], "OK")
+        self.assertIn("E1 Gate Acceptance", html)
+        self.assertIn("Loop A Env Ticks Episodes", html)
+        self.assertIn("Loop B Utility Scorecard", html)
+        self.assertIn("Tencent Batch Utilization", html)
+        self.assertIn("Safety Flags", html)
+
+    def test_health_and_summary_endpoints_are_startable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except PermissionError:
+                self.skipTest("socket creation is unavailable in this sandbox")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=5) as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                with urllib.request.urlopen(f"http://{host}:{port}/api/summary", timeout=5) as response:
+                    summary = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertTrue(health["ok"])
+        self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
+        self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+
+
+if __name__ == "__main__":
+    unittest.main()
