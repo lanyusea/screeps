@@ -73,6 +73,11 @@ POLICY_UPDATE_SAFETY_FIELD_ALIASES = {
     "officialMmoWrites": ("officialMmoWrites", "official_mmo_writes"),
     "officialMmoWritesAllowed": ("officialMmoWritesAllowed", "official_mmo_writes_allowed"),
 }
+POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS = (
+    "liveEffect",
+    "officialMmoWrites",
+    "officialMmoWritesAllowed",
+)
 ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "algorithm",
     "anchor",
@@ -1238,8 +1243,19 @@ def validate_positive_policy_update(raw: Any) -> None:
     iterations = policy_update_iterations(raw.get("iterations"), "policyUpdate.iterations")
     if iterations <= 0:
         raise BatchRunError("remote policyUpdate.iterations must be positive when policyUpdateIterations is positive")
-    if not isinstance(raw.get("nextCandidatePolicy"), dict):
+    next_candidate_policy = raw.get("nextCandidatePolicy")
+    if not isinstance(next_candidate_policy, dict):
         raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
+    require_explicit_false_policy_update_safety_flags(raw, "policyUpdate")
+    require_explicit_false_policy_update_safety_flags(next_candidate_policy, "policyUpdate.nextCandidatePolicy")
+
+
+def require_explicit_false_policy_update_safety_flags(raw: dict[str, Any], label: str) -> None:
+    for field in POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS:
+        if raw.get(field) is not False:
+            raise BatchRunError(
+                f"remote {label}.{field} must be explicitly false when policyUpdateIterations is positive"
+            )
 
 
 def is_safe_zero_iteration_policy_update(raw: Any) -> bool:

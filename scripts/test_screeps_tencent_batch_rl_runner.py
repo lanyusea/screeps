@@ -504,6 +504,106 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             )
 
+    def test_verified_remote_policy_update_rejects_positive_update_without_explicit_policy_update_safety_flags(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+        def valid_policy_update() -> dict[str, object]:
+            return {
+                "iterations": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "artifactPath": artifact_path,
+                "nextCandidatePolicy": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+
+        missing_live_effect = valid_policy_update()
+        missing_live_effect.pop("liveEffect")
+        non_false_writes_allowed = valid_policy_update()
+        non_false_writes_allowed["officialMmoWritesAllowed"] = None
+        cases = (
+            (missing_live_effect, "policyUpdate.liveEffect"),
+            (non_false_writes_allowed, "policyUpdate.officialMmoWritesAllowed"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+            for policy_update, expected_error in cases:
+                with self.subTest(expected_error=expected_error), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
+    def test_verified_remote_policy_update_rejects_positive_update_without_explicit_next_candidate_safety_flags(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+        def valid_policy_update() -> dict[str, object]:
+            return {
+                "iterations": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "artifactPath": artifact_path,
+                "nextCandidatePolicy": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+
+        missing_writes = valid_policy_update()
+        next_candidate = missing_writes["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate.pop("officialMmoWrites")
+        non_false_live_effect = valid_policy_update()
+        next_candidate = non_false_live_effect["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate["liveEffect"] = None
+        cases = (
+            (missing_writes, "policyUpdate.nextCandidatePolicy.officialMmoWrites"),
+            (non_false_live_effect, "policyUpdate.nextCandidatePolicy.liveEffect"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+            for policy_update, expected_error in cases:
+                with self.subTest(expected_error=expected_error), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
     def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
