@@ -289,6 +289,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
     def test_verify_remote_training_report_rejects_unsafe_nested_policy_update_flags(self) -> None:
         unsafe_updates = [
             ("policyUpdate.liveEffect=true", {"iterations": 1, "liveEffect": True}),
+            ("policyUpdate.liveEffect=\"true\"", {"iterations": 1, "liveEffect": "true"}),
             (
                 "policyUpdate.nextCandidatePolicy.official_mmo_writes_allowed=true",
                 {
@@ -297,6 +298,26 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "officialMmoWrites": False,
                     "officialMmoWritesAllowed": False,
                     "nextCandidatePolicy": {"official_mmo_writes_allowed": True},
+                },
+            ),
+            (
+                "policyUpdate.nextCandidatePolicy.official_mmo_writes_allowed=1",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"official_mmo_writes_allowed": 1},
+                },
+            ),
+            (
+                "policyUpdate.nextCandidatePolicy.liveEffect=null",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"liveEffect": None},
                 },
             ),
         ]
@@ -323,6 +344,41 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 with self.assertRaisesRegex(runner.BatchRunError, re.escape(expected_error)):
                     controller.verify_remote_training_report()
 
+    def test_verify_remote_training_report_rejects_positive_policy_update_without_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                json.dumps(
+                    {
+                        "reportId": "run-test",
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+                        "policyUpdate": {
+                            "iterations": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "nextCandidatePolicy": {
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(runner.BatchRunError, "policy update artifact was not collected"):
+                controller.verify_remote_training_report()
+
     def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -343,11 +399,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "liveEffect": False,
                             "officialMmoWrites": False,
                             "officialMmoWritesAllowed": False,
+                            "nextCandidatePolicy": {
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
                         },
                     }
                 ),
                 encoding="utf-8",
             )
+            write_text(root / "remote" / "runtime-artifacts" / "rl-training" / "policy-candidates" / "run-test-next-policy.json", "{}\n")
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
             controller.verify_remote_training_report()
             controller.write_summary()

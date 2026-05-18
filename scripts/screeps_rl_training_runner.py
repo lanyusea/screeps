@@ -1261,7 +1261,13 @@ def policy_update_candidate_rows(
         scored_summaries = [summary for summary in summaries if int_or_none(summary.get("sampleCount")) and summary.get("reward")]
         if not scored_summaries:
             continue
-        parameters = bounded_policy_parameters(candidate.get("parameters"), parameter_space)
+        card_parameters = bounded_policy_parameters(candidate.get("parameters"), parameter_space)
+        parameters = policy_update_evaluated_parameters(
+            candidate=candidate,
+            scored_summaries=scored_summaries,
+            card_parameters=card_parameters,
+            parameter_space=parameter_space,
+        )
         if parameters is None:
             continue
         rows.append(
@@ -1277,6 +1283,62 @@ def policy_update_candidate_rows(
             }
         )
     return rows
+
+
+def policy_update_evaluated_parameters(
+    *,
+    candidate: JsonObject,
+    scored_summaries: Sequence[JsonObject],
+    card_parameters: JsonObject | None,
+    parameter_space: dict[str, JsonObject],
+) -> JsonObject | None:
+    evaluated: list[JsonObject] = []
+    missing_evaluated: list[str] = []
+    for summary in scored_summaries:
+        source = policy_update_summary_parameter_source(summary)
+        variant_id = text_or_none(summary.get("variantId")) or "<unknown>"
+        if source is None:
+            missing_evaluated.append(variant_id)
+            continue
+        field, raw_parameters = source
+        parameters = bounded_policy_parameters(raw_parameters, parameter_space)
+        if parameters is None:
+            raise TrainingCardError(f"variant result {variant_id} has invalid evaluated policy parameters in {field}")
+        evaluated.append(parameters)
+
+    if evaluated:
+        first = evaluated[0]
+        if missing_evaluated:
+            raise TrainingCardError(
+                "policy update candidate has mixed evaluated parameter evidence for "
+                f"{text_or_none(candidate.get('strategyVariantId')) or '<unknown>'}: "
+                f"missing evaluated parameters for {', '.join(missing_evaluated)}"
+            )
+        if any(parameters != first for parameters in evaluated[1:]):
+            raise TrainingCardError(
+                "policy update candidate evaluated parameters disagree for "
+                f"{text_or_none(candidate.get('strategyVariantId')) or '<unknown>'}"
+            )
+        if card_parameters is None:
+            raise TrainingCardError(
+                "policy_gradient candidate parameters are invalid for "
+                f"{text_or_none(candidate.get('strategyVariantId')) or '<unknown>'}"
+            )
+        if card_parameters != first:
+            raise TrainingCardError(
+                "policy_gradient candidate parameters drift from evaluated parameters for "
+                f"{text_or_none(candidate.get('strategyVariantId')) or '<unknown>'}"
+            )
+        return copy.deepcopy(first)
+
+    return copy.deepcopy(card_parameters) if card_parameters is not None else None
+
+
+def policy_update_summary_parameter_source(summary: JsonObject) -> tuple[str, Any] | None:
+    for field in ("evaluatedParameters", "evaluated_parameters", "parameters"):
+        if field in summary:
+            return field, summary.get(field)
+    return None
 
 
 def bounded_policy_parameters(raw: Any, parameter_space: dict[str, JsonObject]) -> JsonObject | None:

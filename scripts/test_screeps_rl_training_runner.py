@@ -940,6 +940,31 @@ export const STRATEGY_REGISTRY = [
             [0, 0, 0, 0],
         )
 
+    def test_policy_update_candidate_rows_accepts_evaluated_parameters_field(self) -> None:
+        parameter_space = {"knob": {"min": 0, "max": 10}}
+        rows = runner.policy_update_candidate_rows(
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate",
+                        "strategyVariantId": "candidate",
+                        "parameters": {"knob": 4.2},
+                    },
+                ]
+            },
+            [
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1, 0, 0, 0]},
+                }
+            ],
+            parameter_space,
+        )
+
+        self.assertEqual(rows[0]["parameters"], {"knob": 4.2})
+
     def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-update",
@@ -1009,6 +1034,40 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(artifact["officialMmoWritesAllowed"])
         self.assertFalse(artifact["safety"]["liveEffect"])
         self.assertFalse(artifact["safety"]["officialMmoWrites"])
+
+    def test_policy_gradient_rejects_card_and_evaluated_parameter_drift(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-drift",
+            code_commit="e" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T04:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        drifted_variant = card["strategy_variants"][1]
+        drifted_variant["parameters"] = {
+            **drifted_variant["parameters"],
+            "territorySignalWeight": drifted_variant["parameters"]["territorySignalWeight"] - 1,
+        }
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results = {
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in variant_ids
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+
+            with self.assertRaisesRegex(runner.TrainingCardError, "drift from evaluated parameters"):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="policy-gradient-drift",
+                    simulator_runner=MockSimulator(simulator_results),
+                )
 
     def test_loop_a_supply_report_preserves_card_supply_and_is_discoverably_consumed(self) -> None:
         card = card_helper.build_card(

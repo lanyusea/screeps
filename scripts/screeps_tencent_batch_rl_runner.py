@@ -740,16 +740,14 @@ tar -czf remote-artifacts.tar.gz \
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
-        safe_policy_update = validated_remote_policy_update(data.get("policyUpdate"), safety_flags)
+        policy_update_fields = verified_remote_policy_update_fields(data, safety_flags, self.artifact_dir)
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
             **safety_flags,
             "artifactCount": artifact_count,
             "changedTopCount": data.get("changedTopCount"),
-            "policyUpdateIterations": data.get("policyUpdateIterations"),
-            "policyUpdateArtifactPath": data.get("policyUpdateArtifactPath"),
-            "policyUpdate": safe_policy_update,
+            **policy_update_fields,
             "ranking": data.get("ranking"),
             "warnings": data.get("warnings"),
             "simulation": data.get("simulation"),
@@ -1137,13 +1135,88 @@ def validated_remote_policy_update(raw: Any, top_level_safety: dict[str, Any]) -
     return copy.deepcopy(raw)
 
 
+def verified_remote_policy_update_fields(
+    data: dict[str, Any],
+    top_level_safety: dict[str, Any],
+    artifact_dir: Path,
+) -> dict[str, Any]:
+    iterations = policy_update_iterations(data.get("policyUpdateIterations"), "policyUpdateIterations")
+    safe_policy_update = validated_remote_policy_update(data.get("policyUpdate"), top_level_safety)
+    raw_artifact_path = data.get("policyUpdateArtifactPath")
+    update_iterations = 0
+    if isinstance(safe_policy_update, dict) and "iterations" in safe_policy_update:
+        update_iterations = policy_update_iterations(safe_policy_update.get("iterations"), "policyUpdate.iterations")
+    if iterations <= 0 and update_iterations <= 0:
+        if raw_artifact_path is not None:
+            raise BatchRunError("remote policyUpdateArtifactPath is present without positive policyUpdateIterations")
+        return {
+            "policyUpdateIterations": iterations,
+            "policyUpdateArtifactPath": None,
+            "policyUpdate": None,
+        }
+    if iterations <= 0:
+        raise BatchRunError("remote policyUpdateIterations must be positive when policyUpdate claims an update")
+
+    validate_positive_policy_update(safe_policy_update)
+    rel_artifact_path = safe_policy_update_artifact_path(raw_artifact_path)
+    local_artifact_path = collected_remote_policy_update_artifact_path(artifact_dir, rel_artifact_path)
+    if not local_artifact_path.is_file():
+        raise BatchRunError(f"remote policy update artifact was not collected: {rel_artifact_path.as_posix()}")
+    return {
+        "policyUpdateIterations": iterations,
+        "policyUpdateArtifactPath": rel_artifact_path.as_posix(),
+        "policyUpdate": safe_policy_update,
+    }
+
+
+def policy_update_iterations(raw: Any, label: str) -> int:
+    if raw is None:
+        return 0
+    if type(raw) is int and raw >= 0:
+        return raw
+    raise BatchRunError(f"remote {label} invalid: {raw!r}")
+
+
+def validate_positive_policy_update(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise BatchRunError("remote policyUpdate must be an object when policyUpdateIterations is positive")
+    iterations = policy_update_iterations(raw.get("iterations"), "policyUpdate.iterations")
+    if iterations <= 0:
+        raise BatchRunError("remote policyUpdate.iterations must be positive when policyUpdateIterations is positive")
+    if not isinstance(raw.get("nextCandidatePolicy"), dict):
+        raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
+
+
+def safe_policy_update_artifact_path(raw: Any) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise BatchRunError("remote policyUpdateArtifactPath must be a non-empty string when policyUpdateIterations is positive")
+    if "\\" in raw:
+        raise BatchRunError(f"remote policyUpdateArtifactPath is unsafe: {raw!r}")
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise BatchRunError(f"remote policyUpdateArtifactPath is unsafe: {raw!r}")
+    if len(path.parts) < 3 or path.parts[0] != "runtime-artifacts" or path.parts[1] != "rl-training":
+        raise BatchRunError(f"remote policyUpdateArtifactPath is outside rl-training artifacts: {raw!r}")
+    return path
+
+
+def collected_remote_policy_update_artifact_path(artifact_dir: Path, rel_artifact_path: Path) -> Path:
+    remote_root = (artifact_dir / "remote").resolve()
+    local_path = (remote_root / rel_artifact_path).resolve()
+    try:
+        local_path.relative_to(remote_root)
+    except ValueError:
+        raise BatchRunError(f"remote policyUpdateArtifactPath escapes collected artifact dir: {rel_artifact_path}") from None
+    return local_path
+
+
 def unsafe_policy_update_safety_flags(value: Any, label: str, top_level_safety: dict[str, Any]) -> list[str]:
     if isinstance(value, dict):
         unsafe: list[str] = []
         for control, aliases in POLICY_UPDATE_SAFETY_FIELD_ALIASES.items():
             for field in aliases:
-                if value.get(field) is True and top_level_safety.get(control) is not True:
-                    unsafe.append(f"{label}.{field}=true")
+                if field in value and value.get(field) is not False and top_level_safety.get(control) is not True:
+                    unsafe.append(f"{label}.{field}={policy_update_safety_flag_value(value.get(field))}")
         for key, nested in value.items():
             if isinstance(nested, (dict, list)):
                 unsafe.extend(unsafe_policy_update_safety_flags(nested, f"{label}.{key}", top_level_safety))
@@ -1155,6 +1228,13 @@ def unsafe_policy_update_safety_flags(value: Any, label: str, top_level_safety: 
                 unsafe.extend(unsafe_policy_update_safety_flags(item, f"{label}[{index}]", top_level_safety))
         return unsafe
     return []
+
+
+def policy_update_safety_flag_value(value: Any) -> str:
+    try:
+        return json.dumps(value, sort_keys=True, ensure_ascii=True)
+    except TypeError:
+        return repr(value)
 
 
 def parse_tencent_activity_time(value: Any) -> float | None:
