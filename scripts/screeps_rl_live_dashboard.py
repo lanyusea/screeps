@@ -45,6 +45,7 @@ DEFAULT_ARTIFACT_SUBDIRS = (
     "rl-control-loop",
     "rl-training",
 )
+REQUIRED_TENCENT_SAFETY_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 
 JsonObject = dict[str, Any]
 
@@ -328,11 +329,15 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
     card_supply = dashboard.get("cardSupply") if isinstance(dashboard.get("cardSupply"), dict) else {}
     latest_tencent = tencent.get("latest") if isinstance(tencent.get("latest"), dict) else {}
     tencent_safety = latest_tencent.get("safety") if isinstance(latest_tencent.get("safety"), dict) else {}
-    unsafe_flags = []
-    for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
-        value = tencent_safety.get(field)
-        if value is not False and value is not None:
-            unsafe_flags.append({"source": "tencent", "field": field, "value": value})
+    unsafe_flags: list[JsonObject] = []
+    if latest_tencent:
+        for field in REQUIRED_TENCENT_SAFETY_FIELDS:
+            if field not in tencent_safety:
+                unsafe_flags.append({"source": "tencent", "field": field, "value": "missing"})
+                continue
+            value = tencent_safety[field]
+            if value is not False:
+                unsafe_flags.append({"source": "tencent", "field": field, "value": value})
     for regression in scorecard.get("safetyRegressions", []):
         unsafe_flags.append({"source": "scorecard", "field": "safetyRegression", "value": regression})
     return {

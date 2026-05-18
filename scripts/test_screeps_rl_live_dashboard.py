@@ -201,6 +201,56 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertIn("Tencent Batch Utilization", html)
         self.assertIn("Safety Flags", html)
 
+    def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            controller_summary = artifact_root / "tencent-cloud" / "batch-runs" / "tencent-live" / "controller-summary.json"
+            payload = json.loads(controller_summary.read_text(encoding="utf-8"))
+            payload.pop("safety")
+            write_json(controller_summary, payload)
+
+            summary = live.build_live_summary(
+                repo_root,
+                artifact_root,
+                db_path,
+                generated_at="2026-05-18T10:09:00Z",
+            )
+
+        missing_fields = {
+            flag["field"]
+            for flag in summary["safety"]["unsafeFlags"]
+            if flag.get("source") == "tencent" and flag.get("value") == "missing"
+        }
+        self.assertEqual(summary["safety"]["status"], "BLOCKED")
+        self.assertEqual(missing_fields, set(live.REQUIRED_TENCENT_SAFETY_FIELDS))
+
+    def test_missing_tencent_safety_field_blocks_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            controller_summary = artifact_root / "tencent-cloud" / "batch-runs" / "tencent-live" / "controller-summary.json"
+            payload = json.loads(controller_summary.read_text(encoding="utf-8"))
+            payload["safety"].pop("officialMmoWritesAllowed")
+            write_json(controller_summary, payload)
+
+            summary = live.build_live_summary(
+                repo_root,
+                artifact_root,
+                db_path,
+                generated_at="2026-05-18T10:09:00Z",
+            )
+
+        self.assertEqual(summary["safety"]["status"], "BLOCKED")
+        self.assertIn(
+            {"source": "tencent", "field": "officialMmoWritesAllowed", "value": "missing"},
+            summary["safety"]["unsafeFlags"],
+        )
+
     def test_health_and_summary_endpoints_are_startable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
