@@ -895,7 +895,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["policyGradient"]["target_family"], "construction-priority")
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertTrue(report["policyGradient"]["runner_support"]["report_preserves_candidate_parameters"])
-        self.assertEqual(simulator.calls[0]["ticks"], 100)
+        self.assertEqual(simulator.calls[0]["ticks"], 500)
         self.assertEqual(simulator.calls[0]["variants"], variant_ids)
         self.assertEqual(
             [variant["candidatePolicyId"] for variant in report["strategyVariants"]],

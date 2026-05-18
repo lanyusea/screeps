@@ -12,11 +12,12 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Sequence, TextIO
 
 
 TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+E1_POSTMERGE_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z-postmerge\d+$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -42,17 +43,22 @@ DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
 DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
 DEFAULT_EXPERIMENT_CARD_DIR = REPO_ROOT / "runtime-artifacts" / "rl-experiment-cards"
 DEFAULT_DATASET_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-dataset-gates"
+DEFAULT_CONTROL_LOOP_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-control-loop"
+DEFAULT_DATASET_GATE_ROOTS = (DEFAULT_DATASET_GATE_ROOT, DEFAULT_CONTROL_LOOP_GATE_ROOT)
 DEFAULT_TRAINING_REPORT_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-training"
 DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH = DEFAULT_EXPERIMENT_CARD_DIR / "experiment_card.json"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
 DEFAULT_SIMULATION_TICKS = 50
 DEFAULT_SIMULATION_REPETITIONS = 1
 DEFAULT_SIMULATION_WORKERS = 1
-POLICY_GRADIENT_SIMULATION_TICKS = 100
+POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
+POLICY_GRADIENT_SIMULATION_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
-LOOP_A_LOCAL_FALLBACK_TICKS = 200
+LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
+LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
 LOOP_A_LOCAL_FALLBACK_WORKERS = 5
+DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE = 0.95
 
 JsonObject = dict[str, Any]
 
@@ -244,10 +250,13 @@ def build_card(
         simulation_repetitions if simulation_repetitions is not None else default_repetitions,
         "simulation.repetitions",
     )
+    default_workers = LOOP_A_LOCAL_FALLBACK_WORKERS if loop_a_card_supply else DEFAULT_SIMULATION_WORKERS
     workers = require_positive_int(
-        simulation_workers if simulation_workers is not None else DEFAULT_SIMULATION_WORKERS,
+        simulation_workers if simulation_workers is not None else default_workers,
         "simulation.workers",
     )
+    if training_approach == "policy_gradient":
+        ticks = max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
 
     commit_prefix = code_commit[:12].lower()
     card = {
@@ -305,12 +314,16 @@ def source_gate_block(
     dataset_run_id: str,
     gate_report_path: Path,
     created_at: str | None,
+    gate_report_ok: bool | None = None,
+    acceptance_rate: float | None = None,
+    dataset_gate_status: str | None = None,
+    shadow_evaluation_status: str | None = None,
 ) -> JsonObject:
     validate_gate_id(gate_id)
     validate_dataset_run_id(dataset_run_id)
     if created_at is not None:
         validate_created_at(created_at)
-    return {
+    block: JsonObject = {
         "type": SOURCE_GATE_TYPE,
         "gate_id": gate_id,
         "dataset_run_id": dataset_run_id,
@@ -318,6 +331,15 @@ def source_gate_block(
         "created_at": created_at,
         "ok": True,
     }
+    if gate_report_ok is not None:
+        block["gate_report_ok"] = gate_report_ok
+    if acceptance_rate is not None:
+        block["quality_acceptance_rate"] = round(acceptance_rate, 6)
+    if dataset_gate_status is not None:
+        block["dataset_gate_status"] = dataset_gate_status
+    if shadow_evaluation_status is not None:
+        block["shadow_evaluation_status"] = shadow_evaluation_status
+    return block
 
 
 def require_positive_int(value: Any, label: str) -> int:
@@ -621,13 +643,15 @@ def validate_card(raw: Any) -> None:
     validate_source_gate(raw)
     strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
     validate_strategy_variants(strategy_variants)
-    validate_simulation(first_present(raw, ("simulation", "simulator")))
+    simulation = first_present(raw, ("simulation", "simulator"))
+    validate_simulation(simulation)
     policy_gradient = first_present(raw, ("policy_gradient", "policyGradient"))
     if training_approach == "policy_gradient" and policy_gradient is None:
         raise CardValidationError("policy_gradient metadata is required when training_approach is policy_gradient")
     if policy_gradient is not None:
         validate_policy_gradient(policy_gradient)
     if training_approach == "policy_gradient":
+        validate_policy_gradient_simulation(simulation)
         validate_policy_gradient_strategy_variants(policy_gradient, strategy_variants)
 
 
@@ -794,21 +818,22 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
     }
 
 
-def select_accepted_dataset_gate(gate_root: Path, gate_id: str | None = None) -> JsonObject:
+def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str | None = None) -> JsonObject:
     if gate_id is not None:
         validate_gate_id(gate_id)
-    candidates: list[tuple[str, float, str, str, Path]] = []
-    if not gate_root.exists():
-        raise CardValidationError(f"dataset gate root does not exist: {gate_root}")
-    for gate_dir in sorted(gate_root.iterdir()):
-        path = gate_dir / DATASET_GATE_REPORT_FILENAME
-        if not is_canonical_dataset_gate_report_path(path, gate_root):
-            continue
+    candidates: list[tuple[str, float, str, str, Path, JsonObject]] = []
+    roots = dataset_gate_roots(gate_root)
+    existing_roots = [root for root in roots if root.exists()]
+    if not existing_roots:
+        raise CardValidationError(
+            "dataset gate root does not exist: " + ", ".join(str(root) for root in roots)
+        )
+    for path in iter_canonical_dataset_gate_report_paths(existing_roots):
         try:
             payload = load_json(path)
         except CardValidationError:
             continue
-        if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("type") != SOURCE_GATE_TYPE:
+        if not is_acceptable_dataset_gate_report(payload, path):
             continue
         try:
             selected_gate_id = accepted_dataset_gate_id(payload, path)
@@ -821,19 +846,70 @@ def select_accepted_dataset_gate(gate_root: Path, gate_id: str | None = None) ->
             mtime = path.stat().st_mtime
         except (CardValidationError, OSError):
             continue
-        candidates.append((created_at or "", mtime, selected_gate_id, run_id, path))
+        candidates.append(
+            (
+                created_at or "",
+                mtime,
+                selected_gate_id,
+                run_id,
+                path,
+                source_gate_block(
+                    gate_id=selected_gate_id,
+                    dataset_run_id=run_id,
+                    gate_report_path=path,
+                    created_at=created_at or None,
+                    gate_report_ok=payload.get("ok") is True,
+                    acceptance_rate=dataset_gate_acceptance_rate(payload),
+                    dataset_gate_status=dataset_gate_status(payload),
+                    shadow_evaluation_status=shadow_evaluation_status(payload),
+                ),
+            )
+        )
     if not candidates:
         if gate_id is not None:
-            raise CardValidationError(f"no accepted dataset gate {gate_id} with datasetRunId found under {gate_root}")
-        raise CardValidationError(f"no accepted dataset gate with datasetRunId found under {gate_root}")
+            raise CardValidationError(
+                f"no accepted dataset gate {gate_id} with datasetRunId found under "
+                + ", ".join(str(root) for root in roots)
+            )
+        raise CardValidationError(
+            "no accepted dataset gate with datasetRunId found under "
+            + ", ".join(str(root) for root in roots)
+        )
     candidates.sort(key=lambda item: (item[0], item[1], item[2], str(item[4])), reverse=True)
-    created_at, _, selected_gate_id, run_id, path = candidates[0]
-    return source_gate_block(
-        gate_id=selected_gate_id,
-        dataset_run_id=run_id,
-        gate_report_path=path,
-        created_at=created_at or None,
-    )
+    return candidates[0][5]
+
+
+def dataset_gate_roots(gate_root: Path | Sequence[Path]) -> list[Path]:
+    if isinstance(gate_root, Path):
+        return [gate_root]
+    return [Path(root) for root in gate_root]
+
+
+def iter_canonical_dataset_gate_report_paths(gate_roots: Sequence[Path]) -> list[Path]:
+    paths: set[Path] = set()
+    for root in gate_roots:
+        if not root.exists():
+            continue
+        for path in child_gate_report_paths(root):
+            if is_canonical_dataset_gate_report_path(path, root):
+                paths.add(path)
+        if root.name == "runtime-artifacts":
+            for child_name in ("rl-dataset-gates", "rl-control-loop"):
+                child = root / child_name
+                if not child.exists():
+                    continue
+                for path in child_gate_report_paths(child):
+                    if is_canonical_dataset_gate_report_path(path, root):
+                        paths.add(path)
+    return sorted(paths)
+
+
+def child_gate_report_paths(root: Path) -> list[Path]:
+    try:
+        children = sorted(root.iterdir())
+    except OSError:
+        return []
+    return [child / DATASET_GATE_REPORT_FILENAME for child in children]
 
 
 def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
@@ -841,7 +917,103 @@ def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
         relative_path = path.relative_to(gate_root)
     except ValueError:
         return False
-    return len(relative_path.parts) == 2 and relative_path.name == DATASET_GATE_REPORT_FILENAME
+    if relative_path.name != DATASET_GATE_REPORT_FILENAME:
+        return False
+    if len(relative_path.parts) == 2:
+        return relative_path.parts[0] != "gate-data"
+    return (
+        len(relative_path.parts) == 3
+        and relative_path.parts[0] in {"rl-dataset-gates", "rl-control-loop"}
+        and relative_path.parts[1] != "gate-data"
+    )
+
+
+def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) -> bool:
+    if not isinstance(payload, dict) or payload.get("type") != SOURCE_GATE_TYPE:
+        return False
+    if not is_e1_postmerge_dataset_gate_report(payload, path):
+        return False
+    if payload.get("ok") is True:
+        return True
+    return is_degraded_e1_gate_acceptable(payload, path)
+
+
+def is_e1_postmerge_dataset_gate_report(payload: JsonObject, path: Path | None = None) -> bool:
+    gate_id = dataset_gate_id(payload)
+    if gate_id is None or E1_POSTMERGE_DATASET_GATE_ID_RE.fullmatch(gate_id) is None:
+        return False
+    if path is not None and path.parent.name != gate_id:
+        return False
+    return True
+
+
+def dataset_gate_id(payload: JsonObject) -> str | None:
+    for key in ("gateId", "gate_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def is_degraded_e1_gate_acceptable(payload: JsonObject, path: Path | None = None) -> bool:
+    if not is_e1_postmerge_dataset_gate_report(payload, path):
+        return False
+    blocking_reasons = payload.get("blockingReasons")
+    if not isinstance(blocking_reasons, list) or not blocking_reasons:
+        return False
+    if any(not is_quality_only_blocking_reason(reason) for reason in blocking_reasons):
+        return False
+    if dataset_gate_status(payload) != "pass" or shadow_evaluation_status(payload) != "pass":
+        return False
+    dataset = payload.get("dataset")
+    if not isinstance(dataset, dict) or dataset.get("ok") is not True:
+        return False
+    sample_count = dataset.get("sampleCount")
+    if not isinstance(sample_count, int) or sample_count <= 0:
+        return False
+    acceptance_rate = dataset_gate_acceptance_rate(payload)
+    return acceptance_rate is not None and acceptance_rate >= DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE
+
+
+def is_quality_only_blocking_reason(reason: Any) -> bool:
+    return (
+        isinstance(reason, dict)
+        and reason.get("gate") == "quality_checks"
+        and reason.get("name") == "sample_quality"
+    )
+
+
+def dataset_gate_status(payload: JsonObject) -> str | None:
+    dataset_gate = payload.get("datasetGate")
+    status = dataset_gate.get("status") if isinstance(dataset_gate, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def shadow_evaluation_status(payload: JsonObject) -> str | None:
+    shadow = payload.get("shadowEvaluation")
+    status = shadow.get("status") if isinstance(shadow, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def dataset_gate_acceptance_rate(payload: JsonObject) -> float | None:
+    blocking_reasons = payload.get("blockingReasons")
+    reasons = blocking_reasons if isinstance(blocking_reasons, list) else []
+    for reason in reasons:
+        if not isinstance(reason, dict) or reason.get("gate") != "quality_checks":
+            continue
+        accepted = reason.get("samplesAccepted")
+        rejected = reason.get("samplesRejected")
+        if isinstance(accepted, int) and isinstance(rejected, int) and accepted + rejected > 0:
+            return accepted / (accepted + rejected)
+    quality = payload.get("quality_checks")
+    if isinstance(quality, dict):
+        accepted = quality.get("samples_accepted")
+        rejected = quality.get("samples_rejected")
+        if isinstance(accepted, int) and isinstance(rejected, int) and accepted + rejected > 0:
+            return accepted / (accepted + rejected)
+    if payload.get("ok") is True:
+        return 1.0
+    return None
 
 
 def latest_accepted_dataset_run_id(gate_root: Path) -> str:
@@ -1110,6 +1282,16 @@ def validate_simulation(raw: Any) -> None:
             raise CardValidationError(f"simulation.{field} must be a non-empty string")
 
 
+def validate_policy_gradient_simulation(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError("simulation must be a JSON object")
+    ticks = positive_int(raw.get("ticks"))
+    if ticks is None or ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS:
+        raise CardValidationError(
+            f"policy_gradient cards require simulation.ticks >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}"
+        )
+
+
 def positive_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -1203,6 +1385,16 @@ def loop_a_local_fallback_value(value: int | None, *, default: int, maximum: int
     return resolved
 
 
+def resolve_dataset_gate_roots(gate_root: Path | None, repo: Path) -> list[Path]:
+    if gate_root is not None:
+        expanded = gate_root.expanduser()
+        return [expanded if expanded.is_absolute() else (repo / expanded)]
+    return [
+        repo / root.relative_to(REPO_ROOT)
+        for root in DEFAULT_DATASET_GATE_ROOTS
+    ]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate or validate offline/shadow Screeps RL experiment cards.",
@@ -1235,7 +1427,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--ticks",
         type=positive_int_arg,
         help=(
-            "Simulation ticks to request. Defaults to 50, or 100 for policy_gradient cards."
+            "Simulation ticks to request. Defaults to 50, or 500 for policy_gradient cards."
         ),
     )
     parser.add_argument(
@@ -1269,7 +1461,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
             "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
-            "5 repetitions, and 200 ticks."
+            "5 repetitions, and 500 ticks."
         ),
     )
     parser.add_argument(
@@ -1284,8 +1476,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset-gate-root",
         type=Path,
-        default=DEFAULT_DATASET_GATE_ROOT,
-        help=f"Root scanned by --from-latest-accepted-dataset. Default: {DEFAULT_DATASET_GATE_ROOT}.",
+        default=None,
+        help=(
+            "Root scanned by --from-latest-accepted-dataset. Defaults to "
+            f"{DEFAULT_DATASET_GATE_ROOT} plus {DEFAULT_CONTROL_LOOP_GATE_ROOT}."
+        ),
     )
     parser.add_argument(
         "--select-loop-a-card",
@@ -1377,10 +1572,11 @@ def main(
 
         dataset_run_id = args.dataset_run_id
         source_gate = None
+        dataset_gate_roots = resolve_dataset_gate_roots(args.dataset_gate_root, repo)
         if args.from_latest_accepted_dataset and dataset_run_id is not None:
             raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
         if args.source_gate_id is not None:
-            source_gate = select_accepted_dataset_gate(args.dataset_gate_root, args.source_gate_id)
+            source_gate = select_accepted_dataset_gate(dataset_gate_roots, args.source_gate_id)
             source_dataset_run_id = str(source_gate["dataset_run_id"])
             if dataset_run_id is not None and dataset_run_id != source_dataset_run_id:
                 raise CardValidationError("--dataset-run-id must match --source-gate-id dataset_run_id")
@@ -1391,7 +1587,7 @@ def main(
                     "--from-latest-accepted-dataset or --loop-a-local-fallback cannot be combined "
                     "with --dataset-run-id"
                 )
-            source_gate = select_accepted_dataset_gate(args.dataset_gate_root)
+            source_gate = select_accepted_dataset_gate(dataset_gate_roots)
             dataset_run_id = str(source_gate["dataset_run_id"])
         if dataset_run_id is None:
             if not args.dry_run:
@@ -1407,7 +1603,7 @@ def main(
             simulation_ticks = loop_a_local_fallback_value(
                 args.ticks,
                 default=LOOP_A_LOCAL_FALLBACK_TICKS,
-                maximum=LOOP_A_LOCAL_FALLBACK_TICKS,
+                maximum=LOOP_A_LOCAL_FALLBACK_MAX_TICKS,
                 label="ticks",
             )
             simulation_repetitions = loop_a_local_fallback_value(

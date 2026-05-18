@@ -93,7 +93,7 @@ class RlExperimentCardTest(unittest.TestCase):
         learnable_names = [item["name"] for item in policy_gradient["learnable_parameters"]]
 
         self.assertEqual(card["training_approach"], "policy_gradient")
-        self.assertEqual(config.ticks, 100)
+        self.assertEqual(config.ticks, 500)
         self.assertEqual(config.repetitions, 5)
         self.assertFalse(card["liveEffect"])
         self.assertFalse(card["officialMmoWrites"])
@@ -144,10 +144,14 @@ class RlExperimentCardTest(unittest.TestCase):
 
         card_helper.validate_card(card)
         runner.validate_experiment_card(card)
+        config = runner.simulation_config_from_card(card)
 
         supply = card["card_supply"]
         self.assertEqual(card["status"], "shadow")
         self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.repetitions, 5)
         self.assertEqual(supply["state"], "available")
         self.assertTrue(supply["available_for_training"])
         self.assertEqual(supply["consumer"], "loop-a-policy-gradient")
@@ -177,7 +181,7 @@ class RlExperimentCardTest(unittest.TestCase):
             gate_root = root / "gates"
             card_dir = root / "cards"
             older_gate = gate_root / "older" / "gate_report.json"
-            newer_gate = gate_root / "newer" / "gate_report.json"
+            newer_gate = gate_root / "gate-20260517T181846Z-postmerge1176" / "gate_report.json"
             failed_gate = gate_root / "failed" / "gate_report.json"
             older_gate.parent.mkdir(parents=True)
             newer_gate.parent.mkdir(parents=True)
@@ -198,10 +202,21 @@ class RlExperimentCardTest(unittest.TestCase):
                 json.dumps(
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
-                        "ok": True,
-                        "gateId": "newer",
+                        "ok": False,
+                        "gateId": "gate-20260517T181846Z-postmerge1176",
                         "createdAt": "2026-05-17T02:00:00Z",
-                        "dataset": {"runId": "rl-accepted-newer"},
+                        "dataset": {"ok": True, "runId": "rl-accepted-newer", "sampleCount": 200},
+                        "datasetGate": {"status": "pass"},
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [
+                            {
+                                "gate": "quality_checks",
+                                "name": "sample_quality",
+                                "status": "fail",
+                                "samplesAccepted": 191,
+                                "samplesRejected": 9,
+                            }
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -242,17 +257,23 @@ class RlExperimentCardTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(summary["dataset_run_id"], "rl-accepted-newer")
+        self.assertEqual(summary["source_gate"]["gate_id"], "gate-20260517T181846Z-postmerge1176")
+        self.assertFalse(summary["source_gate"]["gate_report_ok"])
+        self.assertGreaterEqual(summary["source_gate"]["quality_acceptance_rate"], 0.95)
         self.assertEqual(summary["card_supply"]["state"], "available")
         self.assertEqual(generated["dataset_run_id"], "rl-accepted-newer")
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["status"], "shadow")
+        self.assertEqual(generated["simulation"]["ticks"], 500)
+        self.assertEqual(generated["simulation"]["workers"], 5)
+        self.assertEqual(generated["simulation"]["repetitions"], 5)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
     def test_cli_writes_loop_a_local_fallback_standalone_card_from_requested_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             gate_root = root / "gates"
-            gate_id = "rl-gate-93bf1aa18b62"
+            gate_id = "gate-20260518T025000Z-postmerge1188"
             dataset_run_id = "rl-ebf33fae619f"
             gate_path = gate_root / gate_id / "gate_report.json"
             output_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
@@ -300,6 +321,20 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             summary = json.loads(stdout.getvalue())
             generated = json.loads(output_path.read_text(encoding="utf-8"))
+            selected_stdout = io.StringIO()
+            selected_exit_code = card_helper.main(
+                [
+                    "--select-loop-a-card",
+                    "--card-dir",
+                    str(output_path.parent),
+                    "--training-report-dir",
+                    str(root / "runtime-artifacts" / "rl-training"),
+                ],
+                stdout=selected_stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            selected = json.loads(selected_stdout.getvalue())
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(output_path.name, "experiment_card.json")
@@ -316,7 +351,7 @@ class RlExperimentCardTest(unittest.TestCase):
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
         self.assertEqual(config.repetitions, 5)
-        self.assertEqual(config.ticks, 200)
+        self.assertEqual(config.ticks, 500)
 
         supply = generated["card_supply"]
         self.assertEqual(generated["status"], "shadow")
@@ -325,6 +360,9 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertIsNone(supply["consumed_at"])
         self.assertIsNone(supply["consumed_by_report_id"])
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+        self.assertEqual(selected_exit_code, 0)
+        self.assertEqual(selected["card_path"], str(output_path))
+        self.assertEqual(selected["card_supply"]["state"], "available")
         for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
             self.assertFalse(generated[field])
             self.assertFalse(generated["safety"][field])
@@ -406,8 +444,10 @@ class RlExperimentCardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             gate_root = root / "gates"
-            valid_gate = gate_root / "valid" / "gate_report.json"
-            malformed_gate = gate_root / "malformed" / "gate_report.json"
+            valid_gate_id = "gate-20260517T010000Z-postmerge1188"
+            malformed_gate_id = "gate-20260517T020000Z-postmerge1188"
+            valid_gate = gate_root / valid_gate_id / "gate_report.json"
+            malformed_gate = gate_root / malformed_gate_id / "gate_report.json"
             valid_gate.parent.mkdir(parents=True)
             malformed_gate.parent.mkdir(parents=True)
             valid_gate.write_text(
@@ -415,7 +455,7 @@ class RlExperimentCardTest(unittest.TestCase):
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
-                        "gateId": "valid",
+                        "gateId": valid_gate_id,
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-valid"},
                     }
@@ -427,7 +467,7 @@ class RlExperimentCardTest(unittest.TestCase):
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
-                        "gateId": "malformed",
+                        "gateId": malformed_gate_id,
                         "createdAt": "2026-05-17T02:00:00Z",
                         "dataset": {"runId": "invalid run id"},
                     }
@@ -443,9 +483,11 @@ class RlExperimentCardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             gate_root = root / "gates"
-            valid_gate = gate_root / "rl-gate-real" / "gate_report.json"
-            nested_artifact = gate_root / "rl-gate-real" / "nested" / "artifact.json"
-            nested_named_report = gate_root / "rl-gate-real" / "nested" / "gate_report.json"
+            valid_gate_id = "gate-20260517T010000Z-postmerge1188"
+            nested_gate_id = "gate-20260517T030000Z-postmerge1188"
+            valid_gate = gate_root / valid_gate_id / "gate_report.json"
+            nested_artifact = gate_root / valid_gate_id / "nested" / "artifact.json"
+            nested_named_report = gate_root / valid_gate_id / "nested" / "gate_report.json"
             valid_gate.parent.mkdir(parents=True)
             nested_artifact.parent.mkdir(parents=True)
             valid_gate.write_text(
@@ -453,7 +495,7 @@ class RlExperimentCardTest(unittest.TestCase):
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
-                        "gateId": "rl-gate-real",
+                        "gateId": valid_gate_id,
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-real"},
                     }
@@ -463,7 +505,7 @@ class RlExperimentCardTest(unittest.TestCase):
             nested_payload = {
                 "type": card_helper.SOURCE_GATE_TYPE,
                 "ok": True,
-                "gateId": "rl-gate-nested",
+                "gateId": nested_gate_id,
                 "createdAt": "2026-05-17T03:00:00Z",
                 "datasetRunId": "rl-accepted-nested",
             }
@@ -472,16 +514,115 @@ class RlExperimentCardTest(unittest.TestCase):
 
             selected = card_helper.select_accepted_dataset_gate(gate_root)
 
-        self.assertEqual(selected["gate_id"], "rl-gate-real")
+        self.assertEqual(selected["gate_id"], valid_gate_id)
         self.assertEqual(selected["dataset_run_id"], "rl-accepted-real")
-        self.assertTrue(selected["gate_report_path"].endswith("gates/rl-gate-real/gate_report.json"))
+        self.assertTrue(selected["gate_report_path"].endswith(f"gates/{valid_gate_id}/gate_report.json"))
+
+    def test_latest_accepted_dataset_scans_control_loop_postmerge_gate_over_stale_dataset_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-stale" / "gate_report.json"
+            newer_wrong_stream_gate = runtime_root / "rl-control-loop" / "gate-20260518T063310Z" / "gate_report.json"
+            fresh_gate = runtime_root / "rl-control-loop" / "gate-20260517T181846Z-postmerge1176" / "gate_report.json"
+            stale_gate.parent.mkdir(parents=True)
+            newer_wrong_stream_gate.parent.mkdir(parents=True)
+            fresh_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "rl-gate-stale",
+                        "createdAt": "2026-05-14T04:22:20Z",
+                        "dataset": {"runId": "rl-stale-gate"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            newer_wrong_stream_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "gate-20260518T063310Z",
+                        "createdAt": "2026-05-18T06:33:10Z",
+                        "dataset": {"runId": "rl-wrong-stream-newer"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fresh_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": False,
+                        "gateId": "gate-20260517T181846Z-postmerge1176",
+                        "createdAt": "2026-05-17T18:18:47Z",
+                        "dataset": {"ok": True, "runId": "rl-fresh-postmerge", "sampleCount": 200},
+                        "datasetGate": {"status": "pass"},
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [
+                            {
+                                "gate": "quality_checks",
+                                "name": "sample_quality",
+                                "status": "fail",
+                                "samplesAccepted": 191,
+                                "samplesRejected": 9,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_accepted_dataset_gate(runtime_root)
+
+        self.assertEqual(selected["gate_id"], "gate-20260517T181846Z-postmerge1176")
+        self.assertEqual(selected["dataset_run_id"], "rl-fresh-postmerge")
+        self.assertFalse(selected["gate_report_ok"])
+        self.assertTrue(selected["gate_report_path"].endswith("rl-control-loop/gate-20260517T181846Z-postmerge1176/gate_report.json"))
+
+    def test_latest_accepted_dataset_rejects_degraded_non_postmerge_gate(self) -> None:
+        payload = {
+            "type": card_helper.SOURCE_GATE_TYPE,
+            "ok": False,
+            "gateId": "gate-20260518T063310Z",
+            "createdAt": "2026-05-18T06:33:10Z",
+            "dataset": {"ok": True, "runId": "rl-wrong-stream-degraded", "sampleCount": 200},
+            "datasetGate": {"status": "pass"},
+            "shadowEvaluation": {"status": "pass", "ok": True},
+            "blockingReasons": [
+                {
+                    "gate": "quality_checks",
+                    "name": "sample_quality",
+                    "status": "fail",
+                    "samplesAccepted": 191,
+                    "samplesRejected": 9,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_path = runtime_root / "rl-control-loop" / "gate-20260518T063310Z" / "gate_report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "no accepted dataset gate"):
+                card_helper.select_accepted_dataset_gate(runtime_root)
+
+        self.assertFalse(card_helper.is_acceptable_dataset_gate_report(payload))
+        self.assertFalse(card_helper.is_degraded_e1_gate_acceptable(payload))
 
     def test_latest_accepted_dataset_skips_gate_deleted_during_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             gate_root = root / "gates"
-            valid_gate = gate_root / "valid" / "gate_report.json"
-            vanished_gate = gate_root / "vanished" / "gate_report.json"
+            valid_gate_id = "gate-20260517T010000Z-postmerge1188"
+            vanished_gate_id = "gate-20260517T020000Z-postmerge1188"
+            valid_gate = gate_root / valid_gate_id / "gate_report.json"
+            vanished_gate = gate_root / vanished_gate_id / "gate_report.json"
             valid_gate.parent.mkdir(parents=True)
             vanished_gate.parent.mkdir(parents=True)
             valid_gate.write_text(
@@ -489,7 +630,7 @@ class RlExperimentCardTest(unittest.TestCase):
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
-                        "gateId": "valid",
+                        "gateId": valid_gate_id,
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-valid"},
                     }
@@ -501,7 +642,7 @@ class RlExperimentCardTest(unittest.TestCase):
                     {
                         "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
-                        "gateId": "vanished",
+                        "gateId": vanished_gate_id,
                         "createdAt": "2026-05-17T02:00:00Z",
                         "dataset": {"runId": "rl-accepted-vanished"},
                     }
@@ -737,8 +878,20 @@ class RlExperimentCardTest(unittest.TestCase):
         )
         config = runner.simulation_config_from_card(card)
 
-        self.assertGreaterEqual(config.ticks, 100)
+        self.assertGreaterEqual(config.ticks, 500)
         self.assertGreaterEqual(config.repetitions, 5)
+
+    def test_validate_rejects_policy_gradient_below_long_horizon_floor(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-short-horizon",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["ticks"] = 499
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.ticks >= 500"):
+            card_helper.validate_card(card)
 
     def test_policy_gradient_rejects_stale_strategy_variant_candidate_policy_id(self) -> None:
         card = card_helper.build_card(
@@ -879,7 +1032,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
 
-    def test_cli_generation_accepts_policy_gradient_ticks_and_repetitions(self) -> None:
+    def test_cli_generation_floors_policy_gradient_ticks_and_accepts_repetitions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "card.json"
             exit_code = card_helper.main(
@@ -908,7 +1061,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
-        self.assertEqual(config.ticks, 125)
+        self.assertEqual(config.ticks, 500)
         self.assertEqual(config.repetitions, 6)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")

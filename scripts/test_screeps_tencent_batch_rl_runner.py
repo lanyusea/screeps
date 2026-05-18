@@ -543,6 +543,41 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(spec["safety"]["officialMmoWritesAllowed"])
         self.assertEqual(controller.steps[-1].name, "write_scale_proof_spec")
 
+    def test_generate_policy_gradient_experiment_card_floors_tencent_ticks_to_long_horizon(self) -> None:
+        args = controller_args()
+        args.training_approach = "policy_gradient"
+        args.ticks = 200
+        args.workers = 5
+        args.repetitions = 5
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_run_cp(name: str, cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                if name == "generate_experiment_card":
+                    output = Path(cmd[cmd.index("--output") + 1])
+                    payload = generated_experiment_card()
+                    payload["training_approach"] = "policy_gradient"
+                    payload["simulation"]["ticks"] = 100
+                    payload["simulation"]["workers"] = 1
+                    payload["simulation"]["repetitions"] = 1
+                    output.write_text(json.dumps(payload), encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, "{}", "")
+
+            with mock.patch.object(controller, "run_cp", side_effect=fake_run_cp):
+                controller.generate_experiment_card()
+
+            card = json.loads((root / "experiment_card.json").read_text(encoding="utf-8"))
+            spec = json.loads((root / "scale_proof_spec.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(card["simulation"]["ticks"], 500)
+        self.assertEqual(card["simulation"]["workers"], 5)
+        self.assertEqual(card["simulation"]["repetitions"], 5)
+        self.assertFalse(card["officialMmoWrites"])
+        self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertEqual(spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"], 500)
+
     def test_verify_remote_training_report_requires_scale_proof_success_for_workers_five(self) -> None:
         args = controller_args()
         args.workers = 5

@@ -45,6 +45,7 @@ DEFAULT_REMOTE_BASE = "/opt/screeps-batch/jobs"
 DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
 MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
+POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
 SSH_CONNECT_OPTIONS = (
     "-o", "BatchMode=yes",
@@ -178,7 +179,7 @@ class Controller:
             "inputs": {
                 "datasetRunId": self.args.dataset_run_id,
                 "experimentCard": str(self.experiment_card_path()),
-                "ticks": self.args.ticks,
+                "ticks": effective_training_ticks(self.args),
                 "workers": self.args.workers,
                 "repetitions": self.args.repetitions,
                 "trainingApproach": self.args.training_approach,
@@ -404,9 +405,10 @@ class Controller:
         # Apply bounded-run overrides after generation; keep schema-valid fields.
         payload = json.loads(card.read_text(encoding="utf-8"))
         simulation = payload.setdefault("simulation", {})
+        ticks = effective_training_ticks(self.args)
         scale_environments = resolve_scale_environment_count(self.args)
         simulation.update({
-            "ticks": self.args.ticks,
+            "ticks": ticks,
             "workers": self.args.workers,
             "repetitions": self.args.repetitions,
             "host_port_start": self.args.host_port_start,
@@ -1300,6 +1302,13 @@ def resolve_scale_environment_count(args: argparse.Namespace) -> int | None:
     return workers if workers > 1 else None
 
 
+def effective_training_ticks(args: argparse.Namespace) -> int:
+    ticks = int(getattr(args, "ticks", 1))
+    if getattr(args, "training_approach", None) == "policy_gradient":
+        return max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+    return ticks
+
+
 def minimum_successful_environments(environment_count: int) -> int:
     return math.ceil(environment_count * SCALE_PROOF_SUCCESS_RATE)
 
@@ -1337,6 +1346,7 @@ def build_scale_proof_spec(
                 "trainingRunner": "scripts/screeps_rl_training_runner.py",
                 "simulatorHarness": "scripts/screeps_rl_simulator_harness.py",
                 "cardSimulationFields": {
+                    "ticks": effective_training_ticks(args),
                     "workers": args.workers,
                     "scale_environments": scale_environments,
                     "min_concurrent_environments": scale_environments,
@@ -1501,7 +1511,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
     parser.add_argument("--dataset-run-id", default="rl-3d29e8b9397d")
     parser.add_argument("--training-approach", default="bandit", choices=("bandit", "evolutionary", "policy_gradient"))
-    parser.add_argument("--ticks", type=int, default=50)
+    parser.add_argument("--ticks", type=int, default=50, help="Simulator ticks; policy_gradient runs are floored to 500.")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
         "--scale-environments",
