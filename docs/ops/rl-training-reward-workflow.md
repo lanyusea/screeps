@@ -38,19 +38,20 @@ Dry-run generation is allowed for pipeline checks:
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 ```
 
-Generate the Loop A local-fallback card from an accepted dataset gate, such as
-`rl-gate-93bf1aa18b62` under `runtime-artifacts/rl-dataset-gates`. Use
-`--source-gate-id` with a gate whose `gate_report.json` has `ok: true` and a dataset run ID.
+Generate the Loop A local-fallback card from the newest acceptable E1/postmerge dataset gate.
+By default the helper scans both `runtime-artifacts/rl-dataset-gates` and
+`runtime-artifacts/rl-control-loop` so fresh control-loop gate evidence can supersede stale
+historical gate IDs. Use `--source-gate-id` only for an explicit reproducibility run with a
+gate whose `gate_report.json` has a dataset run ID and passes the structural/shadow safety gates.
 This output is runtime-only because `runtime-artifacts/` is ignored;
 `--loop-a-local-fallback` writes the card to
 `runtime-artifacts/rl-experiment-cards/experiment_card.json` by default and prints a compact
-summary to stdout:
+summary to stdout. Policy-gradient fallback cards are generated at a 500-tick floor with
+5 workers and 5 repetitions:
 
 ```bash
 python3 scripts/screeps_rl_experiment_card.py \
-  --loop-a-local-fallback \
-  --source-gate-id rl-gate-93bf1aa18b62 \
-  --dataset-gate-root runtime-artifacts/rl-dataset-gates
+  --loop-a-local-fallback
 ```
 
 Validate an existing card:
