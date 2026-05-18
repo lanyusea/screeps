@@ -30,9 +30,12 @@ DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-dataset-gates")
 DEFAULT_MIN_SAMPLES = 1
 DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
 QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
+QUALITY_TOP_REJECTED_BUCKET_LIMIT = 10
+STALE_QUALITY_SOURCE_AGE_HOURS = 24.0
 DEFAULT_HOME_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+SOURCE_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6}Z)")
 
 JsonObject = dict[str, Any]
 
@@ -307,6 +310,45 @@ def sample_room_name(sample: JsonObject) -> str | None:
     return room_name if isinstance(room_name, str) and room_name else None
 
 
+def sample_source_path(sample: JsonObject) -> str | None:
+    source = sample.get("source") if isinstance(sample.get("source"), dict) else {}
+    path = source.get("path") if isinstance(source, dict) else None
+    return path if isinstance(path, str) and path else None
+
+
+def parse_iso_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def source_timestamp_from_path(path: str | None) -> datetime | None:
+    if not path:
+        return None
+    match = SOURCE_TIMESTAMP_RE.search(path)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def source_age_hours(path: str | None, created_at: str | None) -> float | None:
+    created = parse_iso_utc_timestamp(created_at)
+    source_created = source_timestamp_from_path(path)
+    if created is None or source_created is None:
+        return None
+    age_hours = (created - source_created).total_seconds() / 3600
+    return round(max(0.0, age_hours), 3)
+
+
 def quality_evidence(sample: JsonObject) -> JsonObject:
     observation = sample.get("observation") if isinstance(sample.get("observation"), dict) else {}
     harvest_tasks = number_at_path(observation, ("workers", "taskCounts", "harvest"))
@@ -393,11 +435,137 @@ def quality_rejection_reasons(sample: JsonObject, *, home_room: str | None = Non
     return reasons
 
 
-def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None) -> JsonObject:
+def missing_quality_telemetry(evidence: JsonObject) -> bool:
+    task_telemetry_missing = evidence.get("harvestTasks") is None and evidence.get("upgradeTasks") is None
+    energy_telemetry_missing = (
+        evidence.get("workerCarriedEnergy") is None
+        and evidence.get("energyAvailable") is None
+        and evidence.get("storedEnergy") is None
+    )
+    ownership_telemetry_missing = evidence.get("ownedCreeps") is None or evidence.get("ownedSpawns") is None
+    return task_telemetry_missing or energy_telemetry_missing or ownership_telemetry_missing
+
+
+def classify_quality_rejection(
+    sample: JsonObject,
+    reasons: Sequence[str],
+    *,
+    home_room: str,
+    created_at: str | None = None,
+) -> str:
+    if "invalid_sample_json" in reasons:
+        return "invalid_sample_json"
+
+    evidence = quality_evidence(sample)
+    if missing_quality_telemetry(evidence):
+        return "missing_quality_telemetry"
+
+    room_name = sample_room_name(sample)
+    source_age = source_age_hours(sample_source_path(sample), created_at)
+    stale_source = source_age is not None and source_age >= STALE_QUALITY_SOURCE_AGE_HOURS
+    non_current_room = room_name is not None and room_name != home_room
+    if stale_source and non_current_room:
+        prefix = "stale_non_current_room"
+    elif non_current_room:
+        prefix = "non_current_room"
+    else:
+        prefix = "home_room"
+
+    if "no_owned_creeps" in reasons and "no_room_energy" in reasons:
+        return f"{prefix}_empty_or_lost"
+    if "no_owned_creeps" in reasons:
+        if positive_value(evidence["ownedSpawns"]):
+            return f"{prefix}_spawn_recovery_no_owned_creeps"
+        return f"{prefix}_no_owned_creeps"
+    if "no_room_energy" in reasons:
+        return f"{prefix}_energy_starved_actionless_creeps"
+    if "no_owned_spawns" in reasons:
+        return f"{prefix}_no_owned_spawns"
+    if "no_harvest_or_upgrade_task" in reasons:
+        return f"{prefix}_no_harvest_or_upgrade_task"
+    return f"{prefix}_quality_rejection"
+
+
+def increment_count(counts: dict[str, int], key: str | None) -> None:
+    if not key:
+        return
+    counts[key] = counts.get(key, 0) + 1
+
+
+def top_counts(counts: dict[str, int], *, limit: int = QUALITY_TOP_REJECTED_BUCKET_LIMIT) -> dict[str, int]:
+    items = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return dict(items[:limit])
+
+
+def build_quality_tail_classification(
+    *,
+    samples_rejected: int,
+    classification_counts: dict[str, int],
+    room_counts: dict[str, int],
+    source_counts: dict[str, int],
+    stale_source_sample_count: int,
+    non_current_room_sample_count: int,
+    home_room: str,
+) -> JsonObject:
+    if samples_rejected == 0:
+        return {
+            "status": "pass",
+            "primary_cause": None,
+            "blocker": None,
+            "parser_or_instrumentation_gap_suspected": False,
+        }
+
+    primary_class = next(iter(top_counts(classification_counts, limit=1)), "unclassified_quality_rejection")
+    parser_gap_count = sum(
+        count
+        for classification, count in classification_counts.items()
+        if classification in {"invalid_sample_json", "missing_quality_telemetry"}
+    )
+    stale_non_current_count = sum(
+        count
+        for classification, count in classification_counts.items()
+        if classification.startswith("stale_non_current_room")
+    )
+    if stale_non_current_count == samples_rejected:
+        primary_cause = "stale_non_current_room_quality_tail"
+        blocker = "dataset_contains_stale_non_current_room_loss_samples"
+    elif parser_gap_count:
+        primary_cause = "parser_or_instrumentation_gap"
+        blocker = "dataset_quality_telemetry_missing_or_invalid"
+    elif non_current_room_sample_count == samples_rejected:
+        primary_cause = "non_current_room_quality_tail"
+        blocker = "dataset_contains_non_current_unproductive_room_samples"
+    else:
+        primary_cause = "current_room_or_mixed_quality_tail"
+        blocker = "dataset_contains_unproductive_or_unobservable_samples"
+
+    return {
+        "status": "blocked",
+        "primary_cause": primary_cause,
+        "primary_class": primary_class,
+        "blocker": blocker,
+        "home_room": home_room,
+        "stale_source_age_hours": STALE_QUALITY_SOURCE_AGE_HOURS,
+        "stale_source_sample_count": stale_source_sample_count,
+        "non_current_room_sample_count": non_current_room_sample_count,
+        "parser_or_instrumentation_gap_suspected": parser_gap_count > 0,
+        "classification_counts": dict(sorted(classification_counts.items())),
+        "top_rejected_rooms": top_counts(room_counts),
+        "top_rejected_sources": top_counts(source_counts),
+        "recommended_action": "Regenerate or narrow the dataset source window before claiming stronger E1 rollout readiness; do not mark the gate pass while rejected samples remain.",
+    }
+
+
+def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None, created_at: str | None = None) -> JsonObject:
     resolved_home_room = home_room or configured_home_room()
     samples_accepted = 0
     samples_rejected = 0
     rejection_reasons: dict[str, int] = {}
+    rejected_sample_classifications: dict[str, int] = {}
+    rejected_room_counts: dict[str, int] = {}
+    rejected_source_counts: dict[str, int] = {}
+    stale_source_sample_count = 0
+    non_current_room_sample_count = 0
     rejected_samples: list[JsonObject] = []
 
     try:
@@ -408,7 +576,16 @@ def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None) -
             "samples_total": 0,
             "samples_accepted": 0,
             "samples_rejected": 0,
+            "acceptance_rate": None,
             "rejection_reasons": {"ticks_read_error": 1},
+            "rejected_sample_classifications": {"ticks_read_error": 1},
+            "tail_classification": {
+                "status": "blocked",
+                "primary_cause": "parser_or_instrumentation_gap",
+                "primary_class": "ticks_read_error",
+                "blocker": "dataset_ticks_unreadable",
+                "parser_or_instrumentation_gap_suspected": True,
+            },
             "rejected_samples": [],
             "error": dataset_export.redact_text(str(error)),
         }
@@ -436,16 +613,33 @@ def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None) -
             samples_rejected += 1
             for reason in reasons:
                 rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+            classification = (
+                classify_quality_rejection(sample, reasons, home_room=resolved_home_room, created_at=created_at)
+                if isinstance(sample, dict)
+                else "invalid_sample_json"
+            )
+            increment_count(rejected_sample_classifications, classification)
+            room_name = sample_room_name(sample) if isinstance(sample, dict) else None
+            source_path = sample_source_path(sample) if isinstance(sample, dict) else None
+            source_age = source_age_hours(source_path, created_at)
+            if source_age is not None and source_age >= STALE_QUALITY_SOURCE_AGE_HOURS:
+                stale_source_sample_count += 1
+            if room_name is not None and room_name != resolved_home_room:
+                non_current_room_sample_count += 1
+            increment_count(rejected_room_counts, room_name or "unknown")
+            increment_count(rejected_source_counts, source_path or "unknown")
             if len(rejected_samples) < QUALITY_REJECTED_SAMPLE_LOG_LIMIT:
                 observation = sample.get("observation") if isinstance(sample, dict) else {}
                 source = sample.get("source") if isinstance(sample, dict) else {}
                 rejected_samples.append(
                     {
+                        "classification": classification,
                         "line": line_number,
                         "sampleId": sample.get("sampleId") if isinstance(sample, dict) else None,
                         "tick": observation.get("tick") if isinstance(observation, dict) else None,
                         "roomName": observation.get("roomName") if isinstance(observation, dict) else None,
                         "sourcePath": source.get("path") if isinstance(source, dict) else None,
+                        "sourceAgeHours": source_age,
                         "reasons": reasons,
                         "evidence": quality_evidence(sample) if isinstance(sample, dict) else {},
                     }
@@ -479,12 +673,24 @@ def evaluate_quality_checks(ticks_path: Path, *, home_room: str | None = None) -
         ),
     ]
     samples_total = samples_accepted + samples_rejected
+    acceptance_rate = samples_accepted / samples_total if samples_total > 0 else None
     return {
         "status": "pass" if samples_rejected == 0 else "fail",
         "samples_total": samples_total,
         "samples_accepted": samples_accepted,
         "samples_rejected": samples_rejected,
+        "acceptance_rate": round(acceptance_rate, 6) if acceptance_rate is not None else None,
         "rejection_reasons": dict(sorted(rejection_reasons.items())),
+        "rejected_sample_classifications": dict(sorted(rejected_sample_classifications.items())),
+        "tail_classification": build_quality_tail_classification(
+            samples_rejected=samples_rejected,
+            classification_counts=rejected_sample_classifications,
+            room_counts=rejected_room_counts,
+            source_counts=rejected_source_counts,
+            stale_source_sample_count=stale_source_sample_count,
+            non_current_room_sample_count=non_current_room_sample_count,
+            home_room=resolved_home_room,
+        ),
         "rejected_samples": rejected_samples,
         "rejected_sample_log_limit": QUALITY_REJECTED_SAMPLE_LOG_LIMIT,
         "rejected_samples_truncated": max(0, samples_rejected - len(rejected_samples)),
@@ -762,7 +968,9 @@ def collect_blocking_reasons(report: JsonObject) -> list[JsonObject]:
                 "status": quality_checks.get("status"),
                 "samplesAccepted": quality_checks.get("samples_accepted"),
                 "samplesRejected": quality_checks.get("samples_rejected"),
+                "acceptanceRate": quality_checks.get("acceptance_rate"),
                 "rejectionReasons": quality_checks.get("rejection_reasons"),
+                "tailClassification": quality_checks.get("tail_classification"),
             }
         )
 
@@ -805,6 +1013,10 @@ def build_summary(report: JsonObject) -> JsonObject:
         "qualityChecksStatus": quality.get("status"),
         "samplesAccepted": quality.get("samples_accepted"),
         "samplesRejected": quality.get("samples_rejected"),
+        "qualityAcceptanceRate": quality.get("acceptance_rate"),
+        "qualityTailClassification": (quality.get("tail_classification") or {}).get("primary_cause")
+        if isinstance(quality.get("tail_classification"), dict)
+        else None,
         "shadowStatus": shadow.get("status"),
         "shadowReportPath": shadow.get("reportPath"),
         "historicalValidationStatus": historical.get("status"),
@@ -913,7 +1125,7 @@ def run_gate(
         ticks_count,
         min_samples=min_samples,
     )
-    quality_checks = evaluate_quality_checks(file_paths["ticks"])
+    quality_checks = evaluate_quality_checks(file_paths["ticks"], created_at=created)
     floors = metric_floors(
         min_reliability=min_reliability,
         min_owned_rooms=min_owned_rooms,
