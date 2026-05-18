@@ -312,7 +312,7 @@ def source_gate_block(
         "type": "screeps-rl-dataset-evaluation-gate",
         "gate_id": gate_id,
         "dataset_run_id": dataset_run_id,
-        "gate_report_path": str(gate_report_path),
+        "gate_report_path": stable_provenance_path(gate_report_path),
         "created_at": created_at,
         "ok": True,
     }
@@ -330,6 +330,16 @@ def repo_relative(path: Path) -> str:
         return str(path.resolve().relative_to(REPO_ROOT))
     except ValueError:
         return str(path)
+
+
+def stable_provenance_path(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    for root in (REPO_ROOT, Path.cwd()):
+        try:
+            return resolved.relative_to(root.expanduser().resolve()).as_posix()
+        except ValueError:
+            continue
+    return resolved.as_posix()
 
 
 def policy_gradient_block(registry_path: Path) -> JsonObject:
@@ -1175,7 +1185,7 @@ def positive_int_arg(raw: str) -> int:
 
 
 def loop_a_local_fallback_value(value: int | None, *, default: int, maximum: int, label: str) -> int:
-    resolved = default if value is None else value
+    resolved = default if value is None else max(value, default)
     if resolved > maximum:
         raise CardValidationError(f"Loop A local fallback {label} must be <= {maximum}")
     return resolved

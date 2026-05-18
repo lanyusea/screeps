@@ -279,6 +279,12 @@ class RlExperimentCardTest(unittest.TestCase):
                     "7" * 40,
                     "--created-at",
                     "2026-05-18T03:12:00Z",
+                    "--ticks",
+                    "1",
+                    "--repetitions",
+                    "1",
+                    "--workers",
+                    "1",
                     "--output",
                     str(output_path),
                 ],
@@ -326,6 +332,48 @@ class RlExperimentCardTest(unittest.TestCase):
             nested_live_regression["safety"][field] = True
             with self.assertRaises(card_helper.CardValidationError):
                 card_helper.validate_card(nested_live_regression)
+
+    def test_source_gate_block_uses_stable_provenance_path(self) -> None:
+        gate_id = "rl-gate-93bf1aa18b62"
+        dataset_run_id = "rl-ebf33fae619f"
+        default_gate_path = card_helper.DEFAULT_DATASET_GATE_ROOT / gate_id / "gate_report.json"
+
+        default_block = card_helper.source_gate_block(
+            gate_id=gate_id,
+            dataset_run_id=dataset_run_id,
+            gate_report_path=default_gate_path,
+            created_at=None,
+        )
+
+        self.assertEqual(
+            default_block["gate_report_path"],
+            f"runtime-artifacts/rl-dataset-gates/{gate_id}/gate_report.json",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(root)
+                relative_gate_path = Path("gates") / gate_id / "gate_report.json"
+                absolute_gate_path = root / relative_gate_path
+                relative_block = card_helper.source_gate_block(
+                    gate_id=gate_id,
+                    dataset_run_id=dataset_run_id,
+                    gate_report_path=relative_gate_path,
+                    created_at=None,
+                )
+                absolute_block = card_helper.source_gate_block(
+                    gate_id=gate_id,
+                    dataset_run_id=dataset_run_id,
+                    gate_report_path=absolute_gate_path,
+                    created_at=None,
+                )
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertEqual(relative_block["gate_report_path"], f"gates/{gate_id}/gate_report.json")
+        self.assertEqual(absolute_block["gate_report_path"], relative_block["gate_report_path"])
 
     def test_latest_accepted_dataset_skips_malformed_accepted_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
