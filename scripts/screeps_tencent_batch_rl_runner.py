@@ -32,10 +32,14 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from screeps_rl_experiment_card import (
+    CardValidationError,
     DEFAULT_SCENARIO_ID,
+    MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
     MULTI_TIER_SCENARIO_ID,
     MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
     SCENARIO_IDS,
+    multi_tier_scenario_fixture_summary,
+    scenario_supports_multi_tier_policy_comparison,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +65,11 @@ E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT = 20
 E1S1_REPEAT_GUARD_DEAD_TERRITORY = 2
 E1S1_REPEAT_GUARD_DEAD_KILLS = 0
 E1S1_REPEAT_GUARD_NEXT_ACTION = (
-    f"use --scenario-id {MULTI_TIER_SCENARIO_ID} --require-multi-tier-scenario after PR #1195; "
+    f"use --scenario-id {MULTI_TIER_SCENARIO_ID} --require-multi-tier-scenario after PR #1204; "
     "do not launch another E1S1-only Tencent batch"
 )
+DEFAULT_SIMULATION_MAP_SOURCE_REL = "maps/map-0b6758af.json"
+DEFAULT_SIMULATION_ROOM = "E1S1"
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
 SSH_CONNECT_OPTIONS = (
     "-o", "BatchMode=yes",
@@ -435,7 +441,22 @@ class Controller:
                 self.final_status = "completed_scale_down_failed"
 
     def ensure_map_present(self) -> None:
-        target = REPO_ROOT / "maps" / "map-0b6758af.json"
+        scenario_id = scenario_id_from_args(self.args)
+        target = scenario_map_source_path(scenario_id)
+        if scenario_id == MULTI_TIER_SCENARIO_ID:
+            evidence = multi_tier_launch_fixture_evidence()
+            self.record_step(
+                "map_preflight",
+                time.time(),
+                True,
+                path=str(target),
+                scenarioId=scenario_id,
+                roomCount=evidence["roomCount"],
+                adjacentRoom=evidence["adjacentRoom"],
+                hostileCreepCount=evidence["hostileCreepCount"],
+                hostileSpawnCount=evidence["hostileSpawnCount"],
+            )
+            return
         if target.is_file():
             self.record_step("map_preflight", time.time(), True, path=str(target))
             return
@@ -485,18 +506,20 @@ class Controller:
     def generate_experiment_card(self) -> None:
         card = self.experiment_card_path()
         created_at = utc_now_iso()
+        scenario_id = scenario_id_from_args(self.args)
+        require_multi_tier_scenario = require_multi_tier_scenario_from_args(self.args, scenario_id)
         cmd = [
             sys.executable,
             "scripts/screeps_rl_experiment_card.py",
             "--dataset-run-id", self.args.dataset_run_id,
             "--training-approach", self.args.training_approach,
             "--created-at", created_at,
-            "--scenario-id", getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
+            "--scenario-id", scenario_id,
             "--output", str(card),
         ]
         if self.args.training_approach == "policy_gradient":
             cmd.append("--loop-a-policy-gradient-supply")
-        if getattr(self.args, "require_multi_tier_scenario", False):
+        if require_multi_tier_scenario:
             cmd.append("--require-multi-tier-scenario")
         cp = self.run_cp(
             "generate_experiment_card",
@@ -509,12 +532,7 @@ class Controller:
         simulation = payload.setdefault("simulation", {})
         ticks = effective_training_ticks(self.args)
         scale_environments = resolve_scale_environment_count(self.args)
-        scenario_id = getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID)
-        map_source_file = (
-            MULTI_TIER_SIMULATION_MAP_SOURCE_REL
-            if scenario_id == MULTI_TIER_SCENARIO_ID
-            else "maps/map-0b6758af.json"
-        )
+        map_source_file = scenario_map_source_file(scenario_id)
         simulation.update({
             "ticks": ticks,
             "workers": self.args.workers,
@@ -542,6 +560,11 @@ class Controller:
             })
         if self.args.variant:
             payload["strategy_variants"] = self.args.variant
+        validate_requested_experiment_card_scenario(
+            payload,
+            requested_scenario_id=scenario_id,
+            require_multi_tier_scenario=require_multi_tier_scenario,
+        )
         payload["run_id"] = self.run_id
         card.write_text(canonical_json(payload), encoding="utf-8")
         self.run_cp(
@@ -1043,20 +1066,24 @@ def build_e1s1_repeat_launch_guard(
 
 
 def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]:
-    scenario_id = getattr(args, "scenario_id", DEFAULT_SCENARIO_ID)
-    return {
+    scenario_id = scenario_id_from_args(args)
+    current_launch = {
         "scenarioId": scenario_id,
         "isE1S1SingleRoomNoHostile": scenario_id == DEFAULT_SCENARIO_ID,
         "requiredScenarioId": MULTI_TIER_SCENARIO_ID,
+        "requireMultiTierScenario": require_multi_tier_scenario_from_args(args, scenario_id),
         "requestedTicks": getattr(args, "ticks", None),
         "effectiveTicks": effective_training_ticks(args),
         "trainingApproach": getattr(args, "training_approach", None),
         "workers": getattr(args, "workers", None),
         "repetitions": getattr(args, "repetitions", None),
         "preflightOnly": bool(getattr(args, "preflight_only", False)),
-        "mapSourceFile": "maps/map-0b6758af.json",
-        "room": "E1S1",
+        "mapSourceFile": scenario_map_source_file(scenario_id),
+        "room": scenario_anchor_room(scenario_id),
     }
+    if scenario_id == MULTI_TIER_SCENARIO_ID:
+        current_launch["fixtureEvidence"] = multi_tier_launch_fixture_evidence()
+    return current_launch
 
 
 def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path) -> list[dict[str, Any]]:
@@ -1916,6 +1943,68 @@ def minimum_successful_environments(environment_count: int) -> int:
     return math.ceil(environment_count * SCALE_PROOF_SUCCESS_RATE)
 
 
+def scenario_id_from_args(args: argparse.Namespace) -> str:
+    return getattr(args, "scenario_id", None) or DEFAULT_SCENARIO_ID
+
+
+def require_multi_tier_scenario_from_args(args: argparse.Namespace, scenario_id: str | None = None) -> bool:
+    resolved_scenario_id = scenario_id or scenario_id_from_args(args)
+    return bool(getattr(args, "require_multi_tier_scenario", False)) or resolved_scenario_id == MULTI_TIER_SCENARIO_ID
+
+
+def scenario_map_source_file(scenario_id: str) -> str:
+    return MULTI_TIER_SIMULATION_MAP_SOURCE_REL if scenario_id == MULTI_TIER_SCENARIO_ID else DEFAULT_SIMULATION_MAP_SOURCE_REL
+
+
+def scenario_anchor_room(scenario_id: str) -> str:
+    return DEFAULT_SIMULATION_ROOM
+
+
+def scenario_map_source_path(scenario_id: str) -> Path:
+    return REPO_ROOT / scenario_map_source_file(scenario_id)
+
+
+def multi_tier_launch_fixture_evidence() -> dict[str, Any]:
+    fixture_path = scenario_map_source_path(MULTI_TIER_SCENARIO_ID)
+    try:
+        summary = multi_tier_scenario_fixture_summary(fixture_path)
+    except CardValidationError as error:
+        raise BatchRunError(str(error)) from error
+    return {
+        "implementationStatus": MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
+        "anchorRoom": summary["anchorRoom"],
+        "adjacentRoom": summary["adjacentRoom"],
+        "adjacentRooms": summary["adjacentRooms"],
+        "roomCount": summary["roomCount"],
+        "hostileFixture": "adjacent_room_hostile_spawn_and_creeps",
+        "hostileCreepCount": summary["adjacentHostileCreepCount"],
+        "hostileStructureCount": summary["adjacentHostileStructureCount"],
+        "hostileSpawnCount": summary["adjacentHostileSpawnCount"],
+        "ownAnchorSpawnCount": summary["anchorOwnSpawnCount"],
+        "ownAnchorCreepCount": summary["anchorOwnCreepCount"],
+        "fixtureSha256": summary["fixtureSha256"],
+        "mapSourceFile": scenario_map_source_file(MULTI_TIER_SCENARIO_ID),
+    }
+
+
+def validate_requested_experiment_card_scenario(
+    payload: dict[str, Any],
+    *,
+    requested_scenario_id: str,
+    require_multi_tier_scenario: bool,
+) -> None:
+    scenario = payload.get("scenario")
+    if not isinstance(scenario, dict):
+        raise BatchRunError("generated experiment card is missing scenario metadata")
+    observed_scenario_id = text_value(scenario.get("scenario_id")) or text_value(scenario.get("scenarioId"))
+    if observed_scenario_id != requested_scenario_id:
+        raise BatchRunError(
+            f"generated experiment card scenario mismatch: {observed_scenario_id!r} != {requested_scenario_id!r}"
+        )
+    if require_multi_tier_scenario and not scenario_supports_multi_tier_policy_comparison(scenario):
+        raise BatchRunError("generated experiment card lacks active multi-tier hostile fixture evidence")
+
+
 def build_scale_proof_spec(
     *,
     args: argparse.Namespace,
@@ -1925,6 +2014,23 @@ def build_scale_proof_spec(
     scale_environments: int,
     experiment_card: dict[str, Any],
 ) -> dict[str, Any]:
+    scenario_id = scenario_id_from_args(args)
+    fixture_evidence = (
+        multi_tier_launch_fixture_evidence()
+        if scenario_id == MULTI_TIER_SCENARIO_ID
+        else None
+    )
+    card_simulation_fields: dict[str, Any] = {
+        "ticks": effective_training_ticks(args),
+        "workers": args.workers,
+        "scale_environments": scale_environments,
+        "min_concurrent_environments": scale_environments,
+        "scenario_id": scenario_id,
+        "room": scenario_anchor_room(scenario_id),
+        "map_source_file": scenario_map_source_file(scenario_id),
+    }
+    if fixture_evidence is not None:
+        card_simulation_fields["fixtureEvidence"] = fixture_evidence
     return {
         "type": "screeps-tencent-batch-rl-scale-proof-spec",
         "schemaVersion": 1,
@@ -1952,13 +2058,7 @@ def build_scale_proof_spec(
             "remoteRunnerContract": {
                 "trainingRunner": "scripts/screeps_rl_training_runner.py",
                 "simulatorHarness": "scripts/screeps_rl_simulator_harness.py",
-                "cardSimulationFields": {
-                    "ticks": effective_training_ticks(args),
-                    "workers": args.workers,
-                    "scale_environments": scale_environments,
-                    "min_concurrent_environments": scale_environments,
-                    "scenario_id": getattr(args, "scenario_id", DEFAULT_SCENARIO_ID),
-                },
+                "cardSimulationFields": card_simulation_fields,
             },
         },
         "asg": {
@@ -2043,13 +2143,32 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
             raise BatchRunError("workers must be at least scale environments for concurrent scale proof")
     if args.repetitions < 1 or args.ticks < 1:
         raise BatchRunError("ticks and repetitions must be positive")
-    scenario_id = getattr(args, "scenario_id", DEFAULT_SCENARIO_ID)
+    scenario_id = scenario_id_from_args(args)
     if scenario_id not in SCENARIO_IDS:
         raise BatchRunError(f"scenario id must be one of: {', '.join(SCENARIO_IDS)}")
     if getattr(args, "require_multi_tier_scenario", False) and scenario_id != MULTI_TIER_SCENARIO_ID:
         raise BatchRunError("multi-tier policy comparisons require the multi-tier territory/combat scenario id")
+    if getattr(args, "training_approach", None) == "policy_gradient" and scenario_id != MULTI_TIER_SCENARIO_ID:
+        raise BatchRunError(
+            f"policy_gradient Tencent proof requires --scenario-id {MULTI_TIER_SCENARIO_ID} "
+            "--require-multi-tier-scenario"
+        )
+    if scenario_id == MULTI_TIER_SCENARIO_ID:
+        multi_tier_launch_fixture_evidence()
     if not args.controller_ip.endswith("/32"):
         raise BatchRunError("controller IP must be a /32 CIDR")
+
+
+def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    if getattr(args, "scenario_id", None) is None:
+        if args.training_approach == "policy_gradient":
+            args.scenario_id = MULTI_TIER_SCENARIO_ID
+            args.require_multi_tier_scenario = True
+        else:
+            args.scenario_id = DEFAULT_SCENARIO_ID
+    elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
+        args.require_multi_tier_scenario = True
+    return args
 
 
 def list_tracked_bundle_paths() -> list[str]:
@@ -2134,7 +2253,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--host-port-start", type=int, default=24125)
-    parser.add_argument("--scenario-id", choices=SCENARIO_IDS, default=DEFAULT_SCENARIO_ID)
+    parser.add_argument(
+        "--scenario-id",
+        choices=SCENARIO_IDS,
+        default=None,
+        help=(
+            "Scenario to exercise. Defaults to E1S1 for non-policy-gradient smoke runs and "
+            f"{MULTI_TIER_SCENARIO_ID} for policy_gradient proof runs."
+        ),
+    )
     parser.add_argument(
         "--require-multi-tier-scenario",
         action="store_true",
@@ -2153,6 +2280,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.preflight_only = args.command == "preflight"
+    apply_cli_scenario_defaults(args)
     run_id = args.run_id
     artifact_dir = (REPO_ROOT / args.artifact_root / run_id).resolve()
     controller = Controller(args=args, run_id=run_id, artifact_dir=artifact_dir)

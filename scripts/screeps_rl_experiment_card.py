@@ -1875,6 +1875,18 @@ def loop_a_local_fallback_value(value: int | None, *, default: int, maximum: int
     return resolved
 
 
+def resolve_cli_scenario_request(args: argparse.Namespace) -> tuple[str, bool]:
+    scenario_id = args.scenario_id
+    require_multi_tier = bool(args.require_multi_tier_scenario)
+    if args.loop_a_local_fallback or args.loop_a_policy_gradient_supply:
+        if scenario_id is None:
+            return MULTI_TIER_SCENARIO_ID, True
+        if scenario_id != MULTI_TIER_SCENARIO_ID:
+            raise CardValidationError("Loop A policy-gradient proof requires the multi-tier territory/combat scenario")
+        return scenario_id, True
+    return scenario_id or DEFAULT_SCENARIO_ID, require_multi_tier
+
+
 def resolve_dataset_gate_roots(gate_root: Path | None, repo: Path) -> list[Path]:
     if gate_root is not None:
         expanded = gate_root.expanduser()
@@ -1935,10 +1947,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scenario-id",
         choices=SCENARIO_IDS,
-        default=DEFAULT_SCENARIO_ID,
+        default=None,
         help=(
-            "Scenario metadata to attach. Default classifies the E1S1 smoke map as single-room/no-hostile; "
-            f"use {MULTI_TIER_SCENARIO_ID} to request the active adjacent-room hostile fixture."
+            "Scenario metadata to attach. Default classifies regular cards as E1S1 single-room/no-hostile; "
+            f"Loop A policy-gradient proof cards default to {MULTI_TIER_SCENARIO_ID}."
         ),
     )
     parser.add_argument(
@@ -2122,6 +2134,7 @@ def main(
                 maximum=LOOP_A_LOCAL_FALLBACK_WORKERS,
                 label="workers",
             )
+        scenario_id, require_multi_tier_scenario = resolve_cli_scenario_request(args)
         card = build_card(
             dataset_run_id=dataset_run_id,
             code_commit=args.code_commit or git_commit(repo),
@@ -2132,8 +2145,8 @@ def main(
             simulation_workers=simulation_workers,
             loop_a_card_supply=loop_a_card_supply,
             source_gate=source_gate,
-            scenario_id=args.scenario_id,
-            require_multi_tier_scenario=args.require_multi_tier_scenario,
+            scenario_id=scenario_id,
+            require_multi_tier_scenario=require_multi_tier_scenario,
         )
         if args.loop_a_local_fallback:
             output_path = args.output or repo / DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH.relative_to(REPO_ROOT)

@@ -51,8 +51,15 @@ summary to stdout. Policy-gradient fallback cards are generated at a 500-tick fl
 
 ```bash
 python3 scripts/screeps_rl_experiment_card.py \
-  --loop-a-local-fallback
+  --loop-a-local-fallback \
+  --scenario-id multi-tier-territory-combat-v0 \
+  --require-multi-tier-scenario
 ```
+
+Loop A policy-gradient proof card generation defaults to the multi-tier scenario and rejects an
+explicit E1S1 single-room fallback. Its card must reference
+`scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json` and expose adjacent-room hostile
+fixture counts.
 
 Validate an existing card:
 

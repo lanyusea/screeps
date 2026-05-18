@@ -20,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_tencent_batch_rl_runner as runner
+import screeps_rl_experiment_card as card_helper
 
 
 CONTROLLER_IP = "43.128.104.34/32"
@@ -1109,6 +1110,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         self.assertFalse(guard["blocked"])
         self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(guard["currentLaunch"]["requireMultiTierScenario"])
+        self.assertEqual(guard["currentLaunch"]["mapSourceFile"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["adjacentRoom"], "E2S1")
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
         self.assertEqual(guard["evidence"]["count"], 0)
 
     def test_preflight_repeat_launch_guard_writes_skip_artifact_without_remote_side_effects(self) -> None:
@@ -1190,6 +1196,28 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
             runner.validate_static_inputs(args, "run-test")
+
+            args.training_approach = "policy_gradient"
+            args.scenario_id = runner.DEFAULT_SCENARIO_ID
+            args.require_multi_tier_scenario = False
+            with self.assertRaisesRegex(runner.BatchRunError, "policy_gradient Tencent proof requires"):
+                runner.validate_static_inputs(args, "run-test")
+
+            args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+            args.require_multi_tier_scenario = True
+            runner.validate_static_inputs(args, "run-test")
+
+    def test_policy_gradient_cli_defaults_to_multi_tier_required_scenario(self) -> None:
+        args = runner.build_parser().parse_args([
+            "preflight",
+            "--training-approach",
+            "policy_gradient",
+        ])
+
+        runner.apply_cli_scenario_defaults(args)
+
+        self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(args.require_multi_tier_scenario)
 
     def test_generate_experiment_card_writes_multi_environment_scale_proof_spec(self) -> None:
         args = controller_args()
@@ -1288,6 +1316,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
     def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:
         args = controller_args()
         args.training_approach = "policy_gradient"
+        args.workers = 5
         args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
         args.require_multi_tier_scenario = True
         observed_cmds: list[list[str]] = []
@@ -1299,22 +1328,14 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 observed_cmds.append(cmd)
                 if name == "generate_experiment_card":
                     output = Path(cmd[cmd.index("--output") + 1])
-                    payload = generated_experiment_card()
-                    payload["training_approach"] = "policy_gradient"
-                    payload["scenario"]["scenario_id"] = runner.MULTI_TIER_SCENARIO_ID
-                    payload["scenario"]["scenario_tier"] = "multi_tier_policy_comparison"
-                    payload["scenario"]["capabilities"] = {
-                        "multi_room_capable": True,
-                        "adjacent_room_territory_signal": True,
-                        "hostile_combat_signal": True,
-                        "multi_tier_policy_comparison": True,
-                    }
-                    payload["scenario"]["suitability"] = {
-                        "multi_tier_policy_comparison": True,
-                        "territory_combat_differentiation": True,
-                        "classification": "suitable_for_multi_tier_policy_comparison",
-                        "reasons": [],
-                    }
+                    payload = card_helper.build_card(
+                        dataset_run_id="dataset-test",
+                        code_commit="a" * 40,
+                        training_approach="policy_gradient",
+                        created_at="2026-05-18T10:18:00Z",
+                        scenario_id=runner.MULTI_TIER_SCENARIO_ID,
+                        require_multi_tier_scenario=True,
+                    )
                     output.write_text(json.dumps(payload), encoding="utf-8")
                 return subprocess.CompletedProcess(cmd, 0, "{}", "")
 
@@ -1322,14 +1343,27 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 controller.generate_experiment_card()
 
             card = json.loads((root / "experiment_card.json").read_text(encoding="utf-8"))
+            spec = json.loads((root / "scale_proof_spec.json").read_text(encoding="utf-8"))
 
         generate_cmd = observed_cmds[0]
         self.assertEqual(generate_cmd[generate_cmd.index("--scenario-id") + 1], runner.MULTI_TIER_SCENARIO_ID)
         self.assertIn("--require-multi-tier-scenario", generate_cmd)
         self.assertEqual(card["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(card["scenario"]["capabilities"]["hostile_combat_signal"])
+        self.assertEqual(card["scenario"]["evidence"]["adjacent_room"], "E2S1")
+        self.assertEqual(card["scenario"]["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(card["scenario"]["evidence"]["hostile_spawn_count"], 1)
         self.assertEqual(card["simulation"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
         self.assertEqual(card["scenario"]["evidence"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
+        self.assertEqual(spec["experimentCard"]["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(
+            spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["map_source_file"],
+            runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
+        )
+        self.assertEqual(
+            spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["fixtureEvidence"]["hostileSpawnCount"],
+            1,
+        )
         self.assertFalse(card["safety"]["officialMmoWritesAllowed"])
 
     def test_verify_remote_training_report_requires_scale_proof_success_for_workers_five(self) -> None:
@@ -1985,6 +2019,29 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.steps[1].detail["path"], str(root / "prod" / "dist" / "main.js"))
         self.assertNotIn("detail", controller.steps[0].detail)
         self.assertNotIn("detail", controller.steps[1].detail)
+
+    def test_multi_tier_map_preflight_validates_fixture_without_e1s1_map(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fixture_path = root / runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL
+            fixture_path.parent.mkdir(parents=True)
+            fixture_path.write_text(
+                card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            args = controller_args()
+            args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+            args.require_multi_tier_scenario = True
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root / "artifacts")
+
+            with mock.patch.object(runner, "REPO_ROOT", root):
+                controller.ensure_map_present()
+
+            self.assertEqual(controller.steps[0].detail["path"], str(fixture_path))
+            self.assertEqual(controller.steps[0].detail["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+            self.assertEqual(controller.steps[0].detail["adjacentRoom"], "E2S1")
+            self.assertEqual(controller.steps[0].detail["hostileCreepCount"], 2)
+            self.assertFalse((root / "maps" / "map-0b6758af.json").exists())
 
     def test_latest_scale_out_failure_ignores_failures_before_run_start(self) -> None:
         class FakeController(runner.Controller):
