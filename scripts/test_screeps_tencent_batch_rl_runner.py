@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -263,6 +264,346 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 root / "remote" / "runtime-artifacts" / "rl-training" / "run-1.json",
             )
 
+    def test_safe_policy_update_artifact_path_accepts_candidate_json(self) -> None:
+        artifact_path = runner.safe_policy_update_artifact_path(
+            "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        )
+
+        self.assertEqual(
+            artifact_path,
+            Path("runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"),
+        )
+
+    def test_safe_policy_update_artifact_path_rejects_non_candidate_or_unsafe_paths(self) -> None:
+        cases = (
+            ("runtime-artifacts/rl-training/run-test.json", "outside rl-training policy candidate artifacts"),
+            ("runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.txt", "JSON policy candidate"),
+            ("/runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json", "unsafe"),
+            ("runtime-artifacts/rl-training/policy-candidates/../run-test-next-policy.json", "unsafe"),
+            ("runtime-artifacts\\rl-training\\policy-candidates\\run-test-next-policy.json", "unsafe"),
+        )
+        for raw, expected_error in cases:
+            with self.subTest(raw=raw), self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                runner.safe_policy_update_artifact_path(raw)
+
+    def test_verified_remote_policy_update_accepts_empty_zero_iteration_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            {},
+            {"policyUpdateIterations": 0},
+            {"policyUpdate": None},
+            {"policyUpdate": {}},
+            {"policyUpdate": []},
+            {"policyUpdateIterations": 0, "policyUpdate": None},
+            {"policyUpdateIterations": 0, "policyUpdate": {}},
+            {"policyUpdateIterations": 0, "policyUpdate": []},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data in cases:
+                with self.subTest(data=data):
+                    self.assertEqual(
+                        runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir)),
+                        {
+                            "policyUpdateIterations": 0,
+                            "policyUpdateArtifactPath": None,
+                            "policyUpdate": None,
+                        },
+                    )
+
+    def test_verified_remote_policy_update_accepts_structured_zero_iteration_noop_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = {
+            "type": "screeps-rl-policy-update",
+            "schemaVersion": 1,
+            "iterations": 0,
+            "algorithm": "rank_weighted_finite_difference_v1",
+            "targetFamily": "test-family",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "officialMmoControl": False,
+            },
+            "skippedReason": "no_nonzero_reward_advantage",
+            "candidateCount": 2,
+            "anchor": {
+                "candidatePolicyId": "candidate-a",
+                "strategyVariantId": "variant-a",
+                "rolloutStatus": "incumbent",
+                "rewardTuple": [1, 0, 0, 0],
+                "sampleCount": 1,
+                "parameters": {"territorySignalWeight": 1.0},
+            },
+            "candidateRewards": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "rewardTuple": [1, 0, 0, 0],
+                    "sampleCount": 1,
+                    "parameters": {"territorySignalWeight": 1.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "rewardTuple": [1, 0, 0, 0],
+                    "sampleCount": 1,
+                    "parameters": {"territorySignalWeight": 2.0},
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertEqual(
+                runner.verified_remote_policy_update_fields(
+                    {"policyUpdateIterations": 0, "policyUpdate": policy_update},
+                    top_level_safety,
+                    Path(temp_dir),
+                ),
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdateArtifactPath": None,
+                    "policyUpdate": policy_update,
+                },
+            )
+
+    def test_verified_remote_policy_update_rejects_non_empty_zero_iteration_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            (
+                {"policyUpdate": {"nextCandidatePolicy": {}}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": {"nextCandidatePolicy": {}}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": {"iterations": 0}},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {"policyUpdateIterations": 0, "policyUpdate": [{"iterations": 0}]},
+                "policyUpdate is present without positive policyUpdateIterations",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "no_nonzero_reward_advantage",
+                        "nextCandidatePolicy": {},
+                    },
+                },
+                "zero-iteration no-op contains update data",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "bounded_update_no_parameter_change",
+                        "updatedParameters": {"territorySignalWeight": 2},
+                    },
+                },
+                "zero-iteration no-op contains update data",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {
+                        "iterations": 0,
+                        "skippedReason": "no_nonzero_reward_advantage",
+                        "unexpectedField": True,
+                    },
+                },
+                "zero-iteration no-op has unexpected fields",
+            ),
+            (
+                {"policyUpdate": {"iterations": -1}},
+                "policyUpdate.iterations invalid",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data, expected_error in cases:
+                with self.subTest(data=data), self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
+    def test_verified_remote_policy_update_rejects_artifact_path_without_positive_iterations(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        cases = (
+            {"policyUpdateArtifactPath": artifact_path},
+            {"policyUpdateIterations": 0, "policyUpdateArtifactPath": artifact_path},
+            {"policyUpdateIterations": 0, "policyUpdate": {}, "policyUpdateArtifactPath": artifact_path},
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for data in cases:
+                with self.subTest(data=data), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    "policyUpdateArtifactPath is present without positive policyUpdateIterations",
+                ):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
+    def test_verified_remote_policy_update_accepts_positive_update_with_collected_artifact(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = {
+            "iterations": 1,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "artifactPath": artifact_path,
+            "nextCandidatePolicy": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+
+            self.assertEqual(
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                ),
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": policy_update,
+                },
+            )
+
+    def test_verified_remote_policy_update_rejects_positive_update_without_explicit_policy_update_safety_flags(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+        def valid_policy_update() -> dict[str, object]:
+            return {
+                "iterations": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "artifactPath": artifact_path,
+                "nextCandidatePolicy": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+
+        missing_live_effect = valid_policy_update()
+        missing_live_effect.pop("liveEffect")
+        non_false_writes_allowed = valid_policy_update()
+        non_false_writes_allowed["officialMmoWritesAllowed"] = None
+        cases = (
+            (missing_live_effect, "policyUpdate.liveEffect"),
+            (non_false_writes_allowed, "policyUpdate.officialMmoWritesAllowed"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+            for policy_update, expected_error in cases:
+                with self.subTest(expected_error=expected_error), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
+    def test_verified_remote_policy_update_rejects_positive_update_without_explicit_next_candidate_safety_flags(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+        def valid_policy_update() -> dict[str, object]:
+            return {
+                "iterations": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "artifactPath": artifact_path,
+                "nextCandidatePolicy": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+
+        missing_writes = valid_policy_update()
+        next_candidate = missing_writes["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate.pop("officialMmoWrites")
+        non_false_live_effect = valid_policy_update()
+        next_candidate = non_false_live_effect["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate["liveEffect"] = None
+        cases = (
+            (missing_writes, "policyUpdate.nextCandidatePolicy.officialMmoWrites"),
+            (non_false_live_effect, "policyUpdate.nextCandidatePolicy.liveEffect"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+            for policy_update, expected_error in cases:
+                with self.subTest(expected_error=expected_error), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
     def test_verify_remote_training_report_rejects_any_unsafe_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -285,6 +626,151 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.BatchRunError, "officialMmoWritesAllowed"):
                 controller.verify_remote_training_report()
 
+    def test_verify_remote_training_report_rejects_unsafe_nested_policy_update_flags(self) -> None:
+        unsafe_updates = [
+            ("policyUpdate.liveEffect=true", {"iterations": 1, "liveEffect": True}),
+            ("policyUpdate.liveEffect=\"true\"", {"iterations": 1, "liveEffect": "true"}),
+            (
+                "policyUpdate.nextCandidatePolicy.official_mmo_writes_allowed=true",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"official_mmo_writes_allowed": True},
+                },
+            ),
+            (
+                "policyUpdate.nextCandidatePolicy.official_mmo_writes_allowed=1",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"official_mmo_writes_allowed": 1},
+                },
+            ),
+            (
+                "policyUpdate.nextCandidatePolicy.liveEffect=null",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"liveEffect": None},
+                },
+            ),
+        ]
+        for expected_error, policy_update in unsafe_updates:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(
+                    json.dumps(
+                        {
+                            "reportId": "run-test",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "artifactCount": 1,
+                            "policyUpdate": policy_update,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, re.escape(expected_error)):
+                    controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_positive_policy_update_without_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                json.dumps(
+                    {
+                        "reportId": "run-test",
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+                        "policyUpdate": {
+                            "iterations": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "nextCandidatePolicy": {
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(runner.BatchRunError, "policy update artifact was not collected"):
+                controller.verify_remote_training_report()
+
+    def test_verified_remote_policy_update_rejects_contradictory_duplicate_metadata(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            (
+                {
+                    "policyUpdateIterations": 5,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactPath": artifact_path,
+                        "nextCandidatePolicy": {
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                    },
+                },
+                "policyUpdate.iterations disagrees",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactPath": "runtime-artifacts/rl-training/policy-candidates/other-next-policy.json",
+                        "nextCandidatePolicy": {
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                    },
+                },
+                "policyUpdate.artifactPath disagrees",
+            ),
+        )
+        for data, expected_error in cases:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
     def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -298,10 +784,24 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
                         "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+                        "policyUpdate": {
+                            "iterations": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "nextCandidatePolicy": {
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
+                        },
                     }
                 ),
                 encoding="utf-8",
             )
+            write_text(root / "remote" / "runtime-artifacts" / "rl-training" / "policy-candidates" / "run-test-next-policy.json", "{}\n")
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
             controller.verify_remote_training_report()
             controller.write_summary()
@@ -319,6 +819,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "secretsPrinted": False,
                 },
             )
+            self.assertEqual(summary["outputs"]["trainingReport"]["policyUpdateIterations"], 1)
+            self.assertEqual(
+                summary["outputs"]["trainingReport"]["policyUpdateArtifactPath"],
+                "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+            )
+            self.assertFalse(summary["outputs"]["trainingReport"]["policyUpdate"]["liveEffect"])
 
     def test_static_validation_accepts_bounded_multi_worker_scale_proof(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

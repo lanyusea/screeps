@@ -915,6 +915,280 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
+    def test_policy_reward_tuple_aggregation_weights_by_sample_count(self) -> None:
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple(
+                [
+                    {"sampleCount": 20, "reward": {"tuple": [1, 10, 100, 0]}},
+                    {"sampleCount": 1, "reward": {"tuple": [0, 110, 0, 10]}},
+                ]
+            ),
+            [0.952381, 14.761905, 95.238095, 0.47619],
+        )
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple(
+                [
+                    {"reward": {"tuple": [1, 2, 3, 4]}},
+                    {"sampleCount": "invalid", "reward": {"tuple": [3, 4, 5, 6]}},
+                    {"sampleCount": 0, "reward": {"tuple": [100, 100, 100, 100]}},
+                ]
+            ),
+            [2, 3, 4, 5],
+        )
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple([{"sampleCount": 0, "reward": {"tuple": [1, 2, 3, 4]}}]),
+            [0, 0, 0, 0],
+        )
+
+    def test_policy_update_candidate_rows_accepts_evaluated_parameters_field(self) -> None:
+        parameter_space = {"knob": {"min": 0, "max": 10}}
+        rows = runner.policy_update_candidate_rows(
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate",
+                        "strategyVariantId": "candidate",
+                        "parameters": {"knob": 4.2},
+                    },
+                ]
+            },
+            [
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1, 0, 0, 0]},
+                }
+            ],
+            parameter_space,
+        )
+
+        self.assertEqual(rows[0]["parameters"], {"knob": 4.2})
+
+    def test_policy_update_candidate_rows_uses_reward_weight_defaults_for_sample_count(self) -> None:
+        parameter_space = {"knob": {"min": 0, "max": 10}}
+        rows = runner.policy_update_candidate_rows(
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate",
+                        "strategyVariantId": "candidate",
+                        "parameters": {"knob": 4.2},
+                    },
+                ]
+            },
+            [
+                {
+                    "variantId": "candidate.scale-env-01",
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1, 2, 3, 4]},
+                },
+                {
+                    "variantId": "candidate.scale-env-02",
+                    "sampleCount": "invalid",
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [3, 4, 5, 6]},
+                },
+                {
+                    "variantId": "candidate.scale-env-03",
+                    "sampleCount": -7,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [5, 6, 7, 8]},
+                },
+                {
+                    "variantId": "candidate.scale-env-04",
+                    "sampleCount": 2,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [9, 10, 11, 12]},
+                },
+                {
+                    "variantId": "candidate.scale-env-05",
+                    "sampleCount": 0,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [100, 100, 100, 100]},
+                },
+                {
+                    "variantId": "candidate.scale-env-06",
+                    "sampleCount": 100,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1000]},
+                },
+            ],
+            parameter_space,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["sampleCount"], 5)
+        self.assertEqual(rows[0]["rewardTuple"], [5.4, 6.4, 7.4, 8.4])
+        self.assertEqual(
+            rows[0]["resultVariantIds"],
+            [
+                "candidate.scale-env-01",
+                "candidate.scale-env-02",
+                "candidate.scale-env-03",
+                "candidate.scale-env-04",
+                "candidate.scale-env-05",
+            ],
+        )
+
+    def test_policy_gradient_noop_update_preserves_structured_skip_evidence(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 5}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 1.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 2.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 1.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 2.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-noop",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], "no_nonzero_reward_advantage")
+        self.assertEqual(update["candidateCount"], 2)
+        self.assertEqual(update["anchor"]["candidatePolicyId"], "candidate-a")
+        self.assertEqual(len(update["candidateRewards"]), 2)
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertFalse(update["safety"]["liveEffect"])
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("parameterDelta", update)
+
+    def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-update",
+            code_commit="d" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T03:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=1800, harvested=900)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-update",
+                generated_at="2026-05-17T03:30:00Z",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+            persisted = read_json(out_dir / "policy-gradient-update.json")
+            artifact_path = Path(report["policyUpdateArtifactPath"])
+            artifact = read_json(artifact_path)
+
+        self.assertEqual(report["policyUpdateIterations"], 1)
+        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        update = report["policyUpdate"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["algorithm"], "rank_weighted_finite_difference_v1")
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertGreater(
+            update["updatedParameters"]["territorySignalWeight"],
+            update["anchor"]["parameters"]["territorySignalWeight"],
+        )
+        self.assertTrue(any(float(value) != 0 for value in update["parameterDelta"].values()))
+        for name, spec in update["parameterSpace"].items():
+            self.assertGreaterEqual(update["updatedParameters"][name], spec["min"])
+            self.assertLessEqual(update["updatedParameters"][name], spec["max"])
+        self.assertEqual(artifact["parameters"], update["updatedParameters"])
+        self.assertEqual(artifact["policyUpdateIterations"], 1)
+        self.assertEqual(artifact["sourceReportId"], "policy-gradient-update")
+        self.assertFalse(artifact["liveEffect"])
+        self.assertFalse(artifact["officialMmoWrites"])
+        self.assertFalse(artifact["officialMmoWritesAllowed"])
+        self.assertFalse(artifact["safety"]["liveEffect"])
+        self.assertFalse(artifact["safety"]["officialMmoWrites"])
+
+    def test_policy_gradient_rejects_card_and_evaluated_parameter_drift(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-drift",
+            code_commit="e" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T04:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        drifted_variant = card["strategy_variants"][1]
+        drifted_variant["parameters"] = {
+            **drifted_variant["parameters"],
+            "territorySignalWeight": drifted_variant["parameters"]["territorySignalWeight"] - 1,
+        }
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results = {
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in variant_ids
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+
+            with self.assertRaisesRegex(runner.TrainingCardError, "drift from evaluated parameters"):
+                runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id="policy-gradient-drift",
+                    simulator_runner=MockSimulator(simulator_results),
+                )
+
     def test_loop_a_supply_report_preserves_card_supply_and_is_discoverably_consumed(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-loop-a-runner-report",
