@@ -1365,7 +1365,10 @@ def main(
             dataset_run_id = source_dataset_run_id
         elif args.from_latest_accepted_dataset or args.loop_a_local_fallback:
             if dataset_run_id is not None:
-                raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
+                raise CardValidationError(
+                    "--from-latest-accepted-dataset or --loop-a-local-fallback cannot be combined "
+                    "with --dataset-run-id"
+                )
             source_gate = select_accepted_dataset_gate(args.dataset_gate_root)
             dataset_run_id = str(source_gate["dataset_run_id"])
         if dataset_run_id is None:

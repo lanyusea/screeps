@@ -322,6 +322,11 @@ class RlExperimentCardTest(unittest.TestCase):
             with self.assertRaises(card_helper.CardValidationError):
                 card_helper.validate_card(live_regression)
 
+            nested_live_regression = json.loads(json.dumps(generated))
+            nested_live_regression["safety"][field] = True
+            with self.assertRaises(card_helper.CardValidationError):
+                card_helper.validate_card(nested_live_regression)
+
     def test_latest_accepted_dataset_skips_malformed_accepted_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
