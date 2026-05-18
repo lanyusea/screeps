@@ -35,6 +35,18 @@ REWARD_COMPONENT_ORDER = ("reliability", "territory", "resources", "kills")
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
 LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_STATES = ("available", "consumed")
+TENCENT_CARD_IDENTITY_FIELDS = ("runId", "cardId", "datasetRunId")
+TENCENT_CARD_IDENTITY_KEYS = {
+    "batchrunid": "runId",
+    "runid": "runId",
+    "tencentbatchrunid": "runId",
+    "tencentrunid": "runId",
+    "cardid": "cardId",
+    "experimentcardid": "cardId",
+    "tencentcardid": "cardId",
+    "datasetrunid": "datasetRunId",
+    "tencentdatasetrunid": "datasetRunId",
+}
 CARD_SUPPLY_BLOCKER_MARKERS = (
     "loopacardpathstalledcycles",
     "loopacardpipelinestalled",
@@ -984,9 +996,57 @@ def card_supply_from_training_payload(payload: JsonObject, path: Path | None) ->
     return None
 
 
-def training_payload_references_tencent_card(payload: JsonObject) -> bool:
-    artifacts = as_dict(payload.get("trainingArtifacts"))
-    return "tencent" in normalized_key(canonical_json(artifacts))
+def tencent_card_identity_values(value: Any) -> dict[str, set[str]]:
+    identity: dict[str, set[str]] = {field: set() for field in TENCENT_CARD_IDENTITY_FIELDS}
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, raw in node.items():
+                field = TENCENT_CARD_IDENTITY_KEYS.get(normalized_key(str(key)))
+                raw_text = text_value(raw)
+                if field is not None and raw_text is not None:
+                    identity[field].add(raw_text)
+                if isinstance(raw, (dict, list)):
+                    visit(raw)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(value)
+    return identity
+
+
+def card_supply_identity(card_supply: JsonObject) -> dict[str, str | None]:
+    supply = as_dict(card_supply.get("cardSupply"))
+    return {
+        "runId": text_value(card_supply.get("runId")),
+        "cardId": text_value(card_supply.get("cardId")),
+        "datasetRunId": text_value(card_supply.get("datasetRunId"))
+        or text_value(first_present(supply, ("dataset_run_id", "datasetRunId"))),
+    }
+
+
+def tencent_card_identity_matches_supply(
+    identity: dict[str, set[str]],
+    card_supply: JsonObject,
+) -> bool:
+    supply_identity = card_supply_identity(card_supply)
+    for field in TENCENT_CARD_IDENTITY_FIELDS:
+        supply_value = supply_identity.get(field)
+        if supply_value is None or identity.get(field, set()) != {supply_value}:
+            return False
+    return True
+
+
+def training_payload_matches_tencent_card_supply(
+    payload: JsonObject,
+    card_supply: JsonObject,
+) -> bool:
+    artifact_identity = tencent_card_identity_values(as_dict(payload.get("trainingArtifacts")))
+    if tencent_card_identity_matches_supply(artifact_identity, card_supply):
+        return True
+    payload_identity = tencent_card_identity_values(payload)
+    return tencent_card_identity_matches_supply(payload_identity, card_supply)
 
 
 def card_supply_blocker_marker_present(value: Any) -> bool:
@@ -1078,7 +1138,10 @@ def reconcile_card_supply_for_training(
         tencent_internal_card_supply is not None
         and (
             (not training_did_run and card_supply_available_for_training(tencent_internal_card_supply))
-            or (training_did_run and training_payload_references_tencent_card(payload))
+            or (
+                training_did_run
+                and training_payload_matches_tencent_card_supply(payload, tencent_internal_card_supply)
+            )
         )
     ):
         return dict(tencent_internal_card_supply)
