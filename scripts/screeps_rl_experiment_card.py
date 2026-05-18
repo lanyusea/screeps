@@ -17,6 +17,7 @@ from typing import Any, Sequence, TextIO
 
 TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+E1_POSTMERGE_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z-postmerge\d+$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -832,7 +833,7 @@ def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str 
             payload = load_json(path)
         except CardValidationError:
             continue
-        if not is_acceptable_dataset_gate_report(payload):
+        if not is_acceptable_dataset_gate_report(payload, path):
             continue
         try:
             selected_gate_id = accepted_dataset_gate_id(payload, path)
@@ -927,15 +928,36 @@ def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
     )
 
 
-def is_acceptable_dataset_gate_report(payload: Any) -> bool:
+def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) -> bool:
     if not isinstance(payload, dict) or payload.get("type") != SOURCE_GATE_TYPE:
+        return False
+    if not is_e1_postmerge_dataset_gate_report(payload, path):
         return False
     if payload.get("ok") is True:
         return True
-    return is_degraded_e1_gate_acceptable(payload)
+    return is_degraded_e1_gate_acceptable(payload, path)
 
 
-def is_degraded_e1_gate_acceptable(payload: JsonObject) -> bool:
+def is_e1_postmerge_dataset_gate_report(payload: JsonObject, path: Path | None = None) -> bool:
+    gate_id = dataset_gate_id(payload)
+    if gate_id is None or E1_POSTMERGE_DATASET_GATE_ID_RE.fullmatch(gate_id) is None:
+        return False
+    if path is not None and path.parent.name != gate_id:
+        return False
+    return True
+
+
+def dataset_gate_id(payload: JsonObject) -> str | None:
+    for key in ("gateId", "gate_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def is_degraded_e1_gate_acceptable(payload: JsonObject, path: Path | None = None) -> bool:
+    if not is_e1_postmerge_dataset_gate_report(payload, path):
+        return False
     blocking_reasons = payload.get("blockingReasons")
     if not isinstance(blocking_reasons, list) or not blocking_reasons:
         return False
