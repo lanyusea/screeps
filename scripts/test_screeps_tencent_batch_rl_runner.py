@@ -1876,7 +1876,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 pass
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            controller = FakeController(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args = controller_args()
+            args.artifact_root = artifact_root
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=artifact_root / "run-test")
             with (
                 mock.patch.object(runner, "validate_static_inputs", return_value=None),
                 mock.patch.object(
@@ -1895,12 +1898,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(controller, "describe_asg_instances", return_value=[{"InstanceId": "ins-test"}]),
-                mock.patch.object(runner.time, "time", side_effect=[100.0, 100.0, 100.0, 101.1]),
+                mock.patch.object(runner.time, "time", side_effect=[100.0, 100.0, 100.0, 100.0, 101.1]),
                 mock.patch.object(runner.time, "sleep", return_value=None),
             ):
                 controller.run()
 
-            summary = json.loads((Path(temp_dir) / "controller-summary.json").read_text(encoding="utf-8"))
+            summary = json.loads((artifact_root / "run-test" / "controller-summary.json").read_text(encoding="utf-8"))
         self.assertEqual(controller.final_status, "completed_scale_down_failed")
         self.assertEqual(summary["finalStatus"], "completed_scale_down_failed")
         self.assertIn("scale_down timeout", controller.result["scaleDownError"])
@@ -1948,11 +1951,13 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         args = controller_args()
         args.workers = 5
         with tempfile.TemporaryDirectory() as temp_dir:
-            controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args.artifact_root = artifact_root
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=artifact_root / "run-test")
             with mock.patch.object(runner, "validate_static_inputs", return_value=None):
                 with self.assertRaisesRegex(runner.BatchRunError, "training failed"):
                     controller.run()
-            summary = json.loads((Path(temp_dir) / "controller-summary.json").read_text(encoding="utf-8"))
+            summary = json.loads((artifact_root / "run-test" / "controller-summary.json").read_text(encoding="utf-8"))
 
         self.assertEqual(controller.final_status, "failed")
         self.assertEqual(summary["finalStatus"], "failed")
