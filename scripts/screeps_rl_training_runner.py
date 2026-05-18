@@ -1292,17 +1292,27 @@ def bounded_policy_parameters(raw: Any, parameter_space: dict[str, JsonObject]) 
 
 
 def aggregate_policy_reward_tuple(summaries: Sequence[JsonObject]) -> list[float | int]:
-    tuples: list[list[float]] = []
+    weighted_sums = [0.0 for _tier in REWARD_TIERS]
+    total_weight = 0
     for summary in summaries:
         reward = summary.get("reward")
         raw_tuple = reward.get("tuple") if isinstance(reward, dict) else None
         if not isinstance(raw_tuple, list) or len(raw_tuple) < len(REWARD_TIERS):
             continue
-        tuples.append([float(value) for value in raw_tuple[: len(REWARD_TIERS)]])
-    if not tuples:
+        weight = policy_reward_tuple_sample_weight(summary)
+        total_weight += weight
+        for index, value in enumerate(raw_tuple[: len(REWARD_TIERS)]):
+            weighted_sums[index] += float(value) * weight
+    if total_weight == 0:
         return [0 for _tier in REWARD_TIERS]
-    columns = zip(*tuples)
-    return [round_policy_number(statistics.fmean(column)) for column in columns]
+    return [round_policy_number(value / total_weight) for value in weighted_sums]
+
+
+def policy_reward_tuple_sample_weight(summary: JsonObject) -> int:
+    sample_count = int_or_none(summary.get("sampleCount"))
+    if sample_count is None or sample_count < 0:
+        return 1
+    return sample_count
 
 
 def policy_update_anchor_candidate(candidates: Sequence[JsonObject]) -> JsonObject | None:

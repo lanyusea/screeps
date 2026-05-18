@@ -915,6 +915,31 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
+    def test_policy_reward_tuple_aggregation_weights_by_sample_count(self) -> None:
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple(
+                [
+                    {"sampleCount": 20, "reward": {"tuple": [1, 10, 100, 0]}},
+                    {"sampleCount": 1, "reward": {"tuple": [0, 110, 0, 10]}},
+                ]
+            ),
+            [0.952381, 14.761905, 95.238095, 0.47619],
+        )
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple(
+                [
+                    {"reward": {"tuple": [1, 2, 3, 4]}},
+                    {"sampleCount": "invalid", "reward": {"tuple": [3, 4, 5, 6]}},
+                    {"sampleCount": 0, "reward": {"tuple": [100, 100, 100, 100]}},
+                ]
+            ),
+            [2, 3, 4, 5],
+        )
+        self.assertEqual(
+            runner.aggregate_policy_reward_tuple([{"sampleCount": 0, "reward": {"tuple": [1, 2, 3, 4]}}]),
+            [0, 0, 0, 0],
+        )
+
     def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-update",

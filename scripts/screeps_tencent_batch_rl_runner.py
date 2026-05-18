@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import datetime as dt
 import json
 import math
@@ -66,6 +67,11 @@ BUNDLE_SECRET_PATH_PATTERNS = (
     re.compile(r"(^|/)[^/]*\.local$"),
     re.compile(r"(^|/)[^/]*(credential|credentials|private[-_]?key|token)[^/]*\.(json|pem|key|txt)$", re.IGNORECASE),
 )
+POLICY_UPDATE_SAFETY_FIELD_ALIASES = {
+    "liveEffect": ("liveEffect", "live_effect"),
+    "officialMmoWrites": ("officialMmoWrites", "official_mmo_writes"),
+    "officialMmoWritesAllowed": ("officialMmoWritesAllowed", "official_mmo_writes_allowed"),
+}
 
 
 class BatchRunError(RuntimeError):
@@ -734,6 +740,7 @@ tar -czf remote-artifacts.tar.gz \
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
+        safe_policy_update = validated_remote_policy_update(data.get("policyUpdate"), safety_flags)
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
@@ -742,7 +749,7 @@ tar -czf remote-artifacts.tar.gz \
             "changedTopCount": data.get("changedTopCount"),
             "policyUpdateIterations": data.get("policyUpdateIterations"),
             "policyUpdateArtifactPath": data.get("policyUpdateArtifactPath"),
-            "policyUpdate": data.get("policyUpdate"),
+            "policyUpdate": safe_policy_update,
             "ranking": data.get("ranking"),
             "warnings": data.get("warnings"),
             "simulation": data.get("simulation"),
@@ -1121,6 +1128,33 @@ def safe_extract_tar(tar_path: Path, extract_dir: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             with source, target.open("wb") as out:
                 shutil.copyfileobj(source, out)
+
+
+def validated_remote_policy_update(raw: Any, top_level_safety: dict[str, Any]) -> Any:
+    unsafe = unsafe_policy_update_safety_flags(raw, "policyUpdate", top_level_safety)
+    if unsafe:
+        raise BatchRunError("remote policyUpdate safety flags are unsafe: " + "; ".join(unsafe))
+    return copy.deepcopy(raw)
+
+
+def unsafe_policy_update_safety_flags(value: Any, label: str, top_level_safety: dict[str, Any]) -> list[str]:
+    if isinstance(value, dict):
+        unsafe: list[str] = []
+        for control, aliases in POLICY_UPDATE_SAFETY_FIELD_ALIASES.items():
+            for field in aliases:
+                if value.get(field) is True and top_level_safety.get(control) is not True:
+                    unsafe.append(f"{label}.{field}=true")
+        for key, nested in value.items():
+            if isinstance(nested, (dict, list)):
+                unsafe.extend(unsafe_policy_update_safety_flags(nested, f"{label}.{key}", top_level_safety))
+        return unsafe
+    if isinstance(value, list):
+        unsafe = []
+        for index, item in enumerate(value):
+            if isinstance(item, (dict, list)):
+                unsafe.extend(unsafe_policy_update_safety_flags(item, f"{label}[{index}]", top_level_safety))
+        return unsafe
+    return []
 
 
 def parse_tencent_activity_time(value: Any) -> float | None:

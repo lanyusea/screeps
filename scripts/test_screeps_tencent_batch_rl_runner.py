@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -284,6 +285,43 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(runner.BatchRunError, "officialMmoWritesAllowed"):
                 controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_unsafe_nested_policy_update_flags(self) -> None:
+        unsafe_updates = [
+            ("policyUpdate.liveEffect=true", {"iterations": 1, "liveEffect": True}),
+            (
+                "policyUpdate.nextCandidatePolicy.official_mmo_writes_allowed=true",
+                {
+                    "iterations": 1,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "nextCandidatePolicy": {"official_mmo_writes_allowed": True},
+                },
+            ),
+        ]
+        for expected_error, policy_update in unsafe_updates:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(
+                    json.dumps(
+                        {
+                            "reportId": "run-test",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "artifactCount": 1,
+                            "policyUpdate": policy_update,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, re.escape(expected_error)):
+                    controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
