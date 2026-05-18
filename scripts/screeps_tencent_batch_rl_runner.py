@@ -131,6 +131,20 @@ ZERO_ITERATION_POLICY_UPDATE_FORBIDDEN_KEYS = {
     "updatedParameters",
     "updated_parameters",
 }
+CLI_EXPLICIT_OPTION_DESTS = {
+    "--training-approach": "training_approach",
+    "--scenario-id": "scenario_id",
+    "--require-multi-tier-scenario": "require_multi_tier_scenario",
+    "--ticks": "ticks",
+    "--workers": "workers",
+    "--scale-environments": "scale_environments",
+    "--repetitions": "repetitions",
+}
+PREFLIGHT_MODE_OPTION_DESTS = frozenset((
+    "training_approach",
+    "scenario_id",
+    "require_multi_tier_scenario",
+))
 
 
 class BatchRunError(RuntimeError):
@@ -2160,8 +2174,18 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
 
 
 def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    explicit_options = set(getattr(args, "explicit_cli_options", ()))
+    command = getattr(args, "command", None)
+    explicit_preflight_mode = bool(explicit_options.intersection(PREFLIGHT_MODE_OPTION_DESTS))
+    if command == "preflight" and not explicit_preflight_mode:
+        args.training_approach = "policy_gradient"
+        args.scenario_id = MULTI_TIER_SCENARIO_ID
+        args.require_multi_tier_scenario = True
+        return args
     if getattr(args, "scenario_id", None) is None:
-        if args.training_approach == "policy_gradient":
+        if args.training_approach == "policy_gradient" or (
+            command == "preflight" and getattr(args, "require_multi_tier_scenario", False)
+        ):
             args.scenario_id = MULTI_TIER_SCENARIO_ID
             args.require_multi_tier_scenario = True
         else:
@@ -2169,6 +2193,17 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
     elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
         args.require_multi_tier_scenario = True
     return args
+
+
+def explicit_cli_option_dests(argv: Sequence[str]) -> set[str]:
+    explicit: set[str] = set()
+    for token in argv:
+        if token == "--":
+            break
+        for option, dest in CLI_EXPLICIT_OPTION_DESTS.items():
+            if token == option or token.startswith(option + "="):
+                explicit.add(dest)
+    return explicit
 
 
 def list_tracked_bundle_paths() -> list[str]:
@@ -2228,7 +2263,10 @@ def create_repo_bundle(package: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run bounded Screeps RL training on one Tencent ASG worker.")
+    parser = argparse.ArgumentParser(
+        description="Run bounded Screeps RL training on one Tencent ASG worker.",
+        allow_abbrev=False,
+    )
     parser.add_argument("command", choices=("run-single", "preflight"))
     parser.add_argument("--run-id", default=default_run_id())
     parser.add_argument("--region", default=DEFAULT_REGION)
@@ -2277,10 +2315,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(raw_argv)
+    args.explicit_cli_options = explicit_cli_option_dests(raw_argv)
     args.preflight_only = args.command == "preflight"
     apply_cli_scenario_defaults(args)
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_cli_args(argv)
     run_id = args.run_id
     artifact_dir = (REPO_ROOT / args.artifact_root / run_id).resolve()
     controller = Controller(args=args, run_id=run_id, artifact_dir=artifact_dir)
