@@ -68,6 +68,7 @@ POLICY_GRADIENT_SIMULATION_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
 POLICY_GRADIENT_UPDATE_ALGORITHM = "reinforce_v1"
 POLICY_GRADIENT_UPDATE_LEARNING_RATE = 1
+POLICY_GRADIENT_UPDATE_ESTIMATOR = "score_function_reinforce_v1"
 LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
@@ -798,7 +799,7 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
         "policy_update": {
             "algorithm": POLICY_GRADIENT_UPDATE_ALGORITHM,
             "learning_rate": POLICY_GRADIENT_UPDATE_LEARNING_RATE,
-            "estimator": "score_function_reinforce_v1",
+            "estimator": POLICY_GRADIENT_UPDATE_ESTIMATOR,
             "bounded_integer_step": True,
         },
         "runner_support": {
@@ -1647,6 +1648,8 @@ def validate_policy_gradient(raw: Any) -> None:
             raise CardValidationError(f"duplicate policy_gradient candidatePolicyId: {candidate_policy_id}")
         candidate_ids.add(candidate_policy_id)
 
+    validate_policy_gradient_update(first_present(raw, ("policy_update", "policyUpdate")))
+
     support = first_present(raw, ("runner_support", "runnerSupport"))
     if not isinstance(support, dict):
         raise CardValidationError("policy_gradient.runner_support must be a JSON object")
@@ -1672,6 +1675,29 @@ def validate_policy_gradient(raw: Any) -> None:
     safety = raw.get("safety")
     if safety is not None:
         validate_safety({"safety": safety})
+
+
+def validate_policy_gradient_update(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise CardValidationError("policy_gradient.policy_update must be a JSON object")
+    algorithm = first_present(raw, ("algorithm", "policy_update_algorithm", "policyUpdateAlgorithm"))
+    if algorithm != POLICY_GRADIENT_UPDATE_ALGORITHM:
+        raise CardValidationError(
+            f"policy_gradient.policy_update.algorithm must be {POLICY_GRADIENT_UPDATE_ALGORITHM}"
+        )
+    learning_rate = first_present(raw, ("learning_rate", "learningRate"))
+    if not is_finite_number(learning_rate) or float(learning_rate) != float(POLICY_GRADIENT_UPDATE_LEARNING_RATE):
+        raise CardValidationError(
+            f"policy_gradient.policy_update.learning_rate must be {POLICY_GRADIENT_UPDATE_LEARNING_RATE}"
+        )
+    estimator = raw.get("estimator")
+    if estimator != POLICY_GRADIENT_UPDATE_ESTIMATOR:
+        raise CardValidationError(
+            f"policy_gradient.policy_update.estimator must be {POLICY_GRADIENT_UPDATE_ESTIMATOR}"
+        )
+    bounded_step = first_present(raw, ("bounded_integer_step", "boundedIntegerStep"))
+    if bounded_step is not True:
+        raise CardValidationError("policy_gradient.policy_update.bounded_integer_step must be true")
 
 
 def validate_policy_gradient_strategy_variants(policy_gradient: Any, strategy_variants: Any) -> None:
