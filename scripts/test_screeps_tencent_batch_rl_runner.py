@@ -936,12 +936,28 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+            observed_cmds: list[list[str]] = []
 
             def fake_run_cp(name: str, cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                observed_cmds.append(cmd)
                 if name == "generate_experiment_card":
                     output = Path(cmd[cmd.index("--output") + 1])
                     payload = generated_experiment_card()
                     payload["training_approach"] = "policy_gradient"
+                    if "--loop-a-policy-gradient-supply" in cmd:
+                        payload["card_supply"] = {
+                            "type": "screeps-rl-loop-a-card-supply",
+                            "consumer": "loop-a-policy-gradient",
+                            "state": "available",
+                            "available_for_training": True,
+                            "dataset_run_id": payload["dataset_run_id"],
+                            "training_approach": payload["training_approach"],
+                            "created_at": payload["created_at"],
+                            "status_field": "status",
+                            "safety_status": "shadow",
+                            "consumed_at": None,
+                            "consumed_by_report_id": None,
+                        }
                     payload["simulation"]["ticks"] = 100
                     payload["simulation"]["workers"] = 1
                     payload["simulation"]["repetitions"] = 1
@@ -955,11 +971,18 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             spec = json.loads((root / "scale_proof_spec.json").read_text(encoding="utf-8"))
 
         self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertIn("--loop-a-policy-gradient-supply", observed_cmds[0])
+        self.assertEqual(card["card_supply"]["type"], "screeps-rl-loop-a-card-supply")
+        self.assertEqual(card["card_supply"]["consumer"], "loop-a-policy-gradient")
+        self.assertTrue(card["card_supply"]["available_for_training"])
         self.assertEqual(card["simulation"]["ticks"], 500)
         self.assertEqual(card["simulation"]["workers"], 5)
         self.assertEqual(card["simulation"]["repetitions"], 5)
         self.assertFalse(card["officialMmoWrites"])
         self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertEqual(controller.result["experimentCard"]["trainingApproach"], "policy_gradient")
+        self.assertEqual(controller.result["experimentCard"]["cardSupply"]["state"], "available")
+        self.assertEqual(spec["experimentCard"]["cardSupply"]["state"], "available")
         self.assertEqual(spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"], 500)
 
     def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:

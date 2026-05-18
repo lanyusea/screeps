@@ -29,6 +29,22 @@ LANES = (
     ("E5", "rollout"),
 )
 SECRET_PATH_MARKERS = ("token", "secret", "password", "steam_key", ".screepsrc")
+SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
+SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
+REWARD_COMPONENT_ORDER = ("reliability", "territory", "resources", "kills")
+LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
+LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
+LOOP_A_CARD_SUPPLY_STATES = ("available", "consumed")
+CARD_SUPPLY_BLOCKER_MARKERS = (
+    "loopacardpathstalledcycles",
+    "loopacardpipelinestalled",
+    "cardpipelinestalled",
+    "nostandaloneexperimentcard",
+    "nounconsumedexperimentcard",
+    "standaloneexperimentcard",
+    "standalonecardsupply",
+    "cardsupplystarvation",
+)
 TIMESTAMP_KEYS = (
     "createdAt",
     "producedAt",
@@ -50,6 +66,10 @@ class LoadedArtifact:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=True, default=str)
 
 
 def repo_root_from_script() -> Path:
@@ -234,6 +254,248 @@ def as_dict(value: Any) -> JsonObject:
 
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def first_present(value: JsonObject, keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in value:
+            return value[key]
+    return None
+
+
+def card_training_approach(card: JsonObject) -> str | None:
+    return text_value(first_present(card, ("training_approach", "trainingApproach")))
+
+
+def card_supply_metadata(card: JsonObject) -> JsonObject:
+    return as_dict(first_present(card, ("card_supply", "cardSupply")))
+
+
+def safety_flags_are_shadow(raw: JsonObject) -> bool:
+    safety = as_dict(raw.get("safety"))
+    if not safety:
+        return False
+    for field in SAFETY_FALSE_FIELDS:
+        if safety.get(field) is not False:
+            return False
+        if field in raw and raw[field] is not False:
+            return False
+    for field in SAFETY_TRUE_FIELDS:
+        if safety.get(field) is not True:
+            return False
+        if field in raw and raw[field] is not True:
+            return False
+    return True
+
+
+def reward_model_is_lexicographic(raw: JsonObject) -> bool:
+    reward = as_dict(first_present(raw, ("reward_model", "rewardModel")))
+    if not reward:
+        return False
+    if reward.get("type") != "lexicographic":
+        return False
+    order = first_present(reward, ("component_order", "componentOrder"))
+    if order != list(REWARD_COMPONENT_ORDER):
+        return False
+    scalar_authorized = first_present(
+        reward,
+        ("scalar_weighted_sum_authorized", "scalarWeightedSumAuthorized"),
+    )
+    return scalar_authorized is False
+
+
+def valid_loop_a_card_supply(card: JsonObject) -> bool:
+    supply = card_supply_metadata(card)
+    if not supply:
+        return False
+    if supply.get("type") != LOOP_A_CARD_SUPPLY_TYPE:
+        return False
+    if supply.get("consumer") != LOOP_A_CARD_SUPPLY_CONSUMER:
+        return False
+    if supply.get("state") not in LOOP_A_CARD_SUPPLY_STATES:
+        return False
+    if supply.get("training_approach") != card_training_approach(card):
+        return False
+    if supply.get("safety_status") != "shadow" or supply.get("status_field") != "status":
+        return False
+    state = supply.get("state")
+    if state == "available":
+        return (
+            card.get("status") == "shadow"
+            and card_training_approach(card) == "policy_gradient"
+            and supply.get("available_for_training") is True
+            and supply.get("consumed_at") is None
+            and supply.get("consumed_by_report_id") is None
+        )
+    return (
+        supply.get("available_for_training") is False
+        and isinstance(supply.get("consumed_at"), str)
+        and isinstance(supply.get("consumed_by_report_id"), str)
+        and bool(supply.get("consumed_by_report_id"))
+    )
+
+
+def policy_gradient_metadata_present(card: JsonObject) -> bool:
+    return isinstance(first_present(card, ("policy_gradient", "policyGradient")), dict)
+
+
+def valid_policy_gradient_card(card: JsonObject, *, reward_container: JsonObject | None = None) -> bool:
+    if card.get("status") != "shadow":
+        return False
+    if card_training_approach(card) != "policy_gradient":
+        return False
+    if not safety_flags_are_shadow(card):
+        return False
+    if not policy_gradient_metadata_present(card):
+        return False
+    return reward_model_is_lexicographic(card) or (
+        reward_container is not None and reward_model_is_lexicographic(reward_container)
+    )
+
+
+def loop_a_card_supply_summary(
+    *,
+    card: JsonObject,
+    path: Path | None,
+    source: str,
+    run_id: str | None = None,
+) -> JsonObject:
+    supply = card_supply_metadata(card)
+    has_supply = valid_loop_a_card_supply(card)
+    summary: JsonObject = {
+        "status": "PRIMARY_SATISFIED",
+        "classification": "TENCENT_INTERNAL_POLICY_GRADIENT_PRIMARY",
+        "source": source,
+        "severity": "OK",
+        "fallbackStatus": "DEGRADED",
+        "fallbackSeverity": "P2",
+        "fallbackReason": "Standalone experiment-card availability is a local fallback path; Tencent internal policy-gradient card evidence satisfies primary training supply.",
+        "cardId": first_present(card, ("card_id", "cardId")),
+        "createdAt": first_present(card, ("created_at", "createdAt")),
+        "datasetRunId": first_present(card, ("dataset_run_id", "datasetRunId")),
+        "trainingApproach": card_training_approach(card),
+        "path": str(path) if path is not None else None,
+        "runId": run_id,
+        "hasLoopACardSupplyMetadata": has_supply,
+    }
+    if supply:
+        summary["cardSupply"] = supply
+    if not has_supply:
+        summary["metadataNote"] = (
+            "Valid legacy Tencent internal policy-gradient card evidence has no explicit Loop A card_supply "
+            "metadata; generated Tencent cards should include it going forward."
+        )
+    return summary
+
+
+def blocked_card_supply_summary(reason: str | None = None) -> JsonObject:
+    return {
+        "status": "BLOCKED",
+        "classification": "CARD_SUPPLY_BLOCKED",
+        "source": None,
+        "severity": "P0",
+        "reason": reason or "No valid standalone or Tencent internal policy-gradient card supply evidence.",
+    }
+
+
+def tencent_summary_run_id(payload: JsonObject, path: Path) -> str:
+    return text_value(payload.get("runId")) or path.parent.name
+
+
+def card_supply_from_full_card(path: Path, warnings: list[str], repo_root: Path, *, run_id: str) -> JsonObject | None:
+    artifact = load_artifact(path, warnings, repo_root)
+    if artifact is None:
+        return None
+    if not valid_policy_gradient_card(artifact.payload):
+        return None
+    return loop_a_card_supply_summary(
+        card=artifact.payload,
+        path=artifact.path,
+        source="tencent_internal_experiment_card",
+        run_id=run_id,
+    )
+
+
+def card_supply_from_training_report(path: Path, warnings: list[str], repo_root: Path, *, run_id: str) -> JsonObject | None:
+    artifact = load_artifact(path, warnings, repo_root)
+    if artifact is None:
+        return None
+    payload = artifact.payload
+    safety = {field: payload.get(field) for field in SAFETY_FALSE_FIELDS}
+    if any(value is not False for value in safety.values()):
+        return None
+    card = as_dict(payload.get("experimentCard"))
+    if not valid_policy_gradient_card(card, reward_container=payload):
+        return None
+    return loop_a_card_supply_summary(
+        card=card,
+        path=artifact.path,
+        source="tencent_internal_training_report",
+        run_id=run_id,
+    )
+
+
+def card_supply_from_controller_summary(
+    artifact: LoadedArtifact,
+    warnings: list[str],
+    repo_root: Path,
+) -> JsonObject | None:
+    payload = artifact.payload
+    if payload.get("type") != "screeps-tencent-batch-rl-run" and "tencent-cloud" not in str(artifact.path):
+        return None
+    run_id = tencent_summary_run_id(payload, artifact.path)
+    candidates: list[JsonObject] = []
+
+    output_card = as_dict(as_dict(payload.get("outputs")).get("experimentCard"))
+    if valid_policy_gradient_card(output_card):
+        candidates.append(
+            loop_a_card_supply_summary(
+                card=output_card,
+                path=artifact.path,
+                source="tencent_controller_summary",
+                run_id=run_id,
+            )
+        )
+
+    full_card = artifact.path.parent / "experiment_card.json"
+    if full_card.is_file():
+        evidence = card_supply_from_full_card(full_card, warnings, repo_root, run_id=run_id)
+        if evidence is not None:
+            candidates.append(evidence)
+
+    report_dir = artifact.path.parent / "remote" / "runtime-artifacts" / "rl-training"
+    if report_dir.is_dir():
+        for report in sorted(report_dir.glob("*.json")):
+            evidence = card_supply_from_training_report(report, warnings, repo_root, run_id=run_id)
+            if evidence is not None:
+                candidates.append(evidence)
+
+    if not candidates:
+        return None
+    return candidates[-1]
+
+
+def discover_tencent_internal_card_supply(
+    artifact_root: Path,
+    *,
+    warnings: list[str],
+    repo_root: Path,
+) -> JsonObject | None:
+    candidates: list[tuple[datetime, str, JsonObject]] = []
+    root = artifact_root / "tencent-cloud" / "batch-runs"
+    for path in existing_globs(root, ("*/controller-summary.json",)):
+        artifact = load_artifact(path, warnings, repo_root)
+        if artifact is None:
+            continue
+        evidence = card_supply_from_controller_summary(artifact, warnings, repo_root)
+        if evidence is None:
+            continue
+        created = parse_iso_datetime(text_value(evidence.get("createdAt")) or "") or artifact.timestamp
+        candidates.append((created, str(path), evidence))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
 
 
 def nested_value(value: Any, path: Sequence[str]) -> Any:
@@ -679,7 +941,65 @@ def simulator_health(
     }
 
 
-def training_execution(latest_training: LoadedArtifact | None) -> JsonObject:
+def card_supply_from_training_payload(payload: JsonObject, path: Path | None) -> JsonObject | None:
+    card = as_dict(payload.get("experimentCard"))
+    if valid_policy_gradient_card(card, reward_container=payload):
+        return loop_a_card_supply_summary(
+            card=card,
+            path=path,
+            source="training_report_experiment_card",
+            run_id=text_value(payload.get("reportId")),
+        )
+    return None
+
+
+def card_supply_blocker_text_present(payload: JsonObject) -> bool:
+    text = normalized_key(canonical_json(payload))
+    return any(marker in text for marker in CARD_SUPPLY_BLOCKER_MARKERS)
+
+
+def reconcile_card_supply_for_training(
+    payload: JsonObject,
+    *,
+    latest_path: Path | None,
+    tencent_internal_card_supply: JsonObject | None,
+) -> JsonObject:
+    artifact_count = number_value(payload.get("artifactCount"))
+    iteration = as_dict(payload.get("iterationExecution"))
+    episodes_run = number_value(iteration.get("episodesRun"))
+    policy_updates = number_value(iteration.get("policyUpdateIterations"))
+    training_did_run = (
+        payload.get("trainingDidRun") is True
+        or (artifact_count or 0) > 0
+        or (episodes_run or 0) > 0
+        or (policy_updates or 0) > 0
+    )
+    embedded_supply = card_supply_from_training_payload(payload, latest_path)
+    if training_did_run and embedded_supply is not None:
+        return embedded_supply
+    if training_did_run and tencent_internal_card_supply is not None:
+        return dict(tencent_internal_card_supply)
+    if training_did_run:
+        return {
+            "status": "DEGRADED",
+            "classification": "TRAINING_RAN_WITHOUT_STRUCTURED_CARD_SUPPLY_EVIDENCE",
+            "source": None,
+            "severity": "P2",
+            "fallbackStatus": "DEGRADED",
+            "fallbackSeverity": "P2",
+            "reason": (
+                "Training ran, but no structured safety-validated Tencent or standalone card evidence was found "
+                "for dashboard reconciliation."
+            ),
+        }
+    return blocked_card_supply_summary()
+
+
+def training_execution(
+    latest_training: LoadedArtifact | None,
+    *,
+    tencent_internal_card_supply: JsonObject | None = None,
+) -> JsonObject:
     if latest_training is None:
         return {
             "hasData": False,
@@ -689,6 +1009,7 @@ def training_execution(latest_training: LoadedArtifact | None) -> JsonObject:
             "timestamp": None,
             "blocker": "No training ledger found.",
             "latestPath": None,
+            "cardSupply": blocked_card_supply_summary("No training ledger found."),
         }
     payload = latest_training.payload
     iteration = as_dict(payload.get("iterationExecution"))
@@ -699,6 +1020,18 @@ def training_execution(latest_training: LoadedArtifact | None) -> JsonObject:
     updates = number_value(iteration.get("policyUpdateIterations"))
     if updates is None:
         updates = number_value(metrics_feed.get("policyUpdateIterations"))
+    card_supply = reconcile_card_supply_for_training(
+        payload,
+        latest_path=latest_training.path,
+        tencent_internal_card_supply=tencent_internal_card_supply,
+    )
+    blocker = text_value(payload.get("trainingBlocker")) or text_value(payload.get("nextTrainingCapabilityAction"))
+    if (
+        payload.get("trainingDidRun") is not True
+        and card_supply.get("status") == "BLOCKED"
+        and not blocker
+    ):
+        blocker = text_value(card_supply.get("reason"))
     return {
         "hasData": True,
         "status": text_value(payload.get("status")) or ("RUN" if payload.get("trainingDidRun") else "NOT_RUN"),
@@ -706,8 +1039,9 @@ def training_execution(latest_training: LoadedArtifact | None) -> JsonObject:
         "episodes": episodes,
         "policyUpdates": updates,
         "timestamp": latest_training.timestamp,
-        "blocker": text_value(payload.get("trainingBlocker")) or text_value(payload.get("nextTrainingCapabilityAction")),
+        "blocker": blocker,
         "latestPath": latest_training.path,
+        "cardSupply": card_supply,
     }
 
 
@@ -721,7 +1055,35 @@ def metric_observation_map(latest_metrics: LoadedArtifact | None) -> dict[str, J
     return observations
 
 
-def policy_advantage(latest_policy: LoadedArtifact | None, latest_metrics: LoadedArtifact | None) -> JsonObject:
+def card_supply_finding_for_policy(payload: JsonObject, training: JsonObject | None) -> JsonObject | None:
+    if not card_supply_blocker_text_present(payload):
+        return None
+    card_supply = as_dict((training or {}).get("cardSupply"))
+    if card_supply.get("status") == "PRIMARY_SATISFIED":
+        return {
+            "status": "FALLBACK_DEGRADED",
+            "severity": "P2",
+            "classification": "STANDALONE_CARD_SUPPLY_FALLBACK_DEGRADED",
+            "reason": (
+                "Policy report references standalone Loop A card-path stall, but valid Tencent internal "
+                "policy-gradient card evidence satisfies the primary training card supply."
+            ),
+            "primarySupply": card_supply,
+        }
+    return {
+        "status": "BLOCKED",
+        "severity": "P0",
+        "classification": "CARD_SUPPLY_BLOCKER_ACTIVE",
+        "reason": "Policy report references Loop A card supply stall and no valid primary card evidence was found.",
+    }
+
+
+def policy_advantage(
+    latest_policy: LoadedArtifact | None,
+    latest_metrics: LoadedArtifact | None,
+    *,
+    training: JsonObject | None = None,
+) -> JsonObject:
     observations = metric_observation_map(latest_metrics)
     if latest_policy is None:
         return {
@@ -733,6 +1095,7 @@ def policy_advantage(latest_policy: LoadedArtifact | None, latest_metrics: Loade
             "latestPath": None,
             "metrics": [],
             "shadowMetrics": shadow_metrics(observations),
+            "cardSupplyFinding": None,
         }
 
     payload = latest_policy.payload
@@ -763,6 +1126,7 @@ def policy_advantage(latest_policy: LoadedArtifact | None, latest_metrics: Loade
         "latestPath": latest_policy.path,
         "metrics": metrics[:8],
         "shadowMetrics": shadow_metrics(observations),
+        "cardSupplyFinding": card_supply_finding_for_policy(payload, training),
     }
 
 
@@ -889,9 +1253,14 @@ def build_dashboard(repo_root: Path, artifact_root: Path, generated_at: str) -> 
         latest_metrics=latest_metrics,
     )
     gate = latest_gate(gates)
+    tencent_card_supply = discover_tencent_internal_card_supply(
+        artifact_root,
+        warnings=warnings,
+        repo_root=repo_root,
+    )
     simulator = simulator_health(artifact_root, repo_root=repo_root, warnings=warnings, latest_training=latest_training)
-    training = training_execution(latest_training)
-    policy = policy_advantage(latest_policy, latest_metrics)
+    training = training_execution(latest_training, tencent_internal_card_supply=tencent_card_supply)
+    policy = policy_advantage(latest_policy, latest_metrics, training=training)
     conclusions = conclusion_summary(conclusion_artifact)
     lanes = lane_statuses(gate, simulator, training, policy)
 
@@ -912,6 +1281,7 @@ def build_dashboard(repo_root: Path, artifact_root: Path, generated_at: str) -> 
         "simulator": simulator,
         "training": training,
         "policy": policy,
+        "cardSupply": training.get("cardSupply"),
     }
 
 
@@ -1023,10 +1393,19 @@ def render_simulator(simulator: JsonObject, repo_root: Path) -> str:
 
 
 def render_training(training: JsonObject, repo_root: Path) -> str:
+    card_supply = as_dict(training.get("cardSupply"))
+    card_supply_status = "N/A"
+    if card_supply:
+        card_supply_status = (
+            f"{card_supply.get('status', 'N/A')} / "
+            f"fallback {card_supply.get('fallbackStatus', 'N/A')} "
+            f"({card_supply.get('fallbackSeverity', card_supply.get('severity', 'N/A'))})"
+        )
     rows = [
         f"<tr><td>Status</td><td>{h(training.get('status', 'N/A'))}</td></tr>",
         f"<tr><td>Episodes</td><td>{h(format_count(training.get('episodes')))}</td></tr>",
         f"<tr><td>Policy updates</td><td>{h(format_count(training.get('policyUpdates')))}</td></tr>",
+        f"<tr><td>Card supply</td><td>{h(card_supply_status)}</td></tr>",
         f"<tr><td>Last ledger timestamp</td><td>{h(display_timestamp(training.get('timestamp')))}</td></tr>",
         f"<tr><td>Blocker</td><td>{h(shorten(training.get('blocker') or 'N/A', 260))}</td></tr>",
     ]
@@ -1049,6 +1428,7 @@ def render_policy(policy: JsonObject, repo_root: Path) -> str:
             "</tr>"
         )
     shadow = as_dict(policy.get("shadowMetrics"))
+    card_supply_finding = as_dict(policy.get("cardSupplyFinding"))
     shadow_rows = [
         f"<tr><td>changedTopCount</td><td>{h(format_count(shadow.get('changedTopCount')))}</td></tr>",
         f"<tr><td>rankingDiffCount</td><td>{h(format_count(shadow.get('rankingDiffCount')))}</td></tr>",
@@ -1057,6 +1437,11 @@ def render_policy(policy: JsonObject, repo_root: Path) -> str:
         f"<tr><td>shadow kills KPI</td><td>{h(format_count(shadow.get('kills')))}</td></tr>",
         f"<tr><td>shadow reliability passed</td><td>{h(display_value(shadow.get('reliabilityPassed')))}</td></tr>",
     ]
+    if card_supply_finding:
+        shadow_rows.append(
+            f"<tr><td>card supply finding</td><td>{h(card_supply_finding.get('status', 'N/A'))} "
+            f"{h(card_supply_finding.get('severity', 'N/A'))}</td></tr>"
+        )
     meta = (
         f"Status: {h(policy.get('status', 'N/A'))} | Candidate: {h(policy.get('candidate', 'N/A'))} | "
         f"Baseline: {h(policy.get('baseline', 'N/A'))} | "
