@@ -494,6 +494,139 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 with self.assertRaisesRegex(runner.BatchRunError, pattern):
                     runner.validate_scale_proof_result(malformed, 5)
 
+    def test_scale_up_clears_known_host_once_before_first_ssh_probe(self) -> None:
+        args = controller_args()
+        events: list[tuple[str, object]] = []
+
+        class FakeController(runner.Controller):
+            def tccli(self, name: str, *params: str, check: bool = True, timeout: int = 90) -> dict[str, object]:
+                return {}
+
+            def describe_asg_instances(self) -> list[dict[str, object]]:
+                return [{"InstanceId": "ins-test"}]
+
+            def describe_cvm_instances(self, instance_ids: list[str]) -> list[dict[str, object]]:
+                return [
+                    {
+                        "InstanceId": "ins-test",
+                        "InstanceState": "RUNNING",
+                        "PublicIpAddresses": ["203.0.113.10"],
+                        "PrivateIpAddresses": ["10.0.0.10"],
+                        "InstanceType": "S5.SMALL1",
+                    }
+                ]
+
+            def latest_scale_out_failure(self, *, after_epoch: float) -> dict[str, object] | None:
+                return None
+
+            def wait_for_ssh(self) -> bool:
+                events.append(("wait_for_ssh", {"public_ip": self.public_ip, "steps": [step.name for step in self.steps]}))
+                return len([event for event in events if event[0] == "wait_for_ssh"]) >= 2
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                events.append(("clear_known_host", {"cmd": cmd, "public_ip": controller.public_ip}))
+                return subprocess.CompletedProcess(cmd, 0, "removed\n", "")
+
+            with (
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None),
+            ):
+                controller.scale_up_and_wait()
+
+        self.assertEqual([event[0] for event in events], ["clear_known_host", "wait_for_ssh", "wait_for_ssh"])
+        clear_event = events[0][1]
+        self.assertIsInstance(clear_event, dict)
+        self.assertEqual(clear_event["public_ip"], "203.0.113.10")
+        self.assertEqual(clear_event["cmd"], ["ssh-keygen", "-R", "203.0.113.10", "-f", args.known_hosts_path])
+        first_probe_event = events[1][1]
+        self.assertIsInstance(first_probe_event, dict)
+        self.assertEqual(first_probe_event["public_ip"], "203.0.113.10")
+        self.assertIn("clear_worker_known_host", first_probe_event["steps"])
+        self.assertEqual([step.name for step in controller.steps].count("clear_worker_known_host"), 1)
+
+    def test_scale_up_known_host_cleanup_failure_does_not_raise(self) -> None:
+        args = controller_args()
+
+        class FakeController(runner.Controller):
+            def tccli(self, name: str, *params: str, check: bool = True, timeout: int = 90) -> dict[str, object]:
+                return {}
+
+            def describe_asg_instances(self) -> list[dict[str, object]]:
+                return [{"InstanceId": "ins-test"}]
+
+            def describe_cvm_instances(self, instance_ids: list[str]) -> list[dict[str, object]]:
+                return [
+                    {
+                        "InstanceId": "ins-test",
+                        "InstanceState": "RUNNING",
+                        "PublicIpAddresses": ["203.0.113.10"],
+                        "PrivateIpAddresses": [],
+                    }
+                ]
+
+            def latest_scale_out_failure(self, *, after_epoch: float) -> dict[str, object] | None:
+                return None
+
+            def wait_for_ssh(self) -> bool:
+                return True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            with mock.patch.object(
+                runner.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(["ssh-keygen"], 255, "", "host not found\n"),
+            ):
+                controller.scale_up_and_wait()
+
+        clear_steps = [step for step in controller.steps if step.name == "clear_worker_known_host"]
+        self.assertEqual(len(clear_steps), 1)
+        self.assertFalse(clear_steps[0].ok)
+        self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
+
+    def test_clear_known_host_skips_when_public_ip_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            with mock.patch.object(runner.subprocess, "run") as run:
+                controller.clear_worker_known_host()
+
+        run.assert_not_called()
+        self.assertFalse([step for step in controller.steps if step.name == "clear_worker_known_host"])
+
+    def test_ssh_and_scp_commands_keep_accept_new_host_key_option(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            controller.public_ip = "203.0.113.10"
+            commands: list[list[str]] = []
+
+            def capture_run_cp(
+                name: str,
+                cmd: list[str],
+                *,
+                check: bool = True,
+                timeout: int | None = None,
+                cwd: Path | None = None,
+                input_text: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                commands.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(controller, "run_cp", side_effect=capture_run_cp):
+                controller.ssh_cmd("ssh_probe", "true")
+                controller.scp_to_worker("upload", Path(temp_dir) / "local.txt", "/remote/local.txt")
+                controller.scp_from_worker("download", "/remote/out.txt", Path(temp_dir) / "out" / "out.txt")
+
+        for cmd in commands:
+            with self.subTest(command=cmd[0]):
+                self.assertIn("BatchMode=yes", cmd)
+                self.assertIn("StrictHostKeyChecking=accept-new", cmd)
+
     def test_safe_extract_tar_rejects_traversal_and_special_entries(self) -> None:
         cases = [
             ("../escape", lambda tar: add_file(tar, "../escape")),

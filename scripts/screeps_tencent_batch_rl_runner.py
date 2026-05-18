@@ -35,6 +35,7 @@ DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
 DEFAULT_BILLING_GUARD = Path("/root/.hermes/scripts/screeps-tencent-billing-guard.py")
 DEFAULT_SECRET_ENV = Path("/root/.secret/.env")
 DEFAULT_SSH_KEY = Path("/root/.ssh/id_ed25519")
+DEFAULT_KNOWN_HOSTS = Path("/root/.ssh/known_hosts")
 DEFAULT_REGION = "ap-singapore"
 DEFAULT_ASG_ID = "asg-csw592ro"
 DEFAULT_CONTROLLER_IP = "43.128.104.34/32"
@@ -93,6 +94,7 @@ class Controller:
     public_ip: str | None = None
     private_ip: str | None = None
     steps: list[StepRecord] = field(default_factory=list)
+    known_hosts_cleaned_public_ips: set[str] = field(default_factory=set, repr=False)
     started_at: str = field(default_factory=lambda: utc_now_iso())
     finished_at: str | None = None
     final_status: str = "unknown"
@@ -105,6 +107,10 @@ class Controller:
     @property
     def remote_dir(self) -> str:
         return f"{self.args.remote_base.rstrip('/')}/{self.run_id}"
+
+    @property
+    def known_hosts_path(self) -> Path:
+        return Path(getattr(self.args, "known_hosts_path", DEFAULT_KNOWN_HOSTS))
 
     @property
     def ssh_target(self) -> str:
@@ -244,6 +250,28 @@ class Controller:
             ],
             timeout=timeout,
         )
+
+    def clear_worker_known_host(self) -> None:
+        if not self.public_ip:
+            return
+        if self.public_ip in self.known_hosts_cleaned_public_ips:
+            return
+        self.known_hosts_cleaned_public_ips.add(self.public_ip)
+        cmd = ["ssh-keygen", "-R", self.public_ip, "-f", str(self.known_hosts_path)]
+        started = time.time()
+        try:
+            cp = subprocess.run(
+                cmd,
+                text=True,
+                capture_output=True,
+                cwd=str(REPO_ROOT),
+                timeout=30,
+                check=False,
+            )
+        except OSError as error:
+            cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
+        ok = cp.returncode == 0
+        self.record_step("clear_worker_known_host", started, ok, cp, argv=redacted_argv(cmd))
 
     def experiment_card_path(self) -> Path:
         return self.artifact_dir / "experiment_card.json"
@@ -491,6 +519,7 @@ class Controller:
                     self.instance_id = cvm.get("InstanceId")
                     self.public_ip = public_ips[0]
                     self.private_ip = private_ips[0] if private_ips else None
+                    self.clear_worker_known_host()
                     if self.wait_for_ssh():
                         self.result["worker"] = {
                             "instanceId": self.instance_id,
