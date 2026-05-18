@@ -48,6 +48,17 @@ DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
 MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
+REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
+E1S1_REPEAT_GUARD_TYPE = "screeps-tencent-batch-rl-launch-guard"
+E1S1_REPEAT_GUARD_FINAL_STATUS = "skipped_e1s1_repeat_launch_guard"
+E1S1_REPEAT_GUARD_MIN_COMPLETED_RUNS = 3
+E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT = 20
+E1S1_REPEAT_GUARD_DEAD_TERRITORY = 2
+E1S1_REPEAT_GUARD_DEAD_KILLS = 0
+E1S1_REPEAT_GUARD_NEXT_ACTION = (
+    f"use --scenario-id {MULTI_TIER_SCENARIO_ID} --require-multi-tier-scenario after PR #1195; "
+    "do not launch another E1S1-only Tencent batch"
+)
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
 SSH_CONNECT_OPTIONS = (
     "-o", "BatchMode=yes",
@@ -336,9 +347,14 @@ class Controller:
     def scale_proof_spec_path(self) -> Path:
         return self.artifact_dir / "scale_proof_spec.json"
 
+    def launch_guard_path(self) -> Path:
+        return self.artifact_dir / "launch_guard.json"
+
     def run(self) -> None:
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         validate_static_inputs(self.args, self.run_id)
+        if self.check_pre_launch_guard():
+            return
         self.ensure_map_present()
         self.ensure_dist_present()
         self.run_billing_guard()
@@ -367,6 +383,43 @@ class Controller:
             self.safe_scale_down()
             self.finished_at = utc_now_iso()
             self.write_summary()
+
+    def check_pre_launch_guard(self) -> bool:
+        started = time.time()
+        guard = build_e1s1_repeat_launch_guard(
+            args=self.args,
+            run_id=self.run_id,
+            artifact_dir=self.artifact_dir,
+        )
+        guard_path = self.launch_guard_path()
+        guard_path.parent.mkdir(parents=True, exist_ok=True)
+        guard_path.write_text(canonical_json(guard), encoding="utf-8")
+        evidence = guard["evidence"]
+        self.result["launchGuard"] = {
+            "path": str(guard_path),
+            "status": guard["status"],
+            "blocked": guard["blocked"],
+            "reason": guard.get("reason"),
+            "nextAction": guard.get("nextAction"),
+            "evidenceCount": evidence["count"],
+            "evidenceThreshold": evidence["threshold"],
+        }
+        self.record_step(
+            "e1s1_repeat_launch_guard",
+            started,
+            True,
+            path=str(guard_path),
+            status=guard["status"],
+            blocked=guard["blocked"],
+            evidenceCount=evidence["count"],
+            evidenceThreshold=evidence["threshold"],
+        )
+        if not guard["blocked"]:
+            return False
+        self.final_status = E1S1_REPEAT_GUARD_FINAL_STATUS
+        self.finished_at = utc_now_iso()
+        self.write_summary()
+        return True
 
     def safe_scale_down(self) -> None:
         try:
@@ -916,6 +969,387 @@ def unwrap_response(data: Any) -> dict[str, Any]:
 
 def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
     return artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{run_id}.json"
+
+
+def build_e1s1_repeat_launch_guard(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    artifact_dir: Path,
+) -> dict[str, Any]:
+    current_launch = e1s1_repeat_guard_current_launch(args)
+    evidence_runs = (
+        recent_e1s1_dead_tier_evidence(args, artifact_dir)
+        if current_launch["isE1S1SingleRoomNoHostile"]
+        else []
+    )
+    blocked = len(evidence_runs) >= E1S1_REPEAT_GUARD_MIN_COMPLETED_RUNS
+    reason = None
+    if blocked:
+        reason = (
+            "recent completed 500-tick Tencent E1S1 single-room no-hostile runs "
+            "show territory=2 and kills=0 for every reported variant"
+        )
+    return {
+        "type": E1S1_REPEAT_GUARD_TYPE,
+        "schemaVersion": 1,
+        "runId": run_id,
+        "checkedAt": utc_now_iso(),
+        "status": "blocked" if blocked else "clear",
+        "blocked": blocked,
+        "reason": reason,
+        "nextAction": E1S1_REPEAT_GUARD_NEXT_ACTION if blocked else None,
+        "currentLaunch": current_launch,
+        "evidence": {
+            "threshold": E1S1_REPEAT_GUARD_MIN_COMPLETED_RUNS,
+            "count": len(evidence_runs),
+            "recentSummaryLimit": E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT,
+            "runs": evidence_runs,
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "secretsPrinted": False,
+            "remoteExecutionAttempted": False,
+            "scaleOutAttempted": False,
+        },
+    }
+
+
+def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]:
+    scenario_id = getattr(args, "scenario_id", DEFAULT_SCENARIO_ID)
+    return {
+        "scenarioId": scenario_id,
+        "isE1S1SingleRoomNoHostile": scenario_id == DEFAULT_SCENARIO_ID,
+        "requiredScenarioId": MULTI_TIER_SCENARIO_ID,
+        "requestedTicks": getattr(args, "ticks", None),
+        "effectiveTicks": effective_training_ticks(args),
+        "trainingApproach": getattr(args, "training_approach", None),
+        "workers": getattr(args, "workers", None),
+        "repetitions": getattr(args, "repetitions", None),
+        "preflightOnly": bool(getattr(args, "preflight_only", False)),
+        "mapSourceFile": "maps/map-0b6758af.json",
+        "room": "E1S1",
+    }
+
+
+def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path) -> list[dict[str, Any]]:
+    artifact_root = resolved_artifact_root(args)
+    if not artifact_root.is_dir():
+        return []
+    current_dir = artifact_dir.resolve()
+    try:
+        summary_paths = sorted(
+            artifact_root.glob("*/controller-summary.json"),
+            key=lambda path: (path.stat().st_mtime, path.as_posix()),
+            reverse=True,
+        )
+    except OSError:
+        return []
+    evidence: list[dict[str, Any]] = []
+    for summary_path in summary_paths[:E1S1_REPEAT_GUARD_RECENT_SUMMARY_LIMIT]:
+        try:
+            if summary_path.parent.resolve() == current_dir:
+                continue
+        except OSError:
+            continue
+        summary = read_json_object(summary_path)
+        item = e1s1_dead_tier_evidence_from_summary(summary, summary_path)
+        if item is not None:
+            evidence.append(item)
+    return evidence
+
+
+def resolved_artifact_root(args: argparse.Namespace) -> Path:
+    return (REPO_ROOT / Path(getattr(args, "artifact_root", DEFAULT_ARTIFACT_ROOT))).resolve()
+
+
+def read_json_object(path: Path) -> dict[str, Any] | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def e1s1_dead_tier_evidence_from_summary(
+    summary: dict[str, Any] | None,
+    summary_path: Path,
+) -> dict[str, Any] | None:
+    if not isinstance(summary, dict):
+        return None
+    final_status = summary.get("finalStatus")
+    if not isinstance(final_status, str) or not final_status.startswith("completed"):
+        return None
+    run_id = text_value(summary.get("runId")) or summary_path.parent.name
+    report, report_path = load_collected_training_report(summary, summary_path.parent, run_id)
+    reports = [source for source in (report, dict_value(path_value(summary, "outputs", "trainingReport"))) if source]
+    if not summary_matches_e1s1_single_room_no_hostile(summary, reports):
+        return None
+    ticks = extract_completed_run_ticks(summary, reports)
+    if ticks is None or ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS:
+        return None
+    metric = extract_dead_tier_metric(reports)
+    if metric is None:
+        return None
+    return {
+        "runId": run_id,
+        "summaryPath": str(summary_path),
+        "reportPath": str(report_path) if report_path is not None else None,
+        "finishedAt": text_value(summary.get("finishedAt")),
+        "finalStatus": final_status,
+        "ticks": ticks,
+        "scenarioId": extract_scenario_id(summary, reports),
+        "mapSourceFile": extract_map_source_file(reports),
+        "territory": metric["territory"],
+        "kills": metric["kills"],
+        "metricPairCount": metric["metricPairCount"],
+    }
+
+
+def load_collected_training_report(
+    summary: dict[str, Any],
+    run_dir: Path,
+    run_id: str,
+) -> tuple[dict[str, Any] | None, Path | None]:
+    candidate_paths: list[Path] = [remote_training_report_path(run_dir, run_id)]
+    report_path = path_value(summary, "outputs", "trainingReport", "path")
+    if isinstance(report_path, str) and report_path:
+        raw = Path(report_path)
+        candidate_paths.append(raw if raw.is_absolute() else run_dir / raw)
+        candidate_paths.append(REPO_ROOT / raw)
+    seen: set[Path] = set()
+    for path in candidate_paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if not resolved.is_file():
+            continue
+        payload = read_json_object(resolved)
+        if payload is not None:
+            return payload, resolved
+    return None, None
+
+
+def summary_matches_e1s1_single_room_no_hostile(
+    summary: dict[str, Any],
+    reports: Sequence[dict[str, Any]],
+) -> bool:
+    scenario_id = extract_scenario_id(summary, reports)
+    if scenario_id is not None and scenario_id != DEFAULT_SCENARIO_ID:
+        return False
+    scenario = first_dict(reports, (("scenario",), ("experimentCard", "scenario")))
+    if scenario is not None and not scenario_is_e1s1_single_room_no_hostile(scenario):
+        return False
+    if scenario_id is None and scenario is None:
+        return False
+    room = first_text(reports, (("simulation", "room"), ("source", "initialConditions", "room")))
+    if room is not None and room != "E1S1":
+        return False
+    map_source_file = extract_map_source_file(reports)
+    if map_source_file is not None and Path(map_source_file).name != "map-0b6758af.json":
+        return False
+    return True
+
+
+def scenario_is_e1s1_single_room_no_hostile(scenario: dict[str, Any]) -> bool:
+    scenario_id = text_value(scenario.get("scenario_id")) or text_value(scenario.get("scenarioId"))
+    if scenario_id is not None and scenario_id != DEFAULT_SCENARIO_ID:
+        return False
+    capabilities = scenario.get("capabilities")
+    if isinstance(capabilities, dict):
+        if capabilities.get("multi_room_capable") is True:
+            return False
+        if capabilities.get("hostile_combat_signal") is True:
+            return False
+    evidence = scenario.get("evidence")
+    if isinstance(evidence, dict):
+        room_count = numeric_value(evidence.get("room_count", evidence.get("roomCount")))
+        if room_count is not None and room_count != 1:
+            return False
+        hostile_fixture = text_value(evidence.get("hostile_fixture")) or text_value(evidence.get("hostileFixture"))
+        if hostile_fixture is not None and hostile_fixture.lower() not in {"none", "no-hostile", "no_hostile"}:
+            return False
+    return scenario_id == DEFAULT_SCENARIO_ID
+
+
+def extract_scenario_id(summary: dict[str, Any], reports: Sequence[dict[str, Any]]) -> str | None:
+    return (
+        text_value(path_value(summary, "inputs", "scenarioId"))
+        or first_text(reports, (("scenario", "scenario_id"), ("scenario", "scenarioId")))
+        or first_text(reports, (("experimentCard", "scenario", "scenario_id"), ("experimentCard", "scenario", "scenarioId")))
+    )
+
+
+def extract_map_source_file(reports: Sequence[dict[str, Any]]) -> str | None:
+    return first_text(
+        reports,
+        (
+            ("simulation", "mapSourceFile"),
+            ("simulation", "map_source_file"),
+            ("source", "initialConditions", "mapSourceFile"),
+            ("experimentCard", "simulation", "mapSourceFile"),
+        ),
+    )
+
+
+def extract_completed_run_ticks(summary: dict[str, Any], reports: Sequence[dict[str, Any]]) -> int | None:
+    raw = (
+        path_value(summary, "inputs", "ticks")
+        or first_value(reports, (("simulation", "ticks"), ("source", "initialConditions", "ticks")))
+    )
+    value = numeric_value(raw)
+    return int(value) if value is not None and value == int(value) else None
+
+
+def extract_dead_tier_metric(reports: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    for field in ("variantResults", "ranking"):
+        pairs = [
+            pair
+            for report in reports
+            for pair in reward_tuple_metric_pairs(list_value(report.get(field)), report)
+        ]
+        if not pairs:
+            continue
+        if not all(dead_tier_pair(pair) for pair in pairs):
+            return None
+        return {
+            "territory": E1S1_REPEAT_GUARD_DEAD_TERRITORY,
+            "kills": E1S1_REPEAT_GUARD_DEAD_KILLS,
+            "metricPairCount": len(pairs),
+        }
+    kpi_pairs = [
+        (territory, kills)
+        for report in reports
+        for territory, kills in [(
+            numeric_value(path_value(report, "kpiSummary", "territory", "score")),
+            numeric_value(path_value(report, "kpiSummary", "kills", "score")),
+        )]
+        if territory is not None and kills is not None
+    ]
+    if kpi_pairs and all(dead_tier_pair(pair) for pair in kpi_pairs):
+        return {
+            "territory": E1S1_REPEAT_GUARD_DEAD_TERRITORY,
+            "kills": E1S1_REPEAT_GUARD_DEAD_KILLS,
+            "metricPairCount": len(kpi_pairs),
+        }
+    return None
+
+
+def reward_tuple_metric_pairs(items: Sequence[Any], report: dict[str, Any]) -> list[tuple[float, float]]:
+    component_order = reward_component_order(report)
+    pairs: list[tuple[float, float]] = []
+    for item in items:
+        raw_tuple = reward_tuple_from_item(item)
+        pair = reward_tuple_pair(raw_tuple, component_order)
+        if pair is not None:
+            pairs.append(pair)
+    return pairs
+
+
+def reward_component_order(report: dict[str, Any]) -> tuple[str, ...]:
+    raw = path_value(report, "rewardModel", "componentOrder") or path_value(report, "reward_model", "component_order")
+    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+        normalized = tuple(item.strip() for item in raw)
+        if "territory" in normalized and "kills" in normalized:
+            return normalized
+    return REWARD_TIER_ORDER
+
+
+def reward_tuple_from_item(item: Any) -> Any:
+    if isinstance(item, list):
+        return item
+    if not isinstance(item, dict):
+        return None
+    for key in ("rewardTuple", "reward_tuple"):
+        if key in item:
+            return item.get(key)
+    reward = item.get("reward")
+    if isinstance(reward, dict):
+        for key in ("tuple", "rewardTuple", "reward_tuple"):
+            if key in reward:
+                return reward.get(key)
+    return None
+
+
+def reward_tuple_pair(raw_tuple: Any, component_order: Sequence[str]) -> tuple[float, float] | None:
+    if not isinstance(raw_tuple, list):
+        return None
+    try:
+        territory_index = list(component_order).index("territory")
+        kills_index = list(component_order).index("kills")
+    except ValueError:
+        return None
+    if len(raw_tuple) <= max(territory_index, kills_index):
+        return None
+    territory = numeric_value(raw_tuple[territory_index])
+    kills = numeric_value(raw_tuple[kills_index])
+    if territory is None or kills is None:
+        return None
+    return territory, kills
+
+
+def dead_tier_pair(pair: tuple[float, float]) -> bool:
+    territory, kills = pair
+    return (
+        abs(territory - E1S1_REPEAT_GUARD_DEAD_TERRITORY) < 1e-9
+        and abs(kills - E1S1_REPEAT_GUARD_DEAD_KILLS) < 1e-9
+    )
+
+
+def path_value(raw: Any, *path: str) -> Any:
+    value = raw
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def first_value(reports: Sequence[dict[str, Any]], paths: Sequence[Sequence[str]]) -> Any:
+    for report in reports:
+        for path in paths:
+            value = path_value(report, *path)
+            if value is not None:
+                return value
+    return None
+
+
+def first_text(reports: Sequence[dict[str, Any]], paths: Sequence[Sequence[str]]) -> str | None:
+    return text_value(first_value(reports, paths))
+
+
+def first_dict(reports: Sequence[dict[str, Any]], paths: Sequence[Sequence[str]]) -> dict[str, Any] | None:
+    return dict_value(first_value(reports, paths))
+
+
+def dict_value(value: Any) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) else None
+
+
+def list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def text_value(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def numeric_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def port_includes_ssh(port: Any) -> bool:
@@ -1698,6 +2132,21 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 3
+    if controller.final_status == E1S1_REPEAT_GUARD_FINAL_STATUS:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "runId": run_id,
+                    "artifactDir": str(artifact_dir),
+                    "status": controller.final_status,
+                    "launchGuard": controller.result.get("launchGuard"),
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 4
     print(json.dumps({"ok": True, "runId": run_id, "artifactDir": str(artifact_dir), "status": controller.final_status}, ensure_ascii=False))
     return 0
 
