@@ -185,7 +185,9 @@ class RlExperimentCardTest(unittest.TestCase):
             older_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "older",
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-older"},
                     }
@@ -195,7 +197,9 @@ class RlExperimentCardTest(unittest.TestCase):
             newer_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "newer",
                         "createdAt": "2026-05-17T02:00:00Z",
                         "dataset": {"runId": "rl-accepted-newer"},
                     }
@@ -205,7 +209,9 @@ class RlExperimentCardTest(unittest.TestCase):
             failed_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": False,
+                        "gateId": "failed",
                         "createdAt": "2026-05-17T03:00:00Z",
                         "dataset": {"runId": "rl-rejected-newest"},
                     }
@@ -375,6 +381,27 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(relative_block["gate_report_path"], f"gates/{gate_id}/gate_report.json")
         self.assertEqual(absolute_block["gate_report_path"], relative_block["gate_report_path"])
 
+    def test_validate_source_gate_requires_type(self) -> None:
+        gate_id = "rl-gate-93bf1aa18b62"
+        dataset_run_id = "rl-ebf33fae619f"
+        source_gate = card_helper.source_gate_block(
+            gate_id=gate_id,
+            dataset_run_id=dataset_run_id,
+            gate_report_path=Path("gates") / gate_id / "gate_report.json",
+            created_at=None,
+        )
+        card = card_helper.build_card(
+            dataset_run_id=dataset_run_id,
+            code_commit="8" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T03:15:00Z",
+            source_gate=source_gate,
+        )
+        del card["source_gate"]["type"]
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "source_gate.type"):
+            card_helper.validate_card(card)
+
     def test_latest_accepted_dataset_skips_malformed_accepted_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -386,7 +413,9 @@ class RlExperimentCardTest(unittest.TestCase):
             valid_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "valid",
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-valid"},
                     }
@@ -396,7 +425,9 @@ class RlExperimentCardTest(unittest.TestCase):
             malformed_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "malformed",
                         "createdAt": "2026-05-17T02:00:00Z",
                         "dataset": {"runId": "invalid run id"},
                     }
@@ -407,6 +438,43 @@ class RlExperimentCardTest(unittest.TestCase):
             selected = card_helper.latest_accepted_dataset_run_id(gate_root)
 
         self.assertEqual(selected, "rl-accepted-valid")
+
+    def test_latest_accepted_dataset_ignores_nested_non_gate_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            valid_gate = gate_root / "rl-gate-real" / "gate_report.json"
+            nested_artifact = gate_root / "rl-gate-real" / "nested" / "artifact.json"
+            nested_named_report = gate_root / "rl-gate-real" / "nested" / "gate_report.json"
+            valid_gate.parent.mkdir(parents=True)
+            nested_artifact.parent.mkdir(parents=True)
+            valid_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "rl-gate-real",
+                        "createdAt": "2026-05-17T01:00:00Z",
+                        "dataset": {"runId": "rl-accepted-real"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            nested_payload = {
+                "type": card_helper.SOURCE_GATE_TYPE,
+                "ok": True,
+                "gateId": "rl-gate-nested",
+                "createdAt": "2026-05-17T03:00:00Z",
+                "datasetRunId": "rl-accepted-nested",
+            }
+            nested_artifact.write_text(json.dumps(nested_payload), encoding="utf-8")
+            nested_named_report.write_text(json.dumps(nested_payload), encoding="utf-8")
+
+            selected = card_helper.select_accepted_dataset_gate(gate_root)
+
+        self.assertEqual(selected["gate_id"], "rl-gate-real")
+        self.assertEqual(selected["dataset_run_id"], "rl-accepted-real")
+        self.assertTrue(selected["gate_report_path"].endswith("gates/rl-gate-real/gate_report.json"))
 
     def test_latest_accepted_dataset_skips_gate_deleted_during_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -419,7 +487,9 @@ class RlExperimentCardTest(unittest.TestCase):
             valid_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "valid",
                         "createdAt": "2026-05-17T01:00:00Z",
                         "dataset": {"runId": "rl-accepted-valid"},
                     }
@@ -429,7 +499,9 @@ class RlExperimentCardTest(unittest.TestCase):
             vanished_gate.write_text(
                 json.dumps(
                     {
+                        "type": card_helper.SOURCE_GATE_TYPE,
                         "ok": True,
+                        "gateId": "vanished",
                         "createdAt": "2026-05-17T02:00:00Z",
                         "dataset": {"runId": "rl-accepted-vanished"},
                     }

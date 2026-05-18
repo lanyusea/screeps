@@ -28,6 +28,8 @@ LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
 LOOP_A_CARD_SUPPLY_CONSUMED = "consumed"
 LOOP_A_CARD_SUPPLY_STATES = (LOOP_A_CARD_SUPPLY_AVAILABLE, LOOP_A_CARD_SUPPLY_CONSUMED)
+SOURCE_GATE_TYPE = "screeps-rl-dataset-evaluation-gate"
+DATASET_GATE_REPORT_FILENAME = "gate_report.json"
 DEFAULT_STRATEGY_VARIANTS = (
     "construction-priority.incumbent.v1",
     "construction-priority.territory-shadow.v1",
@@ -309,7 +311,7 @@ def source_gate_block(
     if created_at is not None:
         validate_created_at(created_at)
     return {
-        "type": "screeps-rl-dataset-evaluation-gate",
+        "type": SOURCE_GATE_TYPE,
         "gate_id": gate_id,
         "dataset_run_id": dataset_run_id,
         "gate_report_path": stable_provenance_path(gate_report_path),
@@ -683,8 +685,8 @@ def validate_source_gate(card: JsonObject) -> None:
         return
     if not isinstance(raw, dict):
         raise CardValidationError("source_gate must be a JSON object")
-    if raw.get("type") not in (None, "screeps-rl-dataset-evaluation-gate"):
-        raise CardValidationError("source_gate.type must be screeps-rl-dataset-evaluation-gate")
+    if raw.get("type") != SOURCE_GATE_TYPE:
+        raise CardValidationError(f"source_gate.type must be {SOURCE_GATE_TYPE}")
     gate_id = first_present(raw, ("gate_id", "gateId"))
     if not isinstance(gate_id, str) or not gate_id:
         raise CardValidationError("source_gate.gate_id must be a non-empty string")
@@ -798,12 +800,15 @@ def select_accepted_dataset_gate(gate_root: Path, gate_id: str | None = None) ->
     candidates: list[tuple[str, float, str, str, Path]] = []
     if not gate_root.exists():
         raise CardValidationError(f"dataset gate root does not exist: {gate_root}")
-    for path in sorted(gate_root.rglob("*.json")):
+    for gate_dir in sorted(gate_root.iterdir()):
+        path = gate_dir / DATASET_GATE_REPORT_FILENAME
+        if not is_canonical_dataset_gate_report_path(path, gate_root):
+            continue
         try:
             payload = load_json(path)
         except CardValidationError:
             continue
-        if not isinstance(payload, dict) or payload.get("ok") is not True:
+        if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("type") != SOURCE_GATE_TYPE:
             continue
         try:
             selected_gate_id = accepted_dataset_gate_id(payload, path)
@@ -831,6 +836,14 @@ def select_accepted_dataset_gate(gate_root: Path, gate_id: str | None = None) ->
     )
 
 
+def is_canonical_dataset_gate_report_path(path: Path, gate_root: Path) -> bool:
+    try:
+        relative_path = path.relative_to(gate_root)
+    except ValueError:
+        return False
+    return len(relative_path.parts) == 2 and relative_path.name == DATASET_GATE_REPORT_FILENAME
+
+
 def latest_accepted_dataset_run_id(gate_root: Path) -> str:
     return str(select_accepted_dataset_gate(gate_root)["dataset_run_id"])
 
@@ -841,16 +854,15 @@ def accepted_dataset_gate_id(payload: JsonObject, path: Path) -> str:
         if isinstance(value, str) and value:
             validate_gate_id(value)
             return value
-    value = path.parent.name
-    validate_gate_id(value)
-    return value
+    raise CardValidationError(f"accepted dataset gate report {path} must include gateId")
 
 
 def accepted_dataset_run_id(payload: JsonObject) -> str | None:
-    direct = payload.get("datasetRunId")
-    if isinstance(direct, str) and direct:
-        validate_dataset_run_id(direct)
-        return direct
+    for key in ("datasetRunId", "dataset_run_id"):
+        direct = payload.get(key)
+        if isinstance(direct, str) and direct:
+            validate_dataset_run_id(direct)
+            return direct
     dataset = payload.get("dataset")
     if isinstance(dataset, dict):
         run_id = dataset.get("runId")
