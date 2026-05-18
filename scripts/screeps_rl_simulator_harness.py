@@ -2565,6 +2565,16 @@ def _room_overview_payloads(room_overviews: Any, room_names: Sequence[str], anch
     return {anchor_room: room_overviews}
 
 
+def _exception_headers(exc: BaseException) -> dict[str, str] | None:
+    for source in (exc, getattr(exc, "response", None), getattr(exc, "result", None)):
+        headers = getattr(source, "headers", None)
+        if isinstance(headers, dict):
+            return {str(key): str(value) for key, value in headers.items()}
+        if hasattr(headers, "items"):
+            return {str(key): str(value) for key, value in headers.items()}
+    return None
+
+
 def _wait_for_http_with_smoke(cfg: Any, smoke: Any, timeout_seconds: int = RUN_PHASE_TIMEOUT_SECONDS) -> None:
     smoke.wait_for_http(cfg, timeout=timeout_seconds)
 
@@ -2660,7 +2670,10 @@ def _fetch_room_overviews(
                     f"{_safe_redact_smoke_payload(room_overview.payload)}"
                 )
             payloads[room_name] = room_overview.payload
-        except Exception:
+        except Exception as exc:
+            headers = _exception_headers(exc)
+            if headers is not None:
+                token = smoke.update_token_from_headers(token, headers)
             if room_name in required:
                 raise
             continue

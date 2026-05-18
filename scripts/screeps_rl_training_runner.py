@@ -2826,10 +2826,8 @@ def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
     territory_score = number_or_none(territory.get("delta")) or 0
     hostile_kills = number_or_none(kills.get("hostileKills")) or 0
     observed = (
-        objective.get("initialObjectiveSignalPresent") is True
-        or objective.get("finalObjectiveSignalPresent") is True
-        or (number_or_none(objective.get("initialObservedRoomCount")) or 0) >= 2
-        or (number_or_none(objective.get("finalObservedRoomCount")) or 0) >= 2
+        objective_phase_signal_observed(objective, "initial")
+        or objective_phase_signal_observed(objective, "final")
     )
     passes = (
         float(territory_score) > MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD
@@ -2844,6 +2842,15 @@ def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
         "passesActivation": passes,
         "objectiveSignal": copy.deepcopy(objective),
     }
+
+
+def objective_phase_signal_observed(objective: JsonObject, phase: str) -> bool:
+    if objective.get(f"{phase}ObjectiveSignalPresent") is True:
+        return True
+    observed_rooms = number_or_none(objective.get(f"{phase}ObservedRoomCount")) or 0
+    hostile_creeps = number_or_none(objective.get(f"{phase}HostileCreeps")) or 0
+    hostile_structures = number_or_none(objective.get(f"{phase}HostileStructures")) or 0
+    return observed_rooms >= 2 and (hostile_creeps > 0 or hostile_structures > 0)
 
 
 def multi_tier_fixture_evidence(scenario: JsonObject | None) -> JsonObject:

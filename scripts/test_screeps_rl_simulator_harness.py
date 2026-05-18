@@ -966,6 +966,53 @@ cli:
         self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
         self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
 
+    def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
+        class Result:
+            def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:
+                self.payload = payload
+                self.headers = headers or {}
+
+        class OptionalRoomError(RuntimeError):
+            def __init__(self) -> None:
+                super().__init__("optional room unavailable")
+                self.headers = {"X-Token": "token-from-optional-error"}
+
+        class FakeSmoke:
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                for key, value in headers.items():
+                    if key.lower() == "x-token":
+                        return value
+                return token
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok") == 1
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, path
+                params = kwargs.get("params")
+                room_name = params.get("room") if isinstance(params, dict) else None
+                if room_name == "E2S1":
+                    raise OptionalRoomError()
+                return Result(
+                    {"ok": 1, "room": room_name, "roomData": {}},
+                    {"X-Token": "token-after-required-room"},
+                )
+
+        token, payloads = harness._fetch_room_overviews(
+            argparse.Namespace(server_url="http://127.0.0.1"),
+            FakeSmoke(),
+            "initial-token",
+            ["E1S1"],
+            "shardX",
+            optional_rooms=["E2S1"],
+        )
+
+        self.assertEqual(token, "token-from-optional-error")
+        self.assertEqual(sorted(payloads), ["E1S1"])
+
     def test_build_tick_entry_normalizes_private_object_maps_into_owned_scorecard_fields(self) -> None:
         tick_entry = harness._build_tick_entry(
             "shardX",
