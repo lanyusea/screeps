@@ -38,6 +38,17 @@ Dry-run generation is allowed for pipeline checks:
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 ```
 
+Generate the Loop A local-fallback card from an accepted E1 gate. The output is runtime-only because
+`runtime-artifacts/` is ignored; by default this writes
+`runtime-artifacts/rl-experiment-cards/experiment_card.json`:
+
+```bash
+python3 scripts/screeps_rl_experiment_card.py \
+  --loop-a-local-fallback \
+  --source-gate-id rl-gate-93bf1aa18b62 \
+  --dataset-gate-root runtime-artifacts/rl-dataset-gates
+```
+
 Validate an existing card:
 
 ```bash

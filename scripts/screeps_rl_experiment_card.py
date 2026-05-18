@@ -41,12 +41,16 @@ DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
 DEFAULT_EXPERIMENT_CARD_DIR = REPO_ROOT / "runtime-artifacts" / "rl-experiment-cards"
 DEFAULT_DATASET_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-dataset-gates"
 DEFAULT_TRAINING_REPORT_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-training"
+DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH = DEFAULT_EXPERIMENT_CARD_DIR / "experiment_card.json"
 DEFAULT_STRATEGY_REGISTRY_PATH = REPO_ROOT / "prod" / "src" / "strategy" / "strategyRegistry.ts"
 DEFAULT_SIMULATION_TICKS = 50
 DEFAULT_SIMULATION_REPETITIONS = 1
 DEFAULT_SIMULATION_WORKERS = 1
 POLICY_GRADIENT_SIMULATION_TICKS = 100
 POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
+LOOP_A_LOCAL_FALLBACK_TICKS = 200
+LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
+LOOP_A_LOCAL_FALLBACK_WORKERS = 5
 
 JsonObject = dict[str, Any]
 
@@ -147,6 +151,11 @@ def validate_dataset_run_id(run_id: str) -> None:
         raise CardValidationError("dataset_run_id may contain only letters, numbers, dot, underscore, and hyphen")
 
 
+def validate_gate_id(gate_id: str) -> None:
+    if not DATASET_RUN_ID_RE.fullmatch(gate_id) or gate_id in {".", ".."}:
+        raise CardValidationError("gate_id may contain only letters, numbers, dot, underscore, and hyphen")
+
+
 def validate_code_commit(commit: str) -> None:
     if not COMMIT_RE.fullmatch(commit):
         raise CardValidationError("code_commit must be a hexadecimal commit SHA prefix or full SHA")
@@ -212,6 +221,7 @@ def build_card(
     simulation_workers: int | None = None,
     registry_path: Path | None = None,
     loop_a_card_supply: bool = False,
+    source_gate: JsonObject | None = None,
 ) -> JsonObject:
     validate_dataset_run_id(dataset_run_id)
     validate_code_commit(code_commit)
@@ -265,6 +275,8 @@ def build_card(
             training_approach=training_approach,
             created_at=created_at,
         )
+    if source_gate is not None:
+        card["source_gate"] = dict(source_gate)
     validate_card(card)
     return card
 
@@ -282,6 +294,27 @@ def loop_a_card_supply_block(*, dataset_run_id: str, training_approach: str, cre
         "safety_status": "shadow",
         "consumed_at": None,
         "consumed_by_report_id": None,
+    }
+
+
+def source_gate_block(
+    *,
+    gate_id: str,
+    dataset_run_id: str,
+    gate_report_path: Path,
+    created_at: str | None,
+) -> JsonObject:
+    validate_gate_id(gate_id)
+    validate_dataset_run_id(dataset_run_id)
+    if created_at is not None:
+        validate_created_at(created_at)
+    return {
+        "type": "screeps-rl-dataset-evaluation-gate",
+        "gate_id": gate_id,
+        "dataset_run_id": dataset_run_id,
+        "gate_report_path": str(gate_report_path),
+        "created_at": created_at,
+        "ok": True,
     }
 
 
@@ -573,6 +606,7 @@ def validate_card(raw: Any) -> None:
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
     validate_card_supply(raw)
+    validate_source_gate(raw)
     strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
     validate_strategy_variants(strategy_variants)
     validate_simulation(first_present(raw, ("simulation", "simulator")))
@@ -631,6 +665,33 @@ def validate_card_supply(card: JsonObject) -> None:
         validate_created_at(consumed_at)
         if not isinstance(raw.get("consumed_by_report_id"), str) or not raw.get("consumed_by_report_id"):
             raise CardValidationError("consumed Loop A card supply requires consumed_by_report_id")
+
+
+def validate_source_gate(card: JsonObject) -> None:
+    raw = first_present(card, ("source_gate", "sourceGate"))
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise CardValidationError("source_gate must be a JSON object")
+    if raw.get("type") not in (None, "screeps-rl-dataset-evaluation-gate"):
+        raise CardValidationError("source_gate.type must be screeps-rl-dataset-evaluation-gate")
+    gate_id = first_present(raw, ("gate_id", "gateId"))
+    if not isinstance(gate_id, str) or not gate_id:
+        raise CardValidationError("source_gate.gate_id must be a non-empty string")
+    validate_gate_id(gate_id)
+    dataset_run_id = first_present(raw, ("dataset_run_id", "datasetRunId"))
+    if dataset_run_id != card.get("dataset_run_id"):
+        raise CardValidationError("source_gate.dataset_run_id must match dataset_run_id")
+    gate_report_path = first_present(raw, ("gate_report_path", "gateReportPath"))
+    if not isinstance(gate_report_path, str) or not gate_report_path:
+        raise CardValidationError("source_gate.gate_report_path must be a non-empty string")
+    if raw.get("ok") is not True:
+        raise CardValidationError("source_gate.ok must be true")
+    created_at = first_present(raw, ("created_at", "createdAt"))
+    if created_at is not None:
+        if not isinstance(created_at, str):
+            raise CardValidationError("source_gate.created_at must be an ISO UTC timestamp")
+        validate_created_at(created_at)
 
 
 def is_loop_a_card_available_for_training(card: JsonObject, consumed_card_ids: set[str] | None = None) -> bool:
@@ -721,8 +782,10 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
     }
 
 
-def latest_accepted_dataset_run_id(gate_root: Path) -> str:
-    candidates: list[tuple[str, float, str, Path]] = []
+def select_accepted_dataset_gate(gate_root: Path, gate_id: str | None = None) -> JsonObject:
+    if gate_id is not None:
+        validate_gate_id(gate_id)
+    candidates: list[tuple[str, float, str, str, Path]] = []
     if not gate_root.exists():
         raise CardValidationError(f"dataset gate root does not exist: {gate_root}")
     for path in sorted(gate_root.rglob("*.json")):
@@ -733,6 +796,9 @@ def latest_accepted_dataset_run_id(gate_root: Path) -> str:
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             continue
         try:
+            selected_gate_id = accepted_dataset_gate_id(payload, path)
+            if gate_id is not None and selected_gate_id != gate_id:
+                continue
             run_id = accepted_dataset_run_id(payload)
             if run_id is None:
                 continue
@@ -740,11 +806,34 @@ def latest_accepted_dataset_run_id(gate_root: Path) -> str:
             mtime = path.stat().st_mtime
         except (CardValidationError, OSError):
             continue
-        candidates.append((created_at or "", mtime, run_id, path))
+        candidates.append((created_at or "", mtime, selected_gate_id, run_id, path))
     if not candidates:
+        if gate_id is not None:
+            raise CardValidationError(f"no accepted dataset gate {gate_id} with datasetRunId found under {gate_root}")
         raise CardValidationError(f"no accepted dataset gate with datasetRunId found under {gate_root}")
-    candidates.sort(key=lambda item: (item[0], item[1], str(item[3])), reverse=True)
-    return candidates[0][2]
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], str(item[4])), reverse=True)
+    created_at, _, selected_gate_id, run_id, path = candidates[0]
+    return source_gate_block(
+        gate_id=selected_gate_id,
+        dataset_run_id=run_id,
+        gate_report_path=path,
+        created_at=created_at or None,
+    )
+
+
+def latest_accepted_dataset_run_id(gate_root: Path) -> str:
+    return str(select_accepted_dataset_gate(gate_root)["dataset_run_id"])
+
+
+def accepted_dataset_gate_id(payload: JsonObject, path: Path) -> str:
+    for key in ("gateId", "gate_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            validate_gate_id(value)
+            return value
+    value = path.parent.name
+    validate_gate_id(value)
+    return value
 
 
 def accepted_dataset_run_id(payload: JsonObject) -> str | None:
@@ -1034,14 +1123,23 @@ def validation_summary(card: JsonObject) -> JsonObject:
     if isinstance(card_supply, dict):
         summary["card_supply"] = card_supply
         summary["loop_a_available_for_training"] = is_loop_a_card_available_for_training(card)
+    source_gate = first_present(card, ("source_gate", "sourceGate"))
+    if isinstance(source_gate, dict):
+        summary["source_gate"] = source_gate
     return summary
 
 
-def generated_card_summary(card: JsonObject, output_path: Path) -> JsonObject:
+def generated_card_summary(
+    card: JsonObject,
+    output_path: Path,
+    *,
+    loop_a_local_fallback: bool = False,
+) -> JsonObject:
     summary = validation_summary(card)
     summary["path"] = str(output_path)
     summary["created_at"] = card.get("created_at")
     summary["training_approach"] = card.get("training_approach")
+    summary["loop_a_local_fallback"] = loop_a_local_fallback
     return summary
 
 
@@ -1074,6 +1172,13 @@ def positive_int_arg(raw: str) -> int:
     if value <= 0:
         raise argparse.ArgumentTypeError("must be a positive integer")
     return value
+
+
+def loop_a_local_fallback_value(value: int | None, *, default: int, maximum: int, label: str) -> int:
+    resolved = default if value is None else value
+    if resolved > maximum:
+        raise CardValidationError(f"Loop A local fallback {label} must be <= {maximum}")
+    return resolved
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1137,9 +1242,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--loop-a-local-fallback",
+        action="store_true",
+        help=(
+            "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
+            "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
+            "5 repetitions, and 200 ticks."
+        ),
+    )
+    parser.add_argument(
         "--from-latest-accepted-dataset",
         action="store_true",
         help="Use the latest accepted dataset gate under --dataset-gate-root as dataset_run_id.",
+    )
+    parser.add_argument(
+        "--source-gate-id",
+        help="Accepted dataset gate ID to use as source provenance for the generated card.",
     )
     parser.add_argument(
         "--dataset-gate-root",
@@ -1203,10 +1321,14 @@ def main(
 
         if args.output is not None and args.output_dir is not None:
             raise CardValidationError("--output and --output-dir are mutually exclusive")
+        if args.loop_a_local_fallback and args.output_dir is not None:
+            raise CardValidationError("--loop-a-local-fallback writes a standalone experiment_card.json; use --output")
+        if args.loop_a_local_fallback and args.dry_run:
+            raise CardValidationError("--loop-a-local-fallback requires an accepted dataset gate")
 
         if args.select_loop_a_card:
-            if args.validate:
-                raise CardValidationError("--select-loop-a-card cannot be combined with --validate")
+            if args.validate or args.loop_a_local_fallback:
+                raise CardValidationError("--select-loop-a-card cannot be combined with --validate or --loop-a-local-fallback")
             selected = select_loop_a_card_supply(args.card_dir, args.training_report_dir)
             if selected is None:
                 write_output(
@@ -1232,26 +1354,65 @@ def main(
             return 0
 
         dataset_run_id = args.dataset_run_id
-        if args.from_latest_accepted_dataset:
+        source_gate = None
+        if args.from_latest_accepted_dataset and dataset_run_id is not None:
+            raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
+        if args.source_gate_id is not None:
+            source_gate = select_accepted_dataset_gate(args.dataset_gate_root, args.source_gate_id)
+            source_dataset_run_id = str(source_gate["dataset_run_id"])
+            if dataset_run_id is not None and dataset_run_id != source_dataset_run_id:
+                raise CardValidationError("--dataset-run-id must match --source-gate-id dataset_run_id")
+            dataset_run_id = source_dataset_run_id
+        elif args.from_latest_accepted_dataset or args.loop_a_local_fallback:
             if dataset_run_id is not None:
                 raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
-            dataset_run_id = latest_accepted_dataset_run_id(args.dataset_gate_root)
+            source_gate = select_accepted_dataset_gate(args.dataset_gate_root)
+            dataset_run_id = str(source_gate["dataset_run_id"])
         if dataset_run_id is None:
             if not args.dry_run:
                 raise CardValidationError("--dataset-run-id is required unless --dry-run is used")
             dataset_run_id = DRY_RUN_DATASET_RUN_ID
 
-        training_approach = "policy_gradient" if args.loop_a_policy_gradient_supply else args.training_approach
+        loop_a_card_supply = args.loop_a_policy_gradient_supply or args.loop_a_local_fallback
+        training_approach = "policy_gradient" if loop_a_card_supply else args.training_approach
+        simulation_ticks = args.ticks
+        simulation_repetitions = args.repetitions
+        simulation_workers = args.workers
+        if args.loop_a_local_fallback:
+            simulation_ticks = loop_a_local_fallback_value(
+                args.ticks,
+                default=LOOP_A_LOCAL_FALLBACK_TICKS,
+                maximum=LOOP_A_LOCAL_FALLBACK_TICKS,
+                label="ticks",
+            )
+            simulation_repetitions = loop_a_local_fallback_value(
+                args.repetitions,
+                default=LOOP_A_LOCAL_FALLBACK_REPETITIONS,
+                maximum=LOOP_A_LOCAL_FALLBACK_REPETITIONS,
+                label="repetitions",
+            )
+            simulation_workers = loop_a_local_fallback_value(
+                args.workers,
+                default=LOOP_A_LOCAL_FALLBACK_WORKERS,
+                maximum=LOOP_A_LOCAL_FALLBACK_WORKERS,
+                label="workers",
+            )
         card = build_card(
             dataset_run_id=dataset_run_id,
             code_commit=args.code_commit or git_commit(repo),
             training_approach=training_approach,
             created_at=args.created_at or utc_now_iso(),
-            simulation_ticks=args.ticks,
-            simulation_repetitions=args.repetitions,
-            simulation_workers=args.workers,
-            loop_a_card_supply=args.loop_a_policy_gradient_supply,
+            simulation_ticks=simulation_ticks,
+            simulation_repetitions=simulation_repetitions,
+            simulation_workers=simulation_workers,
+            loop_a_card_supply=loop_a_card_supply,
+            source_gate=source_gate,
         )
+        if args.loop_a_local_fallback:
+            output_path = args.output or repo / DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH.relative_to(REPO_ROOT)
+            write_output(card, output_path, stdout)
+            stdout.write(canonical_json(generated_card_summary(card, output_path, loop_a_local_fallback=True)))
+            return 0
         if args.output_dir is not None:
             output_path = args.output_dir / f"{card['card_id']}.json"
             write_output(card, output_path, stdout)

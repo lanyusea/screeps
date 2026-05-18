@@ -242,6 +242,86 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["status"], "shadow")
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
+    def test_cli_writes_loop_a_local_fallback_standalone_card_from_requested_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "rl-gate-93bf1aa18b62"
+            dataset_run_id = "rl-ebf33fae619f"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            output_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-dataset-evaluation-gate",
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-18T02:50:00Z",
+                        "dataset": {
+                            "runId": dataset_run_id,
+                            "sampleCount": 200,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--source-gate-id",
+                    gate_id,
+                    "--dataset-gate-root",
+                    str(gate_root),
+                    "--code-commit",
+                    "7" * 40,
+                    "--created-at",
+                    "2026-05-18T03:12:00Z",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output_path.name, "experiment_card.json")
+        self.assertEqual(summary["path"], str(output_path))
+        self.assertTrue(summary["loop_a_local_fallback"])
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(generated["source_gate"]["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
+
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 5)
+        self.assertEqual(config.repetitions, 5)
+        self.assertEqual(config.ticks, 200)
+
+        supply = generated["card_supply"]
+        self.assertEqual(generated["status"], "shadow")
+        self.assertEqual(supply["state"], "available")
+        self.assertTrue(supply["available_for_training"])
+        self.assertIsNone(supply["consumed_at"])
+        self.assertIsNone(supply["consumed_by_report_id"])
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+        for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+            self.assertFalse(generated[field])
+            self.assertFalse(generated["safety"][field])
+
+            live_regression = json.loads(json.dumps(generated))
+            live_regression[field] = True
+            with self.assertRaises(card_helper.CardValidationError):
+                card_helper.validate_card(live_regression)
+
     def test_latest_accepted_dataset_skips_malformed_accepted_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
