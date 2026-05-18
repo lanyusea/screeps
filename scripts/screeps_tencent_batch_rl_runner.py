@@ -1158,7 +1158,23 @@ def verified_remote_policy_update_fields(
         raise BatchRunError("remote policyUpdateIterations must be positive when policyUpdate claims an update")
 
     validate_positive_policy_update(safe_policy_update)
+    nested_iterations = policy_update_iterations(safe_policy_update.get("iterations"), "policyUpdate.iterations")
+    if nested_iterations != iterations:
+        raise BatchRunError(
+            "remote policyUpdate.iterations disagrees with policyUpdateIterations: "
+            f"{nested_iterations} != {iterations}"
+        )
     rel_artifact_path = safe_policy_update_artifact_path(raw_artifact_path)
+    if "artifactPath" in safe_policy_update:
+        nested_artifact_path = safe_policy_update_artifact_path(
+            safe_policy_update.get("artifactPath"),
+            "policyUpdate.artifactPath",
+        )
+        if nested_artifact_path != rel_artifact_path:
+            raise BatchRunError(
+                "remote policyUpdate.artifactPath disagrees with policyUpdateArtifactPath: "
+                f"{nested_artifact_path.as_posix()} != {rel_artifact_path.as_posix()}"
+            )
     local_artifact_path = collected_remote_policy_update_artifact_path(artifact_dir, rel_artifact_path)
     if not local_artifact_path.is_file():
         raise BatchRunError(f"remote policy update artifact was not collected: {rel_artifact_path.as_posix()}")
@@ -1187,16 +1203,16 @@ def validate_positive_policy_update(raw: Any) -> None:
         raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
 
 
-def safe_policy_update_artifact_path(raw: Any) -> Path:
+def safe_policy_update_artifact_path(raw: Any, label: str = "policyUpdateArtifactPath") -> Path:
     if not isinstance(raw, str) or not raw.strip():
-        raise BatchRunError("remote policyUpdateArtifactPath must be a non-empty string when policyUpdateIterations is positive")
+        raise BatchRunError(f"remote {label} must be a non-empty string when policyUpdateIterations is positive")
     if "\\" in raw:
-        raise BatchRunError(f"remote policyUpdateArtifactPath is unsafe: {raw!r}")
+        raise BatchRunError(f"remote {label} is unsafe: {raw!r}")
     path = Path(raw)
     if path.is_absolute() or ".." in path.parts:
-        raise BatchRunError(f"remote policyUpdateArtifactPath is unsafe: {raw!r}")
+        raise BatchRunError(f"remote {label} is unsafe: {raw!r}")
     if len(path.parts) < 3 or path.parts[0] != "runtime-artifacts" or path.parts[1] != "rl-training":
-        raise BatchRunError(f"remote policyUpdateArtifactPath is outside rl-training artifacts: {raw!r}")
+        raise BatchRunError(f"remote {label} is outside rl-training artifacts: {raw!r}")
     return path
 
 

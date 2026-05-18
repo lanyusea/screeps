@@ -1258,7 +1258,7 @@ def policy_update_candidate_rows(
         if strategy_variant_id is None:
             continue
         summaries = result_groups.get(strategy_variant_id) or result_groups.get(candidate_policy_id or "") or []
-        scored_summaries = [summary for summary in summaries if int_or_none(summary.get("sampleCount")) and summary.get("reward")]
+        scored_summaries = [summary for summary in summaries if policy_reward_tuple_values(summary) is not None]
         if not scored_summaries:
             continue
         card_parameters = bounded_policy_parameters(candidate.get("parameters"), parameter_space)
@@ -1278,7 +1278,7 @@ def policy_update_candidate_rows(
                 "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
                 "parameters": parameters,
                 "rewardTuple": aggregate_policy_reward_tuple(scored_summaries),
-                "sampleCount": sum(int(summary.get("sampleCount", 0)) for summary in scored_summaries),
+                "sampleCount": sum(policy_reward_tuple_sample_weight(summary) for summary in scored_summaries),
                 "resultVariantIds": [summary["variantId"] for summary in scored_summaries if isinstance(summary.get("variantId"), str)],
             }
         )
@@ -1357,17 +1357,24 @@ def aggregate_policy_reward_tuple(summaries: Sequence[JsonObject]) -> list[float
     weighted_sums = [0.0 for _tier in REWARD_TIERS]
     total_weight = 0
     for summary in summaries:
-        reward = summary.get("reward")
-        raw_tuple = reward.get("tuple") if isinstance(reward, dict) else None
-        if not isinstance(raw_tuple, list) or len(raw_tuple) < len(REWARD_TIERS):
+        reward_tuple = policy_reward_tuple_values(summary)
+        if reward_tuple is None:
             continue
         weight = policy_reward_tuple_sample_weight(summary)
         total_weight += weight
-        for index, value in enumerate(raw_tuple[: len(REWARD_TIERS)]):
+        for index, value in enumerate(reward_tuple):
             weighted_sums[index] += float(value) * weight
     if total_weight == 0:
         return [0 for _tier in REWARD_TIERS]
     return [round_policy_number(value / total_weight) for value in weighted_sums]
+
+
+def policy_reward_tuple_values(summary: JsonObject) -> list[Any] | None:
+    reward = summary.get("reward")
+    raw_tuple = reward.get("tuple") if isinstance(reward, dict) else None
+    if not isinstance(raw_tuple, list) or len(raw_tuple) < len(REWARD_TIERS):
+        return None
+    return raw_tuple[: len(REWARD_TIERS)]
 
 
 def policy_reward_tuple_sample_weight(summary: JsonObject) -> int:

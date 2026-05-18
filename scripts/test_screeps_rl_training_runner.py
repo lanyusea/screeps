@@ -965,6 +965,72 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(rows[0]["parameters"], {"knob": 4.2})
 
+    def test_policy_update_candidate_rows_uses_reward_weight_defaults_for_sample_count(self) -> None:
+        parameter_space = {"knob": {"min": 0, "max": 10}}
+        rows = runner.policy_update_candidate_rows(
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate",
+                        "strategyVariantId": "candidate",
+                        "parameters": {"knob": 4.2},
+                    },
+                ]
+            },
+            [
+                {
+                    "variantId": "candidate.scale-env-01",
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1, 2, 3, 4]},
+                },
+                {
+                    "variantId": "candidate.scale-env-02",
+                    "sampleCount": "invalid",
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [3, 4, 5, 6]},
+                },
+                {
+                    "variantId": "candidate.scale-env-03",
+                    "sampleCount": -7,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [5, 6, 7, 8]},
+                },
+                {
+                    "variantId": "candidate.scale-env-04",
+                    "sampleCount": 2,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [9, 10, 11, 12]},
+                },
+                {
+                    "variantId": "candidate.scale-env-05",
+                    "sampleCount": 0,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [100, 100, 100, 100]},
+                },
+                {
+                    "variantId": "candidate.scale-env-06",
+                    "sampleCount": 100,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1000]},
+                },
+            ],
+            parameter_space,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["sampleCount"], 5)
+        self.assertEqual(rows[0]["rewardTuple"], [5.4, 6.4, 7.4, 8.4])
+        self.assertEqual(
+            rows[0]["resultVariantIds"],
+            [
+                "candidate.scale-env-01",
+                "candidate.scale-env-02",
+                "candidate.scale-env-03",
+                "candidate.scale-env-04",
+                "candidate.scale-env-05",
+            ],
+        )
+
     def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-update",

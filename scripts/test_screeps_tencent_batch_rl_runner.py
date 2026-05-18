@@ -379,6 +379,58 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.BatchRunError, "policy update artifact was not collected"):
                 controller.verify_remote_training_report()
 
+    def test_verified_remote_policy_update_rejects_contradictory_duplicate_metadata(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            (
+                {
+                    "policyUpdateIterations": 5,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactPath": artifact_path,
+                        "nextCandidatePolicy": {
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                    },
+                },
+                "policyUpdate.iterations disagrees",
+            ),
+            (
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactPath": "runtime-artifacts/rl-training/policy-candidates/other-next-policy.json",
+                        "nextCandidatePolicy": {
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                    },
+                },
+                "policyUpdate.artifactPath disagrees",
+            ),
+        )
+        for data, expected_error in cases:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+
     def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
