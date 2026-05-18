@@ -108,6 +108,9 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(card["conservative_actions_only"])
         self.assertTrue(card["ood_rejection"])
         self.assertEqual(policy_gradient["target_family"], "construction-priority")
+        self.assertEqual(policy_gradient["policy_update"]["algorithm"], "reinforce_v1")
+        self.assertEqual(policy_gradient["policy_update"]["learning_rate"], 1)
+        self.assertEqual(policy_gradient["policy_update"]["estimator"], "score_function_reinforce_v1")
         runner_support = policy_gradient["runner_support"]
         self.assertEqual(
             learnable_names,
@@ -1061,6 +1064,44 @@ class RlExperimentCardTest(unittest.TestCase):
             "candidate_parameter_vectors\\[0\\].parameters.territorySignalWeight must be within registry knob bounds",
         ):
             card_helper.validate_card(card)
+
+    def test_validate_policy_gradient_rejects_malformed_policy_update(self) -> None:
+        cases = (
+            ("missing policy_update", None, None, "policy_gradient.policy_update must be a JSON object"),
+            (
+                "non-object policy_update",
+                "__policy_update__",
+                [],
+                "policy_gradient.policy_update must be a JSON object",
+            ),
+            ("unsupported algorithm", "algorithm", "finite_difference", "policy_update.algorithm must be reinforce_v1"),
+            ("unsafe learning rate", "learning_rate", 0, "policy_update.learning_rate must be 1"),
+            (
+                "unsupported estimator",
+                "estimator",
+                "rank_weighted",
+                "policy_update.estimator must be score_function_reinforce_v1",
+            ),
+            ("unbounded step", "bounded_integer_step", False, "policy_update.bounded_integer_step must be true"),
+        )
+        for label, field, value, expected_error in cases:
+            with self.subTest(label=label):
+                card = card_helper.build_card(
+                    dataset_run_id="rl-policy-gradient-update-contract",
+                    code_commit="f" * 40,
+                    training_approach="policy_gradient",
+                    created_at="2026-05-17T00:25:00Z",
+                )
+                policy_gradient = card["policy_gradient"]
+                if field is None:
+                    policy_gradient.pop("policy_update")
+                elif field == "__policy_update__":
+                    policy_gradient["policy_update"] = value
+                else:
+                    policy_gradient["policy_update"][field] = value
+
+                with self.assertRaisesRegex(card_helper.CardValidationError, expected_error):
+                    card_helper.validate_card(card)
 
     def test_validate_policy_gradient_rejects_unsupported_runner_transport(self) -> None:
         card = card_helper.build_card(
