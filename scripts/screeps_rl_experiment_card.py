@@ -24,6 +24,10 @@ STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
+SCENARIO_METADATA_TYPE = "screeps-rl-training-scenario"
+DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
+MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
+SCENARIO_IDS = (DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID)
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
 LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
@@ -218,6 +222,85 @@ def simulation_block(
     }
 
 
+def scenario_metadata_block(*, scenario_id: str = DEFAULT_SCENARIO_ID) -> JsonObject:
+    if scenario_id == DEFAULT_SCENARIO_ID:
+        return {
+            "type": SCENARIO_METADATA_TYPE,
+            "scenario_id": DEFAULT_SCENARIO_ID,
+            "scenario_tier": "single_room_smoke",
+            "label": "E1S1 single-room no-hostile smoke scenario",
+            "capabilities": {
+                "multi_room_capable": False,
+                "adjacent_room_territory_signal": False,
+                "hostile_combat_signal": False,
+                "multi_tier_policy_comparison": False,
+            },
+            "suitability": {
+                "multi_tier_policy_comparison": False,
+                "territory_combat_differentiation": False,
+                "classification": "not_suitable_for_territory_combat_differentiation",
+                "reasons": [
+                    "single-room E1S1 map has no adjacent-room expansion signal",
+                    "default smoke fixture has no hostile/combat signal",
+                ],
+            },
+            "evidence": {
+                "anchor_room": "E1S1",
+                "room_count": 1,
+                "hostile_fixture": "none",
+                "map_source_file": str(DEFAULT_SIMULATION_MAP_SOURCE_FILE),
+            },
+            "safety": safety_block(),
+        }
+    if scenario_id == MULTI_TIER_SCENARIO_ID:
+        return {
+            "type": SCENARIO_METADATA_TYPE,
+            "scenario_id": MULTI_TIER_SCENARIO_ID,
+            "scenario_tier": "multi_tier_policy_comparison",
+            "label": "Guarded multi-room territory plus hostile-combat training scenario",
+            "capabilities": {
+                "multi_room_capable": True,
+                "adjacent_room_territory_signal": True,
+                "hostile_combat_signal": True,
+                "multi_tier_policy_comparison": True,
+            },
+            "suitability": {
+                "multi_tier_policy_comparison": True,
+                "territory_combat_differentiation": True,
+                "classification": "suitable_for_multi_tier_policy_comparison",
+                "reasons": [],
+            },
+            "evidence": {
+                "anchor_room": "E1S1",
+                "minimum_room_count": 2,
+                "requires_adjacent_room": True,
+                "requires_hostile_fixture": True,
+                "map_source_file": str(DEFAULT_SIMULATION_MAP_SOURCE_FILE),
+                "implementation_status": "metadata_only_guarded",
+                "execution_guard": "private multi-room hostile fixture must confirm these capabilities before live training use",
+            },
+            "safety": safety_block(),
+        }
+    raise CardValidationError(f"scenario_id must be one of: {', '.join(SCENARIO_IDS)}")
+
+
+def scenario_supports_multi_tier_policy_comparison(raw: Any) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    capabilities = raw.get("capabilities")
+    suitability = raw.get("suitability")
+    if not isinstance(capabilities, dict) or not isinstance(suitability, dict):
+        return False
+    return (
+        capabilities.get("multi_room_capable") is True
+        and capabilities.get("adjacent_room_territory_signal") is True
+        and capabilities.get("hostile_combat_signal") is True
+        and capabilities.get("multi_tier_policy_comparison") is True
+        and suitability.get("multi_tier_policy_comparison") is True
+        and suitability.get("territory_combat_differentiation") is True
+    )
+
+
 def build_card(
     *,
     dataset_run_id: str,
@@ -230,6 +313,8 @@ def build_card(
     registry_path: Path | None = None,
     loop_a_card_supply: bool = False,
     source_gate: JsonObject | None = None,
+    scenario_id: str = DEFAULT_SCENARIO_ID,
+    require_multi_tier_scenario: bool = False,
 ) -> JsonObject:
     validate_dataset_run_id(dataset_run_id)
     validate_code_commit(code_commit)
@@ -257,6 +342,11 @@ def build_card(
     )
     if training_approach == "policy_gradient":
         ticks = max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+    scenario = scenario_metadata_block(scenario_id=scenario_id)
+    if require_multi_tier_scenario and not scenario_supports_multi_tier_policy_comparison(scenario):
+        raise CardValidationError(
+            "multi-tier policy comparisons require a scenario with adjacent-room territory and hostile combat signals"
+        )
 
     commit_prefix = code_commit[:12].lower()
     card = {
@@ -270,6 +360,7 @@ def build_card(
         "officialMmoWritesAllowed": False,
         "ood_rejection": True,
         "reward_model": reward_model(),
+        "scenario": scenario,
         "safety": safety_block(),
         "simulation": simulation_block(ticks=ticks, workers=workers, repetitions=repetitions),
         "status": "shadow",
@@ -641,6 +732,7 @@ def validate_card(raw: Any) -> None:
     validate_reward_model(raw.get("reward_model"))
     validate_card_supply(raw)
     validate_source_gate(raw)
+    validate_scenario(raw)
     strategy_variants = first_present(raw, ("strategy_variants", "strategyVariants", "variants"))
     validate_strategy_variants(strategy_variants)
     simulation = first_present(raw, ("simulation", "simulator"))
@@ -730,6 +822,71 @@ def validate_source_gate(card: JsonObject) -> None:
         validate_created_at(created_at)
 
 
+def validate_scenario_metadata(
+    card: JsonObject,
+    *,
+    error_cls: type[ValueError] = CardValidationError,
+    require_presence: bool = False,
+    require_scenario_tier: bool = False,
+    json_object_wording: bool = False,
+) -> None:
+    object_noun = "JSON object" if json_object_wording else "object"
+    article = "a" if json_object_wording else "an"
+
+    raw = first_present(card, ("scenario", "trainingScenario"))
+    if raw is None:
+        if require_presence:
+            raise error_cls("scenario metadata is required")
+        return
+    if not isinstance(raw, dict):
+        raise error_cls(f"scenario must be {article} {object_noun}")
+    if raw.get("type") != SCENARIO_METADATA_TYPE:
+        raise error_cls(f"scenario.type must be {SCENARIO_METADATA_TYPE}")
+    scenario_id = raw.get("scenario_id", raw.get("scenarioId"))
+    if scenario_id not in SCENARIO_IDS:
+        raise error_cls(f"scenario.scenario_id must be one of: {', '.join(SCENARIO_IDS)}")
+    if require_scenario_tier and not isinstance(raw.get("scenario_tier", raw.get("scenarioTier")), str):
+        raise error_cls("scenario.scenario_tier must be a string")
+    capabilities = raw.get("capabilities")
+    if not isinstance(capabilities, dict):
+        raise error_cls(f"scenario.capabilities must be {article} {object_noun}")
+    for field in (
+        "multi_room_capable",
+        "adjacent_room_territory_signal",
+        "hostile_combat_signal",
+        "multi_tier_policy_comparison",
+    ):
+        if capabilities.get(field) not in (True, False):
+            raise error_cls(f"scenario.capabilities.{field} must be a boolean")
+    suitability = raw.get("suitability")
+    if not isinstance(suitability, dict):
+        raise error_cls(f"scenario.suitability must be {article} {object_noun}")
+    for field in ("multi_tier_policy_comparison", "territory_combat_differentiation"):
+        if suitability.get(field) not in (True, False):
+            raise error_cls(f"scenario.suitability.{field} must be a boolean")
+    if not isinstance(suitability.get("classification"), str) or not suitability.get("classification"):
+        raise error_cls("scenario.suitability.classification must be a non-empty string")
+    reasons = suitability.get("reasons")
+    if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
+        raise error_cls("scenario.suitability.reasons must be a list of strings")
+    if not scenario_supports_multi_tier_policy_comparison(raw) and suitability.get("multi_tier_policy_comparison") is True:
+        raise error_cls(
+            "scenario marked multi-tier suitable without multi-room, territory, and hostile combat capabilities"
+        )
+    scenario_safety = raw.get("safety")
+    if isinstance(scenario_safety, dict):
+        for field in SAFETY_FALSE_FIELDS:
+            if scenario_safety.get(field) is not False:
+                raise error_cls(f"scenario.safety.{field} must be false")
+        for field in SAFETY_TRUE_FIELDS:
+            if scenario_safety.get(field) is not True:
+                raise error_cls(f"scenario.safety.{field} must be true")
+
+
+def validate_scenario(card: JsonObject) -> None:
+    validate_scenario_metadata(card, require_scenario_tier=True, json_object_wording=True)
+
+
 def is_loop_a_card_available_for_training(card: JsonObject, consumed_card_ids: set[str] | None = None) -> bool:
     try:
         validate_card(card)
@@ -814,6 +971,7 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
         "training_approach": card.get("training_approach"),
         "status": card.get("status"),
         "card_supply": first_present(card, ("card_supply", "cardSupply")),
+        "scenario": first_present(card, ("scenario", "trainingScenario")),
         "consumed_card_count": len(consumed_card_ids),
     }
 
@@ -1323,6 +1481,10 @@ def validation_summary(card: JsonObject) -> JsonObject:
         },
         "status": card.get("status"),
     }
+    scenario = first_present(card, ("scenario", "trainingScenario"))
+    if isinstance(scenario, dict):
+        summary["scenario"] = scenario
+        summary["multi_tier_policy_comparison_suitable"] = scenario_supports_multi_tier_policy_comparison(scenario)
     card_supply = first_present(card, ("card_supply", "cardSupply"))
     if isinstance(card_supply, dict):
         summary["card_supply"] = card_supply
@@ -1441,6 +1603,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--workers",
         type=positive_int_arg,
         help="Simulator worker count to request. Defaults to 1.",
+    )
+    parser.add_argument(
+        "--scenario-id",
+        choices=SCENARIO_IDS,
+        default=DEFAULT_SCENARIO_ID,
+        help=(
+            "Scenario metadata to attach. Default classifies the E1S1 smoke map as single-room/no-hostile; "
+            f"use {MULTI_TIER_SCENARIO_ID} to request the guarded multi-tier metadata surface."
+        ),
+    )
+    parser.add_argument(
+        "--require-multi-tier-scenario",
+        action="store_true",
+        help="Reject cards whose scenario lacks adjacent-room territory and hostile combat signals.",
     )
     parser.add_argument(
         "--dry-run",
@@ -1628,6 +1804,8 @@ def main(
             simulation_workers=simulation_workers,
             loop_a_card_supply=loop_a_card_supply,
             source_gate=source_gate,
+            scenario_id=args.scenario_id,
+            require_multi_tier_scenario=args.require_multi_tier_scenario,
         )
         if args.loop_a_local_fallback:
             output_path = args.output or repo / DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH.relative_to(REPO_ROOT)

@@ -56,6 +56,7 @@ def base_card(variant_ids: list[str] | None = None) -> JsonObject:
             "resource_normalizer": 1000,
             "scalar_weighted_sum_authorized": False,
         },
+        "scenario": card_helper.scenario_metadata_block(),
         "simulation": {
             "ticks": 2,
             "workers": 1,
@@ -182,6 +183,62 @@ class RlTrainingRunnerTest(unittest.TestCase):
             "reward_model.component_order must preserve reliability, territory, resources, kills",
         ):
             runner.validate_experiment_card(card)
+
+    def test_experiment_card_validation_requires_scenario_metadata(self) -> None:
+        card = base_card()
+        del card["scenario"]
+
+        with self.assertRaisesRegex(runner.TrainingCardError, "scenario metadata is required"):
+            runner.validate_experiment_card(card)
+
+    def test_experiment_card_validation_rejects_inconsistent_scenario_suitability(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-scenario-invalid",
+            code_commit="a" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:20:00Z",
+        )
+        card["scenario"]["suitability"]["multi_tier_policy_comparison"] = True
+
+        with self.assertRaisesRegex(runner.TrainingCardError, "marked multi-tier suitable"):
+            runner.validate_experiment_card(card)
+
+    def test_training_report_carries_single_room_scenario_classification(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-scenario-report",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:21:00Z",
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("E1S1", energy=100)])
+        finish = tick(2, [room("E1S1", energy=150)])
+        simulator = MockSimulator({
+            variant_id: variant_result(variant_id, [start, finish])
+            for variant_id in variant_ids
+        })
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="scenario-classification",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(report["scenario"]["scenario_id"], card_helper.DEFAULT_SCENARIO_ID)
+        self.assertFalse(report["experimentCard"]["multiTierPolicyComparisonSuitable"])
+        self.assertEqual(
+            report["scenario"]["suitability"]["classification"],
+            "not_suitable_for_territory_combat_differentiation",
+        )
+        self.assertIn(
+            "experiment card scenario is classified as not suitable for multi-tier territory/combat policy comparison",
+            report["warnings"],
+        )
 
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
@@ -446,6 +503,22 @@ safety:
   officialMmoWritesAllowed: false
   ood_rejection: true
   conservative_actions_only: true
+scenario:
+  type: screeps-rl-training-scenario
+  scenario_id: e1s1-single-room-no-hostile
+  scenario_tier: single_room_smoke
+  capabilities:
+    multi_room_capable: false
+    adjacent_room_territory_signal: false
+    hostile_combat_signal: false
+    multi_tier_policy_comparison: false
+  suitability:
+    multi_tier_policy_comparison: false
+    territory_combat_differentiation: false
+    classification: not_suitable_for_territory_combat_differentiation
+    reasons:
+      - single-room E1S1 map has no adjacent-room expansion signal
+      - default smoke fixture has no hostile/combat signal
 reward_model:
   type: lexicographic
   component_order:

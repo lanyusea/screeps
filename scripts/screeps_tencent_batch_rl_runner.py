@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
+from screeps_rl_experiment_card import DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID, SCENARIO_IDS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
 DEFAULT_BILLING_GUARD = Path("/root/.hermes/scripts/screeps-tencent-billing-guard.py")
@@ -217,6 +219,8 @@ class Controller:
                 "workers": self.args.workers,
                 "repetitions": self.args.repetitions,
                 "trainingApproach": self.args.training_approach,
+                "scenarioId": getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
+                "requireMultiTierScenario": getattr(self.args, "require_multi_tier_scenario", False),
             },
             "outputs": self.result,
             "steps": [step.__dict__ for step in self.steps],
@@ -423,16 +427,20 @@ class Controller:
     def generate_experiment_card(self) -> None:
         card = self.experiment_card_path()
         created_at = utc_now_iso()
+        cmd = [
+            sys.executable,
+            "scripts/screeps_rl_experiment_card.py",
+            "--dataset-run-id", self.args.dataset_run_id,
+            "--training-approach", self.args.training_approach,
+            "--created-at", created_at,
+            "--scenario-id", getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
+            "--output", str(card),
+        ]
+        if getattr(self.args, "require_multi_tier_scenario", False):
+            cmd.append("--require-multi-tier-scenario")
         cp = self.run_cp(
             "generate_experiment_card",
-            [
-                sys.executable,
-                "scripts/screeps_rl_experiment_card.py",
-                "--dataset-run-id", self.args.dataset_run_id,
-                "--training-approach", self.args.training_approach,
-                "--created-at", created_at,
-                "--output", str(card),
-            ],
+            cmd,
             timeout=60,
         )
         del cp  # step is already recorded
@@ -454,6 +462,12 @@ class Controller:
             # .git, so git check-ignore cannot prove safety there.
             "simulator_out_dir": f"{self.remote_dir}/simulator-artifacts",
         })
+        scenario = payload.get("scenario")
+        if isinstance(scenario, dict):
+            evidence = scenario.setdefault("evidence", {})
+            if isinstance(evidence, dict):
+                evidence["anchor_room"] = simulation.get("room", evidence.get("anchor_room"))
+                evidence["map_source_file"] = simulation["map_source_file"]
         if scale_environments is not None:
             simulation.update({
                 "scale_environments": scale_environments,
@@ -1438,6 +1452,7 @@ def build_scale_proof_spec(
             "cardId": experiment_card.get("card_id"),
             "status": experiment_card.get("status"),
             "safety": experiment_card.get("safety"),
+            "scenario": experiment_card.get("scenario"),
         },
         "scaleProof": {
             "mode": "single_tencent_asg_worker_multi_environment",
@@ -1456,6 +1471,7 @@ def build_scale_proof_spec(
                     "workers": args.workers,
                     "scale_environments": scale_environments,
                     "min_concurrent_environments": scale_environments,
+                    "scenario_id": getattr(args, "scenario_id", DEFAULT_SCENARIO_ID),
                 },
             },
         },
@@ -1541,6 +1557,11 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
             raise BatchRunError("workers must be at least scale environments for concurrent scale proof")
     if args.repetitions < 1 or args.ticks < 1:
         raise BatchRunError("ticks and repetitions must be positive")
+    scenario_id = getattr(args, "scenario_id", DEFAULT_SCENARIO_ID)
+    if scenario_id not in SCENARIO_IDS:
+        raise BatchRunError(f"scenario id must be one of: {', '.join(SCENARIO_IDS)}")
+    if getattr(args, "require_multi_tier_scenario", False) and scenario_id != MULTI_TIER_SCENARIO_ID:
+        raise BatchRunError("multi-tier policy comparisons require the multi-tier territory/combat scenario id")
     if not args.controller_ip.endswith("/32"):
         raise BatchRunError("controller IP must be a /32 CIDR")
 
@@ -1627,6 +1648,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--host-port-start", type=int, default=24125)
+    parser.add_argument("--scenario-id", choices=SCENARIO_IDS, default=DEFAULT_SCENARIO_ID)
+    parser.add_argument(
+        "--require-multi-tier-scenario",
+        action="store_true",
+        help="Reject Tencent policy comparison cards unless the scenario has territory and combat signals.",
+    )
     parser.add_argument("--variant", action="append", help="Strategy variant id; repeat to override generated card variants.")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
     parser.add_argument("--scale-timeout-seconds", type=int, default=900)

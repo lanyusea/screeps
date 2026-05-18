@@ -18,6 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence, TextIO
 
+from screeps_rl_experiment_card import (
+    scenario_supports_multi_tier_policy_comparison,
+    validate_scenario_metadata,
+)
 import screeps_rl_dataset_export as dataset_export
 import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
@@ -264,6 +268,7 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false")
 
     validate_card_supply(card)
+    validate_scenario_metadata(card, error_cls=TrainingCardError, require_presence=True)
 
     raw_variants = raw_variant_definitions(card)
     if not isinstance(raw_variants, list) or len(raw_variants) == 0:
@@ -987,6 +992,15 @@ def build_training_report(
     warnings = build_report_warnings(results, simulator_runs)
     scale_validation = build_scale_validation_summary(simulator_runs, config)
     policy_gradient = policy_gradient_metadata_from_card(card)
+    scenario = scenario_metadata_from_card(card)
+    if (
+        policy_gradient is not None
+        and scenario is not None
+        and not scenario_supports_multi_tier_policy_comparison(scenario)
+    ):
+        warnings.append(
+            "experiment card scenario is classified as not suitable for multi-tier territory/combat policy comparison"
+        )
 
     report = {
         "type": REPORT_TYPE,
@@ -1054,6 +1068,8 @@ def build_training_report(
         "kpiSummary": build_kpi_summary(scored_results),
         "warnings": warnings,
     }
+    if scenario is not None:
+        report["scenario"] = scenario
     if scale_validation is not None:
         report["scaleValidation"] = scale_validation
     if policy_gradient is not None:
@@ -2344,7 +2360,18 @@ def summarize_card(card: JsonObject, path: Path) -> JsonObject:
     card_supply = card.get("card_supply", card.get("cardSupply"))
     if isinstance(card_supply, dict):
         summary["cardSupply"] = copy.deepcopy(card_supply)
+    scenario = scenario_metadata_from_card(card)
+    if scenario is not None:
+        summary["scenario"] = scenario
+        summary["multiTierPolicyComparisonSuitable"] = scenario_supports_multi_tier_policy_comparison(scenario)
     return summary
+
+
+def scenario_metadata_from_card(card: JsonObject) -> JsonObject | None:
+    raw = card.get("scenario", card.get("trainingScenario"))
+    if not isinstance(raw, dict):
+        return None
+    return copy.deepcopy(raw)
 
 
 def policy_gradient_metadata_from_card(card: JsonObject) -> JsonObject | None:

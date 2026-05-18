@@ -70,6 +70,13 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(config.workers, 1)
         self.assertEqual(config.repetitions, 1)
         self.assertEqual(config.branch, "$activeWorld")
+        self.assertEqual(card["scenario"]["scenario_id"], card_helper.DEFAULT_SCENARIO_ID)
+        self.assertFalse(card["scenario"]["capabilities"]["adjacent_room_territory_signal"])
+        self.assertFalse(card["scenario"]["capabilities"]["hostile_combat_signal"])
+        self.assertEqual(
+            card["scenario"]["suitability"]["classification"],
+            "not_suitable_for_territory_combat_differentiation",
+        )
 
     def test_policy_gradient_construction_priority_card_is_runner_valid(self) -> None:
         card = card_helper.build_card(
@@ -132,6 +139,83 @@ class RlExperimentCardTest(unittest.TestCase):
             self.assertEqual(set(candidate["parameters"]), set(learnable_names))
             self.assertFalse(candidate["parameterEvidence"]["liveEffect"])
             self.assertFalse(candidate["parameterEvidence"]["officialMmoWrites"])
+        self.assertFalse(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
+
+    def test_multi_tier_policy_gradient_card_records_scenario_capabilities(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+        scenario = card["scenario"]
+
+        self.assertEqual(scenario["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(scenario["capabilities"]["multi_room_capable"])
+        self.assertTrue(scenario["capabilities"]["adjacent_room_territory_signal"])
+        self.assertTrue(scenario["capabilities"]["hostile_combat_signal"])
+        self.assertTrue(scenario["suitability"]["multi_tier_policy_comparison"])
+        self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(scenario))
+        self.assertEqual(scenario["evidence"]["implementation_status"], "metadata_only_guarded")
+        for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+            self.assertFalse(card[field])
+            self.assertFalse(card["safety"][field])
+            self.assertFalse(scenario["safety"][field])
+
+    def test_multi_tier_requirement_rejects_single_room_no_hostile_scenario(self) -> None:
+        with self.assertRaisesRegex(card_helper.CardValidationError, "multi-tier policy comparisons require"):
+            card_helper.build_card(
+                dataset_run_id="rl-policy-gradient-bad-scenario",
+                code_commit="d" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-18T10:16:00Z",
+                require_multi_tier_scenario=True,
+            )
+
+    def test_cli_can_request_multi_tier_policy_gradient_scenario(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        exit_code = card_helper.main(
+            [
+                "--dry-run",
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                card_helper.MULTI_TIER_SCENARIO_ID,
+                "--require-multi-tier-scenario",
+                "--code-commit",
+                "9" * 40,
+                "--created-at",
+                "2026-05-18T10:18:00Z",
+            ],
+            stdout=stdout,
+            stderr=stderr,
+            repo_root=REPO_ROOT,
+        )
+        generated = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(generated["scenario"]["suitability"]["multi_tier_policy_comparison"])
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_scenario_validation_rejects_inconsistent_multi_tier_claim(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-inconsistent",
+            code_commit="e" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:17:00Z",
+        )
+        card["scenario"]["suitability"]["multi_tier_policy_comparison"] = True
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "marked multi-tier suitable"):
+            card_helper.validate_card(card)
 
     def test_loop_a_policy_gradient_supply_card_remains_shadow_and_available(self) -> None:
         card = card_helper.build_card(
