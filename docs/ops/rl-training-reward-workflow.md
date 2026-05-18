@@ -38,6 +38,21 @@ Dry-run generation is allowed for pipeline checks:
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 ```
 
+Generate the Loop A local-fallback card from an accepted dataset gate, such as
+`rl-gate-93bf1aa18b62` under `runtime-artifacts/rl-dataset-gates`. Use
+`--source-gate-id` with a gate whose `gate_report.json` has `ok: true` and a dataset run ID.
+This output is runtime-only because `runtime-artifacts/` is ignored;
+`--loop-a-local-fallback` writes the card to
+`runtime-artifacts/rl-experiment-cards/experiment_card.json` by default and prints a compact
+summary to stdout:
+
+```bash
+python3 scripts/screeps_rl_experiment_card.py \
+  --loop-a-local-fallback \
+  --source-gate-id rl-gate-93bf1aa18b62 \
+  --dataset-gate-root runtime-artifacts/rl-dataset-gates
+```
+
 Validate an existing card:
 
 ```bash
@@ -61,7 +76,10 @@ python3 scripts/screeps_rl_mmo_validator.py \
   runtime-artifacts/
 ```
 
-The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex characters of `code_commit`. Output goes to stdout unless `--output <path>` is provided.
+The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex
+characters of `code_commit`. Regular generation without `--loop-a-local-fallback` prints the card to
+stdout unless `--output <path>` or `--output-dir <path>` is provided; `--output <path>` also
+overrides the local-fallback card path.
 
 ## Experiment Card Contract
 
