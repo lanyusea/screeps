@@ -1505,6 +1505,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(generate_cmd[generate_cmd.index("--scenario-id") + 1], runner.MULTI_TIER_SCENARIO_ID)
         self.assertIn("--require-multi-tier-scenario", generate_cmd)
         self.assertEqual(card["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(card["policy_gradient"]["policy_update"]["algorithm"], "reinforce_v1")
+        self.assertEqual(card["policy_gradient"]["policy_update"]["learning_rate"], 1)
         self.assertTrue(card["scenario"]["capabilities"]["hostile_combat_signal"])
         self.assertEqual(card["scenario"]["evidence"]["adjacent_room"], "E2S1")
         self.assertEqual(card["scenario"]["evidence"]["hostile_creep_count"], 2)

@@ -66,6 +66,8 @@ MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS = "active_fixture_validated"
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 POLICY_GRADIENT_SIMULATION_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
+POLICY_GRADIENT_UPDATE_ALGORITHM = "reinforce_v1"
+POLICY_GRADIENT_UPDATE_LEARNING_RATE = 1
 LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
@@ -793,6 +795,12 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
         "owning_issues": ["#1032", "#879", "#924"],
         "learnable_parameters": construction_priority_learnable_parameters(registry_path),
         "candidate_parameter_vectors": candidates,
+        "policy_update": {
+            "algorithm": POLICY_GRADIENT_UPDATE_ALGORITHM,
+            "learning_rate": POLICY_GRADIENT_UPDATE_LEARNING_RATE,
+            "estimator": "score_function_reinforce_v1",
+            "bounded_integer_step": True,
+        },
         "runner_support": {
             "inline_candidates_applied_to_simulator": False,
             "simulator_variant_transport": "variant_ids_only",
