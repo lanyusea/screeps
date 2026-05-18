@@ -138,6 +138,61 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(policy["cardSupplyFinding"]["status"], "FALLBACK_DEGRADED")
         self.assertEqual(policy["cardSupplyFinding"]["severity"], "P2")
 
+    def test_tencent_internal_card_satisfies_stale_not_run_training_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-stale"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-stale",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-accepted-123456789abc"}},
+                },
+            )
+            write_json(run_dir / "experiment_card.json", policy_gradient_card())
+
+            card_supply = dashboard.discover_tencent_internal_card_supply(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            self.assertIsNotNone(card_supply)
+            assert card_supply is not None
+
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "NOT_RUN",
+                        "trainingDidRun": False,
+                        "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    },
+                ),
+                tencent_internal_card_supply=card_supply,
+            )
+            policy = dashboard.policy_advantage(
+                loaded_artifact(
+                    root / "rl-control-loop" / "policy-advantage.json",
+                    {
+                        "type": "screeps-rl-policy-online-advantage-report",
+                        "onlineUtilityStatus": "UNPROVEN",
+                        "candidatePolicyId": "NO_STABLE_CANDIDATE",
+                        "baselinePolicyId": "incumbent",
+                        "evidenceWindows": {"loopACardPathStalledCycles": 17},
+                    },
+                ),
+                None,
+                training=training,
+            )
+
+        self.assertEqual(training["status"], "NOT_RUN")
+        self.assertEqual(training["cardSupply"]["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(training["cardSupply"]["severity"], "OK")
+        self.assertEqual(policy["cardSupplyFinding"]["status"], "FALLBACK_DEGRADED")
+        self.assertEqual(policy["cardSupplyFinding"]["severity"], "P2")
+
     def test_missing_training_and_card_evidence_keeps_card_supply_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -977,7 +977,7 @@ def reconcile_card_supply_for_training(
     embedded_supply = card_supply_from_training_payload(payload, latest_path)
     if training_did_run and embedded_supply is not None:
         return embedded_supply
-    if training_did_run and tencent_internal_card_supply is not None:
+    if tencent_internal_card_supply is not None:
         return dict(tencent_internal_card_supply)
     if training_did_run:
         return {
