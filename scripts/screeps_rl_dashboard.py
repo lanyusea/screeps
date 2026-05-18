@@ -36,6 +36,11 @@ LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
 LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_STATES = ("available", "consumed")
 TENCENT_CARD_IDENTITY_FIELDS = ("runId", "cardId", "datasetRunId")
+TENCENT_CARD_SUPPLY_SOURCES = (
+    "tencent_controller_summary",
+    "tencent_internal_experiment_card",
+    "tencent_internal_training_report",
+)
 TENCENT_CARD_IDENTITY_KEYS = {
     "batchrunid": "runId",
     "runid": "runId",
@@ -512,7 +517,7 @@ def card_supply_from_controller_summary(
 
     if not candidates:
         return None
-    return candidates[-1]
+    return max(candidates, key=card_supply_candidate_key)
 
 
 def discover_tencent_internal_card_supply(
@@ -996,16 +1001,25 @@ def card_supply_from_training_payload(payload: JsonObject, path: Path | None) ->
     return None
 
 
-def tencent_card_identity_values(value: Any) -> dict[str, set[str]]:
+def tencent_card_identity_values(value: JsonObject) -> dict[str, set[str]]:
     identity: dict[str, set[str]] = {field: set() for field in TENCENT_CARD_IDENTITY_FIELDS}
+    for key, raw in value.items():
+        field = TENCENT_CARD_IDENTITY_KEYS.get(normalized_key(str(key)))
+        raw_text = text_value(raw)
+        if field is not None and raw_text is not None:
+            identity[field].add(raw_text)
+    return identity
+
+
+def tencent_card_identity_candidates(value: Any) -> list[dict[str, set[str]]]:
+    candidates: list[dict[str, set[str]]] = []
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
-            for key, raw in node.items():
-                field = TENCENT_CARD_IDENTITY_KEYS.get(normalized_key(str(key)))
-                raw_text = text_value(raw)
-                if field is not None and raw_text is not None:
-                    identity[field].add(raw_text)
+            identity = tencent_card_identity_values(node)
+            if any(identity[field] for field in TENCENT_CARD_IDENTITY_FIELDS):
+                candidates.append(identity)
+            for raw in node.values():
                 if isinstance(raw, (dict, list)):
                     visit(raw)
         elif isinstance(node, list):
@@ -1013,7 +1027,7 @@ def tencent_card_identity_values(value: Any) -> dict[str, set[str]]:
                 visit(item)
 
     visit(value)
-    return identity
+    return candidates
 
 
 def card_supply_identity(card_supply: JsonObject) -> dict[str, str | None]:
@@ -1042,11 +1056,11 @@ def training_payload_matches_tencent_card_supply(
     payload: JsonObject,
     card_supply: JsonObject,
 ) -> bool:
-    artifact_identity = tencent_card_identity_values(as_dict(payload.get("trainingArtifacts")))
-    if tencent_card_identity_matches_supply(artifact_identity, card_supply):
+    artifact_identities = tencent_card_identity_candidates(as_dict(payload.get("trainingArtifacts")))
+    if any(tencent_card_identity_matches_supply(identity, card_supply) for identity in artifact_identities):
         return True
-    payload_identity = tencent_card_identity_values(payload)
-    return tencent_card_identity_matches_supply(payload_identity, card_supply)
+    payload_identities = tencent_card_identity_candidates(payload)
+    return any(tencent_card_identity_matches_supply(identity, card_supply) for identity in payload_identities)
 
 
 def card_supply_blocker_marker_present(value: Any) -> bool:
@@ -1106,12 +1120,51 @@ def clear_satisfied_card_supply_blocker(blocker: str | None, card_supply: JsonOb
 
 def card_supply_available_for_training(card_supply: JsonObject) -> bool:
     supply = as_dict(card_supply.get("cardSupply"))
+    if not supply:
+        if "cardSupply" in card_supply:
+            return False
+        return legacy_tencent_card_supply_available_for_training(card_supply)
     return (
         card_supply.get("status") == "PRIMARY_SATISFIED"
         and supply.get("state") == "available"
         and supply.get("available_for_training") is True
         and supply.get("consumed_at") is None
         and supply.get("consumed_by_report_id") is None
+    )
+
+
+def legacy_tencent_card_supply_available_for_training(card_supply: JsonObject) -> bool:
+    return (
+        card_supply.get("status") == "PRIMARY_SATISFIED"
+        and card_supply.get("classification") == "TENCENT_INTERNAL_POLICY_GRADIENT_PRIMARY"
+        and card_supply.get("source") in TENCENT_CARD_SUPPLY_SOURCES
+        and card_supply.get("hasLoopACardSupplyMetadata") is False
+        and text_value(card_supply.get("runId")) is not None
+        and text_value(card_supply.get("cardId")) is not None
+        and text_value(card_supply.get("datasetRunId")) is not None
+    )
+
+
+def card_supply_candidate_rank(card_supply: JsonObject) -> int:
+    supply = as_dict(card_supply.get("cardSupply"))
+    if card_supply_available_for_training(card_supply):
+        if supply.get("state") == "available":
+            return 3
+        return 2
+    if supply.get("state") == "consumed":
+        return 1
+    return 0
+
+
+def card_supply_candidate_key(card_supply: JsonObject) -> tuple[int, datetime, str, str]:
+    created = parse_iso_datetime(text_value(card_supply.get("createdAt")) or "")
+    if created is None:
+        created = datetime.min.replace(tzinfo=timezone.utc)
+    return (
+        card_supply_candidate_rank(card_supply),
+        created,
+        text_value(card_supply.get("source")) or "",
+        text_value(card_supply.get("path")) or "",
     )
 
 
