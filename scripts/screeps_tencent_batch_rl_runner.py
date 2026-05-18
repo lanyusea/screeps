@@ -118,6 +118,12 @@ class Controller:
             raise BatchRunError("public IP is not known yet")
         return f"{self.args.worker_user}@{self.public_ip}"
 
+    def ssh_connect_options(self) -> tuple[str, ...]:
+        return (
+            *SSH_CONNECT_OPTIONS,
+            "-o", f"UserKnownHostsFile={self.known_hosts_path}",
+        )
+
     def record_step(self, name: str, started: float, ok: bool, cp: subprocess.CompletedProcess[str] | None = None, **detail: Any) -> None:
         stdout_tail = tail_text(cp.stdout) if cp is not None else None
         stderr_tail = tail_text(cp.stderr) if cp is not None else None
@@ -218,7 +224,7 @@ class Controller:
         cmd = [
             "ssh",
             "-i", self.args.ssh_key,
-            *SSH_CONNECT_OPTIONS,
+            *self.ssh_connect_options(),
             self.ssh_target,
             remote_command,
         ]
@@ -230,7 +236,7 @@ class Controller:
             [
                 "scp",
                 "-i", self.args.ssh_key,
-                *SSH_CONNECT_OPTIONS,
+                *self.ssh_connect_options(),
                 str(local_path),
                 f"{self.ssh_target}:{remote_path}",
             ],
@@ -244,7 +250,7 @@ class Controller:
             [
                 "scp",
                 "-i", self.args.ssh_key,
-                *SSH_CONNECT_OPTIONS,
+                *self.ssh_connect_options(),
                 f"{self.ssh_target}:{remote_path}",
                 str(local_path),
             ],

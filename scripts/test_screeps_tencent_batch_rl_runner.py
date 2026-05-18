@@ -709,9 +709,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
     def test_ssh_and_scp_commands_keep_accept_new_host_key_option(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            args = controller_args()
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
             controller.public_ip = "203.0.113.10"
+            cleanup_commands: list[list[str]] = []
             commands: list[list[str]] = []
+
+            def capture_subprocess_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                cleanup_commands.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, "", "")
 
             def capture_run_cp(
                 name: str,
@@ -726,15 +733,21 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 commands.append(cmd)
                 return subprocess.CompletedProcess(cmd, 0, "", "")
 
-            with mock.patch.object(controller, "run_cp", side_effect=capture_run_cp):
+            with (
+                mock.patch.object(runner.subprocess, "run", side_effect=capture_subprocess_run),
+                mock.patch.object(controller, "run_cp", side_effect=capture_run_cp),
+            ):
+                controller.clear_worker_known_host()
                 controller.ssh_cmd("ssh_probe", "true")
                 controller.scp_to_worker("upload", Path(temp_dir) / "local.txt", "/remote/local.txt")
                 controller.scp_from_worker("download", "/remote/out.txt", Path(temp_dir) / "out" / "out.txt")
 
+        self.assertEqual(cleanup_commands, [["ssh-keygen", "-R", "203.0.113.10", "-f", args.known_hosts_path]])
         for cmd in commands:
             with self.subTest(command=cmd[0]):
                 self.assertIn("BatchMode=yes", cmd)
                 self.assertIn("StrictHostKeyChecking=accept-new", cmd)
+                self.assertIn(f"UserKnownHostsFile={args.known_hosts_path}", cmd)
 
     def test_safe_extract_tar_rejects_traversal_and_special_entries(self) -> None:
         cases = [
