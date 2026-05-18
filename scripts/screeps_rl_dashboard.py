@@ -981,6 +981,11 @@ def card_supply_from_training_payload(payload: JsonObject, path: Path | None) ->
     return None
 
 
+def training_payload_references_tencent_card(payload: JsonObject) -> bool:
+    artifacts = as_dict(payload.get("trainingArtifacts"))
+    return "tencent" in normalized_key(canonical_json(artifacts))
+
+
 def card_supply_blocker_marker_present(value: Any) -> bool:
     text = normalized_key(canonical_json(value))
     return any(marker in text for marker in CARD_SUPPLY_BLOCKER_MARKERS)
@@ -996,8 +1001,10 @@ def card_supply_blocker_value_active(value: Any) -> bool:
         return numeric > 0
     if isinstance(value, str):
         return normalized_key(value) not in INACTIVE_CARD_SUPPLY_BLOCKER_VALUES
-    if isinstance(value, (dict, list)):
-        return bool(value)
+    if isinstance(value, dict):
+        return any(card_supply_blocker_value_active(item) for item in value.values())
+    if isinstance(value, list):
+        return any(card_supply_blocker_value_active(item) for item in value)
     return True
 
 
@@ -1053,7 +1060,10 @@ def reconcile_card_supply_for_training(
     embedded_supply = card_supply_from_training_payload(payload, latest_path)
     if training_did_run and embedded_supply is not None:
         return embedded_supply
-    if tencent_internal_card_supply is not None:
+    if (
+        tencent_internal_card_supply is not None
+        and (not training_did_run or training_payload_references_tencent_card(payload))
+    ):
         return dict(tencent_internal_card_supply)
     if training_did_run:
         return {
