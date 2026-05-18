@@ -335,6 +335,52 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertFalse(proof["variants"][0]["objectiveSignalObserved"])
         self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED")
 
+    def test_multi_tier_activation_proof_rejects_legacy_progress_without_transport(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-legacy-progress",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:23:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "metrics": {
+                        "territory": {"delta": 3},
+                        "kills": {"hostileKills": 1},
+                        "objectiveSignal": {
+                            "initialObservedRoomCount": 2,
+                            "finalObservedRoomCount": 2,
+                            "initialHostileCreeps": 0,
+                            "finalHostileCreeps": 0,
+                            "initialHostileStructures": 0,
+                            "finalHostileStructures": 0,
+                            "initialObjectiveSignalPresent": False,
+                            "finalObjectiveSignalPresent": False,
+                        },
+                    },
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertFalse(proof["ok"])
+        self.assertFalse(proof["transport"]["objectiveSignalObserved"])
+        self.assertFalse(proof["variants"][0]["passesActivation"])
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 3.0)
+        self.assertEqual(proof["bestObserved"]["hostileKills"], 1.0)
+        self.assertNotIn("passingVariants", proof)
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED")
+
     def test_multi_tier_activation_proof_passes_when_variant_has_hostile_kill_signal(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-multitier-passed",

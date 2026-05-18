@@ -2778,7 +2778,9 @@ def build_multi_tier_activation_proof(
         "ok": status == "passed",
         "scenarioId": scenario.get("scenario_id", scenario.get("scenarioId")) if isinstance(scenario, dict) else None,
         "criteria": {
-            "operator": "or",
+            "operator": "and",
+            "objectiveSignalMustBeObserved": True,
+            "activationScoreOperator": "or",
             "territoryScoreMustExceed": MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD,
             "hostileKillsMustExceed": MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD,
             "requiredForPaidTencentValidation": True,
@@ -2829,10 +2831,11 @@ def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
         objective_phase_signal_observed(objective, "initial")
         or objective_phase_signal_observed(objective, "final")
     )
-    passes = (
+    activation_score_passes = (
         float(territory_score) > MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD
         or float(hostile_kills) > MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD
     )
+    passes = observed and activation_score_passes
     return {
         "variantId": result.get("variantId"),
         "sampleCount": result.get("sampleCount", 0),
