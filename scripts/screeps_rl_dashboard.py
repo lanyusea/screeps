@@ -522,7 +522,10 @@ def discover_tencent_internal_card_supply(
         candidates.append((created, str(path), evidence))
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    candidates.sort(
+        key=lambda item: (card_supply_available_for_training(item[2]), item[0], item[1]),
+        reverse=True,
+    )
     return candidates[0][2]
 
 
