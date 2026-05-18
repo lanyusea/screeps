@@ -6,6 +6,8 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
+import urllib.error
 import unittest
 import urllib.request
 from pathlib import Path
@@ -130,6 +132,29 @@ def count_rows(db_path: Path, table: str) -> int:
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
+def read_json_url(url: str, timeout: float = 1.0) -> JsonObject:
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise AssertionError(f"expected JSON object from {url}")
+    return payload
+
+
+def wait_for_json_url(url: str, timeout_seconds: float = 5.0) -> JsonObject:
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+    while True:
+        try:
+            return read_json_url(url)
+        except urllib.error.HTTPError:
+            raise
+        except (OSError, json.JSONDecodeError) as error:
+            last_error = error
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"server did not become ready at {url}: {last_error}") from last_error
+            time.sleep(0.05)
+
+
 class ScreepsRlLiveDashboardTest(unittest.TestCase):
     def test_refresh_is_repeatable_and_summary_covers_live_observability(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -186,16 +211,14 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
             try:
                 server = live.make_server("127.0.0.1", 0, config)
-            except PermissionError:
-                self.skipTest("socket creation is unavailable in this sandbox")
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
                 host, port = server.server_address
-                with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=5) as response:
-                    health = json.loads(response.read().decode("utf-8"))
-                with urllib.request.urlopen(f"http://{host}:{port}/api/summary", timeout=5) as response:
-                    summary = json.loads(response.read().decode("utf-8"))
+                health = wait_for_json_url(f"http://{host}:{port}/healthz")
+                summary = read_json_url(f"http://{host}:{port}/api/summary")
             finally:
                 server.shutdown()
                 server.server_close()
@@ -203,6 +226,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
 
         self.assertTrue(health["ok"])
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
+        self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
 
 

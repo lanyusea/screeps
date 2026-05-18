@@ -113,6 +113,11 @@ def safe_display_path(path: Path | str | None, repo_root: Path) -> str:
     return static_dashboard.safe_display_path(path, repo_root)
 
 
+def format_dashboard_url(host: str, port: int) -> str:
+    display_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"http://{display_host}:{port}/"
+
+
 def dashboard_json_safe(value: Any, repo_root: Path) -> Any:
     if isinstance(value, Path):
         return safe_display_path(value, repo_root)
@@ -346,6 +351,7 @@ def build_live_summary(
     db_path: Path,
     *,
     generated_at: str | None = None,
+    dashboard_url: str | None = None,
 ) -> JsonObject:
     generated = generated_at or utc_now_iso()
     db = sqlite_summary(db_path, repo_root)
@@ -369,7 +375,7 @@ def build_live_summary(
         "generatedAt": generated,
         "repoRoot": safe_display_path(repo_root, repo_root),
         "artifactRoot": safe_display_path(artifact_root, repo_root),
-        "dashboardUrl": f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/",
+        "dashboardUrl": dashboard_url or format_dashboard_url(DEFAULT_HOST, DEFAULT_PORT),
         "health": health,
         "db": db,
         "lanes": dashboard.get("lanes", []),
@@ -664,7 +670,13 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
 
     def summary(self) -> JsonObject:
         config = self.server.config
-        return build_live_summary(config.repo_root, config.artifact_root, config.db_path)
+        host, port = self.server.server_address[:2]
+        return build_live_summary(
+            config.repo_root,
+            config.artifact_root,
+            config.db_path,
+            dashboard_url=format_dashboard_url(str(host), int(port)),
+        )
 
     def write_json(self, status: HTTPStatus, payload: JsonObject) -> None:
         body = (json.dumps(payload, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
@@ -779,7 +791,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             refresh_metrics(config.db_path, config.artifact_root)
         server = make_server(args.host, args.port, config)
         host, port = server.server_address
-        print(f"Serving Screeps RL live dashboard at http://{host}:{port}/")
+        print(f"Serving Screeps RL live dashboard at {format_dashboard_url(str(host), int(port))}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
