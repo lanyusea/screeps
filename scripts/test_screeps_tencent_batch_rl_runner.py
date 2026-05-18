@@ -1183,6 +1183,35 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("experiment_card", events)
         self.assertNotIn("scale_up", events)
 
+    def test_cli_rejects_abbreviated_training_approach_option(self) -> None:
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                runner.parse_cli_args(["preflight", "--training-app", "bandit"])
+
+        self.assertNotEqual(raised.exception.code, 0)
+
+    def test_explicit_cli_option_dests_stops_at_option_separator(self) -> None:
+        self.assertEqual(
+            runner.explicit_cli_option_dests([
+                "preflight",
+                "--training-approach=bandit",
+                "--",
+                "--scenario-id",
+                runner.DEFAULT_SCENARIO_ID,
+            ]),
+            {"training_approach"},
+        )
+        self.assertEqual(
+            runner.explicit_cli_option_dests([
+                "preflight",
+                "--",
+                "--training-approach",
+                "bandit",
+                f"--scenario-id={runner.DEFAULT_SCENARIO_ID}",
+            ]),
+            set(),
+        )
+
     def test_explicit_e1s1_bandit_preflight_still_triggers_repeat_guard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"

@@ -2198,6 +2198,8 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
 def explicit_cli_option_dests(argv: Sequence[str]) -> set[str]:
     explicit: set[str] = set()
     for token in argv:
+        if token == "--":
+            break
         for option, dest in CLI_EXPLICIT_OPTION_DESTS.items():
             if token == option or token.startswith(option + "="):
                 explicit.add(dest)
@@ -2261,7 +2263,10 @@ def create_repo_bundle(package: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run bounded Screeps RL training on one Tencent ASG worker.")
+    parser = argparse.ArgumentParser(
+        description="Run bounded Screeps RL training on one Tencent ASG worker.",
+        allow_abbrev=False,
+    )
     parser.add_argument("command", choices=("run-single", "preflight"))
     parser.add_argument("--run-id", default=default_run_id())
     parser.add_argument("--region", default=DEFAULT_REGION)
