@@ -59,6 +59,8 @@ def controller_args() -> argparse.Namespace:
         scale_timeout_seconds=1,
         secret_env="/tmp/secret.env",
         security_group_id="sg-test",
+        scenario_id=runner.DEFAULT_SCENARIO_ID,
+        require_multi_tier_scenario=False,
         ssh_key="/tmp/id_ed25519",
         tccli="/bin/tccli",
         ticks=1,
@@ -126,6 +128,37 @@ def generated_experiment_card() -> dict[str, object]:
             "code_path": "prod/dist/main.js",
             "map_source_file": "maps/map-0b6758af.json",
             "simulator_out_dir": "runtime-artifacts/rl-simulator",
+        },
+        "scenario": {
+            "type": "screeps-rl-training-scenario",
+            "scenario_id": runner.DEFAULT_SCENARIO_ID,
+            "scenario_tier": "single_room_smoke",
+            "label": "E1S1 single-room no-hostile smoke scenario",
+            "capabilities": {
+                "multi_room_capable": False,
+                "adjacent_room_territory_signal": False,
+                "hostile_combat_signal": False,
+                "multi_tier_policy_comparison": False,
+            },
+            "suitability": {
+                "multi_tier_policy_comparison": False,
+                "territory_combat_differentiation": False,
+                "classification": "not_suitable_for_territory_combat_differentiation",
+                "reasons": ["single-room", "no-hostile"],
+            },
+            "evidence": {
+                "anchor_room": "E1S1",
+                "room_count": 1,
+                "hostile_fixture": "none",
+                "map_source_file": "maps/map-0b6758af.json",
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "ood_rejection": True,
+                "conservative_actions_only": True,
+            },
         },
         "strategy_variants": ["construction-priority.incumbent.v1"],
     }
@@ -849,6 +882,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.BatchRunError, "workers must be between"):
                 runner.validate_static_inputs(args, "run-test")
 
+            args.workers = 1
+            args.require_multi_tier_scenario = True
+            args.scenario_id = runner.DEFAULT_SCENARIO_ID
+            with self.assertRaisesRegex(runner.BatchRunError, "multi-tier policy comparisons require"):
+                runner.validate_static_inputs(args, "run-test")
+
+            args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+            runner.validate_static_inputs(args, "run-test")
+
     def test_generate_experiment_card_writes_multi_environment_scale_proof_spec(self) -> None:
         args = controller_args()
         args.workers = 5
@@ -875,8 +917,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(card["simulation"]["workers"], 5)
         self.assertEqual(card["simulation"]["scale_environments"], 5)
         self.assertEqual(card["simulation"]["min_concurrent_environments"], 5)
+        self.assertEqual(card["scenario"]["evidence"]["map_source_file"], "maps/map-0b6758af.json")
         self.assertEqual(spec["scaleProof"]["mode"], "single_tencent_asg_worker_multi_environment")
         self.assertEqual(spec["scaleProof"]["successCriteria"]["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(spec["experimentCard"]["scenario"]["scenario_id"], runner.DEFAULT_SCENARIO_ID)
         self.assertEqual(spec["asg"]["desiredCapacityDuringRun"], 1)
         self.assertEqual(spec["asg"]["cleanupDesiredCapacity"], 0)
         self.assertTrue(spec["safety"]["billingGuardBeforeScale"])
@@ -917,6 +961,51 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(card["officialMmoWrites"])
         self.assertFalse(card["officialMmoWritesAllowed"])
         self.assertEqual(spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"], 500)
+
+    def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:
+        args = controller_args()
+        args.training_approach = "policy_gradient"
+        args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+        args.require_multi_tier_scenario = True
+        observed_cmds: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_run_cp(name: str, cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                observed_cmds.append(cmd)
+                if name == "generate_experiment_card":
+                    output = Path(cmd[cmd.index("--output") + 1])
+                    payload = generated_experiment_card()
+                    payload["training_approach"] = "policy_gradient"
+                    payload["scenario"]["scenario_id"] = runner.MULTI_TIER_SCENARIO_ID
+                    payload["scenario"]["scenario_tier"] = "multi_tier_policy_comparison"
+                    payload["scenario"]["capabilities"] = {
+                        "multi_room_capable": True,
+                        "adjacent_room_territory_signal": True,
+                        "hostile_combat_signal": True,
+                        "multi_tier_policy_comparison": True,
+                    }
+                    payload["scenario"]["suitability"] = {
+                        "multi_tier_policy_comparison": True,
+                        "territory_combat_differentiation": True,
+                        "classification": "suitable_for_multi_tier_policy_comparison",
+                        "reasons": [],
+                    }
+                    output.write_text(json.dumps(payload), encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0, "{}", "")
+
+            with mock.patch.object(controller, "run_cp", side_effect=fake_run_cp):
+                controller.generate_experiment_card()
+
+            card = json.loads((root / "experiment_card.json").read_text(encoding="utf-8"))
+
+        generate_cmd = observed_cmds[0]
+        self.assertEqual(generate_cmd[generate_cmd.index("--scenario-id") + 1], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertIn("--require-multi-tier-scenario", generate_cmd)
+        self.assertEqual(card["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(card["scenario"]["capabilities"]["hostile_combat_signal"])
+        self.assertFalse(card["safety"]["officialMmoWritesAllowed"])
 
     def test_verify_remote_training_report_requires_scale_proof_success_for_workers_five(self) -> None:
         args = controller_args()
