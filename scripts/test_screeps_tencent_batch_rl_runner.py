@@ -298,6 +298,14 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
                         "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+                        "policyUpdate": {
+                            "iterations": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -319,6 +327,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "secretsPrinted": False,
                 },
             )
+            self.assertEqual(summary["outputs"]["trainingReport"]["policyUpdateIterations"], 1)
+            self.assertEqual(
+                summary["outputs"]["trainingReport"]["policyUpdateArtifactPath"],
+                "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
+            )
+            self.assertFalse(summary["outputs"]["trainingReport"]["policyUpdate"]["liveEffect"])
 
     def test_static_validation_accepts_bounded_multi_worker_scale_proof(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

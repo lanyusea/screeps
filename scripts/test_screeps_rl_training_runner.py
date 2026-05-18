@@ -915,6 +915,76 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
+    def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-update",
+            code_commit="d" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T03:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=1800, harvested=900)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-update",
+                generated_at="2026-05-17T03:30:00Z",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+            persisted = read_json(out_dir / "policy-gradient-update.json")
+            artifact_path = Path(report["policyUpdateArtifactPath"])
+            artifact = read_json(artifact_path)
+
+        self.assertEqual(report["policyUpdateIterations"], 1)
+        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        update = report["policyUpdate"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["algorithm"], "rank_weighted_finite_difference_v1")
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertGreater(
+            update["updatedParameters"]["territorySignalWeight"],
+            update["anchor"]["parameters"]["territorySignalWeight"],
+        )
+        self.assertTrue(any(float(value) != 0 for value in update["parameterDelta"].values()))
+        for name, spec in update["parameterSpace"].items():
+            self.assertGreaterEqual(update["updatedParameters"][name], spec["min"])
+            self.assertLessEqual(update["updatedParameters"][name], spec["max"])
+        self.assertEqual(artifact["parameters"], update["updatedParameters"])
+        self.assertEqual(artifact["policyUpdateIterations"], 1)
+        self.assertEqual(artifact["sourceReportId"], "policy-gradient-update")
+        self.assertFalse(artifact["liveEffect"])
+        self.assertFalse(artifact["officialMmoWrites"])
+        self.assertFalse(artifact["officialMmoWritesAllowed"])
+        self.assertFalse(artifact["safety"]["liveEffect"])
+        self.assertFalse(artifact["safety"]["officialMmoWrites"])
+
     def test_loop_a_supply_report_preserves_card_supply_and_is_discoverably_consumed(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-loop-a-runner-report",

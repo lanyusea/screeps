@@ -31,6 +31,9 @@ DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
 DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
+DEFAULT_POLICY_UPDATE_LEARNING_RATE = 0.25
+POLICY_UPDATE_ALGORITHM = "rank_weighted_finite_difference_v1"
+POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
@@ -748,6 +751,12 @@ def run_training_experiment(
     report_secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
     assert_no_secret_leak(report, report_secret_values)
     report_path = out_dir.expanduser() / f"{resolved_report_id}.json"
+    policy_artifacts = materialize_policy_update_artifacts(report, report_path.parent)
+    for _artifact_path, artifact_payload in policy_artifacts:
+        assert_no_secret_leak(artifact_payload, report_secret_values)
+    assert_no_secret_leak(report, report_secret_values)
+    for artifact_path, artifact_payload in policy_artifacts:
+        write_json_atomic(artifact_path, artifact_payload)
     write_json_atomic(report_path, report)
     report["reportPath"] = dataset_export.display_path(report_path)
     if stdout is not None:
@@ -1039,6 +1048,7 @@ def build_training_report(
         "modelReportCount": len(model_reports),
         "rankingDiffCount": ranking_diff_count,
         "changedTopCount": changed_top_count,
+        "policyUpdateIterations": 0,
         "modelFamilies": sorted({text for text in (result.get("family") for result in results) if isinstance(text, str)}),
         "modelReports": model_reports,
         "kpiSummary": build_kpi_summary(scored_results),
@@ -1048,7 +1058,350 @@ def build_training_report(
         report["scaleValidation"] = scale_validation
     if policy_gradient is not None:
         report["policyGradient"] = policy_gradient
+        policy_update = build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id=report_id,
+            generated_at=generated_at,
+        )
+        report["policyUpdateIterations"] = int(policy_update.get("iterations", 0))
+        report["policyUpdate"] = policy_update
     return report
+
+
+def build_policy_update(
+    *,
+    policy_gradient: JsonObject,
+    results: Sequence[JsonObject],
+    report_id: str,
+    generated_at: str,
+) -> JsonObject:
+    """Compute one bounded offline policy update from rollout rewards."""
+    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
+    parameter_space = policy_update_parameter_space(policy_gradient)
+    candidates = policy_update_candidate_rows(policy_gradient, results, parameter_space)
+    base: JsonObject = {
+        "type": "screeps-rl-policy-update",
+        "schemaVersion": SCHEMA_VERSION,
+        "iterations": 0,
+        "algorithm": POLICY_UPDATE_ALGORITHM,
+        "targetFamily": target_family,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if not parameter_space:
+        return {**base, "skippedReason": "missing_policy_parameter_space"}
+    if len(candidates) < 2:
+        return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
+
+    anchor = policy_update_anchor_candidate(candidates)
+    if anchor is None:
+        return {**base, "skippedReason": "missing_anchor_policy_candidate", "candidateCount": len(candidates)}
+
+    utilities = policy_update_reward_utilities(candidates)
+    anchor_utility = utilities.get(anchor["strategyVariantId"])
+    if anchor_utility is None:
+        return {**base, "skippedReason": "missing_anchor_reward_utility", "candidateCount": len(candidates)}
+    advantages = {
+        row["strategyVariantId"]: round_policy_number(float(utility) - float(anchor_utility))
+        for row in candidates
+        for utility in [utilities.get(row["strategyVariantId"])]
+        if utility is not None
+    }
+    denominator = sum(abs(float(value)) for value in advantages.values())
+    if denominator <= 0:
+        return {
+            **base,
+            "skippedReason": "no_nonzero_reward_advantage",
+            "candidateCount": len(candidates),
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+        }
+
+    learning_rate = policy_update_learning_rate(policy_gradient)
+    anchor_parameters = anchor["parameters"]
+    gradient: JsonObject = {}
+    updated_parameters: JsonObject = {}
+    parameter_delta: JsonObject = {}
+    for name in parameter_space:
+        anchor_value = float(anchor_parameters[name])
+        raw_gradient = 0.0
+        for row in candidates:
+            advantage = float(advantages.get(row["strategyVariantId"], 0))
+            raw_gradient += advantage * (float(row["parameters"][name]) - anchor_value)
+        raw_gradient /= denominator
+        gradient[name] = round_policy_number(raw_gradient)
+        updated = bounded_policy_parameter_value(
+            anchor_value + (learning_rate * raw_gradient),
+            parameter_space[name],
+        )
+        updated_parameters[name] = updated
+        parameter_delta[name] = round_policy_number(float(updated) - anchor_value)
+
+    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        return {
+            **base,
+            "skippedReason": "bounded_update_no_parameter_change",
+            "candidateCount": len(candidates),
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
+        }
+
+    candidate_policy_id = updated_candidate_policy_id(
+        target_family=target_family,
+        report_id=report_id,
+        parameters=updated_parameters,
+    )
+    next_candidate_policy = {
+        "type": "screeps-rl-next-candidate-policy",
+        "schemaVersion": SCHEMA_VERSION,
+        "candidatePolicyId": candidate_policy_id,
+        "strategyVariantId": candidate_policy_id,
+        "family": target_family,
+        "rolloutStatus": "shadow",
+        "trainingRole": "policy_gradient_updated_candidate",
+        "generatedAt": generated_at,
+        "sourceReportId": report_id,
+        "sourcePolicyUpdateAlgorithm": POLICY_UPDATE_ALGORITHM,
+        "sourceAnchorCandidatePolicyId": anchor.get("candidatePolicyId"),
+        "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
+        "policyUpdateIterations": 1,
+        "parameters": updated_parameters,
+        "parameterEvidence": {
+            "derivation": "rank-weighted bounded finite-difference update from offline simulator rollout rewards",
+            "targetFamily": target_family,
+            "learnableKnobs": list(parameter_space),
+            "anchorParameters": copy.deepcopy(anchor_parameters),
+            "gradient": copy.deepcopy(gradient),
+            "parameterDelta": copy.deepcopy(parameter_delta),
+            "learningRate": learning_rate,
+            "candidateCount": len(candidates),
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    return {
+        **base,
+        "iterations": 1,
+        "learningRate": learning_rate,
+        "parameterSpace": copy.deepcopy(parameter_space),
+        "candidateCount": len(candidates),
+        "anchor": policy_update_candidate_summary(anchor),
+        "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+        "advantageByStrategyVariantId": advantages,
+        "gradient": gradient,
+        "parameterDelta": parameter_delta,
+        "updatedParameters": updated_parameters,
+        "nextCandidatePolicy": next_candidate_policy,
+    }
+
+
+def policy_update_parameter_space(policy_gradient: JsonObject) -> dict[str, JsonObject]:
+    learnable = first_present(policy_gradient, ("learnable_parameters", "learnableParameters"))
+    space: dict[str, JsonObject] = {}
+    if not isinstance(learnable, list):
+        return space
+    for item in learnable:
+        if not isinstance(item, dict):
+            continue
+        name = text_or_none(item.get("name"))
+        minimum = number_or_none(item.get("min"))
+        maximum = number_or_none(item.get("max"))
+        step = number_or_none(item.get("step"))
+        if name is None or minimum is None or maximum is None:
+            continue
+        minimum_float = float(minimum)
+        maximum_float = float(maximum)
+        if minimum_float > maximum_float:
+            continue
+        spec: JsonObject = {
+            "min": round_policy_number(minimum_float),
+            "max": round_policy_number(maximum_float),
+        }
+        if step is not None and float(step) > 0:
+            spec["step"] = round_policy_number(float(step))
+        space[name] = spec
+    return space
+
+
+def policy_update_candidate_rows(
+    policy_gradient: JsonObject,
+    results: Sequence[JsonObject],
+    parameter_space: dict[str, JsonObject],
+) -> list[JsonObject]:
+    raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(raw_candidates, list):
+        return []
+    result_groups: dict[str, list[JsonObject]] = {}
+    for result in results:
+        variant_id = text_or_none(result.get("variantId"))
+        if variant_id is None:
+            continue
+        base_id = simulator_harness.scale_environment_base_variant_id(variant_id)
+        result_groups.setdefault(base_id, []).append(result)
+
+    rows: list[JsonObject] = []
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
+        candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
+        if strategy_variant_id is None:
+            continue
+        summaries = result_groups.get(strategy_variant_id) or result_groups.get(candidate_policy_id or "") or []
+        scored_summaries = [summary for summary in summaries if int_or_none(summary.get("sampleCount")) and summary.get("reward")]
+        if not scored_summaries:
+            continue
+        parameters = bounded_policy_parameters(candidate.get("parameters"), parameter_space)
+        if parameters is None:
+            continue
+        rows.append(
+            {
+                "candidatePolicyId": candidate_policy_id,
+                "strategyVariantId": strategy_variant_id,
+                "sourceStrategyId": text_or_none(candidate.get("sourceStrategyId")),
+                "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
+                "parameters": parameters,
+                "rewardTuple": aggregate_policy_reward_tuple(scored_summaries),
+                "sampleCount": sum(int(summary.get("sampleCount", 0)) for summary in scored_summaries),
+                "resultVariantIds": [summary["variantId"] for summary in scored_summaries if isinstance(summary.get("variantId"), str)],
+            }
+        )
+    return rows
+
+
+def bounded_policy_parameters(raw: Any, parameter_space: dict[str, JsonObject]) -> JsonObject | None:
+    if not isinstance(raw, dict):
+        return None
+    parameters: JsonObject = {}
+    for name, spec in parameter_space.items():
+        value = number_or_none(raw.get(name))
+        if value is None:
+            return None
+        parameters[name] = bounded_policy_parameter_value(float(value), spec)
+    return parameters
+
+
+def aggregate_policy_reward_tuple(summaries: Sequence[JsonObject]) -> list[float | int]:
+    tuples: list[list[float]] = []
+    for summary in summaries:
+        reward = summary.get("reward")
+        raw_tuple = reward.get("tuple") if isinstance(reward, dict) else None
+        if not isinstance(raw_tuple, list) or len(raw_tuple) < len(REWARD_TIERS):
+            continue
+        tuples.append([float(value) for value in raw_tuple[: len(REWARD_TIERS)]])
+    if not tuples:
+        return [0 for _tier in REWARD_TIERS]
+    columns = zip(*tuples)
+    return [round_policy_number(statistics.fmean(column)) for column in columns]
+
+
+def policy_update_anchor_candidate(candidates: Sequence[JsonObject]) -> JsonObject | None:
+    for row in candidates:
+        if row.get("rolloutStatus") == "incumbent":
+            return row
+    return candidates[0] if candidates else None
+
+
+def policy_update_reward_utilities(candidates: Sequence[JsonObject]) -> dict[str, float]:
+    ordered_tuples: list[list[Any]] = []
+    for row in sorted(
+        candidates,
+        key=lambda item: (*tuple(float(value) for value in item["rewardTuple"]), item["strategyVariantId"]),
+        reverse=True,
+    ):
+        reward_tuple = row["rewardTuple"]
+        if not any(compare_reward_tuples(reward_tuple, existing) == 0 for existing in ordered_tuples):
+            ordered_tuples.append(reward_tuple)
+    if len(ordered_tuples) <= 1:
+        return {row["strategyVariantId"]: 0.0 for row in candidates}
+    utilities: dict[str, float] = {}
+    denominator = len(ordered_tuples) - 1
+    for row in candidates:
+        bucket_index = next(
+            index
+            for index, reward_tuple in enumerate(ordered_tuples)
+            if compare_reward_tuples(row["rewardTuple"], reward_tuple) == 0
+        )
+        utilities[row["strategyVariantId"]] = (denominator - bucket_index) / denominator
+    return utilities
+
+
+def policy_update_learning_rate(policy_gradient: JsonObject) -> float:
+    for key in ("policy_update", "policyUpdate", "update", "update_config", "updateConfig"):
+        raw = policy_gradient.get(key)
+        if not isinstance(raw, dict):
+            continue
+        value = number_or_none(raw.get("learning_rate", raw.get("learningRate")))
+        if value is not None and 0 < float(value) <= 1:
+            return float(value)
+    return DEFAULT_POLICY_UPDATE_LEARNING_RATE
+
+
+def bounded_policy_parameter_value(value: float, spec: JsonObject) -> float | int:
+    minimum = float(spec["min"])
+    maximum = float(spec["max"])
+    bounded = max(minimum, min(maximum, value))
+    step = number_or_none(spec.get("step"))
+    if step is not None and float(step) > 0:
+        step_float = float(step)
+        bounded = minimum + (round((bounded - minimum) / step_float) * step_float)
+        bounded = max(minimum, min(maximum, bounded))
+    return round_policy_number(bounded)
+
+
+def round_policy_number(value: float | int) -> float | int:
+    numeric = float(value)
+    rounded_int = round(numeric)
+    if abs(numeric - rounded_int) < 1e-9:
+        return int(rounded_int)
+    return round(numeric, 6)
+
+
+def policy_update_candidate_summary(row: JsonObject) -> JsonObject:
+    return {
+        "candidatePolicyId": row.get("candidatePolicyId"),
+        "strategyVariantId": row.get("strategyVariantId"),
+        "sourceStrategyId": row.get("sourceStrategyId"),
+        "rolloutStatus": row.get("rolloutStatus"),
+        "rewardTuple": row.get("rewardTuple"),
+        "sampleCount": row.get("sampleCount"),
+        "parameters": copy.deepcopy(row.get("parameters")),
+        "resultVariantIds": copy.deepcopy(row.get("resultVariantIds")),
+    }
+
+
+def updated_candidate_policy_id(*, target_family: str, report_id: str, parameters: JsonObject) -> str:
+    family_prefix = re.sub(r"[^A-Za-z0-9_.:-]+", "-", target_family).strip(".-:") or "policy"
+    report_prefix = re.sub(r"[^A-Za-z0-9_.:-]+", "-", report_id).strip(".-:") or "report"
+    digest = canonical_hash({"reportId": report_id, "parameters": parameters})[:12]
+    return f"{family_prefix}.pg.updated.{report_prefix}.{digest}.v1"
+
+
+def materialize_policy_update_artifacts(report: JsonObject, out_dir: Path) -> list[tuple[Path, JsonObject]]:
+    update = report.get("policyUpdate")
+    if not isinstance(update, dict) or int_or_none(update.get("iterations")) != 1:
+        return []
+    artifact = update.get("nextCandidatePolicy")
+    if not isinstance(artifact, dict):
+        return []
+    report_id = text_or_none(report.get("reportId")) or "rl-training"
+    safe_report_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", report_id).strip(".-") or "rl-training"
+    artifact_path = out_dir / POLICY_UPDATE_ARTIFACT_DIR / f"{safe_report_id}-next-policy.json"
+    display_path = dataset_export.display_path(artifact_path)
+    artifact["artifactPath"] = display_path
+    update["artifactPath"] = display_path
+    report["policyUpdateArtifactPath"] = display_path
+    return [(artifact_path, artifact)]
 
 
 def collect_variant_runs(
@@ -2002,6 +2355,8 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "topVariantId": report["ranking"][0]["variantId"] if report["ranking"] else None,
         "artifactCount": report["artifactCount"],
         "changedTopCount": report["changedTopCount"],
+        "policyUpdateIterations": report.get("policyUpdateIterations", 0),
+        "policyUpdateArtifactPath": report.get("policyUpdateArtifactPath"),
         "warnings": report["warnings"],
     }
     if "scaleValidation" in report:
