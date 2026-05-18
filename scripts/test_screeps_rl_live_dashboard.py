@@ -140,6 +140,20 @@ def read_json_url(url: str, timeout: float = 1.0) -> JsonObject:
     return payload
 
 
+def post_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
+    request = urllib.request.Request(url, data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = response.status
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        status = error.code
+        payload = json.loads(error.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise AssertionError(f"expected JSON object from {url}")
+    return status, payload
+
+
 def wait_for_json_url(url: str, timeout_seconds: float = 5.0) -> JsonObject:
     deadline = time.monotonic() + timeout_seconds
     last_error: Exception | None = None
@@ -251,6 +265,50 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             summary["safety"]["unsafeFlags"],
         )
 
+    def test_missing_tencent_controller_summary_blocks_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            controller_summary = artifact_root / "tencent-cloud" / "batch-runs" / "tencent-live" / "controller-summary.json"
+            controller_summary.unlink()
+
+            summary = live.build_live_summary(
+                repo_root,
+                artifact_root,
+                db_path,
+                generated_at="2026-05-18T10:09:00Z",
+            )
+
+        self.assertEqual(summary["safety"]["status"], "BLOCKED")
+        self.assertIn(
+            {"source": "tencent", "field": "controllerSummary", "value": "missing"},
+            summary["safety"]["unsafeFlags"],
+        )
+
+    def test_missing_scorecard_summary_blocks_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            scorecard = artifact_root / "rl-control-loop" / "scorecards" / "scorecard.json"
+            scorecard.unlink()
+
+            summary = live.build_live_summary(
+                repo_root,
+                artifact_root,
+                db_path,
+                generated_at="2026-05-18T10:09:00Z",
+            )
+
+        self.assertEqual(summary["safety"]["status"], "BLOCKED")
+        self.assertIn(
+            {"source": "scorecard", "field": "summary", "value": "missing"},
+            summary["safety"]["unsafeFlags"],
+        )
+
     def test_health_and_summary_endpoints_are_startable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -278,6 +336,104 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+
+    def test_refresh_endpoint_is_disabled_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                wait_for_json_url(f"http://{host}:{port}/api/summary")
+                status, payload = post_json_url(f"http://{host}:{port}/refresh")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "refresh endpoint disabled")
+        self.assertFalse(db_path.exists())
+
+    def test_refresh_endpoint_propagates_soft_refresh_failure(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+
+        def failing_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+            return {"ok": False, "error": "ingestor soft failure"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                enable_refresh_endpoint=True,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.refresh_metrics = failing_refresh_metrics
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                wait_for_json_url(f"http://{host}:{port}/api/summary")
+                status, payload = post_json_url(f"http://{host}:{port}/refresh")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(status, 500)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "refresh failed")
+        self.assertEqual(payload["refresh"]["error"], "ingestor soft failure")
+
+    def test_refresh_on_start_returns_failure_when_refresh_reports_not_ok(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+
+        def failing_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+            return {"ok": False, "error": "ingestor soft failure"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics = failing_refresh_metrics
+            try:
+                exit_code = live.main(
+                    [
+                        "serve",
+                        "--repo-root",
+                        str(repo_root),
+                        "--artifact-root",
+                        str(artifact_root),
+                        "--db",
+                        str(db_path),
+                        "--refresh-on-start",
+                        "--port",
+                        "0",
+                    ]
+                )
+            finally:
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(exit_code, 1)
 
 
 if __name__ == "__main__":

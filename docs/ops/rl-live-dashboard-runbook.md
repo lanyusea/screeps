@@ -48,7 +48,7 @@ Equivalent direct check:
 python3 scripts/screeps_rl_live_dashboard.py healthcheck --url http://127.0.0.1:8790/healthz
 ```
 
-Trigger a local refresh through the running service:
+Trigger a local refresh through the running service only after starting it with `--enable-refresh-endpoint`:
 
 ```bash
 curl -fsS -X POST http://127.0.0.1:8790/refresh
@@ -65,7 +65,7 @@ The live page and `/api/summary` cover:
 | Loop B online utility | Policy online advantage ledger status and candidate/baseline fields. |
 | Loop B scorecard | Latest `runtime-artifacts/rl-control-loop/scorecards/*.json`. |
 | Tencent batch utilization | Latest controller summaries under `runtime-artifacts/tencent-cloud/batch-runs/`. |
-| Safety flags | Tencent run safety flags, scorecard safety regressions, and card-supply status. |
+| Safety flags | Tencent run safety flags, required scorecard evidence, scorecard safety regressions, and card-supply status. |
 | SQLite freshness | Required table presence, row counts, and latest observation timestamp from `rl_metrics.sqlite`. |
 
 The static HTML dashboard remains available through:
@@ -101,4 +101,4 @@ It returns HTTP 503 with JSON failure details when the database is missing, unre
 | Loop B online utility is `N/A` or `UNPROVEN` | Policy advantage ledger has not proven candidate utility. | Re-run the policy online advantage ledger after fresh Loop A evidence. |
 | Scorecard is `N/A` | No scorecard JSON has been generated. | Run the scorecard producer for the candidate/baseline bundle. |
 | Tencent latest run is active or scale-down is false | Controller summary was partial or did not record final cleanup. | Inspect the latest `controller-summary.json` and verify ASG desired capacity outside this dashboard. |
-| Safety status is `BLOCKED` | A Tencent safety flag was not false or scorecard safety regressions exist. | Treat as a rollout blocker; inspect the listed unsafe flag before generating new training evidence. |
+| Safety status is `BLOCKED` | Tencent controller evidence or scorecard evidence is missing, a Tencent safety flag was not false, or scorecard safety regressions exist. | Treat as a rollout blocker; inspect the listed unsafe flag before generating new training evidence. |

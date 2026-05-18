@@ -56,6 +56,7 @@ class LiveDashboardConfig:
     artifact_root: Path
     db_path: Path
     refresh_seconds: int = DEFAULT_REFRESH_SECONDS
+    enable_refresh_endpoint: bool = False
 
 
 class LiveDashboardHTTPServer(ThreadingHTTPServer):
@@ -256,6 +257,10 @@ def refresh_metrics(db_path: Path, artifact_root: Path, paths: Sequence[Path] | 
     return {"ok": True, "db": str(db_path), "paths": [str(path) for path in ingest_paths], **result}
 
 
+def refresh_succeeded(refresh: JsonObject) -> bool:
+    return refresh.get("ok") is True
+
+
 def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
     latest = latest_json_artifact(
         artifact_root / "rl-control-loop" / "scorecards",
@@ -330,7 +335,9 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
     latest_tencent = tencent.get("latest") if isinstance(tencent.get("latest"), dict) else {}
     tencent_safety = latest_tencent.get("safety") if isinstance(latest_tencent.get("safety"), dict) else {}
     unsafe_flags: list[JsonObject] = []
-    if latest_tencent:
+    if not latest_tencent:
+        unsafe_flags.append({"source": "tencent", "field": "controllerSummary", "value": "missing"})
+    else:
         for field in REQUIRED_TENCENT_SAFETY_FIELDS:
             if field not in tencent_safety:
                 unsafe_flags.append({"source": "tencent", "field": field, "value": "missing"})
@@ -338,8 +345,11 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
             value = tencent_safety[field]
             if value is not False:
                 unsafe_flags.append({"source": "tencent", "field": field, "value": value})
-    for regression in scorecard.get("safetyRegressions", []):
-        unsafe_flags.append({"source": "scorecard", "field": "safetyRegression", "value": regression})
+    if not scorecard.get("hasData"):
+        unsafe_flags.append({"source": "scorecard", "field": "summary", "value": "missing"})
+    else:
+        for regression in scorecard.get("safetyRegressions", []):
+            unsafe_flags.append({"source": "scorecard", "field": "safetyRegression", "value": regression})
     return {
         "status": "OK" if not unsafe_flags else "BLOCKED",
         "unsafeFlags": unsafe_flags,
@@ -662,12 +672,21 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path != "/refresh":
             self.write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
             return
+        if not self.server.config.enable_refresh_endpoint:
+            self.write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "refresh endpoint disabled"})
+            return
         with self.server.refresh_lock:
             try:
                 refresh = refresh_metrics(self.server.config.db_path, self.server.config.artifact_root)
             except Exception as error:  # pragma: no cover - defensive handler boundary
                 self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(error)})
                 return
+        if not refresh_succeeded(refresh):
+            self.write_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": "refresh failed", "refresh": refresh, "summary": self.summary()},
+            )
+            return
         self.write_json(HTTPStatus.OK, {"ok": True, "refresh": refresh, "summary": self.summary()})
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -713,6 +732,7 @@ def build_config(args: argparse.Namespace) -> LiveDashboardConfig:
         artifact_root=artifact_root,
         db_path=db_path,
         refresh_seconds=args.refresh_seconds,
+        enable_refresh_endpoint=bool(getattr(args, "enable_refresh_endpoint", False)),
     )
 
 
@@ -747,6 +767,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=DEFAULT_HOST, help="Bind host.")
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port.")
     serve.add_argument("--refresh-on-start", action="store_true", help="Run the metrics ingestor before serving.")
+    serve.add_argument(
+        "--enable-refresh-endpoint",
+        action="store_true",
+        help="Enable POST /refresh. Disabled by default because it mutates the local SQLite metrics store.",
+    )
 
     refresh = subparsers.add_parser("refresh", help="refresh the SQLite metrics database with the ingestor")
     add_common_args(refresh)
@@ -787,13 +812,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         paths = [resolve_path(path, config.repo_root) for path in args.paths]
         result = refresh_metrics(config.db_path, config.artifact_root, paths)
         print(json.dumps(result, sort_keys=True))
-        return 0
+        return 0 if refresh_succeeded(result) else 1
     if args.command == "summary":
         print(json.dumps(build_live_summary(config.repo_root, config.artifact_root, config.db_path), sort_keys=True))
         return 0
     if args.command == "serve":
         if args.refresh_on_start:
-            refresh_metrics(config.db_path, config.artifact_root)
+            refresh = refresh_metrics(config.db_path, config.artifact_root)
+            if not refresh_succeeded(refresh):
+                print(
+                    json.dumps({"ok": False, "error": "refresh-on-start failed", "refresh": refresh}, sort_keys=True),
+                    file=sys.stderr,
+                )
+                return 1
         server = make_server(args.host, args.port, config)
         host, port = server.server_address
         print(f"Serving Screeps RL live dashboard at {format_dashboard_url(str(host), int(port))}")
