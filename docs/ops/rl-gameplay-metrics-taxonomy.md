@@ -18,6 +18,12 @@ python3 scripts/screeps_rl_metrics_ingestor.py ingest-artifacts
 python3 scripts/screeps_rl_metrics_ingestor.py summarize
 ```
 
+Live dashboard runbook:
+
+```text
+docs/ops/rl-live-dashboard-runbook.md
+```
+
 Default source roots:
 
 ```text
