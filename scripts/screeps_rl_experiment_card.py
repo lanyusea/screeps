@@ -29,6 +29,8 @@ SCENARIO_METADATA_TYPE = "screeps-rl-training-scenario"
 DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
 MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
 SCENARIO_IDS = (DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID)
+MULTI_TIER_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
+MULTI_TIER_FIXTURE_SCHEMA_VERSION = 1
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
 LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
@@ -239,6 +241,12 @@ def multi_tier_scenario_fixture_summary(path: Path) -> JsonObject:
         raise CardValidationError(f"multi-tier scenario fixture is not valid JSON: {fixture_path}: {error}") from error
     if not isinstance(raw, dict):
         raise CardValidationError("multi-tier scenario fixture must be a JSON object")
+    if raw.get("type") != MULTI_TIER_FIXTURE_TYPE:
+        raise CardValidationError("multi-tier scenario fixture type is invalid")
+    if raw.get("scenario_id") != MULTI_TIER_SCENARIO_ID:
+        raise CardValidationError("multi-tier scenario fixture scenario_id is invalid")
+    if raw.get("schema_version") != MULTI_TIER_FIXTURE_SCHEMA_VERSION:
+        raise CardValidationError("multi-tier scenario fixture schema_version is invalid")
 
     rooms = fixture_rooms(raw)
     territory = raw.get("territory") if isinstance(raw.get("territory"), dict) else {}
@@ -597,7 +605,13 @@ def int_or_none(value: Any) -> int:
 
 def resolve_repo_path(raw: str) -> Path:
     path = Path(raw).expanduser()
-    return path if path.is_absolute() else REPO_ROOT / path
+    candidate = path if path.is_absolute() else REPO_ROOT / path
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(REPO_ROOT.resolve(strict=False))
+    except ValueError as error:
+        raise CardValidationError("map_source_file must resolve under repository root") from error
+    return resolved
 
 
 def paths_refer_to_same_file(left: str, right: str) -> bool:

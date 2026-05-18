@@ -205,13 +205,54 @@ class RlExperimentCardTest(unittest.TestCase):
             if item.get("user") != "2"
         ]
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="rl-fixture-", dir=REPO_ROOT) as temp_dir:
             fixture_path = Path(temp_dir) / "zero-hostile-map.json"
             fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
             card["simulation"]["map_source_file"] = str(fixture_path)
             card["scenario"]["evidence"]["map_source_file"] = str(fixture_path)
 
             with self.assertRaisesRegex(card_helper.CardValidationError, "hostile creep fixtures"):
+                card_helper.validate_card(card)
+
+    def test_multi_tier_fixture_summary_rejects_wrong_fixture_identity(self) -> None:
+        fixture = card_helper.load_json(card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
+        cases = (
+            ("type", "screeps-rl-private-map-fixture-copy", "type is invalid"),
+            ("scenario_id", card_helper.DEFAULT_SCENARIO_ID, "scenario_id is invalid"),
+            ("schema_version", 2, "schema_version is invalid"),
+        )
+
+        with tempfile.TemporaryDirectory(prefix="rl-fixture-", dir=REPO_ROOT) as temp_dir:
+            temp_root = Path(temp_dir)
+            for field, value, message in cases:
+                mutated = dict(fixture)
+                mutated[field] = value
+                fixture_path = temp_root / f"wrong-{field}.json"
+                fixture_path.write_text(json.dumps(mutated), encoding="utf-8")
+
+                with self.subTest(field=field):
+                    with self.assertRaisesRegex(card_helper.CardValidationError, message):
+                        card_helper.multi_tier_scenario_fixture_summary(fixture_path)
+
+    def test_multi_tier_scenario_rejects_map_source_outside_repo(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-outside-path",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_path = Path(temp_dir) / "multi-tier-map.json"
+            fixture_path.write_text(
+                card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            card["simulation"]["map_source_file"] = str(fixture_path)
+            card["scenario"]["evidence"]["map_source_file"] = str(fixture_path)
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "under repository root"):
                 card_helper.validate_card(card)
 
     def test_multi_tier_requirement_rejects_single_room_no_hostile_scenario(self) -> None:
