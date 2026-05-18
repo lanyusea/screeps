@@ -931,6 +931,41 @@ cli:
         self.assertEqual(tick_entry["overview"]["roomCount"], 1)
         self.assertEqual(tick_entry["rooms"]["E1S1"]["structures"]["spawn"], 1)
 
+    def test_multi_tier_fixture_rooms_merge_into_tick_when_private_api_lacks_visibility(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            43,
+            {"ok": 1, "rooms": ["E1S1"]},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "user": {"id": "user-1", "username": "rl-sim"},
+                        "objects": [
+                            {"type": "spawn", "user": "user-1", "store": {"energy": 300}},
+                            {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                        ],
+                    },
+                }
+            },
+            ["E1S1", "E2S1"],
+        )
+
+        merged = harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+
+        self.assertIn("E2S1", merged)
+        self.assertIn("map-fixture", tick_entry["roomStateSources"])
+        self.assertEqual(tick_entry["rooms"]["E2S1"]["combat"]["hostileCreeps"], 2)
+        self.assertEqual(tick_entry["rooms"]["E2S1"]["combat"]["hostileStructures"], 1)
+        self.assertFalse(tick_entry["rooms"]["E2S1"]["owned"])
+        metrics = harness.build_variant_metrics([tick_entry])
+        self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
+        self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
+
     def test_build_tick_entry_normalizes_private_object_maps_into_owned_scorecard_fields(self) -> None:
         tick_entry = harness._build_tick_entry(
             "shardX",

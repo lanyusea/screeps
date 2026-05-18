@@ -105,6 +105,7 @@ RUN_FAILURE_TYPE = "screeps-rl-simulator-run-failure"
 RUN_DOCKER_CLEANUP_TIMEOUT_SECONDS = 90
 SIMULATOR_REPAIR_MOD_FILENAME = "rl-simulator-harness-repair.js"
 OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
+PRIVATE_MAP_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 _WORKER_PHASE_DEBUG_DISABLED = False
 SCALE_ENVIRONMENT_VARIANT_RE = re.compile(r"^(?P<base>.+)\.scale-env-(?P<index>\d{2,})$")
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
@@ -2316,6 +2317,154 @@ def _room_scorecard_from_summary(room_name: str, summary: JsonObject) -> JsonObj
     }
 
 
+def _private_map_fixture_rooms(map_source_file: Path) -> dict[str, JsonObject]:
+    """Return room payloads from a local private-map fixture, if the map uses that schema."""
+    try:
+        raw = json.loads(map_source_file.expanduser().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("type") != PRIVATE_MAP_FIXTURE_TYPE:
+        return {}
+    rooms = raw.get("rooms")
+    result: dict[str, JsonObject] = {}
+    if isinstance(rooms, dict):
+        for room_name, payload in rooms.items():
+            if isinstance(room_name, str) and room_name and isinstance(payload, dict):
+                result[room_name] = payload
+    elif isinstance(rooms, list):
+        for payload in rooms:
+            if not isinstance(payload, dict):
+                continue
+            room_name = text_or_none(payload.get("roomName")) or text_or_none(payload.get("room"))
+            if room_name:
+                result[room_name] = payload
+    return result
+
+
+def _fixture_room_objects(room_payload: JsonObject, room_name: str) -> list[JsonObject]:
+    objects: list[JsonObject] = []
+    for key in ("objects", "creeps", "structures"):
+        value = room_payload.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            if key == "creeps":
+                normalized.setdefault("type", "creep")
+            elif key == "structures":
+                normalized.setdefault("type", normalized.get("structureType"))
+            normalized.setdefault("room", room_name)
+            objects.append(normalized)
+    return objects
+
+
+def _private_map_fixture_room_summaries(map_source_file: Path) -> dict[str, JsonObject]:
+    """Build sanitized room summaries for scenario fixture rooms missing from private APIs."""
+    rooms = _private_map_fixture_rooms(map_source_file)
+    if not rooms:
+        return {}
+    try:
+        raw = json.loads(map_source_file.expanduser().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raw = {}
+    owner = raw.get("owner") if isinstance(raw, dict) and isinstance(raw.get("owner"), dict) else {}
+    owner_id = text_or_none(owner.get("id")) if isinstance(owner, dict) else None
+    owner_username = text_or_none(owner.get("username")) if isinstance(owner, dict) else None
+    user: JsonObject = {}
+    if owner_id is not None:
+        user["id"] = owner_id
+    if owner_username is not None:
+        user["username"] = owner_username
+
+    summaries: dict[str, JsonObject] = {}
+    for room_name, room_payload in sorted(rooms.items()):
+        room_data: JsonObject = {
+            "room": room_name,
+            "objects": _fixture_room_objects(room_payload, room_name),
+        }
+        if user:
+            room_data["user"] = user
+            room_data["ownerId"] = owner_id
+            room_data["owner"] = owner_username or owner_id
+        summary = _summarize_room_state({"room": room_name, "roomData": room_data}, room_name)
+        summary["stateSource"] = "map-fixture"
+        summaries[room_name] = summary
+    return summaries
+
+
+def _room_summary_has_observable_state(summary: Any) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    if isinstance(summary.get("controller"), dict):
+        return True
+    for key in ("creeps", "ownedCreeps", "ownStructures", "hostileCreeps", "hostileStructures"):
+        if (_extract_int(summary.get(key)) or 0) > 0:
+            return True
+    for key in ("structures", "structureCounts", "ownStructureCounts", "ownCreepRoles", "creepCounts"):
+        value = summary.get(key)
+        if isinstance(value, dict) and value:
+            return True
+    combat = summary.get("combat")
+    if isinstance(combat, dict):
+        return any((_extract_int(value) or 0) > 0 for value in combat.values())
+    return False
+
+
+def _merge_fixture_room_summaries_into_tick(
+    tick_entry: JsonObject,
+    fixture_room_summaries: dict[str, JsonObject],
+) -> list[str]:
+    if not fixture_room_summaries:
+        return []
+    rooms = tick_entry.setdefault("rooms", {})
+    if not isinstance(rooms, dict):
+        rooms = {}
+        tick_entry["rooms"] = rooms
+    merged: list[str] = []
+    for room_name, summary in fixture_room_summaries.items():
+        existing = rooms.get(room_name)
+        if _room_summary_has_observable_state(existing):
+            continue
+        rooms[room_name] = copy.deepcopy(summary)
+        merged.append(room_name)
+    if merged:
+        sources = tick_entry.setdefault("roomStateSources", [])
+        if isinstance(sources, list) and "map-fixture" not in sources:
+            sources.append("map-fixture")
+        tick_entry["fixtureRoomState"] = {
+            "source": "map-source",
+            "rooms": sorted(fixture_room_summaries),
+            "mergedRooms": merged,
+        }
+    return merged
+
+
+def build_scenario_fixture_objective_summary(fixture_room_summaries: dict[str, JsonObject]) -> JsonObject | None:
+    if not fixture_room_summaries:
+        return None
+    hostile_creeps = 0
+    hostile_structures = 0
+    owned_rooms = 0
+    for summary in fixture_room_summaries.values():
+        if summary.get("owned") is True:
+            owned_rooms += 1
+        combat = summary.get("combat")
+        if isinstance(combat, dict):
+            hostile_creeps += _extract_int(combat.get("hostileCreeps")) or 0
+            hostile_structures += _extract_int(combat.get("hostileStructures")) or 0
+    return {
+        "type": PRIVATE_MAP_FIXTURE_TYPE,
+        "roomCount": len(fixture_room_summaries),
+        "rooms": sorted(fixture_room_summaries),
+        "ownedRoomCount": owned_rooms,
+        "hostileCreeps": hostile_creeps,
+        "hostileStructures": hostile_structures,
+        "objectiveSignalPresent": len(fixture_room_summaries) >= 2 and (hostile_creeps > 0 or hostile_structures > 0),
+    }
+
+
 def build_variant_owned_room_scorecard(variant_result: JsonObject) -> JsonObject:
     tick_log = variant_result.get("tick_log", variant_result.get("tickLog"))
     ticks = [tick for tick in tick_log if isinstance(tick, dict)] if isinstance(tick_log, list) else []
@@ -2488,24 +2637,33 @@ def _fetch_room_overviews(
     token: str,
     rooms: Sequence[str],
     shard: str,
+    optional_rooms: Sequence[str] = (),
 ) -> tuple[str, dict[str, Any]]:
     payloads: dict[str, Any] = {}
-    for room_name in rooms:
-        room_overview = smoke.http_json(
-            "GET",
-            cfg.server_url,
-            "/api/game/room-overview",
-            params={"room": room_name, "shard": shard},
-            headers=smoke.token_headers(token),
-            timeout=RUN_API_TIMEOUT_SECONDS,
-        )
-        token = smoke.update_token_from_headers(token, room_overview.headers)
-        if isinstance(room_overview.payload, dict) and not smoke.api_dict_succeeded(room_overview):
-            raise RuntimeError(
-                f"/api/game/room-overview returned unusable payload for {room_name}: "
-                f"{_safe_redact_smoke_payload(room_overview.payload)}"
+    required = set(rooms)
+    for room_name in _dedupe_room_names([*rooms, *optional_rooms]):
+        try:
+            room_overview = smoke.http_json(
+                "GET",
+                cfg.server_url,
+                "/api/game/room-overview",
+                params={"room": room_name, "shard": shard},
+                headers=smoke.token_headers(token),
+                timeout=RUN_API_TIMEOUT_SECONDS,
             )
-        payloads[room_name] = room_overview.payload
+            token = smoke.update_token_from_headers(token, room_overview.headers)
+            if isinstance(room_overview.payload, dict) and not smoke.api_dict_succeeded(room_overview):
+                if room_name not in required:
+                    continue
+                raise RuntimeError(
+                    f"/api/game/room-overview returned unusable payload for {room_name}: "
+                    f"{_safe_redact_smoke_payload(room_overview.payload)}"
+                )
+            payloads[room_name] = room_overview.payload
+        except Exception:
+            if room_name in required:
+                raise
+            continue
     return token, payloads
 
 
@@ -2517,6 +2675,8 @@ def _run_one_tick(
     shard: str,
     previous_tick: int | None,
     timeout_seconds: float,
+    fixture_room_names: Sequence[str] = (),
+    fixture_room_summaries: dict[str, JsonObject] | None = None,
 ) -> tuple[str, int | None, JsonObject]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -2539,7 +2699,16 @@ def _run_one_tick(
             continue
         if previous_tick is None or current_tick > previous_tick:
             visible_rooms = _visible_room_names(overview_result.payload, shard, room)
-            token, room_overviews = _fetch_room_overviews(cfg, smoke, token, visible_rooms, shard)
+            scenario_rooms = [fixture_room for fixture_room in fixture_room_names if fixture_room not in visible_rooms]
+            tick_rooms = _dedupe_room_names([*visible_rooms, *scenario_rooms])
+            token, room_overviews = _fetch_room_overviews(
+                cfg,
+                smoke,
+                token,
+                visible_rooms,
+                shard,
+                optional_rooms=scenario_rooms,
+            )
             tick_entry = _build_tick_entry(
                 shard,
                 room,
@@ -2547,8 +2716,10 @@ def _run_one_tick(
                 overview_result.payload,
                 terrain_result.payload,
                 room_overviews,
-                visible_rooms,
+                tick_rooms,
             )
+            if fixture_room_summaries:
+                _merge_fixture_room_summaries_into_tick(tick_entry, fixture_room_summaries)
             return token, current_tick, tick_entry
         time.sleep(RUN_TICK_POLL_SECONDS)
     raise RuntimeError(f"timed out waiting for tick progression after {timeout_seconds}s")
@@ -2589,6 +2760,8 @@ def _run_variant(
     evidence_errors: list[str] = []
     launcher_auto_map_import_disabled = False
     scenario_map_source_file = map_source_file
+    fixture_room_summaries = _private_map_fixture_room_summaries(map_source_file)
+    fixture_room_names = list(fixture_room_summaries)
     compose: list[str] | None = None
     try:
         smoke = _load_private_smoke_module()
@@ -2783,6 +2956,8 @@ def _run_variant(
                 shard,
                 previous_tick,
                 timeout_seconds=RUN_TICK_TIMEOUT_SECONDS,
+                fixture_room_names=fixture_room_names,
+                fixture_room_summaries=fixture_room_summaries,
             )
             previous_tick = observed_tick if observed_tick is not None else previous_tick
             variant_ticks.append(tick_entry)
@@ -2844,6 +3019,7 @@ def _run_variant(
         "requestedBranch": branch,
         "terrainReady": terrain_ready,
         "mongoRoomEvidence": mongo_room_evidence,
+        "scenarioFixture": build_scenario_fixture_objective_summary(fixture_room_summaries),
         "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,
         "launcherAutoMapImportDisabled": launcher_auto_map_import_disabled,
     }

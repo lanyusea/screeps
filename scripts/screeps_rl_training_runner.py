@@ -42,6 +42,9 @@ POLICY_UPDATE_ALGORITHM = RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM
 DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
+MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
+MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD = 2
+MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD = 0
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("conservative_actions_only", "ood_rejection")
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
@@ -1076,6 +1079,18 @@ def build_training_report(
     }
     if scenario is not None:
         report["scenario"] = scenario
+        activation_proof = build_multi_tier_activation_proof(
+            results=results,
+            scenario=scenario,
+            kpi_summary=report["kpiSummary"],
+        )
+        if activation_proof is not None:
+            report["activationProof"] = activation_proof
+            if activation_proof["status"] == "blocked":
+                warnings.append(
+                    "multi-tier activation proof blocked: "
+                    f"{activation_proof['blocker']['classification']}"
+                )
     if scale_validation is not None:
         report["scaleValidation"] = scale_validation
     if policy_gradient is not None:
@@ -2021,6 +2036,8 @@ def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObje
     )
 
     reliability = 0 if run.get("ok") is False else 1
+    initial_objective_signal = room_objective_signal(initial_rooms)
+    final_objective_signal = room_objective_signal(final_rooms)
     reward_tuple = [
         reliability,
         round_float(territory_delta),
@@ -2062,6 +2079,33 @@ def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObje
             "hostileKills": round_float(hostile_kills),
             "ownLosses": round_float(own_losses),
         },
+        "objectiveSignal": {
+            "initialObservedRoomCount": len(initial_rooms),
+            "finalObservedRoomCount": len(final_rooms),
+            "initialRooms": sorted(initial_rooms),
+            "finalRooms": sorted(final_rooms),
+            "initialHostileCreeps": initial_objective_signal["hostileCreeps"],
+            "finalHostileCreeps": final_objective_signal["hostileCreeps"],
+            "initialHostileStructures": initial_objective_signal["hostileStructures"],
+            "finalHostileStructures": final_objective_signal["hostileStructures"],
+            "initialObjectiveSignalPresent": initial_objective_signal["objectiveSignalPresent"],
+            "finalObjectiveSignalPresent": final_objective_signal["objectiveSignalPresent"],
+        },
+    }
+
+
+def room_objective_signal(rooms: dict[str, JsonObject]) -> JsonObject:
+    hostile_creeps = 0.0
+    hostile_structures = 0.0
+    for summary in rooms.values():
+        combat = summary.get("combat")
+        if isinstance(combat, dict):
+            hostile_creeps += number_or_none(combat.get("hostileCreeps")) or 0.0
+            hostile_structures += number_or_none(combat.get("hostileStructures")) or 0.0
+    return {
+        "hostileCreeps": round_float(hostile_creeps),
+        "hostileStructures": round_float(hostile_structures),
+        "objectiveSignalPresent": len(rooms) >= 2 and (hostile_creeps > 0 or hostile_structures > 0),
     }
 
 
@@ -2093,17 +2137,8 @@ def normalize_room_map(raw: Any) -> dict[str, JsonObject]:
 
 
 def is_claimed_room(summary: JsonObject) -> bool:
-    if summary.get("claimed") is True or summary.get("owned") is True or summary.get("my") is True:
+    if room_has_own_controller(summary):
         return True
-    controller = summary.get("controller")
-    if isinstance(controller, dict):
-        if controller.get("my") is True or controller.get("owned") is True:
-            return True
-        owner = controller.get("owner")
-        if isinstance(owner, str) and owner:
-            return True
-        if isinstance(owner, dict) and owner:
-            return True
     if spawn_count(summary) > 0 and controller_level(summary) > 0:
         return True
     return False
@@ -2113,8 +2148,33 @@ def room_survived(summary: JsonObject) -> bool:
     return spawn_count(summary) > 0 and creep_count(summary) > 0
 
 
+def room_has_own_controller(summary: JsonObject) -> bool:
+    if summary.get("claimed") is True or summary.get("owned") is True or summary.get("my") is True:
+        return True
+    controller = summary.get("controller")
+    if isinstance(controller, dict):
+        if controller.get("my") is True or controller.get("owned") is True:
+            return True
+        owner = controller.get("owner")
+        if isinstance(owner, str) and owner in {"me", "self", "owned"}:
+            return True
+    return False
+
+
 def spawn_count(summary: JsonObject) -> int:
-    for key in ("owned_spawns", "ownedSpawnCount", "spawnCount", "spawns"):
+    for key in ("owned_spawns", "ownedSpawnCount", "ownSpawnCount"):
+        value = int_or_none(summary.get(key))
+        if value is not None:
+            return value
+    structures = summary.get("ownStructureCounts")
+    if isinstance(structures, dict):
+        for key in ("spawn", "STRUCTURE_SPAWN"):
+            value = int_or_none(structures.get(key))
+            if value is not None:
+                return value
+    if not room_has_own_controller(summary):
+        return 0
+    for key in ("spawnCount", "spawns"):
         value = int_or_none(summary.get(key))
         if value is not None:
             return value
@@ -2128,7 +2188,18 @@ def spawn_count(summary: JsonObject) -> int:
 
 
 def creep_count(summary: JsonObject) -> int:
-    for key in ("owned_creeps", "ownedCreeps", "ownedCreepCount", "creeps", "workerCount"):
+    for key in ("owned_creeps", "ownedCreeps", "ownedCreepCount"):
+        value = int_or_none(summary.get(key))
+        if value is not None:
+            return value
+    roles = summary.get("ownCreepRoles")
+    if isinstance(roles, dict):
+        role_total = sum(int_or_none(value) or 0 for value in roles.values())
+        if role_total > 0:
+            return role_total
+    if not room_has_own_controller(summary):
+        return 0
+    for key in ("creeps", "workerCount"):
         value = int_or_none(summary.get(key))
         if value is not None:
             return value
@@ -2343,6 +2414,7 @@ def aggregate_metrics(metrics: Sequence[JsonObject]) -> JsonObject:
             "territory": empty_territory_metrics(),
             "resources": empty_resource_metrics(),
             "kills": empty_kill_metrics(),
+            "objectiveSignal": empty_objective_signal_metrics(),
         }
     return {
         "reliability": {
@@ -2389,6 +2461,38 @@ def aggregate_metrics(metrics: Sequence[JsonObject]) -> JsonObject:
             "hostileKills": mean_component(metrics, "kills", "hostileKills"),
             "ownLosses": mean_component(metrics, "kills", "ownLosses"),
         },
+        "objectiveSignal": {
+            "initialObservedRoomCount": mean_component(metrics, "objectiveSignal", "initialObservedRoomCount"),
+            "finalObservedRoomCount": mean_component(metrics, "objectiveSignal", "finalObservedRoomCount"),
+            "initialHostileCreeps": mean_component(metrics, "objectiveSignal", "initialHostileCreeps"),
+            "finalHostileCreeps": mean_component(metrics, "objectiveSignal", "finalHostileCreeps"),
+            "initialHostileStructures": mean_component(metrics, "objectiveSignal", "initialHostileStructures"),
+            "finalHostileStructures": mean_component(metrics, "objectiveSignal", "finalHostileStructures"),
+            "initialObjectiveSignalPresent": any(
+                metric["objectiveSignal"].get("initialObjectiveSignalPresent") is True
+                for metric in metrics
+            ),
+            "finalObjectiveSignalPresent": any(
+                metric["objectiveSignal"].get("finalObjectiveSignalPresent") is True
+                for metric in metrics
+            ),
+            "initialRooms": sorted(
+                {
+                    room
+                    for metric in metrics
+                    for room in metric["objectiveSignal"].get("initialRooms", [])
+                    if isinstance(room, str)
+                }
+            ),
+            "finalRooms": sorted(
+                {
+                    room
+                    for metric in metrics
+                    for room in metric["objectiveSignal"].get("finalRooms", [])
+                    if isinstance(room, str)
+                }
+            ),
+        },
     }
 
 
@@ -2423,6 +2527,21 @@ def empty_resource_metrics() -> JsonObject:
 
 def empty_kill_metrics() -> JsonObject:
     return {"delta": 0, "hostileKills": 0, "ownLosses": 0}
+
+
+def empty_objective_signal_metrics() -> JsonObject:
+    return {
+        "initialObservedRoomCount": 0,
+        "finalObservedRoomCount": 0,
+        "initialRooms": [],
+        "finalRooms": [],
+        "initialHostileCreeps": 0,
+        "finalHostileCreeps": 0,
+        "initialHostileStructures": 0,
+        "finalHostileStructures": 0,
+        "initialObjectiveSignalPresent": False,
+        "finalObjectiveSignalPresent": False,
+    }
 
 
 def mean_component(metrics: Sequence[JsonObject], component: str, field: str) -> float | int:
@@ -2640,6 +2759,108 @@ def build_kpi_summary(results: Sequence[JsonObject]) -> JsonObject:
     }
 
 
+def build_multi_tier_activation_proof(
+    *,
+    results: Sequence[JsonObject],
+    scenario: JsonObject | None,
+    kpi_summary: JsonObject,
+) -> JsonObject | None:
+    if not scenario_supports_multi_tier_policy_comparison(scenario):
+        return None
+    rows = [multi_tier_activation_variant_row(result) for result in results]
+    passed_rows = [row for row in rows if row["passesActivation"]]
+    transport_observed = any(row["objectiveSignalObserved"] for row in rows)
+    status = "passed" if passed_rows else "blocked"
+    proof: JsonObject = {
+        "type": MULTI_TIER_ACTIVATION_PROOF_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": status,
+        "ok": status == "passed",
+        "scenarioId": scenario.get("scenario_id", scenario.get("scenarioId")) if isinstance(scenario, dict) else None,
+        "criteria": {
+            "operator": "or",
+            "territoryScoreMustExceed": MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD,
+            "hostileKillsMustExceed": MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD,
+            "requiredForPaidTencentValidation": True,
+        },
+        "fixtureEvidence": multi_tier_fixture_evidence(scenario),
+        "transport": {
+            "objectiveSignalObserved": transport_observed,
+            "classification": "observed_in_variant_metrics" if transport_observed else "not_observed_in_variant_metrics",
+        },
+        "bestObserved": {
+            "territoryScore": max((float(row["territoryScore"]) for row in rows), default=0.0),
+            "hostileKills": max((float(row["hostileKills"]) for row in rows), default=0.0),
+            "kpiSummary": copy.deepcopy(kpi_summary),
+        },
+        "variants": rows,
+    }
+    if passed_rows:
+        proof["passingVariants"] = [row["variantId"] for row in passed_rows]
+    else:
+        classification = (
+            "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED"
+            if transport_observed
+            else "SIMULATOR_FIXTURE_SIGNAL_NOT_TRANSPORTED"
+        )
+        proof["blocker"] = {
+            "classification": classification,
+            "criticality": "P0",
+            "evidence": (
+                "multi-tier fixture signal reached variant metrics, but no variant exceeded territory score "
+                f"{MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD} or hostile kills "
+                f"{MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD}"
+                if transport_observed
+                else "multi-tier card fixture evidence did not reach variant objective metrics"
+            ),
+            "action": "repair local/private simulator objective activation before paid Tencent validation",
+        }
+    return proof
+
+
+def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    territory = metrics.get("territory") if isinstance(metrics.get("territory"), dict) else {}
+    kills = metrics.get("kills") if isinstance(metrics.get("kills"), dict) else {}
+    objective = metrics.get("objectiveSignal") if isinstance(metrics.get("objectiveSignal"), dict) else {}
+    territory_score = number_or_none(territory.get("delta")) or 0
+    hostile_kills = number_or_none(kills.get("hostileKills")) or 0
+    observed = (
+        objective.get("initialObjectiveSignalPresent") is True
+        or objective.get("finalObjectiveSignalPresent") is True
+        or (number_or_none(objective.get("initialObservedRoomCount")) or 0) >= 2
+        or (number_or_none(objective.get("finalObservedRoomCount")) or 0) >= 2
+    )
+    passes = (
+        float(territory_score) > MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD
+        or float(hostile_kills) > MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD
+    )
+    return {
+        "variantId": result.get("variantId"),
+        "sampleCount": result.get("sampleCount", 0),
+        "territoryScore": round_float(territory_score),
+        "hostileKills": round_float(hostile_kills),
+        "objectiveSignalObserved": observed,
+        "passesActivation": passes,
+        "objectiveSignal": copy.deepcopy(objective),
+    }
+
+
+def multi_tier_fixture_evidence(scenario: JsonObject | None) -> JsonObject:
+    evidence = scenario.get("evidence") if isinstance(scenario, dict) and isinstance(scenario.get("evidence"), dict) else {}
+    return {
+        "roomCount": evidence.get("room_count", evidence.get("roomCount")),
+        "anchorRoom": evidence.get("anchor_room", evidence.get("anchorRoom")),
+        "adjacentRoom": evidence.get("adjacent_room", evidence.get("adjacentRoom")),
+        "adjacentRooms": copy.deepcopy(evidence.get("adjacent_rooms", evidence.get("adjacentRooms"))),
+        "hostileCreepCount": evidence.get("hostile_creep_count", evidence.get("hostileCreepCount")),
+        "hostileStructureCount": evidence.get("hostile_structure_count", evidence.get("hostileStructureCount")),
+        "hostileSpawnCount": evidence.get("hostile_spawn_count", evidence.get("hostileSpawnCount")),
+        "mapSourceFile": evidence.get("map_source_file", evidence.get("mapSourceFile")),
+        "implementationStatus": evidence.get("implementation_status", evidence.get("implementationStatus")),
+    }
+
+
 def build_report_warnings(results: Sequence[JsonObject], simulator_runs: Sequence[JsonObject]) -> list[str]:
     warnings: list[str] = []
     for result in results:
@@ -2787,6 +3008,15 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
     }
     if "scaleValidation" in report:
         summary["scaleValidation"] = report["scaleValidation"]
+    if "activationProof" in report:
+        proof = report["activationProof"]
+        summary["activationProof"] = {
+            "status": proof.get("status"),
+            "ok": proof.get("ok"),
+            "blocker": copy.deepcopy(proof.get("blocker")) if isinstance(proof.get("blocker"), dict) else None,
+            "passingVariants": copy.deepcopy(proof.get("passingVariants", [])),
+            "bestObserved": copy.deepcopy(proof.get("bestObserved", {})),
+        }
     return summary
 
 
