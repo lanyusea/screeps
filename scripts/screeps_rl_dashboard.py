@@ -1041,6 +1041,17 @@ def clear_satisfied_card_supply_blocker(blocker: str | None, card_supply: JsonOb
     return blocker
 
 
+def card_supply_available_for_training(card_supply: JsonObject) -> bool:
+    supply = as_dict(card_supply.get("cardSupply"))
+    return (
+        card_supply.get("status") == "PRIMARY_SATISFIED"
+        and supply.get("state") == "available"
+        and supply.get("available_for_training") is True
+        and supply.get("consumed_at") is None
+        and supply.get("consumed_by_report_id") is None
+    )
+
+
 def reconcile_card_supply_for_training(
     payload: JsonObject,
     *,
@@ -1062,7 +1073,10 @@ def reconcile_card_supply_for_training(
         return embedded_supply
     if (
         tencent_internal_card_supply is not None
-        and (not training_did_run or training_payload_references_tencent_card(payload))
+        and (
+            (not training_did_run and card_supply_available_for_training(tencent_internal_card_supply))
+            or (training_did_run and training_payload_references_tencent_card(payload))
+        )
     ):
         return dict(tencent_internal_card_supply)
     if training_did_run:

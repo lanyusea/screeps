@@ -23,7 +23,12 @@ def write_json(path: Path, payload: JsonObject) -> None:
     path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
 
 
-def policy_gradient_card(*, safe: bool = True, include_card_supply: bool = True) -> JsonObject:
+def policy_gradient_card(
+    *,
+    safe: bool = True,
+    include_card_supply: bool = True,
+    card_supply_state: str = "available",
+) -> JsonObject:
     safety = {
         "conservative_actions_only": safe,
         "liveEffect": False,
@@ -52,18 +57,27 @@ def policy_gradient_card(*, safe: bool = True, include_card_supply: bool = True)
         "training_approach": "policy_gradient",
     }
     if include_card_supply:
+        consumed_at = None
+        consumed_by_report_id = None
+        available_for_training = True
+        if card_supply_state == "consumed":
+            consumed_at = "2026-05-18T10:38:11Z"
+            consumed_by_report_id = "report-consumed-card"
+            available_for_training = False
+        elif card_supply_state != "available":
+            raise ValueError(f"unknown card_supply_state: {card_supply_state}")
         card["card_supply"] = {
             "type": "screeps-rl-loop-a-card-supply",
             "consumer": "loop-a-policy-gradient",
-            "state": "available",
-            "available_for_training": True,
+            "state": card_supply_state,
+            "available_for_training": available_for_training,
             "dataset_run_id": card["dataset_run_id"],
             "training_approach": card["training_approach"],
             "created_at": card["created_at"],
             "status_field": "status",
             "safety_status": "shadow",
-            "consumed_at": None,
-            "consumed_by_report_id": None,
+            "consumed_at": consumed_at,
+            "consumed_by_report_id": consumed_by_report_id,
         }
     return card
 
@@ -193,6 +207,62 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertIsNone(training["blocker"])
         self.assertEqual(policy["cardSupplyFinding"]["status"], "FALLBACK_DEGRADED")
         self.assertEqual(policy["cardSupplyFinding"]["severity"], "P2")
+
+    def test_consumed_tencent_card_does_not_clear_not_run_card_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-consumed"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-consumed",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-accepted-123456789abc"}},
+                },
+            )
+            write_json(run_dir / "experiment_card.json", policy_gradient_card(card_supply_state="consumed"))
+
+            card_supply = dashboard.discover_tencent_internal_card_supply(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            self.assertIsNotNone(card_supply)
+            assert card_supply is not None
+
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "NOT_RUN",
+                        "trainingDidRun": False,
+                        "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    },
+                ),
+                tencent_internal_card_supply=card_supply,
+            )
+            policy = dashboard.policy_advantage(
+                loaded_artifact(
+                    root / "rl-control-loop" / "policy-advantage.json",
+                    {
+                        "type": "screeps-rl-policy-online-advantage-report",
+                        "onlineUtilityStatus": "UNPROVEN",
+                        "candidatePolicyId": "NO_STABLE_CANDIDATE",
+                        "baselinePolicyId": "incumbent",
+                        "evidenceWindows": {"loopACardPathStalledCycles": 17},
+                    },
+                ),
+                None,
+                training=training,
+            )
+
+        self.assertEqual(training["status"], "NOT_RUN")
+        self.assertEqual(training["cardSupply"]["status"], "BLOCKED")
+        self.assertEqual(training["cardSupply"]["severity"], "P0")
+        self.assertEqual(training["blocker"], "NO_UNCONSUMED_EXPERIMENT_CARD")
+        self.assertEqual(policy["cardSupplyFinding"]["status"], "BLOCKED")
+        self.assertEqual(policy["cardSupplyFinding"]["severity"], "P0")
 
     def test_non_tencent_training_run_without_embedded_supply_stays_degraded(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
