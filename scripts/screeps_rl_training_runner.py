@@ -36,7 +36,10 @@ DEFAULT_RUN_REPETITIONS = 1
 DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
 DEFAULT_POLICY_UPDATE_LEARNING_RATE = 0.25
-POLICY_UPDATE_ALGORITHM = "rank_weighted_finite_difference_v1"
+RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM = "rank_weighted_finite_difference_v1"
+TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM = "reinforce_v1"
+POLICY_UPDATE_ALGORITHM = RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM
+DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
@@ -1063,6 +1066,9 @@ def build_training_report(
         "rankingDiffCount": ranking_diff_count,
         "changedTopCount": changed_top_count,
         "policyUpdateIterations": 0,
+        "policyUpdateAlgorithm": None,
+        "policyUpdateCandidatePolicyId": None,
+        "trueGradient": False,
         "modelFamilies": sorted({text for text in (result.get("family") for result in results) if isinstance(text, str)}),
         "modelReports": model_reports,
         "kpiSummary": build_kpi_summary(scored_results),
@@ -1081,6 +1087,15 @@ def build_training_report(
             generated_at=generated_at,
         )
         report["policyUpdateIterations"] = int(policy_update.get("iterations", 0))
+        policy_update_algorithm_name = text_or_none(policy_update.get("algorithm"))
+        report["policyUpdateAlgorithm"] = policy_update_algorithm_name
+        report["trueGradient"] = (
+            policy_update_algorithm_name == TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
+            or policy_update.get("trueGradient") is True
+        )
+        next_candidate_policy = policy_update.get("nextCandidatePolicy")
+        if isinstance(next_candidate_policy, dict):
+            report["policyUpdateCandidatePolicyId"] = text_or_none(next_candidate_policy.get("candidatePolicyId"))
         report["policyUpdate"] = policy_update
     return report
 
@@ -1093,20 +1108,49 @@ def build_policy_update(
     generated_at: str,
 ) -> JsonObject:
     """Compute one bounded offline policy update from rollout rewards."""
-    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
-    parameter_space = policy_update_parameter_space(policy_gradient)
-    candidates = policy_update_candidate_rows(policy_gradient, results, parameter_space)
-    base: JsonObject = {
+    algorithm = policy_update_algorithm(policy_gradient)
+    if algorithm == TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM:
+        return build_reinforce_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id=report_id,
+            generated_at=generated_at,
+        )
+    if algorithm == RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM:
+        return build_rank_weighted_finite_difference_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id=report_id,
+            generated_at=generated_at,
+        )
+    raise TrainingCardError(f"unsupported policy update algorithm: {algorithm}")
+
+
+def build_policy_update_base(*, algorithm: str, target_family: str) -> JsonObject:
+    return {
         "type": "screeps-rl-policy-update",
         "schemaVersion": SCHEMA_VERSION,
         "iterations": 0,
-        "algorithm": POLICY_UPDATE_ALGORITHM,
+        "algorithm": algorithm,
         "targetFamily": target_family,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+
+
+def build_rank_weighted_finite_difference_policy_update(
+    *,
+    policy_gradient: JsonObject,
+    results: Sequence[JsonObject],
+    report_id: str,
+    generated_at: str,
+) -> JsonObject:
+    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
+    parameter_space = policy_update_parameter_space(policy_gradient)
+    candidates = policy_update_candidate_rows(policy_gradient, results, parameter_space)
+    base = build_policy_update_base(algorithm=RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM, target_family=target_family)
     if not parameter_space:
         return {**base, "skippedReason": "missing_policy_parameter_space"}
     if len(candidates) < 2:
@@ -1182,7 +1226,9 @@ def build_policy_update(
         "trainingRole": "policy_gradient_updated_candidate",
         "generatedAt": generated_at,
         "sourceReportId": report_id,
-        "sourcePolicyUpdateAlgorithm": POLICY_UPDATE_ALGORITHM,
+        "sourcePolicyUpdateAlgorithm": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+        "policyUpdateAlgorithm": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+        "trueGradient": False,
         "sourceAnchorCandidatePolicyId": anchor.get("candidatePolicyId"),
         "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
         "policyUpdateIterations": 1,
@@ -1196,6 +1242,8 @@ def build_policy_update(
             "parameterDelta": copy.deepcopy(parameter_delta),
             "learningRate": learning_rate,
             "candidateCount": len(candidates),
+            "policyUpdateAlgorithm": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+            "trueGradient": False,
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
@@ -1208,6 +1256,8 @@ def build_policy_update(
     return {
         **base,
         "iterations": 1,
+        "policyUpdateAlgorithm": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+        "trueGradient": False,
         "learningRate": learning_rate,
         "parameterSpace": copy.deepcopy(parameter_space),
         "candidateCount": len(candidates),
@@ -1219,6 +1269,229 @@ def build_policy_update(
         "updatedParameters": updated_parameters,
         "nextCandidatePolicy": next_candidate_policy,
     }
+
+
+def build_reinforce_policy_update(
+    *,
+    policy_gradient: JsonObject,
+    results: Sequence[JsonObject],
+    report_id: str,
+    generated_at: str,
+) -> JsonObject:
+    target_family = text_or_none(policy_gradient.get("target_family", policy_gradient.get("targetFamily"))) or "unknown"
+    parameter_space = policy_update_parameter_space(policy_gradient)
+    candidates = policy_update_candidate_rows(policy_gradient, results, parameter_space)
+    base = build_policy_update_base(algorithm=TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM, target_family=target_family)
+    if not parameter_space:
+        return {**base, "skippedReason": "missing_policy_parameter_space"}
+    if len(candidates) < 2:
+        return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
+
+    anchor = policy_update_anchor_candidate(candidates)
+    if anchor is None:
+        return {**base, "skippedReason": "missing_anchor_policy_candidate", "candidateCount": len(candidates)}
+
+    samples = policy_update_return_sample_rows(candidates)
+    if len(samples) < 2:
+        return {
+            **base,
+            "skippedReason": "fewer_than_two_monte_carlo_return_samples",
+            "candidateCount": len(candidates),
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+        }
+
+    return_baseline = mean_policy_return_tuple([sample["returnTuple"] for sample in samples])
+    learning_rate = policy_update_learning_rate(policy_gradient)
+    anchor_parameters = anchor["parameters"]
+    gradient_by_tier: JsonObject = {}
+    gradient: JsonObject = {}
+    selected_reward_tier_by_parameter: JsonObject = {}
+    updated_parameters: JsonObject = {}
+    parameter_delta: JsonObject = {}
+
+    for name, spec in parameter_space.items():
+        anchor_value = float(anchor_parameters[name])
+        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
+        tier_gradients: dict[str, float | int] = {}
+        for tier_index, tier in enumerate(REWARD_TIERS):
+            raw_gradient = 0.0
+            for sample in samples:
+                row = sample["candidate"]
+                normalized_delta = (float(row["parameters"][name]) - anchor_value) / span
+                advantage = float(sample["returnTuple"][tier_index]) - float(return_baseline[tier_index])
+                raw_gradient += advantage * normalized_delta
+            tier_gradients[tier] = round_policy_number(raw_gradient / len(samples))
+        selected_tier, selected_gradient = first_nonzero_tier_gradient(tier_gradients)
+        selected_reward_tier_by_parameter[name] = selected_tier
+        gradient_by_tier[name] = tier_gradients
+        gradient[name] = selected_gradient
+        updated = bounded_policy_parameter_value(
+            anchor_value + (learning_rate * float(selected_gradient) * span),
+            spec,
+        )
+        updated_parameters[name] = updated
+        parameter_delta[name] = round_policy_number(float(updated) - anchor_value)
+
+    return_summary = policy_update_return_summary(
+        candidates=candidates,
+        samples=samples,
+        baseline=return_baseline,
+    )
+    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        return {
+            **base,
+            "skippedReason": "bounded_update_no_parameter_change",
+            "candidateCount": len(candidates),
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
+        }
+
+    candidate_policy_id = updated_candidate_policy_id(
+        target_family=target_family,
+        report_id=report_id,
+        parameters=updated_parameters,
+    )
+    next_candidate_policy = {
+        "type": "screeps-rl-next-candidate-policy",
+        "schemaVersion": SCHEMA_VERSION,
+        "candidatePolicyId": candidate_policy_id,
+        "strategyVariantId": candidate_policy_id,
+        "family": target_family,
+        "rolloutStatus": "shadow",
+        "trainingRole": "policy_gradient_updated_candidate",
+        "generatedAt": generated_at,
+        "sourceReportId": report_id,
+        "sourcePolicyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+        "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+        "trueGradient": True,
+        "sourceAnchorCandidatePolicyId": anchor.get("candidatePolicyId"),
+        "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
+        "policyUpdateIterations": 1,
+        "parameters": updated_parameters,
+        "parameterEvidence": {
+            "derivation": (
+                "deterministic REINFORCE score-function estimate from offline simulator "
+                "Monte Carlo reward-tuple returns with a mean-return baseline"
+            ),
+            "targetFamily": target_family,
+            "learnableKnobs": list(parameter_space),
+            "anchorParameters": copy.deepcopy(anchor_parameters),
+            "gradient": copy.deepcopy(gradient),
+            "gradientByRewardTier": copy.deepcopy(gradient_by_tier),
+            "selectedRewardTierByParameter": copy.deepcopy(selected_reward_tier_by_parameter),
+            "parameterDelta": copy.deepcopy(parameter_delta),
+            "learningRate": learning_rate,
+            "returnBaseline": copy.deepcopy(return_baseline),
+            "returnSampleCount": len(samples),
+            "candidateCount": len(candidates),
+            "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+            "trueGradient": True,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    return {
+        **base,
+        "iterations": 1,
+        "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+        "trueGradient": True,
+        "policyGradientEstimator": "score_function_reinforce_v1",
+        "learningRate": learning_rate,
+        "parameterSpace": copy.deepcopy(parameter_space),
+        "candidateCount": len(candidates),
+        "anchor": policy_update_candidate_summary(anchor),
+        "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+        "returnSummary": return_summary,
+        "gradient": gradient,
+        "gradientByRewardTier": gradient_by_tier,
+        "selectedRewardTierByParameter": selected_reward_tier_by_parameter,
+        "parameterDelta": parameter_delta,
+        "updatedParameters": updated_parameters,
+        "nextCandidatePolicy": next_candidate_policy,
+    }
+
+
+def policy_update_algorithm(policy_gradient: JsonObject) -> str:
+    for raw in policy_update_config_candidates(policy_gradient):
+        for key in ("algorithm", "policy_update_algorithm", "policyUpdateAlgorithm"):
+            value = text_or_none(raw.get(key))
+            if value is not None:
+                if value in {TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM, RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM}:
+                    return value
+                raise TrainingCardError(f"unsupported policy update algorithm: {value}")
+    return DEFAULT_POLICY_UPDATE_ALGORITHM
+
+
+def policy_update_config_candidates(policy_gradient: JsonObject) -> list[JsonObject]:
+    configs = [policy_gradient]
+    for key in ("policy_update", "policyUpdate", "update", "update_config", "updateConfig"):
+        raw = policy_gradient.get(key)
+        if isinstance(raw, dict):
+            configs.append(raw)
+    return configs
+
+
+def policy_update_return_sample_rows(candidates: Sequence[JsonObject]) -> list[JsonObject]:
+    samples: list[JsonObject] = []
+    for row in candidates:
+        raw_samples = row.get("returnSamples")
+        if not isinstance(raw_samples, list):
+            continue
+        for return_tuple in raw_samples:
+            if not isinstance(return_tuple, list):
+                continue
+            samples.append({"candidate": row, "returnTuple": return_tuple})
+    return samples
+
+
+def policy_update_return_summary(
+    *,
+    candidates: Sequence[JsonObject],
+    samples: Sequence[JsonObject],
+    baseline: Sequence[float | int],
+) -> JsonObject:
+    return {
+        "type": "monte_carlo_reward_tuple_returns",
+        "componentOrder": list(REWARD_TIERS),
+        "baseline": list(baseline),
+        "sampleCount": len(samples),
+        "baselineType": "mean_return",
+        "candidateReturns": [
+            {
+                "candidatePolicyId": row.get("candidatePolicyId"),
+                "strategyVariantId": row.get("strategyVariantId"),
+                "rolloutStatus": row.get("rolloutStatus"),
+                "meanReturn": copy.deepcopy(row.get("meanReturn")),
+                "returnSampleCount": row.get("returnSampleCount"),
+                "rewardTuple": copy.deepcopy(row.get("rewardTuple")),
+                "sampleCount": row.get("sampleCount"),
+            }
+            for row in candidates
+        ],
+    }
+
+
+def first_nonzero_tier_gradient(tier_gradients: JsonObject) -> tuple[str | None, float | int]:
+    for tier in REWARD_TIERS:
+        value = tier_gradients.get(tier, 0)
+        if abs(float(value)) > 1e-12:
+            return tier, value
+    return None, 0
+
+
+def mean_policy_return_tuple(return_tuples: Sequence[Sequence[Any]]) -> list[float | int]:
+    if not return_tuples:
+        return [0 for _tier in REWARD_TIERS]
+    columns = list(zip(*return_tuples))
+    return [round_policy_number(statistics.fmean(float(value) for value in column)) for column in columns]
 
 
 def policy_update_parameter_space(policy_gradient: JsonObject) -> dict[str, JsonObject]:
@@ -1286,6 +1559,7 @@ def policy_update_candidate_rows(
         )
         if parameters is None:
             continue
+        return_samples = policy_update_return_samples(scored_summaries)
         rows.append(
             {
                 "candidatePolicyId": candidate_policy_id,
@@ -1295,6 +1569,9 @@ def policy_update_candidate_rows(
                 "parameters": parameters,
                 "rewardTuple": aggregate_policy_reward_tuple(scored_summaries),
                 "sampleCount": sum(policy_reward_tuple_sample_weight(summary) for summary in scored_summaries),
+                "returnSamples": return_samples,
+                "returnSampleCount": len(return_samples),
+                "meanReturn": mean_policy_return_tuple(return_samples),
                 "resultVariantIds": [summary["variantId"] for summary in scored_summaries if isinstance(summary.get("variantId"), str)],
             }
         )
@@ -1348,6 +1625,46 @@ def policy_update_evaluated_parameters(
         return copy.deepcopy(first)
 
     return copy.deepcopy(card_parameters) if card_parameters is not None else None
+
+
+def policy_update_return_samples(summaries: Sequence[JsonObject]) -> list[list[float | int]]:
+    samples: list[list[float | int]] = []
+    for summary in summaries:
+        reward = summary.get("reward")
+        raw_samples = reward.get("samples") if isinstance(reward, dict) else None
+        added_summary_sample = False
+        if isinstance(raw_samples, list):
+            for raw_sample in raw_samples:
+                sample = policy_return_tuple_from_sequence(raw_sample)
+                if sample is not None:
+                    samples.append(sample)
+                    added_summary_sample = True
+        if added_summary_sample:
+            continue
+        reward_tuple = policy_reward_tuple_values(summary)
+        if reward_tuple is None:
+            continue
+        weight = policy_reward_tuple_sample_weight(summary)
+        for _index in range(max(0, weight)):
+            sample = policy_return_tuple_from_sequence(reward_tuple)
+            if sample is not None:
+                samples.append(sample)
+    return samples
+
+
+def policy_return_tuple_from_sequence(raw: Any) -> list[float | int] | None:
+    if not isinstance(raw, list) or len(raw) < len(REWARD_TIERS):
+        return None
+    values: list[float | int] = []
+    for value in raw[: len(REWARD_TIERS)]:
+        if value is None:
+            values.append(0)
+            continue
+        numeric = number_or_none(value)
+        if numeric is None:
+            return None
+        values.append(round_policy_number(float(numeric)))
+    return values
 
 
 def policy_update_summary_parameter_source(summary: JsonObject) -> tuple[str, Any] | None:
@@ -2462,7 +2779,10 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "artifactCount": report["artifactCount"],
         "changedTopCount": report["changedTopCount"],
         "policyUpdateIterations": report.get("policyUpdateIterations", 0),
+        "policyUpdateAlgorithm": report.get("policyUpdateAlgorithm"),
+        "policyUpdateCandidatePolicyId": report.get("policyUpdateCandidatePolicyId"),
         "policyUpdateArtifactPath": report.get("policyUpdateArtifactPath"),
+        "trueGradient": report.get("trueGradient", False),
         "warnings": report["warnings"],
     }
     if "scaleValidation" in report:
