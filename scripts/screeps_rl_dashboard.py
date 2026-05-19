@@ -1757,7 +1757,7 @@ def training_execution(
         and not blocker
     ):
         blocker = text_value(card_supply.get("reason"))
-    raw_status = text_value(payload.get("status")) or ("RUN" if payload.get("trainingDidRun") else "NOT_RUN")
+    raw_status = non_blank_text_value(payload.get("status")) or ("RUN" if payload.get("trainingDidRun") else "NOT_RUN")
     effective_status = raw_status
     training_claims_compute = (
         payload.get("trainingDidRun") is True
@@ -1933,7 +1933,11 @@ def policy_advantage(
             if isinstance(value, dict):
                 metrics.append({"category": key, "status": value.get("advantage", "UNKNOWN"), "delta": value.get("delta")})
 
-    raw_status = text_value(payload.get("onlineUtilityStatus")) or text_value(payload.get("status")) or "UNKNOWN"
+    raw_status = (
+        non_blank_text_value(payload.get("onlineUtilityStatus"))
+        or non_blank_text_value(payload.get("status"))
+        or "UNKNOWN"
+    )
     compute_evidence = policy_compute_evidence(payload, training)
     has_compute = compute_evidence.get("hasCompute") is True
     requires_compute = policy_requires_compute(raw_status, metrics)

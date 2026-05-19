@@ -55,8 +55,10 @@ class ScreepsRlScorecardComputeEvidenceTest(unittest.TestCase):
     def test_environment_execution_shape_marks_preflight_only_payload(self) -> None:
         payload: JsonObject = {
             "type": "screeps-rl-training-execution-ledger",
-            "finalStatus": "preflight_ok",
-            "environmentExecution": {"completed": 0},
+            "controllerSummary": {
+                "finalStatus": "preflight_ok",
+                "environmentExecution": {"completed": 0},
+            },
             "advantageResources": 5,
         }
 

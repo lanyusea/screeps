@@ -1193,6 +1193,45 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertIn("Preflight-only", report["training"]["blocker"])
         self.assertIn("Preflight-only", lanes["E4"]["blocker"])
 
+    def test_blank_compute_statuses_fall_back_before_lane_gating(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "   ",
+                    "trainingDidRun": False,
+                    "createdAt": "2026-05-19T00:01:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "\t",
+                    "status": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["training"]["rawStatus"], "NOT_RUN")
+        self.assertEqual(report["training"]["status"], "NOT_RUN")
+        self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
+        self.assertEqual(report["policy"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E4"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
     def test_unrelated_nested_preflight_status_does_not_create_preflight_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
