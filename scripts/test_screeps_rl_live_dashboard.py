@@ -209,11 +209,16 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["loopB"]["onlineUtilityStatus"], "PROVEN")
         self.assertEqual(summary["loopB"]["scorecard"]["status"], "PASS")
         self.assertEqual(summary["tencentBatch"]["latest"]["runId"], "tencent-live")
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["batchClass"], "smoke")
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["environmentRows"], 25)
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["simulatorTicks"], 12500)
+        self.assertFalse(summary["tencentBatch"]["latest"]["batchScale"]["scaleFirstEligible"])
         self.assertEqual(summary["safety"]["status"], "OK")
         self.assertIn("E1 Gate Acceptance", html)
         self.assertIn("Loop A Env Ticks Episodes", html)
         self.assertIn("Loop B Utility Scorecard", html)
         self.assertIn("Tencent Batch Utilization", html)
+        self.assertIn("Latest batch class", html)
         self.assertIn("Safety Flags", html)
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
