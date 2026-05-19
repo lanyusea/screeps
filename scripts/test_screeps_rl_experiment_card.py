@@ -122,11 +122,12 @@ class RlExperimentCardTest(unittest.TestCase):
                 "riskPenalty",
             ],
         )
-        self.assertFalse(runner_support["inline_candidates_applied_to_simulator"])
-        self.assertFalse(runner_support["runtime_parameter_injection"])
-        self.assertEqual(runner_support["simulator_variant_transport"], "variant_ids_with_inline_metadata")
-        self.assertEqual(runner_support["candidate_parameter_scope"], "metadata_only")
-        self.assertEqual(runner_support["policy_update_reward_use"], "blocked_until_runtime_parameter_evidence")
+        self.assertTrue(runner_support["inline_candidates_applied_to_simulator"])
+        self.assertTrue(runner_support["runtime_parameter_injection"])
+        self.assertEqual(runner_support["simulator_variant_transport"], "variant_ids_with_runtime_injected_parameters")
+        self.assertEqual(runner_support["candidate_parameter_scope"], "runtime_injected")
+        self.assertEqual(runner_support["policy_update_reward_use"], "eligible_with_evaluated_runtime_parameters")
+        self.assertEqual(runner_support["runtime_parameter_injection_mechanism"], "private_simulator_code_prelude_v1")
         self.assertTrue(runner_support["report_preserves_candidate_parameters"])
         self.assertTrue(runner_support["candidate_policy_id_preserved"])
         self.assertEqual(
@@ -1457,7 +1458,7 @@ class RlExperimentCardTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             card_helper.CardValidationError,
-            "runner_support.simulator_variant_transport must be variant_ids_with_inline_metadata",
+            "runner_support must describe metadata-only transport or runtime-injected transport",
         ):
             card_helper.validate_card(card)
 

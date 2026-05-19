@@ -806,19 +806,19 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
             "bounded_integer_step": True,
         },
         "runner_support": {
-            "inline_candidates_applied_to_simulator": False,
-            "inline_candidates_runtime_injected": False,
-            "runtime_parameter_injection": False,
-            "simulator_variant_transport": "variant_ids_with_inline_metadata",
-            "candidate_parameter_scope": "metadata_only",
-            "policy_update_reward_use": "blocked_until_runtime_parameter_evidence",
+            "inline_candidates_applied_to_simulator": True,
+            "inline_candidates_runtime_injected": True,
+            "runtime_parameter_injection": True,
+            "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+            "candidate_parameter_scope": "runtime_injected",
+            "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+            "runtime_parameter_injection_mechanism": "private_simulator_code_prelude_v1",
             "report_preserves_candidate_parameters": True,
             "candidate_policy_id_preserved": True,
             "limitation": (
-                "Inline policy-gradient parameter vectors are passed as bounded simulator metadata only; "
-                "the runner does not rewrite uploaded bot code per variant, so policy updates stay blocked until "
-                "runtime parameter evidence exists. "
-                "private/offline activation remains live-effect false and official-MMO-write false."
+                "Inline policy-gradient parameter vectors are materialized into private-simulator runtime inputs "
+                "through per-variant code-upload preludes. The mechanism remains private/offline, live-effect false, "
+                "and official-MMO-write false."
             ),
         },
         "safety": safety_block(),
@@ -1773,8 +1773,6 @@ def validate_policy_gradient(raw: Any) -> None:
     if not isinstance(support, dict):
         raise CardValidationError("policy_gradient.runner_support must be a JSON object")
     inline_applied = first_present(support, ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"))
-    if inline_applied is not False:
-        raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be false")
     runtime_injection = first_present(
         support,
         (
@@ -1784,20 +1782,26 @@ def validate_policy_gradient(raw: Any) -> None:
             "inlineCandidatesRuntimeInjected",
         ),
     )
-    if runtime_injection is not False:
-        raise CardValidationError("policy_gradient.runner_support.runtime_parameter_injection must be false")
     transport = first_present(support, ("simulator_variant_transport", "simulatorVariantTransport"))
-    if transport != "variant_ids_with_inline_metadata":
-        raise CardValidationError(
-            "policy_gradient.runner_support.simulator_variant_transport must be variant_ids_with_inline_metadata"
-        )
     parameter_scope = first_present(support, ("candidate_parameter_scope", "candidateParameterScope"))
-    if parameter_scope != "metadata_only":
-        raise CardValidationError("policy_gradient.runner_support.candidate_parameter_scope must be metadata_only")
     reward_use = first_present(support, ("policy_update_reward_use", "policyUpdateRewardUse"))
-    if reward_use != "blocked_until_runtime_parameter_evidence":
+    metadata_only_mode = (
+        inline_applied is False
+        and runtime_injection is False
+        and transport == "variant_ids_with_inline_metadata"
+        and parameter_scope == "metadata_only"
+        and reward_use == "blocked_until_runtime_parameter_evidence"
+    )
+    runtime_injected_mode = (
+        inline_applied is True
+        and runtime_injection is True
+        and transport == "variant_ids_with_runtime_injected_parameters"
+        and parameter_scope == "runtime_injected"
+        and reward_use == "eligible_with_evaluated_runtime_parameters"
+    )
+    if not (metadata_only_mode or runtime_injected_mode):
         raise CardValidationError(
-            "policy_gradient.runner_support.policy_update_reward_use must be blocked_until_runtime_parameter_evidence"
+            "policy_gradient.runner_support must describe metadata-only transport or runtime-injected transport"
         )
     preserves_parameters = first_present(
         support,

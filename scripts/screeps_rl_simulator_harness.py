@@ -90,6 +90,9 @@ RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV = "SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE"
 MULTI_TIER_POLICY_ACTIVATION_TYPE = "screeps-rl-multi-tier-policy-activation"
 MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE = 12.0
+RUNTIME_PARAMETER_INJECTION_TYPE = "screeps-rl-runtime-parameter-injection"
+RUNTIME_PARAMETER_INJECTION_MECHANISM = "private_simulator_code_prelude_v1"
+RUNTIME_PARAMETER_INJECTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__"
 RUN_RESOURCE_GUARD_MIN_WORKERS = 3
 RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB = 2300
 RUN_RESOURCE_GUARD_HOST_RESERVE_MIB = 1536
@@ -508,6 +511,107 @@ def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]", "-", value)
     safe = re.sub(r"-+", "-", safe).strip("-.")
     return safe or "variant"
+
+
+def runtime_parameter_injection_for_variant(
+    variant_id: str,
+    strategy_variant: Mapping[str, Any],
+) -> JsonObject:
+    """Build the offline-only policy-parameter payload injected into a private simulator code upload."""
+    parameters = _strategy_variant_parameters(dict(strategy_variant))
+    if not parameters:
+        return {
+            "type": RUNTIME_PARAMETER_INJECTION_TYPE,
+            "schemaVersion": SCHEMA_VERSION,
+            "status": "skipped",
+            "runtimeParameterInjection": False,
+            "inlineCandidatesRuntimeInjected": False,
+            "candidateParameterScope": "metadata_only",
+            "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
+            "strategyVariantId": variant_id,
+            "reason": "strategy variant did not provide parameters to inject",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": safety_metadata(),
+        }
+
+    payload = {
+        "type": RUNTIME_PARAMETER_INJECTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "prepared",
+        "runtimeParameterInjection": False,
+        "inlineCandidatesRuntimeInjected": False,
+        "candidateParameterScope": "runtime_injected",
+        "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
+        "globalName": RUNTIME_PARAMETER_INJECTION_GLOBAL,
+        "strategyVariantId": variant_id,
+        "candidatePolicyId": strategy_variant.get("candidatePolicyId"),
+        "sourceStrategyId": strategy_variant.get("sourceStrategyId"),
+        "family": strategy_variant.get("family"),
+        "parameters": copy.deepcopy(parameters),
+        "parametersSha256": hashlib.sha256(
+            json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest(),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObject) -> str:
+    if injection.get("status") not in {"prepared", "injected"}:
+        return code_text
+    if injection.get("candidateParameterScope") != "runtime_injected":
+        return code_text
+    runtime_payload = copy.deepcopy(injection)
+    runtime_payload["status"] = "injected"
+    runtime_payload["runtimeParameterInjection"] = True
+    runtime_payload["inlineCandidatesRuntimeInjected"] = True
+    prelude = (
+        "/* screeps-rl private-simulator runtime parameter injection; "
+        "liveEffect=false officialMmoWrites=false officialMmoWritesAllowed=false */\n"
+        "(function(){\n"
+        f"  var payload = {json.dumps(runtime_payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True)};\n"
+        "  var root = typeof globalThis !== 'undefined' ? globalThis : "
+        "(typeof global !== 'undefined' ? global : this);\n"
+        f"  root[{json.dumps(RUNTIME_PARAMETER_INJECTION_GLOBAL)}] = payload;\n"
+        "})();\n"
+    )
+    insert_at = runtime_parameter_injection_insert_index(code_text)
+    return code_text[:insert_at] + prelude + code_text[insert_at:]
+
+
+def runtime_parameter_injection_insert_index(code_text: str) -> int:
+    match = re.match(r"^((?:['\"]use strict['\"];\s*)+)", code_text)
+    return match.end() if match is not None else 0
+
+
+def mark_runtime_parameter_injection_uploaded(
+    injection: JsonObject,
+    *,
+    code_text: str,
+) -> JsonObject:
+    updated = copy.deepcopy(injection)
+    if updated.get("status") == "prepared":
+        updated["status"] = "injected"
+        updated["runtimeParameterInjection"] = True
+        updated["inlineCandidatesRuntimeInjected"] = True
+        updated["uploadedCodeSha256"] = hashlib.sha256(code_text.encode("utf-8")).hexdigest()
+        updated["uploadedCodeBytes"] = len(code_text.encode("utf-8"))
+    return updated
+
+
+def mark_runtime_parameter_injection_failed(injection: JsonObject, error: Any) -> JsonObject:
+    updated = copy.deepcopy(injection)
+    if updated.get("status") == "prepared":
+        updated["status"] = "failed"
+        updated["runtimeParameterInjection"] = False
+        updated["inlineCandidatesRuntimeInjected"] = False
+        updated["reason"] = f"code upload did not complete: {_safe_text(error, 240)}"
+    return updated
 
 
 def _safe_compose_project_name(value: str) -> str:
@@ -1515,11 +1619,13 @@ def build_scenario_config(
     ticks: int,
     code_path: Path,
     map_source_file: Path,
+    code_payload_text: str | None = None,
+    runtime_parameter_injection: JsonObject | None = None,
 ) -> JsonObject:
     """Build a deterministic scenario config contract for one variant run."""
-    code_data = code_path.read_bytes()
+    code_data = code_payload_text.encode("utf-8") if code_payload_text is not None else code_path.read_bytes()
     map_data = map_source_file.read_bytes()
-    return {
+    scenario = {
         "type": "screeps-rl-sim-run-scenario",
         "runId": run_id,
         "variantId": variant_id,
@@ -1545,6 +1651,11 @@ def build_scenario_config(
             "bytes": len(map_data),
         },
     }
+    if code_payload_text is not None:
+        scenario["codeArtifact"]["payloadSource"] = "runtime-parameter-injected-upload"
+    if runtime_parameter_injection is not None:
+        scenario["runtimeParameterInjection"] = copy.deepcopy(runtime_parameter_injection)
+    return scenario
 
 
 def _safe_build_scenario_config(
@@ -1557,6 +1668,8 @@ def _safe_build_scenario_config(
     ticks: int,
     code_path: Path,
     map_source_file: Path,
+    code_payload_text: str | None = None,
+    runtime_parameter_injection: JsonObject | None = None,
 ) -> JsonObject:
     try:
         if code_path.is_file() and map_source_file.is_file():
@@ -1569,9 +1682,11 @@ def _safe_build_scenario_config(
                 ticks=ticks,
                 code_path=code_path,
                 map_source_file=map_source_file,
+                code_payload_text=code_payload_text,
+                runtime_parameter_injection=runtime_parameter_injection,
             )
     except OSError as exc:
-        return {
+        scenario = {
             "type": "screeps-rl-sim-run-scenario",
             "runId": run_id,
             "variantId": variant_id,
@@ -1581,7 +1696,10 @@ def _safe_build_scenario_config(
             "tickPlan": {"ticks": ticks},
             "error": f"scenario artifact read failed: {_safe_text(exc, 240)}",
         }
-    return {
+        if runtime_parameter_injection is not None:
+            scenario["runtimeParameterInjection"] = copy.deepcopy(runtime_parameter_injection)
+        return scenario
+    scenario = {
         "type": "screeps-rl-sim-run-scenario",
         "runId": run_id,
         "variantId": variant_id,
@@ -1592,6 +1710,9 @@ def _safe_build_scenario_config(
         "codeArtifact": {"path": str(code_path), "available": False},
         "mapArtifact": {"sourcePath": str(map_source_file), "available": False},
     }
+    if runtime_parameter_injection is not None:
+        scenario["runtimeParameterInjection"] = copy.deepcopy(runtime_parameter_injection)
+    return scenario
 
 
 def _run_summary_fields(variant_results: Sequence[JsonObject]) -> JsonObject:
@@ -1623,6 +1744,45 @@ def _run_summary_fields(variant_results: Sequence[JsonObject]) -> JsonObject:
 def _apply_run_summary_fields(artifact: JsonObject, variant_results: Sequence[JsonObject]) -> JsonObject:
     artifact.update(_run_summary_fields(variant_results))
     return artifact
+
+
+def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObject]) -> JsonObject:
+    rows: list[JsonObject] = []
+    for item in variant_results:
+        if not isinstance(item, dict):
+            continue
+        injection = item.get("runtimeParameterInjection")
+        if not isinstance(injection, dict):
+            rows.append({
+                "variantId": item.get("variant_id", item.get("variantId")),
+                "status": "missing",
+                "runtimeParameterInjection": False,
+                "reason": "variant result did not include runtime parameter injection evidence",
+            })
+            continue
+        rows.append({
+            "variantId": item.get("variant_id", item.get("variantId")),
+            "status": injection.get("status"),
+            "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
+            "candidateParameterScope": injection.get("candidateParameterScope"),
+            "parametersSha256": injection.get("parametersSha256"),
+            "reason": injection.get("reason"),
+        })
+    injected = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
+    status = "injected" if rows and injected == len(rows) else ("partial" if injected > 0 else "not_injected")
+    return {
+        "type": RUNTIME_PARAMETER_INJECTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": status,
+        "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
+        "runtimeParameterInjection": status == "injected",
+        "injectedVariantCount": injected,
+        "variantCount": len(rows),
+        "variants": rows,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
 
 
 def _server_ports_payload(http_port: int | None, cli_port: int | None) -> JsonObject:
@@ -1661,6 +1821,10 @@ def _build_variant_failure_result(
     if wall_seconds < 0:
         wall_seconds = 0.0
     strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
+    runtime_parameter_injection = mark_runtime_parameter_injection_failed(
+        runtime_parameter_injection_for_variant(variant_id, strategy_variant),
+        error,
+    )
     error_text = _safe_text(error, 480)
     return {
         "variant_id": variant_id,
@@ -1677,6 +1841,7 @@ def _build_variant_failure_result(
             ticks=ticks,
             code_path=code_path,
             map_source_file=map_source_file,
+            runtime_parameter_injection=runtime_parameter_injection,
         ),
         "ticks_requested": ticks,
         "ticks_run": 0,
@@ -1684,6 +1849,7 @@ def _build_variant_failure_result(
         "ticks_per_second": 0.0,
         "tick_log": [],
         "metrics": build_variant_metrics([]),
+        "runtimeParameterInjection": runtime_parameter_injection,
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": False,
@@ -1750,6 +1916,7 @@ def build_run_artifact(
             "configuredVariantCount": len(variant_results),
             "variants": strategy_variant_configs,
         },
+        "runtimeParameterInjection": _run_runtime_parameter_injection_summary(variant_results),
         "safety": safety_metadata(),
         "variants": variant_results,
         "ownedRoomScorecard": owned_room_scorecard,
@@ -3155,6 +3322,7 @@ def _run_variant(
 ) -> JsonObject:
     api_branch = normalize_private_server_code_branch(branch)
     strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
+    runtime_parameter_injection = runtime_parameter_injection_for_variant(variant_id, strategy_variant)
     variant_slug = _safe_filename(variant_id)
     worker_run_id = f"{run_id}-{variant_slug}"
     safe_run_root = _worker_output_dir(out_dir, run_id, worker_index)
@@ -3176,6 +3344,7 @@ def _run_variant(
     fixture_room_summaries: dict[str, JsonObject] = {}
     fixture_room_names: list[str] = []
     compose: list[str] | None = None
+    uploaded_code_text: str | None = None
     try:
         smoke = _load_private_smoke_module()
         summarize_prepared_map = _is_default_map_source_file(map_source_file)
@@ -3325,7 +3494,8 @@ def _run_variant(
             raise RuntimeError("signin response did not include an auth token")
 
         code_text = code_path.read_text(encoding="utf-8")
-        upload_payload = smoke.build_code_payload(cfg, code_text)
+        uploaded_code_text = apply_runtime_parameter_injection_to_code(code_text, runtime_parameter_injection)
+        upload_payload = smoke.build_code_payload(cfg, uploaded_code_text)
         upload_payload["branch"] = api_branch
         upload = smoke.http_json(
             "POST",
@@ -3341,6 +3511,11 @@ def _run_variant(
                 "code upload failed: "
                 f"{_safe_redact_smoke_payload({'status': upload.status, 'payload': upload.payload})}"
             )
+        runtime_parameter_injection = mark_runtime_parameter_injection_uploaded(
+            runtime_parameter_injection,
+            code_text=uploaded_code_text,
+        )
+        write_json_atomic(safe_run_root / "runtime_parameter_injection.json", runtime_parameter_injection)
 
         place = smoke.http_json(
             "POST",
@@ -3392,6 +3567,7 @@ def _run_variant(
                 evidence_errors.append(f"mongo room evidence failed: {_safe_text(exc, 360)}")
     except Exception as exc:  # noqa: BLE001 - collect the failure into a safe result
         errors.append(_safe_text(exc, 480))
+        runtime_parameter_injection = mark_runtime_parameter_injection_failed(runtime_parameter_injection, exc)
     finally:
         if compose is not None and smoke is not None and cfg is not None:
             try:
@@ -3404,6 +3580,7 @@ def _run_variant(
         wall_seconds = 0.0
     ticks_run = len(variant_ticks)
     ticks_per_second = round(ticks_run / wall_seconds, 6) if wall_seconds > 0 else 0.0
+    scenario_code_text = uploaded_code_text if runtime_parameter_injection.get("status") == "injected" else None
     result = {
         "variant_id": variant_id,
         "variant_run_id": worker_run_id,
@@ -3419,6 +3596,8 @@ def _run_variant(
             ticks=ticks,
             code_path=code_path,
             map_source_file=scenario_map_source_file,
+            code_payload_text=scenario_code_text,
+            runtime_parameter_injection=runtime_parameter_injection,
         ),
         "ticks_requested": ticks,
         "ticks_run": ticks_run,
@@ -3427,6 +3606,7 @@ def _run_variant(
         "tick_log": variant_ticks,
         "metrics": build_variant_metrics(variant_ticks),
         "policyActivation": None,
+        "runtimeParameterInjection": runtime_parameter_injection,
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": False,
@@ -3443,6 +3623,8 @@ def _run_variant(
         "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,
         "launcherAutoMapImportDisabled": launcher_auto_map_import_disabled,
     }
+    if runtime_parameter_injection.get("status") == "injected":
+        result["evaluatedParameters"] = copy.deepcopy(_strategy_variant_parameters(strategy_variant))
     result["ownedRoomScorecard"] = build_variant_owned_room_scorecard(result)
     if not errors and ticks_run > 0 and result["ownedRoomScorecard"]["ownedRoomCount"] < 1:
         detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, structure, or creep found"

@@ -41,6 +41,7 @@ TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM = "reinforce_v1"
 POLICY_UPDATE_ALGORITHM = RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM
 DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
 METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
+RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON = "runtime_parameter_injection_missing_or_incomplete"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
@@ -966,6 +967,84 @@ def scale_validation_environment_containers(variant: JsonObject) -> list[JsonObj
     return containers
 
 
+def build_report_runtime_parameter_injection_summary(
+    results: Sequence[JsonObject],
+    variants: Sequence[StrategyVariant],
+) -> JsonObject:
+    expected_ids = {variant.id for variant in variants}
+    rows: list[JsonObject] = []
+    for result in results:
+        variant_id = text_or_none(result.get("variantId"))
+        if variant_id is None:
+            continue
+        injection = result.get("runtimeParameterInjection")
+        if isinstance(injection, dict):
+            rows.append({
+                "variantId": variant_id,
+                "status": injection.get("status"),
+                "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
+                "candidateParameterScope": injection.get("candidateParameterScope"),
+                "parametersSha256": injection.get("parametersSha256"),
+                "reason": injection.get("reason"),
+            })
+        else:
+            rows.append({
+                "variantId": variant_id,
+                "status": "missing",
+                "runtimeParameterInjection": False,
+                "candidateParameterScope": "metadata_only",
+                "reason": "variant summary did not include runtime parameter injection evidence",
+            })
+    observed_ids = {text_or_none(row.get("variantId")) for row in rows}
+    for missing in sorted(expected_ids - observed_ids):
+        rows.append({
+            "variantId": missing,
+            "status": "missing",
+            "runtimeParameterInjection": False,
+            "candidateParameterScope": "metadata_only",
+            "reason": "variant was missing from training results",
+        })
+
+    injected_count = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
+    if rows and injected_count == len(rows):
+        status = "injected"
+        reason = None
+        eligible = True
+        scope = "runtime_injected"
+    elif injected_count > 0:
+        status = "partial"
+        reason = "not every candidate variant had runtime-injected parameter evidence"
+        eligible = False
+        scope = "partial_runtime_injection"
+    else:
+        status = "metadata_only"
+        first_reason = next((row.get("reason") for row in rows if row.get("reason")), None)
+        reason = str(first_reason) if first_reason else "candidate parameters were not injected into simulator runtime inputs"
+        eligible = False
+        scope = "metadata_only"
+
+    payload: JsonObject = {
+        "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": status,
+        "mechanism": simulator_harness.RUNTIME_PARAMETER_INJECTION_MECHANISM,
+        "runtimeParameterInjection": eligible,
+        "inlineCandidatesRuntimeInjected": eligible,
+        "candidateParameterScope": scope,
+        "policyUpdateEligible": eligible,
+        "variantCount": len(rows),
+        "injectedVariantCount": injected_count,
+        "variants": rows,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if reason:
+        payload["reason"] = reason
+    return payload
+
+
 def stable_identity_text(value: Any) -> str:
     try:
         return canonical_hash(value)
@@ -1009,7 +1088,13 @@ def build_training_report(
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
     scale_validation = build_scale_validation_summary(simulator_runs, config)
-    policy_gradient = policy_gradient_metadata_from_card(card)
+    raw_policy_gradient = raw_policy_gradient_metadata_from_card(card)
+    runtime_parameter_injection = (
+        build_report_runtime_parameter_injection_summary(results, variants)
+        if raw_policy_gradient is not None
+        else None
+    )
+    policy_gradient = policy_gradient_metadata_from_card(card, runtime_parameter_injection=runtime_parameter_injection)
     if (
         policy_gradient is not None
         and scenario is not None
@@ -1030,7 +1115,7 @@ def build_training_report(
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
-        "experimentCard": summarize_card(card, card_path),
+        "experimentCard": summarize_card(card, card_path, runtime_parameter_injection=runtime_parameter_injection),
         "simulation": config.to_json(),
         "source": {
             "experimentCardPath": dataset_export.display_path(card_path),
@@ -1104,6 +1189,8 @@ def build_training_report(
                 )
     if scale_validation is not None:
         report["scaleValidation"] = scale_validation
+    if runtime_parameter_injection is not None:
+        report["runtimeParameterInjection"] = runtime_parameter_injection
     if policy_gradient is not None:
         report["policyGradient"] = policy_gradient
         policy_update = build_policy_update(
@@ -1115,10 +1202,7 @@ def build_training_report(
         report["policyUpdateIterations"] = int(policy_update.get("iterations", 0))
         policy_update_algorithm_name = text_or_none(policy_update.get("algorithm"))
         report["policyUpdateAlgorithm"] = policy_update_algorithm_name
-        report["trueGradient"] = (
-            policy_update_algorithm_name == TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
-            or policy_update.get("trueGradient") is True
-        )
+        report["trueGradient"] = policy_update.get("trueGradient") is True
         next_candidate_policy = policy_update.get("nextCandidatePolicy")
         if isinstance(next_candidate_policy, dict):
             report["policyUpdateCandidatePolicyId"] = text_or_none(next_candidate_policy.get("candidatePolicyId"))
@@ -1186,6 +1270,14 @@ def build_rank_weighted_finite_difference_policy_update(
             "candidateCount": 0,
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
             "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+        }
+    if policy_gradient_requires_runtime_parameter_evidence(policy_gradient) and len(candidates) < policy_gradient_candidate_vector_count(policy_gradient):
+        return {
+            **base,
+            "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
+            "candidateCount": len(candidates),
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient),
         }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
@@ -1325,6 +1417,14 @@ def build_reinforce_policy_update(
             "candidateCount": 0,
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
             "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+        }
+    if policy_gradient_requires_runtime_parameter_evidence(policy_gradient) and len(candidates) < policy_gradient_candidate_vector_count(policy_gradient):
+        return {
+            **base,
+            "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
+            "candidateCount": len(candidates),
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient),
         }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
@@ -1571,6 +1671,7 @@ def policy_update_candidate_rows(
 ) -> list[JsonObject]:
     if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
         return []
+    require_evaluated_parameters = policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
     if not isinstance(raw_candidates, list):
         return []
@@ -1600,6 +1701,7 @@ def policy_update_candidate_rows(
             scored_summaries=scored_summaries,
             card_parameters=card_parameters,
             parameter_space=parameter_space,
+            require_evaluated_parameters=require_evaluated_parameters,
         )
         if parameters is None:
             continue
@@ -1628,6 +1730,7 @@ def policy_update_evaluated_parameters(
     scored_summaries: Sequence[JsonObject],
     card_parameters: JsonObject | None,
     parameter_space: dict[str, JsonObject],
+    require_evaluated_parameters: bool = False,
 ) -> JsonObject | None:
     evaluated: list[JsonObject] = []
     missing_evaluated: list[str] = []
@@ -1668,6 +1771,8 @@ def policy_update_evaluated_parameters(
             )
         return copy.deepcopy(first)
 
+    if require_evaluated_parameters:
+        return None
     return copy.deepcopy(card_parameters) if card_parameters is not None else None
 
 
@@ -2023,6 +2128,7 @@ def summarize_variant(
         multi_tier_activation_metric_evidence(metric, sample_index=index)
         for index, metric in enumerate(run_metrics)
     ]
+    runtime_parameter_injection = summarize_variant_runtime_parameter_injection(variant, runs)
     summary: JsonObject = {
         "variantId": variant.id,
         "family": variant.family,
@@ -2040,6 +2146,7 @@ def summarize_variant(
         },
         "metrics": metrics,
         "multiTierActivationSamples": activation_samples,
+        "runtimeParameterInjection": runtime_parameter_injection,
         "runs": [
             {
                 "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
@@ -2056,9 +2163,99 @@ def summarize_variant(
         summary["sourceStrategyId"] = variant.source_strategy_id
     if variant.parameter_evidence is not None:
         summary["parameterEvidence"] = copy.deepcopy(variant.parameter_evidence)
+    if runtime_parameter_injection.get("runtimeParameterInjection") is True:
+        summary["evaluatedParameters"] = copy.deepcopy(variant.parameters)
     if variant.training_role:
         summary["trainingRole"] = variant.training_role
     return summary
+
+
+def summarize_variant_runtime_parameter_injection(
+    variant: StrategyVariant,
+    runs: Sequence[JsonObject],
+) -> JsonObject:
+    attempts: list[JsonObject] = []
+    successful_attempts: list[JsonObject] = []
+    for index, run in enumerate(runs):
+        injection = run.get("runtimeParameterInjection") if isinstance(run, dict) else None
+        if isinstance(injection, dict):
+            row = {
+                "runIndex": index,
+                "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
+                "status": injection.get("status"),
+                "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
+                "candidateParameterScope": injection.get("candidateParameterScope"),
+                "parametersSha256": injection.get("parametersSha256"),
+                "reason": injection.get("reason"),
+            }
+        else:
+            row = {
+                "runIndex": index,
+                "variantRunId": run.get("variant_run_id", run.get("variantRunId")) if isinstance(run, dict) else None,
+                "status": "missing",
+                "runtimeParameterInjection": False,
+                "candidateParameterScope": "metadata_only",
+                "reason": "simulator run did not include runtime parameter injection evidence",
+            }
+        attempts.append(row)
+        if isinstance(run, dict) and run.get("ok") is True:
+            successful_attempts.append(row)
+
+    if not attempts:
+        return {
+            "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
+            "schemaVersion": SCHEMA_VERSION,
+            "strategyVariantId": variant.id,
+            "status": "missing",
+            "runtimeParameterInjection": False,
+            "inlineCandidatesRuntimeInjected": False,
+            "candidateParameterScope": "metadata_only",
+            "reason": "variant had no simulator run attempts",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+    eligible_attempts = successful_attempts or attempts
+    injected = [row for row in eligible_attempts if row.get("runtimeParameterInjection") is True]
+    if eligible_attempts and len(injected) == len(eligible_attempts):
+        status = "injected"
+        reason = None
+        runtime_injected = True
+        scope = "runtime_injected"
+    elif injected:
+        status = "partial"
+        reason = "not every successful simulator attempt included runtime parameter injection evidence"
+        runtime_injected = False
+        scope = "partial_runtime_injection"
+    else:
+        status = "not_injected"
+        first_reason = next((row.get("reason") for row in eligible_attempts if row.get("reason")), None)
+        reason = str(first_reason) if first_reason else "simulator attempts did not inject candidate parameters"
+        runtime_injected = False
+        scope = "metadata_only"
+
+    payload: JsonObject = {
+        "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "strategyVariantId": variant.id,
+        "candidatePolicyId": variant.candidate_policy_id,
+        "status": status,
+        "runtimeParameterInjection": runtime_injected,
+        "inlineCandidatesRuntimeInjected": runtime_injected,
+        "candidateParameterScope": scope,
+        "mechanism": simulator_harness.RUNTIME_PARAMETER_INJECTION_MECHANISM,
+        "attemptCount": len(attempts),
+        "successfulAttemptCount": len(successful_attempts),
+        "attempts": attempts,
+        "parametersSha256": canonical_hash(variant.parameters),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    if reason:
+        payload["reason"] = reason
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def finalize_multi_tier_policy_activation_run(
@@ -3112,7 +3309,12 @@ def build_report_warnings(results: Sequence[JsonObject], simulator_runs: Sequenc
     return warnings[:20]
 
 
-def summarize_card(card: JsonObject, path: Path) -> JsonObject:
+def summarize_card(
+    card: JsonObject,
+    path: Path,
+    *,
+    runtime_parameter_injection: JsonObject | None = None,
+) -> JsonObject:
     summary = {
         "path": dataset_export.display_path(path),
         "cardId": card.get("card_id", card.get("cardId")),
@@ -3122,7 +3324,10 @@ def summarize_card(card: JsonObject, path: Path) -> JsonObject:
         "status": card.get("status", "shadow"),
         "safety": card.get("safety"),
     }
-    policy_gradient = policy_gradient_metadata_from_card(card)
+    policy_gradient = policy_gradient_metadata_from_card(
+        card,
+        runtime_parameter_injection=runtime_parameter_injection,
+    )
     if policy_gradient is not None:
         summary["policyGradient"] = policy_gradient
     card_supply = card.get("card_supply", card.get("cardSupply"))
@@ -3142,14 +3347,32 @@ def scenario_metadata_from_card(card: JsonObject) -> JsonObject | None:
     return copy.deepcopy(raw)
 
 
-def policy_gradient_metadata_from_card(card: JsonObject) -> JsonObject | None:
+def raw_policy_gradient_metadata_from_card(card: JsonObject) -> JsonObject | None:
     raw = card.get("policy_gradient", card.get("policyGradient"))
     if not isinstance(raw, dict):
         return None
-    return policy_gradient_metadata_with_runner_transport(copy.deepcopy(raw))
+    return copy.deepcopy(raw)
 
 
-def policy_gradient_metadata_with_runner_transport(policy_gradient: JsonObject) -> JsonObject:
+def policy_gradient_metadata_from_card(
+    card: JsonObject,
+    *,
+    runtime_parameter_injection: JsonObject | None = None,
+) -> JsonObject | None:
+    raw = raw_policy_gradient_metadata_from_card(card)
+    if raw is None:
+        return None
+    return policy_gradient_metadata_with_runner_transport(
+        raw,
+        runtime_parameter_injection=runtime_parameter_injection,
+    )
+
+
+def policy_gradient_metadata_with_runner_transport(
+    policy_gradient: JsonObject,
+    *,
+    runtime_parameter_injection: JsonObject | None = None,
+) -> JsonObject:
     support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
     if support is None:
         return policy_gradient
@@ -3159,16 +3382,35 @@ def policy_gradient_metadata_with_runner_transport(policy_gradient: JsonObject) 
     )
     if declared_inline_applied is not None:
         support["declaredInlineCandidatesAppliedToSimulator"] = declared_inline_applied
-    support["inline_candidates_applied_to_simulator"] = False
-    support["inline_candidates_runtime_injected"] = False
-    support["runtime_parameter_injection"] = False
-    support["simulator_variant_transport"] = "variant_ids_with_inline_metadata"
-    support["candidate_parameter_scope"] = "metadata_only"
-    support["policy_update_reward_use"] = "blocked_until_runtime_parameter_evidence"
-    support["limitation"] = (
-        "Inline policy-gradient parameter vectors are passed to the simulator harness as metadata only; "
-        "the runner does not rewrite uploaded bot code per variant."
+    if runtime_parameter_injection is None:
+        return policy_gradient
+
+    injected = runtime_parameter_injection.get("runtimeParameterInjection") is True
+    support["inline_candidates_applied_to_simulator"] = injected
+    support["inline_candidates_runtime_injected"] = injected
+    support["runtime_parameter_injection"] = injected
+    support["simulator_variant_transport"] = (
+        "variant_ids_with_runtime_injected_parameters" if injected else "variant_ids_with_inline_metadata"
     )
+    support["candidate_parameter_scope"] = (
+        "runtime_injected" if injected else runtime_parameter_injection.get("candidateParameterScope", "metadata_only")
+    )
+    support["policy_update_reward_use"] = (
+        "eligible_with_evaluated_runtime_parameters" if injected else "blocked_until_runtime_parameter_evidence"
+    )
+    support["runtime_parameter_injection_status"] = runtime_parameter_injection.get("status")
+    support["runtime_parameter_injection_reason"] = runtime_parameter_injection.get("reason")
+    support["runtime_parameter_injection_mechanism"] = runtime_parameter_injection.get("mechanism")
+    if injected:
+        support["limitation"] = (
+            "Inline policy-gradient parameter vectors were materialized into private-simulator code uploads only; "
+            "the report remains live-effect false and official-MMO-write false."
+        )
+    else:
+        support["limitation"] = (
+            "Inline policy-gradient parameter vectors did not reach every simulator runtime input; "
+            "policy-update rewards stay blocked until evaluated runtime parameter evidence is complete."
+        )
     return policy_gradient
 
 
@@ -3176,12 +3418,6 @@ def policy_gradient_candidate_parameters_metadata_only(policy_gradient: JsonObje
     support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
     if support is None:
         return False
-    scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
-    if scope == "metadata_only":
-        return True
-    transport = text_or_none(first_present(support, ("simulator_variant_transport", "simulatorVariantTransport")))
-    if transport == "variant_ids_with_inline_metadata":
-        return True
     runtime_injection = first_present(
         support,
         (
@@ -3191,13 +3427,48 @@ def policy_gradient_candidate_parameters_metadata_only(policy_gradient: JsonObje
             "inlineCandidatesRuntimeInjected",
         ),
     )
-    if runtime_injection is False:
-        return True
     inline_applied = first_present(
         support,
         ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"),
     )
+    scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
+    transport = text_or_none(first_present(support, ("simulator_variant_transport", "simulatorVariantTransport")))
+    if (
+        runtime_injection is True
+        and inline_applied is True
+        and scope == "runtime_injected"
+        and transport == "variant_ids_with_runtime_injected_parameters"
+    ):
+        return False
+    if scope == "metadata_only":
+        return True
+    if transport == "variant_ids_with_inline_metadata":
+        return True
+    if runtime_injection is False:
+        return True
     return inline_applied is False
+
+
+def policy_gradient_requires_runtime_parameter_evidence(policy_gradient: JsonObject) -> bool:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
+    if support is None:
+        return False
+    scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
+    reward_use = text_or_none(first_present(support, ("policy_update_reward_use", "policyUpdateRewardUse")))
+    runtime_injection = first_present(
+        support,
+        (
+            "runtime_parameter_injection",
+            "runtimeParameterInjection",
+            "inline_candidates_runtime_injected",
+            "inlineCandidatesRuntimeInjected",
+        ),
+    )
+    return (
+        runtime_injection is True
+        or scope == "runtime_injected"
+        or reward_use == "eligible_with_evaluated_runtime_parameters"
+    )
 
 
 def policy_gradient_candidate_vector_count(policy_gradient: JsonObject) -> int:
@@ -3215,6 +3486,29 @@ def policy_update_metadata_only_parameter_evidence() -> JsonObject:
         "reason": (
             "candidate rewards were produced by the shared uploaded bot artifact; inline parameter vectors "
             "were not injected into simulator runtime behavior"
+        ),
+    }
+
+
+def policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient: JsonObject) -> JsonObject:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport")) or {}
+    return {
+        "candidateParameterScope": first_present(support, ("candidate_parameter_scope", "candidateParameterScope"))
+        or "runtime_injected",
+        "runtimeParameterInjection": first_present(
+            support,
+            (
+                "runtime_parameter_injection",
+                "runtimeParameterInjection",
+                "inline_candidates_runtime_injected",
+                "inlineCandidatesRuntimeInjected",
+            ),
+        )
+        is True,
+        "policyUpdateEligible": False,
+        "reason": (
+            "policy-gradient rewards were not backed by complete evaluated runtime parameter evidence "
+            "for every candidate variant"
         ),
     }
 

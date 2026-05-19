@@ -1405,6 +1405,92 @@ cli:
         self.assertFalse(config["safety"]["liveEffect"])
         self.assertFalse(config["safety"]["officialMmoWrites"])
 
+    def test_runtime_parameter_injection_changes_private_runtime_code_input(self) -> None:
+        base_code = '"use strict";\nmodule.exports.loop = function loop() { return 1; };\n'
+        base_variant = {
+            "id": "construction-priority.pg.incumbent-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.incumbent-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 6,
+                "resourceSignalWeight": 4,
+                "killSignalWeight": 6,
+                "riskPenalty": 4,
+            },
+        }
+        territory_variant = {
+            **base_variant,
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                **base_variant["parameters"],
+                "territorySignalWeight": 22,
+            },
+        }
+
+        base_injection = harness.runtime_parameter_injection_for_variant(base_variant["id"], base_variant)
+        territory_injection = harness.runtime_parameter_injection_for_variant(territory_variant["id"], territory_variant)
+        base_upload = harness.apply_runtime_parameter_injection_to_code(base_code, base_injection)
+        territory_upload = harness.apply_runtime_parameter_injection_to_code(base_code, territory_injection)
+        base_injection = harness.mark_runtime_parameter_injection_uploaded(base_injection, code_text=base_upload)
+        territory_injection = harness.mark_runtime_parameter_injection_uploaded(
+            territory_injection,
+            code_text=territory_upload,
+        )
+
+        self.assertNotEqual(base_upload, territory_upload)
+        self.assertTrue(base_upload.startswith('"use strict";\n'))
+        self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, base_upload)
+        self.assertIn('"territorySignalWeight":22', territory_upload)
+        self.assertFalse(base_injection["liveEffect"])
+        self.assertFalse(base_injection["officialMmoWrites"])
+        self.assertFalse(base_injection["officialMmoWritesAllowed"])
+        self.assertTrue(base_injection["runtimeParameterInjection"])
+        self.assertTrue(territory_injection["runtimeParameterInjection"])
+        self.assertNotIn("STEAM_KEY", base_upload)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text(base_code, encoding="utf-8")
+            map_path.write_text("{}", encoding="utf-8")
+            base_scenario = harness.build_scenario_config(
+                "run",
+                base_variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=base_upload,
+                runtime_parameter_injection=base_injection,
+            )
+            territory_scenario = harness.build_scenario_config(
+                "run",
+                territory_variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=territory_upload,
+                runtime_parameter_injection=territory_injection,
+            )
+
+        self.assertNotEqual(
+            base_scenario["codeArtifact"]["sha256"],
+            territory_scenario["codeArtifact"]["sha256"],
+        )
+        self.assertEqual(
+            territory_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"],
+            22,
+        )
+        self.assertFalse(territory_scenario["runtimeParameterInjection"]["safety"]["officialMmoWritesAllowed"])
+
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:
             def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:

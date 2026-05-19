@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import copy
 import json
 import os
 import sys
@@ -151,18 +152,35 @@ def variant_result(variant_id: str, ticks: list[JsonObject]) -> JsonObject:
 
 
 class MockSimulator:
-    def __init__(self, results_by_variant: dict[str, JsonObject]) -> None:
+    def __init__(self, results_by_variant: dict[str, JsonObject], *, inject_runtime_parameters: bool = False) -> None:
         self.results_by_variant = results_by_variant
+        self.inject_runtime_parameters = inject_runtime_parameters
         self.calls: list[JsonObject] = []
 
     def __call__(self, **kwargs: Any) -> JsonObject:
         self.calls.append(dict(kwargs))
+        variants: list[JsonObject] = []
+        for variant_id in kwargs["variants"]:
+            result = copy.deepcopy(self.results_by_variant[variant_id])
+            if self.inject_runtime_parameters:
+                variant_config = kwargs["variant_configs"][variant_id]
+                injection = runner.simulator_harness.runtime_parameter_injection_for_variant(variant_id, variant_config)
+                code_text = runner.simulator_harness.apply_runtime_parameter_injection_to_code(
+                    "module.exports.loop = function loop() {};\n",
+                    injection,
+                )
+                result["runtimeParameterInjection"] = runner.simulator_harness.mark_runtime_parameter_injection_uploaded(
+                    injection,
+                    code_text=code_text,
+                )
+                result["evaluatedParameters"] = copy.deepcopy(variant_config["parameters"])
+            variants.append(result)
         return {
             "type": "screeps-rl-simulator-run",
             "runId": kwargs["run_id"],
             "liveEffect": False,
             "officialMmoWrites": False,
-            "variants": [self.results_by_variant[variant_id] for variant_id in kwargs["variants"]],
+            "variants": variants,
         }
 
 
@@ -1411,7 +1429,9 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["experimentCard"]["trainingApproach"], "policy_gradient")
         self.assertEqual(report["policyGradient"]["target_family"], "construction-priority")
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(report["trueGradient"])
+        self.assertFalse(report["trueGradient"])
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "metadata_only")
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "metadata_only")
@@ -1674,8 +1694,8 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertEqual(persisted["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(report["trueGradient"])
-        self.assertTrue(persisted["trueGradient"])
+        self.assertFalse(report["trueGradient"])
+        self.assertFalse(persisted["trueGradient"])
         self.assertIsNone(report["policyUpdateCandidatePolicyId"])
         self.assertNotIn("policyUpdateArtifactPath", report)
         update = report["policyUpdate"]
@@ -1684,6 +1704,71 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["metadataCandidateCount"], len(variant_ids))
         self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
         self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
+
+    def test_runtime_injected_reinforce_parameters_create_candidate_update_artifact(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-injected",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T06:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(simulator_results, inject_runtime_parameters=True)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-injected",
+                generated_at="2026-05-17T06:30:00Z",
+                simulator_runner=simulator,
+            )
+            persisted = read_json(out_dir / "policy-gradient-injected.json")
+            artifact_dir_exists = (out_dir / "policy-candidates").exists()
+
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
+        self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
+        self.assertEqual(report["policyUpdateIterations"], 1)
+        self.assertTrue(report["trueGradient"])
+        self.assertTrue(persisted["trueGradient"])
+        self.assertIsNotNone(report["policyUpdateCandidatePolicyId"])
+        self.assertIn("policyUpdateArtifactPath", report)
+        self.assertTrue(artifact_dir_exists)
+        self.assertTrue(all(result["runtimeParameterInjection"]["runtimeParameterInjection"] for result in report["variantResults"]))
+        self.assertTrue(all("evaluatedParameters" in result for result in report["variantResults"]))
+        update = report["policyUpdate"]
+        self.assertEqual(update["algorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
+        self.assertEqual(update["candidateCount"], len(variant_ids))
+        self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
 
     def test_loop_a_metadata_only_parameters_skip_candidate_update_artifact(self) -> None:
         card = card_helper.build_card(
@@ -1730,7 +1815,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["policyUpdateIterations"], 0)
         self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(report["trueGradient"])
+        self.assertFalse(report["trueGradient"])
         self.assertEqual(report["policyGradient"]["policy_update"]["learning_rate"], 1)
         update = report["policyUpdate"]
         self.assertEqual(update["iterations"], 0)
