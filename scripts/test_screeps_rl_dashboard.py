@@ -1204,6 +1204,55 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E3"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 
+    def test_unrelated_preflight_training_does_not_set_policy_preflight_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "runId": "preflight-training-run",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "controllerSummary": {
+                        "finalStatus": "preflight_ok",
+                        "instanceId": None,
+                        "environmentsRun": 0,
+                    },
+                    "createdAt": "2026-05-19T00:01:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "runId": "unrelated-policy-run",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        self.assertEqual(report["policy"]["status"], "BLOCKED")
+        self.assertFalse(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
+        self.assertIn("No real compute evidence", report["policy"]["computeEvidence"]["blocker"])
+
     def test_policy_local_compute_evidence_unblocks_policy_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

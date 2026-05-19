@@ -1770,6 +1770,7 @@ def policy_compute_evidence(payload: JsonObject, training: JsonObject | None) ->
     if (
         evidence.get("hasCompute") is not True
         and training_evidence.get("classification") == "PREFLIGHT_ONLY_VALIDATION"
+        and identity_match is not None
     ):
         return {
             "hasCompute": False,

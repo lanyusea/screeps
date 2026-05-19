@@ -285,6 +285,42 @@ def test_scorecard_ignores_policy_advantage_without_compute_evidence(tmp_path: P
     assert "productive_energy" in resources["missingEvidence"]
 
 
+def test_scorecard_accepts_worker_user_controller_summary_compute_evidence(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    for root, resources in ((baseline, 1), (candidate, 10)):
+        write_json(
+            root / "policy-advantage.json",
+            {
+                "type": "screeps-rl-policy-advantage-report",
+                "reportId": f"worker-compute-{root.name}",
+                "advantageResources": resources,
+                "controllerSummary": {
+                    "finalStatus": "completed",
+                    "workerUser": "tencent-worker",
+                    "environmentsRun": 0,
+                },
+            },
+        )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-19T00:00:00Z",
+        run_id="scorecard-worker-user-compute",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert resources["status"] == "improved"
+    assert self_metric["candidate"] == 10
+    assert self_metric["baseline"] == 1
+    assert "productive_energy" not in resources["missingEvidence"]
+
+
 def test_cli_writes_scorecard_json(tmp_path: Path) -> None:
     baseline = write_bundle(tmp_path / "baseline", candidate=False)
     candidate = write_bundle(tmp_path / "candidate", candidate=True)

@@ -31,6 +31,7 @@ PREFLIGHT_FINAL_STATUS_KEYS = {
     "preflightpassed",
     "preflightvalidated",
 }
+CONTROLLER_COMPUTE_FINAL_STATUS_KEYS = {"running", "completed", "success", "ok"}
 STRONG_TRAINING_REPORT_KEYS = {
     "trainingreport",
     "trainingreportid",
@@ -314,7 +315,8 @@ def node_looks_like_controller_summary(node: JsonObject) -> bool:
     if node.get("type") == "screeps-tencent-batch-rl-run":
         return True
     return any(key in node for key in ("finalStatus", "final_status")) and any(
-        key in node for key in ("instanceId", "instance_id", "environmentsRun", "outputs")
+        key in node
+        for key in ("instanceId", "instance_id", "workerUser", "worker_user", "environmentsRun", "outputs")
     )
 
 
@@ -348,6 +350,9 @@ def real_compute_evidence_present(payload: JsonObject) -> bool:
         if final_status in PREFLIGHT_FINAL_STATUS_KEYS:
             continue
         if text_value(node.get("instanceId")) is not None or text_value(node.get("instance_id")) is not None:
+            return True
+        worker_user = text_value(node.get("workerUser")) or text_value(node.get("worker_user"))
+        if worker_user is not None and final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS:
             return True
     return False
 
