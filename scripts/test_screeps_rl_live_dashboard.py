@@ -166,6 +166,19 @@ def read_json_url(url: str, timeout: float = 1.0) -> JsonObject:
     return payload
 
 
+def get_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            status = response.status
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        status = error.code
+        payload = json.loads(error.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise AssertionError(f"expected JSON object from {url}")
+    return status, payload
+
+
 def post_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
     request = urllib.request.Request(url, data=b"", method="POST")
     try:
@@ -355,6 +368,90 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             summary["safety"]["unsafeFlags"],
         )
 
+    def test_runtime_candidate_injection_uses_newest_relevant_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "old-success.json",
+                {
+                    "createdAt": "2026-05-18T10:00:00Z",
+                    "runtime_parameter_injection": True,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "new-blocked.json",
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+
+            summary = live.runtime_candidate_injection_summary(artifact_root, repo_root)
+
+        self.assertEqual(summary["status"], "BLOCKED")
+        self.assertEqual(summary["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(summary["latestPath"].endswith("new-blocked.json"))
+        self.assertEqual(summary["updatedAt"], "2026-05-18T10:10:00Z")
+
+    def test_health_helper_requires_successful_auto_refresh(self) -> None:
+        health = live.health_with_refresh(
+            {"ok": True, "status": "ok", "failures": []},
+            {
+                "mode": "auto",
+                "autoRefreshSeconds": 60,
+                "lastRefreshAt": "2026-05-18T10:09:00Z",
+                "lastRefreshOk": False,
+            },
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["status"], "degraded")
+        self.assertIn("auto-refresh has not completed successfully", health["failures"])
+
+    def test_project_gate_requires_successful_auto_refresh(self) -> None:
+        flywheel_stages = [{"stage": "construction-landed", "status": "OK"}]
+        tencent = {
+            "hasData": True,
+            "runCount": 1,
+            "latest": {"batchScale": {"scaleFirstEligible": True}},
+        }
+        injection = {"status": "OK", "evidence": "runtime_parameter_injection=true"}
+        zero_iteration = {"status": "OK", "evidence": "safe zero-iteration no-op: no update"}
+        pending_refresh = {
+            "mode": "auto",
+            "autoRefreshSeconds": 60,
+            "lastRefreshAt": None,
+            "lastRefreshOk": None,
+        }
+        successful_refresh = {
+            "mode": "auto",
+            "autoRefreshSeconds": 60,
+            "lastRefreshAt": "2026-05-18T10:09:00Z",
+            "lastRefreshOk": True,
+        }
+
+        pending_gates = live.project_gate_summary(
+            flywheel_stages=flywheel_stages,
+            tencent=tencent,
+            injection=injection,
+            zero_iteration=zero_iteration,
+            refresh=pending_refresh,
+        )
+        successful_gates = live.project_gate_summary(
+            flywheel_stages=flywheel_stages,
+            tencent=tencent,
+            injection=injection,
+            zero_iteration=zero_iteration,
+            refresh=successful_refresh,
+        )
+
+        pending_gate = {gate["issue"]: gate for gate in pending_gates}["#1233"]
+        successful_gate = {gate["issue"]: gate for gate in successful_gates}["#1233"]
+        self.assertEqual(pending_gate["status"], "BLOCKED")
+        self.assertEqual(successful_gate["status"], "OK")
+        self.assertIn("lastRefreshOk=True", successful_gate["evidence"])
+
     def test_health_and_summary_endpoints_are_startable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -384,6 +481,43 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
 
+    def test_healthz_fails_when_auto_refresh_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                server.record_refresh(
+                    {"ok": False, "error": "ingestor soft failure"},
+                    refreshed_at="2026-05-18T10:09:00Z",
+                )
+                host, port = server.server_address
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertEqual(status, 503)
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["message"], "DEGRADED")
+        self.assertIn("auto-refresh has not completed successfully", health["failures"])
+        self.assertFalse(health["refresh"]["lastRefreshOk"])
+
     def test_auto_refresh_state_is_exposed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -402,6 +536,13 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             except OSError as error:
                 self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
             try:
+                pending_summary = live.build_live_summary(
+                    repo_root,
+                    artifact_root,
+                    db_path,
+                    generated_at="2026-05-18T10:08:30Z",
+                    refresh=server.refresh_snapshot(),
+                )
                 server.record_refresh({"ok": True, "files_scanned": 1}, refreshed_at="2026-05-18T10:09:00Z")
                 summary = live.build_live_summary(
                     repo_root,
@@ -417,6 +558,11 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["refresh"]["mode"], "auto")
         self.assertEqual(summary["refresh"]["autoRefreshSeconds"], 60)
         self.assertTrue(summary["refresh"]["lastRefreshOk"])
+        pending_gates = {gate["issue"]: gate for gate in pending_summary["projectGates"]}
+        refreshed_gates = {gate["issue"]: gate for gate in summary["projectGates"]}
+        self.assertEqual(pending_gates["#1233"]["status"], "BLOCKED")
+        self.assertEqual(refreshed_gates["#1233"]["status"], "OK")
+        self.assertIn("lastRefreshOk=True", refreshed_gates["#1233"]["evidence"])
         self.assertIn("Last refresh", html)
         self.assertIn("Auto refresh seconds", html)
 
@@ -485,6 +631,47 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "refresh failed")
         self.assertEqual(payload["refresh"]["error"], "ingestor soft failure")
+        self.assertFalse(payload["summary"]["refresh"]["lastRefreshOk"])
+        self.assertEqual(payload["summary"]["refresh"]["lastRefresh"]["error"], "ingestor soft failure")
+
+    def test_refresh_endpoint_records_successful_refresh_state(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+
+        def successful_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+            return {"ok": True, "files_scanned": 7}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                enable_refresh_endpoint=True,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.refresh_metrics = successful_refresh_metrics
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                wait_for_json_url(f"http://{host}:{port}/api/summary")
+                status, payload = post_json_url(f"http://{host}:{port}/refresh")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["summary"]["refresh"]["lastRefreshOk"])
+        self.assertEqual(payload["summary"]["refresh"]["lastRefresh"]["files_scanned"], 7)
 
     def test_refresh_on_start_returns_failure_when_refresh_reports_not_ok(self) -> None:
         original_refresh_metrics = live.refresh_metrics

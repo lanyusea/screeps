@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 from urllib.parse import urlparse
 
 import screeps_rl_dashboard as static_dashboard
@@ -58,6 +58,7 @@ RUNTIME_INJECTION_SCOPE_KEYS = {"candidateparameterscope"}
 RUNTIME_INJECTION_METADATA_ONLY_VALUES = {"metadataonly"}
 
 JsonObject = dict[str, Any]
+ArtifactJson = tuple[Path, JsonObject, datetime]
 
 
 @dataclass(frozen=True)
@@ -407,6 +408,20 @@ def health_from_db_summary(db: JsonObject) -> JsonObject:
     }
 
 
+def health_with_refresh(db_health: JsonObject, refresh: JsonObject) -> JsonObject:
+    failures = list(as_list(db_health.get("failures")))
+    if refresh.get("mode") == "auto" and (
+        refresh.get("lastRefreshOk") is not True or not refresh.get("lastRefreshAt")
+    ):
+        failures.append("auto-refresh has not completed successfully")
+    ok = not failures
+    return {
+        "ok": ok,
+        "status": "ok" if ok else "degraded",
+        "failures": failures,
+    }
+
+
 def default_ingest_paths(artifact_root: Path) -> list[Path]:
     return [artifact_root / subdir for subdir in DEFAULT_ARTIFACT_SUBDIRS]
 
@@ -599,8 +614,7 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
     }
 
 
-def scan_artifact_json(artifact_root: Path) -> list[tuple[Path, JsonObject, datetime]]:
-    artifacts: list[tuple[Path, JsonObject, datetime]] = []
+def scan_artifact_json(artifact_root: Path) -> Iterator[ArtifactJson]:
     roots = (
         artifact_root / "rl-control-loop",
         artifact_root / "rl-training",
@@ -615,52 +629,76 @@ def scan_artifact_json(artifact_root: Path) -> list[tuple[Path, JsonObject, date
             payload = load_json_object(path)
             if payload is None:
                 continue
-            artifacts.append((path, payload, artifact_timestamp(path, payload)))
-    return sorted(artifacts, key=lambda item: item[2], reverse=True)
+            yield path, payload, artifact_timestamp(path, payload)
 
 
-def runtime_candidate_injection_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
-    explicit_false: list[JsonObject] = []
-    metadata_only: list[JsonObject] = []
-    for path, payload, timestamp in scan_artifact_json(artifact_root):
-        for node in iter_json_objects(payload):
-            for key, value in node.items():
-                normalized = normalized_key(key)
-                if normalized in RUNTIME_INJECTION_TRUE_KEYS and value is True:
-                    return {
+def newest_summary(current: JsonObject | None, candidate: JsonObject | None) -> JsonObject | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    current_timestamp = parse_iso_datetime(current.get("updatedAt"))
+    candidate_timestamp = parse_iso_datetime(candidate.get("updatedAt"))
+    if current_timestamp is None:
+        return candidate
+    if candidate_timestamp is None:
+        return current
+    return candidate if candidate_timestamp > current_timestamp else current
+
+
+def runtime_candidate_injection_from_artifact(
+    path: Path,
+    payload: JsonObject,
+    timestamp: datetime,
+    repo_root: Path,
+) -> JsonObject | None:
+    blocked: JsonObject | None = None
+    ok: JsonObject | None = None
+    display_path = safe_display_path(path, repo_root)
+    updated_at = display_timestamp(timestamp)
+    for node in iter_json_objects(payload):
+        for key, value in node.items():
+            normalized = normalized_key(key)
+            if normalized in RUNTIME_INJECTION_TRUE_KEYS:
+                if value is True and ok is None:
+                    ok = {
                         "status": "OK",
                         "evidence": f"{key}=true",
-                        "latestPath": safe_display_path(path, repo_root),
-                        "updatedAt": display_timestamp(timestamp),
+                        "latestPath": display_path,
+                        "updatedAt": updated_at,
                     }
-                if normalized in RUNTIME_INJECTION_TRUE_KEYS and value is False:
-                    explicit_false.append(
-                        {
-                            "field": key,
-                            "value": value,
-                            "path": safe_display_path(path, repo_root),
-                            "updatedAt": display_timestamp(timestamp),
-                        }
-                    )
-                if normalized in RUNTIME_INJECTION_SCOPE_KEYS:
-                    scope = text_value(value)
-                    if scope is not None and normalized_key(scope) in RUNTIME_INJECTION_METADATA_ONLY_VALUES:
-                        metadata_only.append(
-                            {
-                                "field": key,
-                                "value": value,
-                                "path": safe_display_path(path, repo_root),
-                                "updatedAt": display_timestamp(timestamp),
-                            }
-                        )
-    if explicit_false or metadata_only:
-        evidence = explicit_false[0] if explicit_false else metadata_only[0]
-        return {
-            "status": "BLOCKED",
-            "evidence": f"{evidence['field']}={evidence['value']}",
-            "latestPath": evidence["path"],
-            "updatedAt": evidence["updatedAt"],
-        }
+                if value is False and blocked is None:
+                    blocked = {
+                        "status": "BLOCKED",
+                        "evidence": f"{key}={value}",
+                        "latestPath": display_path,
+                        "updatedAt": updated_at,
+                    }
+            if normalized in RUNTIME_INJECTION_SCOPE_KEYS:
+                scope = text_value(value)
+                if (
+                    scope is not None
+                    and normalized_key(scope) in RUNTIME_INJECTION_METADATA_ONLY_VALUES
+                    and blocked is None
+                ):
+                    blocked = {
+                        "status": "BLOCKED",
+                        "evidence": f"{key}={value}",
+                        "latestPath": display_path,
+                        "updatedAt": updated_at,
+                    }
+    return blocked or ok
+
+
+def runtime_candidate_injection_summary_from_artifacts(
+    artifacts: Iterable[ArtifactJson],
+    repo_root: Path,
+) -> JsonObject:
+    latest: JsonObject | None = None
+    for path, payload, timestamp in artifacts:
+        latest = newest_summary(latest, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
+    if latest is not None:
+        return latest
     return {
         "status": "N/A",
         "evidence": "no runtime candidate injection evidence found",
@@ -669,48 +707,101 @@ def runtime_candidate_injection_summary(artifact_root: Path, repo_root: Path) ->
     }
 
 
-def zero_iteration_policy_update_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
-    for path, payload, timestamp in scan_artifact_json(artifact_root):
-        for node in iter_json_objects(payload):
-            iterations = node.get("policyUpdateIterations")
-            policy_update = node.get("policyUpdate")
-            if iterations is None and not isinstance(policy_update, dict):
-                continue
-            if iterations == 0:
-                if not isinstance(policy_update, dict):
-                    return {
-                        "status": "OK",
-                        "evidence": "zero policy updates with no update artifact",
-                        "latestPath": safe_display_path(path, repo_root),
-                        "updatedAt": display_timestamp(timestamp),
-                    }
-                skipped = text_value(policy_update.get("skippedReason"))
-                if skipped and not node.get("policyUpdateArtifactPath"):
-                    return {
-                        "status": "OK",
-                        "evidence": f"safe zero-iteration no-op: {skipped}",
-                        "latestPath": safe_display_path(path, repo_root),
-                        "updatedAt": display_timestamp(timestamp),
-                    }
+def runtime_candidate_injection_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+    return runtime_candidate_injection_summary_from_artifacts(scan_artifact_json(artifact_root), repo_root)
+
+
+def zero_iteration_policy_update_from_artifact(
+    path: Path,
+    payload: JsonObject,
+    timestamp: datetime,
+    repo_root: Path,
+) -> JsonObject | None:
+    display_path = safe_display_path(path, repo_root)
+    updated_at = display_timestamp(timestamp)
+    for node in iter_json_objects(payload):
+        iterations = node.get("policyUpdateIterations")
+        policy_update = node.get("policyUpdate")
+        if iterations is None and not isinstance(policy_update, dict):
+            continue
+        if iterations == 0:
+            if not isinstance(policy_update, dict):
                 return {
-                    "status": "BLOCKED",
-                    "evidence": "zero-iteration policy update lacks safe skippedReason or has update artifact",
-                    "latestPath": safe_display_path(path, repo_root),
-                    "updatedAt": display_timestamp(timestamp),
+                    "status": "OK",
+                    "evidence": "zero policy updates with no update artifact",
+                    "latestPath": display_path,
+                    "updatedAt": updated_at,
                 }
-            if isinstance(iterations, (int, float)) and iterations > 0:
+            skipped = text_value(policy_update.get("skippedReason"))
+            if skipped and not node.get("policyUpdateArtifactPath"):
                 return {
-                    "status": "N/A",
-                    "evidence": f"latest policy update had {iterations} iteration(s)",
-                    "latestPath": safe_display_path(path, repo_root),
-                    "updatedAt": display_timestamp(timestamp),
+                    "status": "OK",
+                    "evidence": f"safe zero-iteration no-op: {skipped}",
+                    "latestPath": display_path,
+                    "updatedAt": updated_at,
                 }
+            return {
+                "status": "BLOCKED",
+                "evidence": "zero-iteration policy update lacks safe skippedReason or has update artifact",
+                "latestPath": display_path,
+                "updatedAt": updated_at,
+            }
+        if isinstance(iterations, (int, float)) and iterations > 0:
+            return {
+                "status": "N/A",
+                "evidence": f"latest policy update had {iterations} iteration(s)",
+                "latestPath": display_path,
+                "updatedAt": updated_at,
+            }
+    return None
+
+
+def zero_iteration_policy_update_summary_from_artifacts(
+    artifacts: Iterable[ArtifactJson],
+    repo_root: Path,
+) -> JsonObject:
+    latest: JsonObject | None = None
+    for path, payload, timestamp in artifacts:
+        latest = newest_summary(latest, zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root))
+    if latest is not None:
+        return latest
     return {
         "status": "N/A",
         "evidence": "no policy update evidence found",
         "latestPath": None,
         "updatedAt": None,
     }
+
+
+def zero_iteration_policy_update_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+    return zero_iteration_policy_update_summary_from_artifacts(scan_artifact_json(artifact_root), repo_root)
+
+
+def artifact_evidence_summaries(artifact_root: Path, repo_root: Path) -> tuple[JsonObject, JsonObject]:
+    injection: JsonObject | None = None
+    zero_iteration: JsonObject | None = None
+    for path, payload, timestamp in scan_artifact_json(artifact_root):
+        injection = newest_summary(injection, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
+        zero_iteration = newest_summary(
+            zero_iteration,
+            zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root),
+        )
+    return (
+        injection
+        or {
+            "status": "N/A",
+            "evidence": "no runtime candidate injection evidence found",
+            "latestPath": None,
+            "updatedAt": None,
+        },
+        zero_iteration
+        or {
+            "status": "N/A",
+            "evidence": "no policy update evidence found",
+            "latestPath": None,
+            "updatedAt": None,
+        },
+    )
 
 
 def policy_status_is_online_proven(status: Any) -> bool:
@@ -777,6 +868,7 @@ def project_gate_summary(
     stage_statuses = {stage.get("stage"): stage.get("status") for stage in flywheel_stages}
     scale = latest_batch_scale(tencent)
     auto_refresh_ok = refresh.get("mode") == "auto" and refresh.get("autoRefreshSeconds")
+    successful_refresh = refresh.get("lastRefreshOk") is True and bool(refresh.get("lastRefreshAt"))
     refresh_cadence = (
         f"{refresh.get('autoRefreshSeconds')}s"
         if refresh.get("autoRefreshSeconds")
@@ -813,11 +905,15 @@ def project_gate_summary(
         {
             "issue": "#1233",
             "gate": "autonomous compute cadence",
-            "status": "OK" if auto_refresh_ok and tencent.get("hasData") else "BLOCKED",
-            "evidence": f"autoRefresh={refresh_cadence}; tencentRuns={tencent.get('runCount', 0)}",
+            "status": "OK" if auto_refresh_ok and successful_refresh and tencent.get("hasData") else "BLOCKED",
+            "evidence": (
+                f"autoRefresh={refresh_cadence}; lastRefreshOk={refresh.get('lastRefreshOk')}; "
+                f"lastRefreshAt={display_timestamp(refresh.get('lastRefreshAt'))}; "
+                f"tencentRuns={tencent.get('runCount', 0)}"
+            ),
             "nextAction": "keep dashboard auto-refresh and compute evidence alive"
-            if auto_refresh_ok and tencent.get("hasData")
-            else "restore recurring refresh/compute evidence",
+            if auto_refresh_ok and successful_refresh and tencent.get("hasData")
+            else "restore recurring refresh/compute evidence and confirm lastRefreshOk",
         },
         {
             "issue": "#1234",
@@ -856,8 +952,7 @@ def build_live_summary(
     scorecard = latest_scorecard_summary(artifact_root, repo_root)
     tencent = tencent_batch_summary(artifact_root, repo_root)
     safety = safety_summary(dashboard, tencent, scorecard)
-    injection = runtime_candidate_injection_summary(artifact_root, repo_root)
-    zero_iteration = zero_iteration_policy_update_summary(artifact_root, repo_root)
+    injection, zero_iteration = artifact_evidence_summaries(artifact_root, repo_root)
     flywheel_stages = flywheel_stage_summary(db=db, dashboard=dashboard, scorecard=scorecard, safety=safety)
     project_gates = project_gate_summary(
         flywheel_stages=flywheel_stages,
@@ -1234,16 +1329,20 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
             self.write_json(HTTPStatus.OK, self.summary())
             return
         if parsed.path == "/healthz":
-            summary = self.summary()
-            status = HTTPStatus.OK if summary["health"]["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
+            config = self.server.config
+            generated = utc_now_iso()
+            db = sqlite_summary(config.db_path, config.repo_root)
+            refresh = self.server.refresh_snapshot()
+            health = health_with_refresh(health_from_db_summary(db), refresh)
+            status = HTTPStatus.OK if health["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
             self.write_json(
                 status,
-                summary["health"]
+                health
                 | {
-                    "message": "OK" if summary["health"]["ok"] else "DEGRADED",
-                    "db": summary["db"],
-                    "refresh": summary["refresh"],
-                    "generatedAt": summary["generatedAt"],
+                    "message": "OK" if health["ok"] else "DEGRADED",
+                    "db": db,
+                    "refresh": refresh,
+                    "generatedAt": generated,
                 },
             )
             return
@@ -1261,8 +1360,11 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
             try:
                 refresh = refresh_metrics(self.server.config.db_path, self.server.config.artifact_root)
             except Exception as error:  # pragma: no cover - defensive handler boundary
-                self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(error)})
+                refresh = {"ok": False, "error": str(error)}
+                self.server.record_refresh(refresh)
+                self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, refresh)
                 return
+        self.server.record_refresh(refresh)
         if not refresh_succeeded(refresh):
             self.write_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
