@@ -1836,12 +1836,18 @@ def _disable_launcher_auto_map_import(smoke: Any, cfg: Any) -> bool:
     return True
 
 
+def _is_default_map_source_file(map_source_file: Path) -> bool:
+    requested = map_source_file.expanduser().resolve(strict=False)
+    default = DEFAULT_MAP_SOURCE_FILE.expanduser().resolve(strict=False)
+    return requested == default
+
+
 def _resolve_smoke_map_source_file(map_source_file: Path) -> Path | None:
     """Use the local map when present, otherwise let private-smoke fetch its default map."""
     resolved = map_source_file.expanduser()
     if resolved.is_file():
         return resolved
-    if resolved.resolve(strict=False) == DEFAULT_MAP_SOURCE_FILE.expanduser().resolve(strict=False):
+    if _is_default_map_source_file(resolved):
         return None
     raise RuntimeError(f"map source file is not a file: {resolved}")
 
@@ -2778,6 +2784,7 @@ def _run_variant(
     compose: list[str] | None = None
     try:
         smoke = _load_private_smoke_module()
+        summarize_prepared_map = _is_default_map_source_file(map_source_file)
         smoke_map_source_file = _resolve_smoke_map_source_file(map_source_file)
         smoke_map_url = str(getattr(smoke, "DEFAULT_MAP_URL", "")) if smoke_map_source_file is None else ""
         http_port, cli_port = _select_run_ports(
@@ -2840,7 +2847,10 @@ def _run_variant(
             mod_path=repair_mod_path,
         )
         smoke.prepare_map(cfg)
-        scenario_map_source_file = smoke_map_source_file or cfg.map_path
+        if summarize_prepared_map:
+            scenario_map_source_file = cfg.map_path
+        else:
+            scenario_map_source_file = smoke_map_source_file or cfg.map_path
         fixture_room_summaries = _private_map_fixture_room_summaries(scenario_map_source_file)
         fixture_room_names = list(fixture_room_summaries)
         _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))
