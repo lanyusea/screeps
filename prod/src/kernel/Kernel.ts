@@ -20,6 +20,7 @@ export interface KernelDependencies {
 
 export interface KernelRunOptions {
   strategyRegistry?: StrategyRegistryEntry[];
+  runtimeStrategyConstructionEnabled?: boolean;
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
@@ -47,7 +48,11 @@ export class Kernel {
 }
 
 function hasKernelRunOptions(options: KernelRunOptions): boolean {
-  return options.strategyRegistry !== undefined || options.onStrategyRegistryRuntimeUse !== undefined;
+  return (
+    options.strategyRegistry !== undefined ||
+    options.runtimeStrategyConstructionEnabled !== undefined ||
+    options.onStrategyRegistryRuntimeUse !== undefined
+  );
 }
 
 function selectForwardedDefenseEvents(

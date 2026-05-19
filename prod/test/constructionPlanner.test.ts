@@ -130,6 +130,7 @@ describe('owned room construction planner', () => {
       creeps: makeWorkerCreeps(5),
       respectRoomEnergyBuffer: false,
       strategyRegistry,
+      runtimeStrategyConstructionEnabled: true,
       onStrategyRegistryRuntimeUse
     });
 
@@ -173,7 +174,8 @@ describe('owned room construction planner', () => {
     const result = planConstructionForColony(colony, {
       creeps: makeWorkerCreeps(5),
       respectRoomEnergyBuffer: false,
-      strategyRegistry
+      strategyRegistry,
+      runtimeStrategyConstructionEnabled: true
     });
 
     expect(result.placements[0]).toMatchObject({
@@ -182,6 +184,48 @@ describe('owned room construction planner', () => {
       result: OK_CODE
     });
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_STORAGE);
+  });
+
+  it('keeps legacy construction order when runtime strategy construction is not enabled', () => {
+    installOpenTerrain();
+    const onStrategyRegistryRuntimeUse = jest.fn();
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 0,
+      resourceSignalWeight: 30,
+      killSignalWeight: 0,
+      riskPenalty: 0
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_300,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {
+        '25,25': [{ x: 10, y: 11 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: false,
+      strategyRegistry,
+      onStrategyRegistryRuntimeUse
+    });
+
+    expect(result.placements[0]).toMatchObject({
+      priority: 'container',
+      structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+      result: OK_CODE
+    });
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_CONTAINER);
+    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
   it('continues runtime construction planning when the audit hook throws', () => {
@@ -216,6 +260,7 @@ describe('owned room construction planner', () => {
         creeps: makeWorkerCreeps(5),
         respectRoomEnergyBuffer: false,
         strategyRegistry,
+        runtimeStrategyConstructionEnabled: true,
         onStrategyRegistryRuntimeUse
       });
 
@@ -259,7 +304,8 @@ describe('owned room construction planner', () => {
 
     const result = planConstructionForColony(colony, {
       respectRoomEnergyBuffer: false,
-      strategyRegistry
+      strategyRegistry,
+      runtimeStrategyConstructionEnabled: true
     });
 
     expect(result.placements[0]).toMatchObject({
@@ -295,6 +341,7 @@ describe('owned room construction planner', () => {
       maxContainerSitesPerTick: 2,
       respectRoomEnergyBuffer: true,
       strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      runtimeStrategyConstructionEnabled: true,
       onStrategyRegistryRuntimeUse
     });
 
@@ -336,6 +383,7 @@ describe('owned room construction planner', () => {
       creeps: makeWorkerCreeps(5),
       respectRoomEnergyBuffer: false,
       strategyRegistry,
+      runtimeStrategyConstructionEnabled: true,
       onStrategyRegistryRuntimeUse
     });
 
@@ -387,7 +435,8 @@ describe('owned room construction planner', () => {
       includePostClaimRamparts: true,
       includeStorage: false,
       respectRoomEnergyBuffer: false,
-      strategyRegistry
+      strategyRegistry,
+      runtimeStrategyConstructionEnabled: true
     });
 
     expect(result.placements).toEqual([

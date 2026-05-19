@@ -52,7 +52,10 @@ export function loop(): void {
   const summary = kernel.run({
     strategyRegistry: strategyRegistryState.entries,
     ...(runtimePolicyParameterPlanningEnabled
-      ? { onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse }
+      ? {
+          runtimeStrategyConstructionEnabled: true,
+          onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+        }
       : {})
   });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());

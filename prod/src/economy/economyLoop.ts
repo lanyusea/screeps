@@ -143,6 +143,7 @@ interface CoordinatedSpawnPlan {
 
 export interface EconomyRuntimeOptions {
   strategyRegistry?: StrategyRegistryEntry[];
+  runtimeStrategyConstructionEnabled?: boolean;
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
@@ -208,6 +209,7 @@ export function runEconomy(
         respectRoomEnergyBuffer: true,
         creeps,
         strategyRegistry: options.strategyRegistry,
+        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
         onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
       });
     }

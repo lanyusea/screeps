@@ -54,6 +54,7 @@ export interface ConstructionPlannerOptions {
   includeStorage?: boolean;
   postClaimPriorityOrder?: boolean;
   strategyRegistry?: StrategyRegistryEntry[];
+  runtimeStrategyConstructionEnabled?: boolean;
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
@@ -556,6 +557,10 @@ function planRuntimeStrategyPrioritizedConstruction(
   sourceLogisticsStarved: boolean,
   rcl: number
 ): boolean {
+  if (options.runtimeStrategyConstructionEnabled !== true) {
+    return false;
+  }
+
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   if (!strategyEntry || !strategyParameters) {

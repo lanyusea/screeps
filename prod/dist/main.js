@@ -12466,6 +12466,9 @@ function planStorage(colony, result, budgetState, options) {
   }
 }
 function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState, sourceLogisticsStarved, rcl) {
+  if (options.runtimeStrategyConstructionEnabled !== true) {
+    return false;
+  }
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   if (!strategyEntry || !strategyParameters) {
@@ -44792,6 +44795,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
         respectRoomEnergyBuffer: true,
         creeps,
         strategyRegistry: options.strategyRegistry,
+        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
         onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
       });
     }
@@ -45686,7 +45690,7 @@ var Kernel = class {
   }
 };
 function hasKernelRunOptions(options) {
-  return options.strategyRegistry !== void 0 || options.onStrategyRegistryRuntimeUse !== void 0;
+  return options.strategyRegistry !== void 0 || options.runtimeStrategyConstructionEnabled !== void 0 || options.onStrategyRegistryRuntimeUse !== void 0;
 }
 function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
   const forwardedEvents = [];
@@ -46602,7 +46606,10 @@ function loop() {
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   const summary = kernel.run({
     strategyRegistry: strategyRegistryState.entries,
-    ...runtimePolicyParameterPlanningEnabled ? { onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse } : {}
+    ...runtimePolicyParameterPlanningEnabled ? {
+      runtimeStrategyConstructionEnabled: true,
+      onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+    } : {}
   });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
