@@ -621,6 +621,12 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(proof["status"], "passed")
         self.assertTrue(proof["ok"])
         self.assertIn("construction-priority.pg.territory-seed.v1", proof["passingVariants"])
+        self.assertEqual(proof["audit"]["codeCommit"], card["code_commit"])
+        self.assertEqual(proof["audit"]["scenarioId"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(proof["audit"]["activationImplementation"], runner.MULTI_TIER_ACTIVATION_IMPLEMENTATION)
+        comparison_key = proof["audit"]["comparisonKey"]
+        self.assertIsInstance(comparison_key, str)
+        self.assertTrue(comparison_key.strip(), "comparisonKey must not be empty")
         territory_result = next(
             result
             for result in report["variantResults"]
@@ -628,6 +634,14 @@ class RlTrainingRunnerTest(unittest.TestCase):
         )
         self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        territory_trace = territory_result["multiTierActivationTraces"][0]
+        self.assertEqual(territory_trace["metricsSource"], "simulator_policy_activation")
+        self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertEqual(territory_trace["projectedEvidence"]["projectedHostileKills"], 1)
+        self.assertEqual(
+            proof["variants"][1]["activationTraces"][0]["policyActivation"]["targetRoom"],
+            "E2S1",
+        )
         self.assertEqual(
             territory_result["metrics"]["objectiveSignal"]["finalRooms"],
             ["E1S1", "E2S1"],
@@ -679,6 +693,47 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(territory_result["metrics"]["kills"]["hostileKills"], 1)
         self.assertEqual(territory_result["metrics"]["objectiveSignal"]["finalRooms"], ["E1S1", "E2S1"])
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+
+    def test_multi_tier_activation_audit_key_includes_code_commit_for_same_scenario_map(self) -> None:
+        def run_report(code_commit: str, report_id: str) -> JsonObject:
+            card = card_helper.build_card(
+                dataset_run_id="rl-training-multitier-audit-same-scenario-map",
+                code_commit=code_commit,
+                training_approach="policy_gradient",
+                created_at="2026-05-18T10:28:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                require_multi_tier_scenario=True,
+            )
+            simulator_results: dict[str, JsonObject] = {}
+            for variant in card["strategy_variants"]:
+                variant_id = variant["id"]
+                tick_log = [
+                    tick(1, [room("E1S1", energy=100)]),
+                    tick(2, [room("E1S1", energy=100)]),
+                ]
+                simulator_results[variant_id] = variant_result(variant_id, tick_log)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                card_path = root / "card.json"
+                write_json(card_path, card)
+                return runner.run_training_experiment(
+                    card_path,
+                    root / "reports",
+                    report_id=report_id,
+                    simulator_runner=MockSimulator(simulator_results),
+                )
+
+        first = run_report("a" * 40, "multi-tier-audit-a")
+        second = run_report("b" * 40, "multi-tier-audit-b")
+
+        self.assertEqual(first["scenario"]["evidence"]["map_source_file"], second["scenario"]["evidence"]["map_source_file"])
+        self.assertEqual(first["activationProof"]["audit"]["scenarioId"], second["activationProof"]["audit"]["scenarioId"])
+        self.assertNotEqual(first["activationProof"]["audit"]["codeCommit"], second["activationProof"]["audit"]["codeCommit"])
+        self.assertNotEqual(first["activationProof"]["audit"]["comparisonKey"], second["activationProof"]["audit"]["comparisonKey"])
+        self.assertEqual(
+            first["activationProof"]["audit"]["strategyVariantFingerprint"],
+            second["activationProof"]["audit"]["strategyVariantFingerprint"],
+        )
 
     def test_multi_tier_fixture_loader_rejects_map_source_mismatch(self) -> None:
         card = card_helper.build_card(
