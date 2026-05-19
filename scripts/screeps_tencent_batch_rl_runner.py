@@ -223,6 +223,7 @@ class Controller:
     def write_summary(self, *, partial: bool = False) -> None:
         training_report = self.result.get("trainingReport")
         report_safety = training_report if isinstance(training_report, dict) else {}
+        execution = controller_execution_summary(self.args, self.steps, self.result, self.scaled_up, self.instance_id)
         payload = {
             "type": "screeps-tencent-batch-rl-run",
             "schemaVersion": 1,
@@ -239,6 +240,7 @@ class Controller:
             "privateIp": self.private_ip,
             "remoteDir": self.remote_dir,
             "localArtifactDir": str(self.artifact_dir),
+            "execution": execution,
             "safety": {
                 "liveEffect": report_safety.get("liveEffect", False),
                 "officialMmoWrites": report_safety.get("officialMmoWrites", False),
@@ -249,6 +251,9 @@ class Controller:
                 "secretsPrinted": False,
             },
             "inputs": {
+                "command": getattr(self.args, "command", None),
+                "executionMode": execution["mode"],
+                "preflightOnly": execution["preflightOnly"],
                 "datasetRunId": self.args.dataset_run_id,
                 "experimentCard": str(self.experiment_card_path()),
                 "ticks": effective_training_ticks(self.args),
@@ -991,8 +996,9 @@ def utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def default_run_id() -> str:
-    return "tencent-single-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dt%H%M%sz")
+def default_run_id(command: str = "run-single") -> str:
+    prefix = "tencent-preflight-" if command == "preflight" else "tencent-single-"
+    return prefix + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dt%H%M%sz")
 
 
 def canonical_json(value: Any) -> str:
@@ -1027,6 +1033,54 @@ def unwrap_response(data: Any) -> dict[str, Any]:
     if isinstance(data, dict):
         return data
     return {}
+
+
+def controller_execution_summary(
+    args: argparse.Namespace,
+    steps: Sequence[StepRecord],
+    result: dict[str, Any],
+    scaled_up: bool,
+    instance_id: str | None,
+) -> dict[str, Any]:
+    step_names = {step.name for step in steps}
+    training_report = result.get("trainingReport")
+    training_report_data = training_report if isinstance(training_report, dict) else {}
+    training_report_produced = bool(
+        training_report_data.get("path")
+        or training_report_data.get("reportId")
+        or training_report_data.get("artifactCount")
+    )
+    scale_out_attempted = scaled_up or "scale_up" in step_names or instance_id is not None
+    remote_training_attempted = "remote_training" in step_names
+    compute_attempted = scale_out_attempted or remote_training_attempted or training_report_produced
+    environments_run = training_environments_run(training_report_data)
+    preflight_only = bool(getattr(args, "preflight_only", False))
+    return {
+        "command": getattr(args, "command", None),
+        "mode": "preflight" if preflight_only else "compute",
+        "preflightOnly": preflight_only,
+        "computeAttempted": compute_attempted,
+        "scaleOutAttempted": scale_out_attempted,
+        "remoteTrainingAttempted": remote_training_attempted,
+        "trainingReportProduced": training_report_produced,
+        "trainingReportPath": training_report_data.get("path"),
+        "trainingReportId": training_report_data.get("reportId"),
+        "artifactCount": training_report_data.get("artifactCount"),
+        "environmentsRun": environments_run,
+    }
+
+
+def training_environments_run(training_report: dict[str, Any]) -> int:
+    scale_validation = training_report.get("scaleValidation")
+    if isinstance(scale_validation, dict):
+        for key in ("totalEnvironments", "successfulEnvironments"):
+            value = scale_validation.get(key)
+            if isinstance(value, int) and value >= 0:
+                return value
+    artifact_count = training_report.get("artifactCount")
+    if isinstance(artifact_count, int) and artifact_count >= 0:
+        return artifact_count
+    return 0
 
 
 def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
@@ -2176,8 +2230,8 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
 def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
     explicit_options = set(getattr(args, "explicit_cli_options", ()))
     command = getattr(args, "command", None)
-    explicit_preflight_mode = bool(explicit_options.intersection(PREFLIGHT_MODE_OPTION_DESTS))
-    if command == "preflight" and not explicit_preflight_mode:
+    explicit_launch_mode = bool(explicit_options.intersection(PREFLIGHT_MODE_OPTION_DESTS))
+    if command in {"preflight", "run-single"} and not explicit_launch_mode:
         args.training_approach = "policy_gradient"
         args.scenario_id = MULTI_TIER_SCENARIO_ID
         args.require_multi_tier_scenario = True
@@ -2268,7 +2322,7 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     parser.add_argument("command", choices=("run-single", "preflight"))
-    parser.add_argument("--run-id", default=default_run_id())
+    parser.add_argument("--run-id", default=None)
     parser.add_argument("--region", default=DEFAULT_REGION)
     parser.add_argument("--asg-id", default=DEFAULT_ASG_ID)
     parser.add_argument("--security-group-id", default="sg-5n5bqvbk")
@@ -2319,6 +2373,8 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(raw_argv)
     args.explicit_cli_options = explicit_cli_option_dests(raw_argv)
+    if args.run_id is None:
+        args.run_id = default_run_id(args.command)
     args.preflight_only = args.command == "preflight"
     apply_cli_scenario_defaults(args)
     return args
