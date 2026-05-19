@@ -52,6 +52,20 @@ class ScreepsRlScorecardComputeEvidenceTest(unittest.TestCase):
                 )
                 self.assertEqual(accumulator.summarize(), {})
 
+    def test_environment_execution_shape_marks_preflight_only_payload(self) -> None:
+        payload: JsonObject = {
+            "type": "screeps-rl-training-execution-ledger",
+            "finalStatus": "preflight_ok",
+            "environmentExecution": {"completed": 0},
+            "advantageResources": 5,
+        }
+
+        self.assertTrue(scorecard.preflight_only_compute_payload(payload))
+
+        accumulator = scorecard.MetricAccumulator()
+        scorecard.ingest_training_or_advantage(accumulator, payload, "training-ledger.json")
+        self.assertEqual(accumulator.summarize(), {})
+
     def test_completed_controller_instance_id_counts_as_real_compute(self) -> None:
         payload: JsonObject = {
             "type": "screeps-rl-policy-online-advantage-report",
@@ -65,6 +79,29 @@ class ScreepsRlScorecardComputeEvidenceTest(unittest.TestCase):
         }
 
         self.assertTrue(scorecard.real_compute_evidence_present(payload))
+
+    def test_blank_executor_identity_does_not_count_as_real_compute(self) -> None:
+        payload: JsonObject = {
+            "type": "screeps-rl-policy-online-advantage-report",
+            "onlineUtilityStatus": "PROVEN",
+            "advantageResources": 5,
+            "controllerSummary": {
+                "finalStatus": "running",
+                "instanceId": " ",
+                "workerUser": "\t",
+            },
+        }
+
+        self.assertFalse(scorecard.real_compute_evidence_present(payload))
+
+        accumulator = scorecard.MetricAccumulator()
+        scorecard.ingest_training_or_advantage(
+            accumulator,
+            payload,
+            "policy-advantage.json",
+            require_compute=True,
+        )
+        self.assertEqual(accumulator.summarize(), {})
 
 
 if __name__ == "__main__":

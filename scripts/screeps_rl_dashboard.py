@@ -438,7 +438,16 @@ def node_looks_like_controller_summary(node: JsonObject) -> bool:
         return True
     return any(key in node for key in ("finalStatus", "final_status")) and any(
         key in node
-        for key in ("instanceId", "instance_id", "workerUser", "worker_user", "environmentsRun", "outputs")
+        for key in (
+            "instanceId",
+            "instance_id",
+            "workerUser",
+            "worker_user",
+            "environmentsRun",
+            "environmentExecution",
+            "environment_execution",
+            "outputs",
+        )
     )
 
 
@@ -448,6 +457,14 @@ def preflight_marker_present(payload: JsonObject) -> bool:
         and controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
         for node in iter_json_objects(payload)
     )
+
+
+def non_blank_text_value(value: Any) -> str | None:
+    text = text_value(value)
+    if text is None:
+        return None
+    stripped = text.strip()
+    return stripped or None
 
 
 def collect_strong_compute_evidence(payload: JsonObject) -> list[JsonObject]:
@@ -485,8 +502,8 @@ def collect_strong_compute_evidence(payload: JsonObject) -> list[JsonObject]:
         final_status = controller_summary_final_status_key(node)
         if final_status in PREFLIGHT_FINAL_STATUS_KEYS:
             continue
-        instance_id = text_value(first_present(node, ("instanceId", "instance_id")))
-        worker_user = text_value(first_present(node, ("workerUser", "worker_user")))
+        instance_id = non_blank_text_value(first_present(node, ("instanceId", "instance_id")))
+        worker_user = non_blank_text_value(first_present(node, ("workerUser", "worker_user")))
         has_compute_status = final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS
         if instance_id is not None and has_compute_status:
             add("controllerSummary.instanceId", "present")
@@ -1644,17 +1661,19 @@ def reconcile_card_supply_for_training(
     tencent_internal_card_supply: JsonObject | None,
     tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
 ) -> JsonObject:
-    compute_evidence = compute_evidence_summary(payload)
+    compute_evidence = strong_compute_evidence_summary(payload)
     artifact_count = number_value(payload.get("artifactCount"))
     iteration = as_dict(payload.get("iterationExecution"))
     episodes_run = number_value(iteration.get("episodesRun"))
     policy_updates = number_value(iteration.get("policyUpdateIterations"))
-    training_did_run = compute_evidence.get("classification") != "PREFLIGHT_ONLY_VALIDATION" and (
-        compute_evidence.get("hasCompute") is True
+    training_claims_compute = (
+        payload.get("trainingDidRun") is True
+        or status_key(payload.get("status")) in TRAINING_COMPUTE_CLAIM_STATUS_KEYS
         or (artifact_count or 0) > 0
         or (episodes_run or 0) > 0
         or (policy_updates or 0) > 0
     )
+    training_did_run = compute_evidence.get("hasCompute") is True
     embedded_supply = card_supply_from_training_payload(payload, latest_path)
     if training_did_run and embedded_supply is not None:
         return embedded_supply
@@ -1663,6 +1682,8 @@ def reconcile_card_supply_for_training(
         tencent_internal_card_supply_candidates,
     )
     if not training_did_run:
+        if training_claims_compute:
+            return blocked_card_supply_summary(text_value(compute_evidence.get("blocker")))
         available_supply = best_available_tencent_card_supply(tencent_candidates)
         if available_supply is not None:
             return dict(available_supply)
@@ -1744,12 +1765,11 @@ def training_execution(
         or (episodes or 0) > 0
         or (updates or 0) > 0
     )
-    if training_claims_compute and compute_evidence.get("hasCompute") is not True:
-        effective_status = (
-            "PREFLIGHT_ONLY"
-            if compute_evidence.get("classification") == "PREFLIGHT_ONLY_VALIDATION"
-            else "BLOCKED"
-        )
+    if compute_evidence.get("classification") == "PREFLIGHT_ONLY_VALIDATION":
+        effective_status = "PREFLIGHT_ONLY"
+        blocker = text_value(compute_evidence.get("blocker")) or blocker
+    elif training_claims_compute and compute_evidence.get("hasCompute") is not True:
+        effective_status = "BLOCKED"
         blocker = text_value(compute_evidence.get("blocker")) or blocker
     return {
         "hasData": True,

@@ -134,6 +134,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-tencent-test"],
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
                                 "runId": "tencent-pg-test",
@@ -196,6 +197,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-generic"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "experimentCard": "Tencent batch generates internal cards per run",
@@ -241,6 +243,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-current"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
@@ -292,6 +295,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-mismatched"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
@@ -340,6 +344,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-partial"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
@@ -716,6 +721,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-consumed-b"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
@@ -783,6 +789,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-same-card"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "tencentInternalCardSupply": {
@@ -932,6 +939,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                         "type": "screeps-rl-training-execution-ledger",
                         "status": "RUN_WITH_ANOMALY",
                         "trainingDidRun": True,
+                        "trainingReportIds": ["training-report-local-card-missing"],
                         "artifactCount": 1,
                         "trainingArtifacts": {
                             "experimentCard": "Local standalone experiment card missing card supply",
@@ -1153,6 +1161,38 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E4"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 
+    def test_preflight_training_without_run_claim_keeps_compute_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "NOT_RUN",
+                    "trainingDidRun": False,
+                    "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    "controllerSummary": {
+                        "finalStatus": "preflight_ok",
+                        "environmentExecution": {"completed": 0},
+                    },
+                    "createdAt": "2026-05-19T00:01:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["training"]["rawStatus"], "NOT_RUN")
+        self.assertEqual(report["training"]["status"], "PREFLIGHT_ONLY")
+        self.assertFalse(report["training"]["hasComputeEvidence"])
+        self.assertEqual(report["training"]["computeEvidence"]["classification"], "PREFLIGHT_ONLY_VALIDATION")
+        self.assertIn("Preflight-only", report["training"]["blocker"])
+        self.assertIn("Preflight-only", lanes["E4"]["blocker"])
+
     def test_unrelated_nested_preflight_status_does_not_create_preflight_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1291,6 +1331,94 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
         self.assertEqual(report["policy"]["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
         self.assertEqual(report["policy"]["computeEvidence"]["signals"], [])
+        self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
+    def test_weak_training_counters_do_not_mark_card_supply_training_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-weak"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-weak",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-accepted-123456789abc"}},
+                },
+            )
+            write_json(run_dir / "experiment_card.json", policy_gradient_card())
+            card_supply = dashboard.discover_tencent_internal_card_supply(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            self.assertIsNotNone(card_supply)
+            assert card_supply is not None
+
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN_WITH_ANOMALY",
+                        "trainingDidRun": True,
+                        "artifactCount": 1,
+                        "iterationExecution": {
+                            "episodesRun": 12,
+                            "policyUpdateIterations": 3,
+                        },
+                        "trainingArtifacts": {
+                            "experimentCard": "Tencent batch generates internal cards per run",
+                            "experimentCardPath": None,
+                        },
+                    },
+                ),
+                tencent_internal_card_supply=card_supply,
+            )
+
+        self.assertEqual(training["cardSupply"]["status"], "BLOCKED")
+        self.assertEqual(training["cardSupply"]["classification"], "CARD_SUPPLY_BLOCKED")
+        self.assertIn("No real compute evidence", training["cardSupply"]["reason"])
+        self.assertNotEqual(training["cardSupply"].get("source"), "tencent_internal_experiment_card")
+
+    def test_blank_executor_identity_does_not_unblock_policy_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "controllerSummary": {
+                        "finalStatus": "running",
+                        "instanceId": " ",
+                        "workerUser": "\t",
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["policy"]["status"], "BLOCKED")
+        self.assertFalse(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
         self.assertEqual(lanes["E3"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 

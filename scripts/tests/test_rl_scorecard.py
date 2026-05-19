@@ -327,9 +327,53 @@ def test_scorecard_preflight_marker_requires_controller_summary_shape() -> None:
             "environmentsRun": 0,
         },
     }
+    environment_execution_summary = {
+        "type": "screeps-rl-training-report",
+        "controllerSummary": {
+            "finalStatus": "preflight_ok",
+            "environmentExecution": {"completed": 0},
+        },
+    }
 
     assert not scorecard.preflight_only_compute_payload(unrelated_status)
     assert scorecard.preflight_only_compute_payload(controller_summary)
+    assert scorecard.preflight_only_compute_payload(environment_execution_summary)
+
+
+def test_scorecard_ignores_blank_executor_identity_without_compute(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    for root, resources in ((baseline, 1), (candidate, 10)):
+        write_json(
+            root / "policy-advantage.json",
+            {
+                "type": "screeps-rl-policy-advantage-report",
+                "reportId": f"blank-executor-{root.name}",
+                "advantageResources": resources,
+                "controllerSummary": {
+                    "finalStatus": "running",
+                    "instanceId": " ",
+                    "workerUser": "\t",
+                },
+            },
+        )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-19T00:00:00Z",
+        run_id="scorecard-blank-executor",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert resources["status"] == "inconclusive"
+    assert self_metric["candidate"] is None
+    assert self_metric["baseline"] is None
+    assert "productive_energy" in resources["missingEvidence"]
 
 
 def test_scorecard_ignores_policy_advantage_without_compute_evidence(tmp_path: Path) -> None:

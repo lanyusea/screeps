@@ -323,7 +323,16 @@ def node_looks_like_controller_summary(node: JsonObject) -> bool:
         return True
     return any(key in node for key in ("finalStatus", "final_status")) and any(
         key in node
-        for key in ("instanceId", "instance_id", "workerUser", "worker_user", "environmentsRun", "outputs")
+        for key in (
+            "instanceId",
+            "instance_id",
+            "workerUser",
+            "worker_user",
+            "environmentsRun",
+            "environmentExecution",
+            "environment_execution",
+            "outputs",
+        )
     )
 
 
@@ -333,6 +342,14 @@ def preflight_marker_present(payload: JsonObject) -> bool:
         and controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
         for node in iter_json_objects(payload)
     )
+
+
+def non_blank_text_value(value: Any) -> str | None:
+    text = text_value(value)
+    if text is None:
+        return None
+    stripped = text.strip()
+    return stripped or None
 
 
 def real_compute_evidence_present(payload: JsonObject) -> bool:
@@ -360,10 +377,13 @@ def real_compute_evidence_present(payload: JsonObject) -> bool:
         has_compute_status = final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS
         if (
             has_compute_status
-            and (text_value(node.get("instanceId")) is not None or text_value(node.get("instance_id")) is not None)
+            and (
+                non_blank_text_value(node.get("instanceId")) is not None
+                or non_blank_text_value(node.get("instance_id")) is not None
+            )
         ):
             return True
-        worker_user = text_value(node.get("workerUser")) or text_value(node.get("worker_user"))
+        worker_user = non_blank_text_value(node.get("workerUser")) or non_blank_text_value(node.get("worker_user"))
         if worker_user is not None and has_compute_status:
             return True
     return False
