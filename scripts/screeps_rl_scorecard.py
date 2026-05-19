@@ -24,6 +24,28 @@ DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-control-loop/scorecards")
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 EPSILON = 1e-9
 MAX_REFERENCED_ARTIFACTS = 200
+PREFLIGHT_FINAL_STATUS_KEYS = {
+    "preflight",
+    "preflightok",
+    "preflightonly",
+    "preflightpassed",
+    "preflightvalidated",
+}
+STRONG_TRAINING_REPORT_KEYS = {
+    "trainingreport",
+    "trainingreportid",
+    "trainingreportids",
+    "trainingreportpath",
+    "trainingreportpaths",
+    "trainingreports",
+}
+ENVIRONMENT_RUN_COUNT_KEYS = {
+    "completedenvironmentruns",
+    "completedenvironments",
+    "environmentruns",
+    "environmentscompleted",
+    "environmentsrun",
+}
 
 STATUS_IMPROVED = "improved"
 STATUS_NEUTRAL = "neutral"
@@ -252,6 +274,86 @@ def first_number(raw: Any, paths: Sequence[tuple[str, ...]]) -> float | None:
 
 def normalized_key(value: str) -> str:
     return "".join(character for character in value.lower() if character.isalnum())
+
+
+def iter_json_objects(value: Any) -> Iterable[JsonObject]:
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from iter_json_objects(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from iter_json_objects(item)
+
+
+def value_has_reference(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, dict):
+        return any(value_has_reference(item) for item in value.values())
+    if isinstance(value, list):
+        return any(value_has_reference(item) for item in value)
+    return False
+
+
+def positive_count(value: Any) -> int | None:
+    parsed = number_value(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return int(parsed)
+
+
+def controller_summary_final_status_key(node: JsonObject) -> str:
+    raw = text_value(path_value(node, ("finalStatus",))) or text_value(path_value(node, ("final_status",)))
+    return normalized_key(raw) if raw is not None else ""
+
+
+def node_looks_like_controller_summary(node: JsonObject) -> bool:
+    if node.get("type") == "screeps-tencent-batch-rl-run":
+        return True
+    return any(key in node for key in ("finalStatus", "final_status")) and any(
+        key in node for key in ("instanceId", "instance_id", "environmentsRun", "outputs")
+    )
+
+
+def preflight_marker_present(payload: JsonObject) -> bool:
+    return any(
+        controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
+        for node in iter_json_objects(payload)
+    )
+
+
+def real_compute_evidence_present(payload: JsonObject) -> bool:
+    for node in iter_json_objects(payload):
+        for key, raw in node.items():
+            normalized = normalized_key(str(key))
+            if normalized in STRONG_TRAINING_REPORT_KEYS and value_has_reference(raw):
+                return True
+            if normalized in ENVIRONMENT_RUN_COUNT_KEYS and positive_count(raw) is not None:
+                return True
+            if normalized == "environmentexecution":
+                execution = as_dict(raw)
+                if (
+                    positive_count(execution.get("completed")) is not None
+                    or positive_count(execution.get("Completed")) is not None
+                    or positive_count(execution.get("completedCount")) is not None
+                ):
+                    return True
+
+        if not node_looks_like_controller_summary(node):
+            continue
+        final_status = controller_summary_final_status_key(node)
+        if final_status in PREFLIGHT_FINAL_STATUS_KEYS:
+            continue
+        if text_value(node.get("instanceId")) is not None or text_value(node.get("instance_id")) is not None:
+            return True
+    return False
+
+
+def preflight_only_compute_payload(payload: JsonObject) -> bool:
+    return preflight_marker_present(payload) and not real_compute_evidence_present(payload)
 
 
 def find_first_number_by_keys(value: Any, key_names: Sequence[str]) -> float | None:
@@ -667,6 +769,9 @@ def normalized_status(payload: JsonObject) -> str | None:
 
 
 def ingest_training_or_advantage(accumulator: MetricAccumulator, payload: JsonObject, source: str) -> None:
+    if preflight_only_compute_payload(payload):
+        return
+
     for result in as_list(payload.get("variantResults")):
         if not isinstance(result, dict):
             continue
