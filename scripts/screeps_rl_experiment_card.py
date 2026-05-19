@@ -1444,7 +1444,9 @@ def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) ->
             return True
         return is_degraded_e1_gate_acceptable(payload, path)
     if is_e1_current_dataset_gate_report(payload, path):
-        return is_fully_accepted_e1_current_gate(payload)
+        if is_fully_accepted_e1_current_gate(payload):
+            return True
+        return is_degraded_e1_gate_acceptable(payload, path)
     return False
 
 
@@ -1503,7 +1505,10 @@ def dataset_gate_id(payload: JsonObject) -> str | None:
 
 
 def is_degraded_e1_gate_acceptable(payload: JsonObject, path: Path | None = None) -> bool:
-    if not is_e1_postmerge_dataset_gate_report(payload, path):
+    if not (
+        is_e1_postmerge_dataset_gate_report(payload, path)
+        or is_canonical_e1_current_gate_data_report(payload, path)
+    ):
         return False
     blocking_reasons = payload.get("blockingReasons")
     if not isinstance(blocking_reasons, list) or not blocking_reasons:
@@ -1520,6 +1525,16 @@ def is_degraded_e1_gate_acceptable(payload: JsonObject, path: Path | None = None
         return False
     acceptance_rate = dataset_gate_acceptance_rate(payload)
     return acceptance_rate is not None and acceptance_rate >= DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE
+
+
+def is_canonical_e1_current_gate_data_report(payload: JsonObject, path: Path | None = None) -> bool:
+    if not is_e1_current_dataset_gate_report(payload, path):
+        return False
+    if path is not None and "gate-data" in path.parts:
+        return True
+    outputs = payload.get("outputs")
+    gate_dir = outputs.get("gateDir") if isinstance(outputs, dict) else None
+    return isinstance(gate_dir, str) and "gate-data/" in gate_dir.replace("\\", "/")
 
 
 def is_quality_only_blocking_reason(reason: Any) -> bool:

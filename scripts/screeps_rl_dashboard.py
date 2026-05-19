@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+import screeps_rl_experiment_card as experiment_card
+
 
 JsonObject = dict[str, Any]
 
@@ -101,6 +103,7 @@ TIMESTAMP_KEYS = (
     "lastSeenAt",
 )
 FILENAME_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{4,6}Z)")
+GATE_ID_TIMESTAMP_RE = re.compile(r"gate-(\d{8}T\d{6}Z)")
 PREFLIGHT_FINAL_STATUS_KEYS = {
     "preflight",
     "preflightok",
@@ -228,6 +231,19 @@ def timestamp_from_filename(path: Path) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def timestamp_from_gate_id(payload: JsonObject) -> datetime | None:
+    gate_id = first_text(payload, (("gateId",), ("gate_id",), ("e1Gate", "gateId")))
+    if gate_id is None:
+        return None
+    match = GATE_ID_TIMESTAMP_RE.search(gate_id)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def artifact_timestamp(path: Path, payload: JsonObject) -> datetime:
@@ -1166,6 +1182,9 @@ def extract_gate_info(payload: JsonObject, source_path: Path, source_label: str,
             ("acceptanceRate",),
             ("acceptance_rate",),
             ("latestGateAcceptanceRate",),
+            ("qualityAcceptanceRate",),
+            ("quality_checks", "acceptance_rate"),
+            ("qualityChecks", "acceptanceRate"),
             ("e1Gate", "acceptanceRate"),
         ),
     )
@@ -1189,11 +1208,14 @@ def extract_gate_info(payload: JsonObject, source_path: Path, source_label: str,
         )
         or ("pass" if payload.get("ok") is True else "fail" if payload.get("ok") is False else None)
     )
+    if status not in {"pass", "passed", "ok"} and gate_payload_is_acceptable(payload, source_path):
+        status = "pass"
     reasons = collect_rejection_reasons(payload)
     timestamp = (
         parse_iso_datetime(payload.get("gateCreatedAt"))
         or parse_iso_datetime(payload.get("createdAt"))
         or parse_iso_datetime(payload.get("window"))
+        or timestamp_from_gate_id(payload)
         or artifact_timestamp(source_path, payload)
     )
 
@@ -1213,6 +1235,13 @@ def extract_gate_info(payload: JsonObject, source_path: Path, source_label: str,
         "sourceLabel": source_label,
         "displayPath": safe_display_path(source_path, repo_root),
     }
+
+
+def gate_payload_is_acceptable(payload: JsonObject, source_path: Path) -> bool:
+    try:
+        return experiment_card.is_acceptable_dataset_gate_report(payload, source_path)
+    except experiment_card.CardValidationError:
+        return False
 
 
 def gate_info_from_metrics_observations(artifact: LoadedArtifact, repo_root: Path) -> JsonObject | None:
@@ -1252,7 +1281,17 @@ def discover_gate_infos(
 
     gate_paths = []
     gate_paths.extend(existing_globs(artifact_root / "rl-dataset-gates", ("*/gate_summary.json", "*/gate_report.json")))
-    gate_paths.extend(existing_globs(artifact_root / "rl-control-loop", ("*gate*.json", "*/gate_summary.json", "*/gate_report.json")))
+    gate_paths.extend(
+        existing_globs(
+            artifact_root / "rl-control-loop",
+            (
+                "*/gate_summary.json",
+                "*/gate_report.json",
+                "gate-data/*/gate_summary.json",
+                "gate-data/*/gate_report.json",
+            ),
+        )
+    )
     gate_paths.extend(existing_globs(artifact_root / "screeps-monitor", ("*gate*.json", "*/gate*.json", "*/*/gate*.json")))
 
     for path in gate_paths:
