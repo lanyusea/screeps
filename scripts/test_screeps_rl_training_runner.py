@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import copy
 import json
 import os
 import sys
@@ -507,30 +506,14 @@ class RlTrainingRunnerTest(unittest.TestCase):
             scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
             require_multi_tier_scenario=True,
         )
-        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
-        fixture_summaries = runner.simulator_harness._private_map_fixture_room_summaries(fixture_path)
-        variants_by_id = {variant["id"]: variant for variant in card["strategy_variants"]}
         simulator_results: dict[str, JsonObject] = {}
-        for variant_id, strategy_variant in variants_by_id.items():
-            tick_log = [{"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}}]
-            tick_log.append(copy.deepcopy(tick_log[0]))
-            tick_log[-1]["tick"] = 2
-            for tick_entry in tick_log:
-                runner.simulator_harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
-            activation = runner.simulator_harness.build_multi_tier_policy_activation_evidence(
-                tick_log,
-                strategy_variant,
-                fixture_summaries,
-                anchor_room="E1S1",
-                allow_offline_projection=True,
-            )
-            result = variant_result(variant_id, tick_log)
-            result["metrics"] = runner.simulator_harness.project_multi_tier_policy_activation_metrics(
-                runner.simulator_harness.build_variant_metrics(tick_log),
-                activation,
-            )
-            result["policyActivation"] = activation
-            simulator_results[variant_id] = result
+        for variant in card["strategy_variants"]:
+            variant_id = variant["id"]
+            tick_log = [
+                tick(1, [room("E1S1", energy=100)]),
+                tick(2, [room("E1S1", energy=100)]),
+            ]
+            simulator_results[variant_id] = variant_result(variant_id, tick_log)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -554,6 +537,10 @@ class RlTrainingRunnerTest(unittest.TestCase):
         )
         self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        self.assertEqual(
+            territory_result["metrics"]["objectiveSignal"]["finalRooms"],
+            ["E1S1", "E2S1"],
+        )
         self.assertFalse(report["liveEffect"])
         self.assertFalse(report["officialMmoWrites"])
         self.assertFalse(report["officialMmoWritesAllowed"])
