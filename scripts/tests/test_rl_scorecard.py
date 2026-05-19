@@ -254,6 +254,29 @@ def test_scorecard_ignores_preflight_only_policy_advantage_as_compute(tmp_path: 
         assert "productive_energy" in resources["missingEvidence"]
 
 
+def test_scorecard_preflight_marker_requires_controller_summary_shape() -> None:
+    unrelated_status = {
+        "type": "screeps-rl-training-report",
+        "validation": {
+            "status": {
+                "finalStatus": "preflight_ok",
+                "source": "unrelated schema status",
+            }
+        },
+    }
+    controller_summary = {
+        "type": "screeps-rl-training-report",
+        "controllerSummary": {
+            "finalStatus": "preflight_ok",
+            "instanceId": None,
+            "environmentsRun": 0,
+        },
+    }
+
+    assert not scorecard.preflight_only_compute_payload(unrelated_status)
+    assert scorecard.preflight_only_compute_payload(controller_summary)
+
+
 def test_scorecard_ignores_policy_advantage_without_compute_evidence(tmp_path: Path) -> None:
     baseline = tmp_path / "baseline"
     candidate = tmp_path / "candidate"

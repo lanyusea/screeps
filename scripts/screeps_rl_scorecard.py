@@ -322,7 +322,8 @@ def node_looks_like_controller_summary(node: JsonObject) -> bool:
 
 def preflight_marker_present(payload: JsonObject) -> bool:
     return any(
-        controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
+        node_looks_like_controller_summary(node)
+        and controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
         for node in iter_json_objects(payload)
     )
 
