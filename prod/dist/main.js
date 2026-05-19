@@ -12213,8 +12213,8 @@ var DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES = [
   "extension",
   "container",
   "road",
-  "tower",
   "rampart",
+  "tower",
   "storage"
 ];
 var PRIORITY_STRUCTURE_TYPES = {
@@ -12466,7 +12466,6 @@ function planStorage(colony, result, budgetState, options) {
   }
 }
 function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState, sourceLogisticsStarved, rcl) {
-  var _a;
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   if (!strategyEntry || !strategyParameters) {
@@ -12480,7 +12479,7 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
   if (priorities.length === 0) {
     return false;
   }
-  (_a = options.onStrategyRegistryRuntimeUse) == null ? void 0 : _a.call(options, strategyEntry);
+  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -12497,6 +12496,17 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
     }
   }
   return true;
+}
+function recordStrategyRegistryRuntimeUse(options, strategyEntry) {
+  if (!options.onStrategyRegistryRuntimeUse) {
+    return;
+  }
+  try {
+    options.onStrategyRegistryRuntimeUse(strategyEntry);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`[construction] strategy registry runtime-use hook failed: ${message}`);
+  }
 }
 function runtimeConstructionPlannerPriorityOrder(report, options = {}) {
   const priorities = [];

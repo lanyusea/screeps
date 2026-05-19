@@ -184,6 +184,54 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_STORAGE);
   });
 
+  it('continues runtime construction planning when the audit hook throws', () => {
+    installOpenTerrain();
+    const consoleLog = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const onStrategyRegistryRuntimeUse = jest.fn(() => {
+      throw new Error('audit hook failed');
+    });
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 0,
+      resourceSignalWeight: 30,
+      killSignalWeight: 0,
+      riskPenalty: 0
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_300,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    try {
+      const result = planConstructionForColony(colony, {
+        creeps: makeWorkerCreeps(5),
+        respectRoomEnergyBuffer: false,
+        strategyRegistry,
+        onStrategyRegistryRuntimeUse
+      });
+
+      expect(result.placements[0]).toMatchObject({
+        priority: 'storage',
+        structureType: TEST_GLOBALS.STRUCTURE_STORAGE,
+        result: OK_CODE
+      });
+      expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_STORAGE);
+      expect(onStrategyRegistryRuntimeUse).toHaveBeenCalled();
+      expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('runtime-use hook failed'));
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
+
   it('falls back to legacy construction order when runtime priority lacks creep evidence', () => {
     installOpenTerrain();
     const strategyRegistry = withConstructionPriorityDefaults({
@@ -251,8 +299,12 @@ describe('owned room construction planner', () => {
     });
 
     const containerPlacements = result.placements.filter((placement) => placement.priority === 'container');
+    const roadPlacements = result.placements.filter((placement) => placement.priority === 'road');
     expect(containerPlacements).toHaveLength(1);
+    expect(roadPlacements).toHaveLength(1);
     expect(room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_CONTAINER))
+      .toHaveLength(1);
+    expect(room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_ROAD))
       .toHaveLength(1);
     expect(onStrategyRegistryRuntimeUse).toHaveBeenCalled();
   });

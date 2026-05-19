@@ -158,8 +158,8 @@ const DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES: readonly ConstructionPlannerPrior
   'extension',
   'container',
   'road',
-  'tower',
   'rampart',
+  'tower',
   'storage'
 ];
 
@@ -572,7 +572,7 @@ function planRuntimeStrategyPrioritizedConstruction(
     return false;
   }
 
-  options.onStrategyRegistryRuntimeUse?.(strategyEntry);
+  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -590,6 +590,22 @@ function planRuntimeStrategyPrioritizedConstruction(
   }
 
   return true;
+}
+
+function recordStrategyRegistryRuntimeUse(
+  options: ConstructionPlannerOptions,
+  strategyEntry: StrategyRegistryEntry
+): void {
+  if (!options.onStrategyRegistryRuntimeUse) {
+    return;
+  }
+
+  try {
+    options.onStrategyRegistryRuntimeUse(strategyEntry);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`[construction] strategy registry runtime-use hook failed: ${message}`);
+  }
 }
 
 function runtimeConstructionPlannerPriorityOrder(
