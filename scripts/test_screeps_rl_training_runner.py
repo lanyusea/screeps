@@ -219,7 +219,6 @@ class MockSimulator:
                 if not self.include_runtime_consumption_parameters:
                     result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
                     result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
-                    result["runtimeParameterConsumption"].pop("evidence", None)
                 if self.include_evaluated_parameters:
                     if result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True:
                         result["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
@@ -1946,6 +1945,12 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(
             all(
                 "evaluatedParameters" not in result["runtimeParameterConsumption"]
+                for result in simulator.last_variants
+            )
+        )
+        self.assertTrue(
+            all(
+                "evidence" in result["runtimeParameterConsumption"]
                 for result in simulator.last_variants
             )
         )

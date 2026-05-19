@@ -1607,6 +1607,24 @@ cli:
 
         self.assertEqual(extracted, evidence)
 
+    def test_runtime_parameter_consumption_prefers_matching_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["strategyVariantId"] = "stale-variant"
+        stale["candidatePolicyId"] = "stale-policy"
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        payload = {
+            "ok": True,
+            "candidates": [
+                {"source": "users.memory.rlRuntimePolicyParameters", "value": stale},
+                {"source": "memory.rlRuntimePolicyParameters", "value": matching},
+            ],
+        }
+
+        extracted = harness.find_runtime_parameter_consumption_evidence(payload, injection=injection)
+
+        self.assertEqual(extracted, matching)
+
     def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
@@ -1672,6 +1690,36 @@ cli:
         self.assertEqual(summary["injectedVariantCount"], 1)
         self.assertEqual(summary["consumedVariantCount"], 0)
         self.assertFalse(summary["variants"][0]["runtimeParameterConsumption"])
+
+    def test_runtime_parameter_summary_consumption_boolean_is_existential(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        consumed = harness.apply_runtime_parameter_consumption_to_injection(
+            injection,
+            harness.runtime_parameter_consumption_check(
+                injection,
+                self.runtime_parameter_consumption_evidence(injection),
+            ),
+        )
+        missing = harness.apply_runtime_parameter_consumption_to_injection(
+            injection,
+            harness.runtime_parameter_consumption_check(injection, None),
+        )
+
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v1",
+                "runtimeParameterInjection": consumed,
+            },
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v2",
+                "runtimeParameterInjection": missing,
+            },
+        ])
+
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "partial")
+        self.assertEqual(summary["consumedVariantCount"], 1)
+        self.assertEqual(summary["variantCount"], 2)
 
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (

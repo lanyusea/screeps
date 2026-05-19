@@ -2198,9 +2198,6 @@ def runtime_evaluated_parameter_source(run: JsonObject) -> tuple[str, Any] | Non
         parameters = consumption.get("evaluatedParameters")
         if isinstance(parameters, dict):
             return "runtimeParameterConsumption.evaluatedParameters", parameters
-        evidence = consumption.get("evidence")
-        if isinstance(evidence, dict) and isinstance(evidence.get("parameters"), dict):
-            return "runtimeParameterConsumption.evidence.parameters", evidence.get("parameters")
 
     nested_injection = run.get("runtimeParameterInjection")
     if isinstance(nested_injection, dict):

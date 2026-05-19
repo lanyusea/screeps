@@ -750,6 +750,7 @@ def collect_runtime_parameter_consumption_evidence(
     compose: Sequence[str] | None,
     cfg: Any,
     token: str | None,
+    injection: JsonObject | None = None,
 ) -> tuple[JsonObject | None, list[str]]:
     errors: list[str] = []
     collectors = [
@@ -758,7 +759,7 @@ def collect_runtime_parameter_consumption_evidence(
     ]
     for source, collector in collectors:
         try:
-            evidence = collector(smoke, compose, cfg, token)
+            evidence = collector(smoke, compose, cfg, token, injection)
         except Exception as exc:  # noqa: BLE001 - missing evidence blocks eligibility but should not fail the run
             errors.append(f"{source} failed: {_safe_text(exc, 240)}")
             continue
@@ -774,6 +775,7 @@ def _collect_http_runtime_parameter_consumption_evidence(
     compose: Sequence[str] | None,
     cfg: Any,
     token: str | None,
+    injection: JsonObject | None = None,
 ) -> JsonObject | None:
     _ = compose
     if token is None:
@@ -788,7 +790,7 @@ def _collect_http_runtime_parameter_consumption_evidence(
     )
     if result.status != 200:
         return None
-    return find_runtime_parameter_consumption_evidence(result.payload)
+    return find_runtime_parameter_consumption_evidence(result.payload, injection=injection)
 
 
 def _collect_mongo_runtime_parameter_consumption_evidence(
@@ -796,6 +798,7 @@ def _collect_mongo_runtime_parameter_consumption_evidence(
     compose: Sequence[str] | None,
     cfg: Any,
     token: str | None,
+    injection: JsonObject | None = None,
 ) -> JsonObject | None:
     _ = token
     if compose is None:
@@ -848,18 +851,30 @@ print(JSON.stringify({{ok: true, candidates}}));
         payload = json.loads(str(result.get("output_excerpt", "")).strip().splitlines()[-1])
     except (IndexError, json.JSONDecodeError):
         return None
-    return find_runtime_parameter_consumption_evidence(payload)
+    return find_runtime_parameter_consumption_evidence(payload, injection=injection)
 
 
-def find_runtime_parameter_consumption_evidence(payload: Any) -> JsonObject | None:
+def find_runtime_parameter_consumption_evidence(
+    payload: Any,
+    *,
+    injection: JsonObject | None = None,
+) -> JsonObject | None:
+    fallback: JsonObject | None = None
     for candidate in iter_runtime_parameter_consumption_candidates(payload):
         if (
             isinstance(candidate, dict)
             and candidate.get("type") == RUNTIME_PARAMETER_CONSUMPTION_TYPE
             and candidate.get("consumerMarker") == RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER
         ):
-            return copy.deepcopy(candidate)
-    return None
+            copied = copy.deepcopy(candidate)
+            if (
+                injection is not None
+                and runtime_parameter_consumption_validation_error(injection, copied) is None
+            ):
+                return copied
+            if fallback is None:
+                fallback = copied
+    return fallback
 
 
 def iter_runtime_parameter_consumption_candidates(payload: Any, depth: int = 0) -> Iterable[Any]:
@@ -2124,7 +2139,7 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
         "status": status,
         "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
         "runtimeParameterInjection": injected > 0,
-        "runtimeParameterConsumption": bool(rows) and consumed == len(rows),
+        "runtimeParameterConsumption": consumed > 0,
         "runtimeParameterConsumptionStatus": consumption_status,
         "candidateParameterScope": scope,
         "injectedVariantCount": injected,
@@ -3956,6 +3971,7 @@ def _run_variant(
                 compose,
                 cfg,
                 token,
+                runtime_parameter_injection,
             )
             evidence_errors.extend(
                 f"runtime parameter consumption evidence failed: {error}" for error in consumption_errors
