@@ -399,7 +399,14 @@ def iter_json_objects(value: Any) -> Iterable[JsonObject]:
 
 def value_has_reference(value: Any) -> bool:
     if isinstance(value, str):
-        return bool(value)
+        text = value.strip()
+        if not text:
+            return False
+        try:
+            parsed = float(text)
+        except ValueError:
+            return True
+        return math.isfinite(parsed) and parsed > 0
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value > 0
     if isinstance(value, dict):

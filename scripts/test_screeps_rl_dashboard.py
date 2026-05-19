@@ -94,6 +94,15 @@ def loaded_artifact(path: Path, payload: JsonObject) -> dashboard.LoadedArtifact
 
 
 class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
+    def test_value_has_reference_parses_numeric_strings(self) -> None:
+        self.assertFalse(dashboard.value_has_reference("0"))
+        self.assertFalse(dashboard.value_has_reference("0.0"))
+        self.assertFalse(dashboard.value_has_reference(["0"]))
+        self.assertFalse(dashboard.value_has_reference({"ids": ["0", {"fallback": "0.0"}]}))
+        self.assertTrue(dashboard.value_has_reference("1"))
+        self.assertTrue(dashboard.value_has_reference(["0", "2.5"]))
+        self.assertTrue(dashboard.value_has_reference("training-report-a"))
+
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1187,6 +1196,59 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertNotIn("Preflight-only", report["policy"]["computeEvidence"]["blocker"])
         self.assertEqual(lanes["E3"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
+    def test_zero_string_policy_report_ids_do_not_confirm_compute(self) -> None:
+        cases: tuple[tuple[str, Any], ...] = (
+            ("string-zero", "0"),
+            ("string-float-zero", "0.0"),
+            ("list-string-zero", ["0"]),
+            ("nested-string-zero", {"ids": ["0", {"fallback": "0.0"}]}),
+        )
+        for case, training_report_ids in cases:
+            with self.subTest(case=case):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    artifact_root = root / "runtime-artifacts"
+                    write_json(
+                        artifact_root / "rl-control-loop" / "policy-advantage.json",
+                        {
+                            "type": "screeps-rl-policy-online-advantage-report",
+                            "onlineUtilityStatus": "PROVEN",
+                            "candidatePolicyId": "candidate",
+                            "baselinePolicyId": "incumbent",
+                            "trainingReportIds": training_report_ids,
+                            "metricsByCategory": {
+                                "resources": {
+                                    "status": "ADVANTAGE",
+                                    "candidateValue": 10,
+                                    "baselineValue": 5,
+                                    "delta": 5,
+                                },
+                            },
+                            "controllerSummary": {
+                                "finalStatus": "preflight_ok",
+                                "instanceId": None,
+                                "environmentsRun": 0,
+                            },
+                            "createdAt": "2026-05-19T00:02:00Z",
+                        },
+                    )
+                    report = dashboard.build_dashboard(
+                        repo_root=root,
+                        artifact_root=artifact_root,
+                        generated_at="2026-05-19T00:03:00Z",
+                    )
+
+                lanes = {item["lane"]: item for item in report["lanes"]}
+                self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
+                self.assertEqual(report["policy"]["status"], "BLOCKED")
+                self.assertFalse(report["policy"]["hasComputeEvidence"])
+                self.assertEqual(report["policy"]["metrics"][0]["rawStatus"], "ADVANTAGE")
+                self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
+                self.assertEqual(report["policy"]["computeEvidence"]["classification"], "PREFLIGHT_ONLY_VALIDATION")
+                self.assertEqual(report["policy"]["computeEvidence"]["signals"], [])
+                self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+                self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 
     def test_weak_policy_counters_do_not_unblock_policy_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
