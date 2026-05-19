@@ -812,6 +812,202 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertFalse(selected["gate_report_ok"])
         self.assertTrue(selected["gate_report_path"].endswith("rl-control-loop/gate-20260517T181846Z-postmerge1176/gate_report.json"))
 
+    def test_loop_a_local_fallback_selects_latest_full_e1_gate_data_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-93bf1aa18b62-shadow" / "gate_report.json"
+            wrong_stream_gate = runtime_root / "rl-control-loop" / "gate-20260519T081500Z" / "gate_report.json"
+            gate_id = "gate-20260519T074023Z"
+            dataset_run_id = "rl-eae3fd9655bf"
+            control_loop_gate = runtime_root / "rl-control-loop" / gate_id / "gate_report.json"
+            gate_data_gate = runtime_root / "rl-control-loop" / "gate-data" / dataset_run_id / "gate_report.json"
+            output_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+            stale_gate.parent.mkdir(parents=True)
+            wrong_stream_gate.parent.mkdir(parents=True)
+            control_loop_gate.parent.mkdir(parents=True)
+            gate_data_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "rl-gate-93bf1aa18b62-shadow",
+                        "createdAt": "2026-05-14T04:22:20Z",
+                        "dataset": {"runId": "rl-stale-hash", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            wrong_stream_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "gate-20260519T081500Z",
+                        "createdAt": "2026-05-19T08:15:00Z",
+                        "dataset": {"runId": "rl-newer-without-quality-counts", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            gate_payload = {
+                "type": card_helper.SOURCE_GATE_TYPE,
+                "ok": True,
+                "gateId": gate_id,
+                "createdAt": "2026-05-19T07:40:23Z",
+                "dataset": {
+                    "ok": True,
+                    "runId": dataset_run_id,
+                    "sampleCount": 200,
+                    "outDir": f"gate-data/{dataset_run_id}",
+                },
+                "datasetGate": {"status": "pass", "sampleCount": 200},
+                "quality_checks": {
+                    "status": "pass",
+                    "samples_accepted": 200,
+                    "samples_rejected": 0,
+                    "acceptance_rate": 1.0,
+                },
+                "shadowEvaluation": {"status": "pass", "ok": True},
+            }
+            control_loop_gate.write_text(json.dumps(gate_payload), encoding="utf-8")
+            gate_data_gate.write_text(json.dumps(gate_payload), encoding="utf-8")
+            os.utime(control_loop_gate, (1_779_171_623, 1_779_171_623))
+            os.utime(gate_data_gate, (1_779_171_624, 1_779_171_624))
+
+            selected = card_helper.select_accepted_dataset_gate(runtime_root)
+            stdout = io.StringIO()
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--dataset-gate-root",
+                    str(runtime_root),
+                    "--code-commit",
+                    "8" * 40,
+                    "--created-at",
+                    "2026-05-19T08:20:00Z",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+            selected_stdout = io.StringIO()
+            selected_exit_code = card_helper.main(
+                [
+                    "--select-loop-a-card",
+                    "--card-dir",
+                    str(output_path.parent),
+                    "--training-report-dir",
+                    str(root / "runtime-artifacts" / "rl-training"),
+                ],
+                stdout=selected_stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            selected_card = json.loads(selected_stdout.getvalue())
+
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], dataset_run_id)
+        self.assertTrue(selected["gate_report_path"].endswith(f"rl-control-loop/gate-data/{dataset_run_id}/gate_report.json"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+        self.assertTrue(summary["source_gate"]["gate_report_path"].endswith(f"rl-control-loop/gate-data/{dataset_run_id}/gate_report.json"))
+        self.assertEqual(generated["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["status"], "shadow")
+        self.assertFalse(generated["liveEffect"])
+        self.assertFalse(generated["officialMmoWrites"])
+        self.assertFalse(generated["officialMmoWritesAllowed"])
+        self.assertTrue(generated["conservative_actions_only"])
+        self.assertTrue(generated["ood_rejection"])
+        self.assertFalse(generated["safety"]["liveEffect"])
+        self.assertFalse(generated["safety"]["officialMmoWrites"])
+        self.assertFalse(generated["safety"]["officialMmoWritesAllowed"])
+        self.assertTrue(generated["safety"]["conservative_actions_only"])
+        self.assertTrue(generated["safety"]["ood_rejection"])
+        self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
+        self.assertEqual(selected_exit_code, 0)
+        self.assertEqual(selected_card["card_path"], str(output_path))
+
+    def test_loop_a_local_fallback_without_full_e1_gate_stays_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-stale" / "gate_report.json"
+            partial_gate = runtime_root / "rl-control-loop" / "gate-20260519T081500Z" / "gate_report.json"
+            output_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+            stale_gate.parent.mkdir(parents=True)
+            partial_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "rl-gate-stale",
+                        "createdAt": "2026-05-14T04:22:20Z",
+                        "dataset": {"runId": "rl-stale-gate"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            partial_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "gate-20260519T081500Z",
+                        "createdAt": "2026-05-19T08:15:00Z",
+                        "dataset": {"runId": "rl-partial-e1", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "fail",
+                            "samples_accepted": 199,
+                            "samples_rejected": 1,
+                            "acceptance_rate": 0.995,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--dataset-gate-root",
+                    str(runtime_root),
+                    "--code-commit",
+                    "8" * 40,
+                    "--created-at",
+                    "2026-05-19T08:20:00Z",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=io.StringIO(),
+                stderr=stderr,
+                repo_root=REPO_ROOT,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(output_path.exists())
+        self.assertIn("no accepted dataset gate", stderr.getvalue())
+
     def test_latest_accepted_dataset_rejects_degraded_non_postmerge_gate(self) -> None:
         payload = {
             "type": card_helper.SOURCE_GATE_TYPE,
