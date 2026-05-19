@@ -1169,8 +1169,19 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.training_approach, "policy_gradient")
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
+        self.assertFalse(args.run_id.startswith("tencent-single-"))
         self.assertEqual(controller.final_status, "preflight_ok")
         self.assertEqual(summary["finalStatus"], "preflight_ok")
+        self.assertEqual(summary["execution"]["command"], "preflight")
+        self.assertEqual(summary["execution"]["mode"], "preflight")
+        self.assertTrue(summary["execution"]["preflightOnly"])
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["execution"]["remoteTrainingAttempted"])
+        self.assertFalse(summary["execution"]["trainingReportProduced"])
+        self.assertEqual(summary["execution"]["environmentsRun"], 0)
+        self.assertEqual(summary["inputs"]["command"], "preflight")
+        self.assertTrue(summary["inputs"]["preflightOnly"])
         self.assertEqual(summary["inputs"]["trainingApproach"], "policy_gradient")
         self.assertEqual(summary["inputs"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(summary["inputs"]["requireMultiTierScenario"])
@@ -1182,6 +1193,25 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["evidence"]["count"], 0)
         self.assertIn("experiment_card", events)
         self.assertNotIn("scale_up", events)
+
+    def test_no_arg_run_single_defaults_to_multi_tier_policy_gradient_compute_mode(self) -> None:
+        args = runner.parse_cli_args(["run-single"])
+
+        self.assertEqual(args.command, "run-single")
+        self.assertFalse(args.preflight_only)
+        self.assertTrue(args.run_id.startswith("tencent-single-"))
+        self.assertEqual(args.training_approach, "policy_gradient")
+        self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
+        self.assertTrue(args.require_multi_tier_scenario)
+        self.assertEqual(runner.effective_training_ticks(args), runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+
+    def test_preflight_command_uses_preflight_run_id_prefix(self) -> None:
+        args = runner.parse_cli_args(["preflight"])
+
+        self.assertEqual(args.command, "preflight")
+        self.assertTrue(args.preflight_only)
+        self.assertTrue(args.run_id.startswith("tencent-preflight-"))
+        self.assertFalse(args.run_id.startswith("tencent-single-"))
 
     def test_cli_rejects_abbreviated_training_approach_option(self) -> None:
         with mock.patch("sys.stderr", new=io.StringIO()):
@@ -1264,6 +1294,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.final_status, "preflight_ok")
         self.assertEqual(summary["inputs"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(summary["inputs"]["requireMultiTierScenario"])
+        self.assertEqual(summary["execution"]["mode"], "preflight")
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["trainingReportProduced"])
         self.assertFalse(guard["blocked"])
         self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(guard["currentLaunch"]["requireMultiTierScenario"])
@@ -1272,6 +1305,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
         self.assertIn("experiment_card", events)
         self.assertNotIn("scale_up", events)
+        self.assertNotIn("bootstrap", events)
+        self.assertNotIn("remote_training", events)
 
     def test_preflight_repeat_launch_guard_writes_skip_artifact_without_remote_side_effects(self) -> None:
         events: list[str] = []
@@ -1320,6 +1355,126 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(summary["finalStatus"], runner.E1S1_REPEAT_GUARD_FINAL_STATUS)
         self.assertFalse(summary["safety"]["scaleDownAttempted"])
         self.assertEqual(summary["outputs"]["launchGuard"]["status"], "blocked")
+        self.assertEqual(summary["execution"]["mode"], "preflight")
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+
+    def test_multi_tier_run_single_proceeds_past_preflight_into_mocked_compute_path(self) -> None:
+        events: list[str] = []
+
+        class FakeController(runner.Controller):
+            def ensure_map_present(self) -> None:
+                events.append("map")
+
+            def ensure_dist_present(self) -> None:
+                events.append("dist")
+
+            def run_billing_guard(self) -> None:
+                events.append("billing")
+
+            def verify_security_group(self) -> None:
+                events.append("security_group")
+
+            def generate_experiment_card(self) -> None:
+                events.append("experiment_card")
+
+            def scale_up_and_wait(self) -> None:
+                events.append("scale_up")
+                self.scaled_up = True
+                self.instance_id = "ins-test"
+                self.public_ip = "203.0.113.10"
+                self.record_step("scale_up", 100.0, True, desiredCapacity=1)
+
+            def verify_worker_security(self) -> None:
+                events.append("worker_security")
+
+            def bootstrap_worker(self) -> None:
+                events.append("bootstrap")
+
+            def transfer_repo_bundle(self) -> None:
+                events.append("repo_bundle")
+
+            def transfer_secret_env(self) -> None:
+                events.append("secret_env")
+
+            def run_remote_training(self) -> None:
+                events.append("remote_training")
+                self.record_step("remote_training", 101.0, True, reportId=self.run_id)
+
+            def collect_remote_artifacts(self) -> None:
+                events.append("collect_artifacts")
+
+            def verify_remote_training_report(self) -> None:
+                events.append("verify_training_report")
+                self.result["trainingReport"] = {
+                    "path": str(self.artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{self.run_id}.json"),
+                    "reportId": self.run_id,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "artifactCount": 5,
+                    "scaleValidation": {
+                        "ok": True,
+                        "totalEnvironments": 5,
+                        "successfulEnvironments": 5,
+                        "minimumSuccessfulEnvironments": 4,
+                    },
+                }
+
+            def scale_down(self) -> None:
+                events.append("scale_down")
+                self.record_step("scale_down", 102.0, True, desiredCapacity=0)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+            artifact_dir = artifact_root / "new-run"
+            controller = FakeController(args=args, run_id=args.run_id, artifact_dir=artifact_dir)
+
+            with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+                controller.run()
+
+            guard = json.loads((artifact_dir / "launch_guard.json").read_text(encoding="utf-8"))
+            summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertFalse(args.preflight_only)
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["finalStatus"], "completed")
+        self.assertNotEqual(summary["finalStatus"], "preflight_ok")
+        self.assertEqual(summary["inputs"]["command"], "run-single")
+        self.assertFalse(summary["inputs"]["preflightOnly"])
+        self.assertEqual(summary["inputs"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(summary["execution"]["command"], "run-single")
+        self.assertEqual(summary["execution"]["mode"], "compute")
+        self.assertFalse(summary["execution"]["preflightOnly"])
+        self.assertTrue(summary["execution"]["computeAttempted"])
+        self.assertTrue(summary["execution"]["scaleOutAttempted"])
+        self.assertTrue(summary["execution"]["remoteTrainingAttempted"])
+        self.assertTrue(summary["execution"]["trainingReportProduced"])
+        self.assertEqual(summary["execution"]["trainingReportId"], "new-run")
+        self.assertEqual(summary["execution"]["artifactCount"], 5)
+        self.assertEqual(summary["execution"]["environmentsRun"], 5)
+        self.assertEqual(summary["instanceId"], "ins-test")
+        self.assertIn("scale_up", events)
+        self.assertIn("bootstrap", events)
+        self.assertIn("remote_training", events)
+        self.assertIn("verify_training_report", events)
+        self.assertLess(events.index("experiment_card"), events.index("scale_up"))
 
     def test_static_validation_accepts_bounded_multi_worker_scale_proof(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
