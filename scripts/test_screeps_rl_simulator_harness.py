@@ -1272,6 +1272,85 @@ cli:
         self.assertTrue(activation["observedEvidence"]["hostileCountReduced"])
         self.assertFalse(activation["observedEvidence"]["fixtureGeneratedRoomState"])
 
+    def test_multi_tier_policy_activation_projects_offline_hostile_engagement_metrics(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [{"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        before_tick_log = copy.deepcopy(tick_log)
+        base_metrics = harness.build_variant_metrics(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+            allow_offline_projection=True,
+        )
+        projected_metrics = harness.project_multi_tier_policy_activation_metrics(base_metrics, activation)
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["executionAction"], "engage-hostiles")
+        self.assertEqual(activation["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertEqual(activation["projectedEvidence"]["projectedHostileKills"], 1)
+        self.assertEqual(projected_metrics["hostileKills"], 1)
+        self.assertEqual(projected_metrics["combat"]["hostileKills"], 1)
+        self.assertEqual(projected_metrics["combatDelta"], 1)
+        self.assertEqual(projected_metrics["policyActivation"]["targetRoom"], "E2S1")
+        self.assertEqual(tick_log, before_tick_log)
+        self.assertEqual(base_metrics["hostileKills"], 0)
+        self.assertFalse(activation["safety"]["liveEffect"])
+        self.assertFalse(activation["safety"]["officialMmoWrites"])
+        self.assertFalse(activation["safety"]["officialMmoWritesAllowed"])
+
+    def test_multi_tier_policy_activation_projection_preserves_explicit_zero_metrics(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "engage-hostiles",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "targetRoom": "E2S1",
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "projectedHostileKills": 1,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combat": {
+                "hostileKills": 4,
+                "ownLosses": 3,
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["hostileKills"], 1)
+        self.assertEqual(projected["ownLosses"], 0)
+        self.assertEqual(projected["combat"]["hostileKills"], 1)
+        self.assertEqual(projected["combat"]["ownLosses"], 0)
+        self.assertEqual(projected["combatDelta"], 1)
+
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)

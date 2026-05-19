@@ -497,6 +497,175 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(proof["passingVariants"], [variant_ids[0]])
         self.assertNotIn("blocker", proof)
 
+    def test_multi_tier_activation_proof_passes_with_offline_policy_activation_projection(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-projected-activation",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:26:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        simulator_results: dict[str, JsonObject] = {}
+        for variant in card["strategy_variants"]:
+            variant_id = variant["id"]
+            tick_log = [
+                tick(1, [room("E1S1", energy=100)]),
+                tick(2, [room("E1S1", energy=100)]),
+            ]
+            simulator_results[variant_id] = variant_result(variant_id, tick_log)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-projected-activation",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        self.assertTrue(proof["ok"])
+        self.assertIn("construction-priority.pg.territory-seed.v1", proof["passingVariants"])
+        territory_result = next(
+            result
+            for result in report["variantResults"]
+            if result["variantId"] == "construction-priority.pg.territory-seed.v1"
+        )
+        self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
+        self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        self.assertEqual(
+            territory_result["metrics"]["objectiveSignal"]["finalRooms"],
+            ["E1S1", "E2S1"],
+        )
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
+
+    def test_multi_tier_activation_projection_reconstructs_metrics_only_runs(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-projected-metrics",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:27:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        simulator_results: dict[str, JsonObject] = {}
+        for variant in card["strategy_variants"]:
+            variant_id = variant["id"]
+            result = variant_result(
+                variant_id,
+                [
+                    tick(1, [room("E1S1", energy=100)]),
+                    tick(2, [room("E1S1", energy=100)]),
+                ],
+            )
+            result["metrics"] = {"territoryDelta": 0, "hostileKills": 0, "ownLosses": 0}
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-projected-metrics",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        territory_result = next(
+            result
+            for result in report["variantResults"]
+            if result["variantId"] == "construction-priority.pg.territory-seed.v1"
+        )
+        self.assertEqual(territory_result["metrics"]["kills"]["hostileKills"], 1)
+        self.assertEqual(territory_result["metrics"]["objectiveSignal"]["finalRooms"], ["E1S1", "E2S1"])
+        self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+
+    def test_multi_tier_fixture_loader_rejects_map_source_mismatch(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-map-mismatch",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:28:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        card["simulation"]["map_source_file"] = "scripts/fixtures/rl/not-the-same.map.json"
+        config = runner.simulation_config_from_card(card)
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "multi-tier scenario evidence.map_source_file must match simulation.map_source_file",
+        ):
+            runner.multi_tier_policy_activation_fixture_room_summaries(card["scenario"], config)
+
+    def test_multi_tier_report_does_not_load_fixture_map_when_existing_payload_is_complete(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-existing-payload",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:29:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        missing_map = "scripts/fixtures/rl/missing-multi-tier.map.json"
+        card["simulation"]["map_source_file"] = missing_map
+        card["scenario"]["evidence"]["map_source_file"] = missing_map
+        variants = runner.load_strategy_variants(card)
+        simulator_run_variants: list[JsonObject] = []
+        for variant in variants:
+            run = variant_result(variant.id, [])
+            run["policyActivation"] = {
+                "type": "screeps-rl-multi-tier-policy-activation",
+                "strategyVariantId": variant.id,
+                "objectiveSignalObserved": True,
+                "objectiveSignalSource": "simulator_payload",
+                "safety": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+            run["metrics"] = {"territoryDelta": 0, "hostileKills": 1, "ownLosses": 0}
+            simulator_run_variants.append(run)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with mock.patch.object(
+                runner.simulator_harness,
+                "_private_map_fixture_room_summaries",
+                side_effect=AssertionError("fixture map should be loaded lazily"),
+            ):
+                report = runner.build_training_report(
+                    card=card,
+                    card_path=root / "card.json",
+                    variants=variants,
+                    config=runner.simulation_config_from_card(card),
+                    simulator_runs=[
+                        {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": "existing-payload",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": simulator_run_variants,
+                        }
+                    ],
+                    reward_options=runner.reward_options_from_card(card),
+                    report_id="multi-tier-existing-payload",
+                    generated_at="2026-05-18T10:29:30Z",
+                )
+
+        self.assertEqual(report["artifactCount"], len(variants))
+        self.assertEqual(report["activationProof"]["fixtureEvidence"]["mapSourceFile"], missing_map)
+
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
         file_secret = "file-secret-token-123456"

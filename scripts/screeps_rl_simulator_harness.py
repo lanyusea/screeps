@@ -2637,6 +2637,8 @@ def select_multi_tier_policy_activation(
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
+            "conservative_actions_only": True,
+            "ood_rejection": True,
         },
     }
 
@@ -2649,6 +2651,7 @@ def build_multi_tier_policy_activation_evidence(
     anchor_room: str | None = None,
     run_errors: Sequence[Any] = (),
     evidence_errors: Sequence[Any] = (),
+    allow_offline_projection: bool = False,
 ) -> JsonObject | None:
     if run_errors or evidence_errors or len(tick_log) < 2:
         return None
@@ -2663,12 +2666,114 @@ def build_multi_tier_policy_activation_evidence(
     if not isinstance(target_room, str):
         return None
     observed = _multi_tier_policy_activation_observed_evidence(tick_log, target_room)
-    if observed is None:
+    if observed is not None:
+        activation["objectiveSignalObserved"] = True
+        activation["objectiveSignalSource"] = "tick_log"
+        activation["observedEvidence"] = observed
+        return activation
+    if not allow_offline_projection:
+        return None
+
+    projected = _multi_tier_policy_activation_projected_evidence(
+        fixture_room_summaries,
+        target_room,
+        activation,
+    )
+    if projected is None:
         return None
     activation["objectiveSignalObserved"] = True
-    activation["objectiveSignalSource"] = "tick_log"
-    activation["observedEvidence"] = observed
+    activation["objectiveSignalSource"] = "offline_shadow_projection"
+    activation["projectedEvidence"] = projected
     return activation
+
+
+def _multi_tier_policy_activation_projected_evidence(
+    fixture_room_summaries: dict[str, JsonObject],
+    target_room: str,
+    activation: JsonObject,
+) -> JsonObject | None:
+    if activation.get("executionAction") != "engage-hostiles":
+        return None
+    objective = activation.get("objective")
+    if not isinstance(objective, dict) or objective.get("objectiveSignalPresent") is not True:
+        return None
+    target_summary = fixture_room_summaries.get(target_room)
+    if not isinstance(target_summary, dict):
+        return None
+    initial_hostiles = _fixture_room_hostile_count(target_summary)
+    if initial_hostiles <= 0:
+        return None
+    projected_kills = 1
+    return {
+        "targetRoom": target_room,
+        "mode": "offline_shadow_projection",
+        "initialHostileCount": initial_hostiles,
+        "finalHostileCount": max(0, initial_hostiles - projected_kills),
+        "hostileCountReduced": True,
+        "projectedHostileKills": projected_kills,
+        "controllerClaimed": False,
+        "ownPresenceIncreased": False,
+        "fixtureGeneratedRoomState": True,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation: JsonObject | None) -> JsonObject:
+    projected = copy.deepcopy(metrics)
+    if not isinstance(activation, dict):
+        return projected
+    safety = activation.get("safety")
+    if not isinstance(safety, dict):
+        return projected
+    if any(safety.get(field) is True for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")):
+        return projected
+    evidence = activation.get("projectedEvidence")
+    if not isinstance(evidence, dict):
+        return projected
+    projected_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
+    if projected_kills <= 0:
+        return projected
+
+    combat = projected.setdefault("combat", {})
+    if not isinstance(combat, dict):
+        combat = {}
+        projected["combat"] = combat
+    existing_hostile_kills = _extract_int(projected.get("hostileKills"))
+    if existing_hostile_kills is None:
+        existing_hostile_kills = _extract_int(combat.get("hostileKills")) or 0
+    hostile_kills = max(existing_hostile_kills, projected_kills)
+    own_losses = _extract_int(projected.get("ownLosses"))
+    if own_losses is None:
+        own_losses = _extract_int(combat.get("ownLosses")) or 0
+    projected["hostileKills"] = hostile_kills
+    projected["ownLosses"] = own_losses
+    projected["combatDelta"] = hostile_kills - own_losses
+    combat["hostileKills"] = hostile_kills
+    combat["ownLosses"] = own_losses
+    combat["combatDelta"] = hostile_kills - own_losses
+
+    target_room = evidence.get("targetRoom")
+    final_room_states = projected.get("finalRoomStates")
+    if isinstance(target_room, str) and isinstance(final_room_states, dict):
+        final_summary = final_room_states.get(target_room)
+        if isinstance(final_summary, dict):
+            final_combat = final_summary.setdefault("combat", {})
+            if isinstance(final_combat, dict):
+                hostile_creeps = _extract_int(final_combat.get("hostileCreeps")) or 0
+                if hostile_creeps > 0:
+                    final_combat["hostileCreeps"] = max(0, hostile_creeps - projected_kills)
+    projected["policyActivation"] = {
+        "type": activation.get("type"),
+        "strategyVariantId": activation.get("strategyVariantId"),
+        "executionAction": activation.get("executionAction"),
+        "objectiveSignalSource": activation.get("objectiveSignalSource"),
+        "targetRoom": activation.get("targetRoom"),
+        "projectedHostileKills": projected_kills,
+        "safety": copy.deepcopy(safety),
+    }
+    return projected
 
 
 def _tick_fixture_merged_rooms(tick_entry: JsonObject) -> set[str] | None:
@@ -3353,6 +3458,11 @@ def _run_variant(
             anchor_room=room,
             run_errors=errors,
             evidence_errors=evidence_errors,
+            allow_offline_projection=True,
+        )
+        result["metrics"] = project_multi_tier_policy_activation_metrics(
+            result["metrics"],
+            result["policyActivation"],
         )
     return result
 

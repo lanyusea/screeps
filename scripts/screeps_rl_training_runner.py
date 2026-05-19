@@ -58,6 +58,8 @@ STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 JsonObject = dict[str, Any]
 SimulatorRunner = Callable[..., JsonObject]
+MultiTierPolicyActivationFixtureLoader = Callable[[], tuple[dict[str, JsonObject], str | None]]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrainingCardError(ValueError):
@@ -983,8 +985,15 @@ def build_training_report(
     generated_at: str,
 ) -> JsonObject:
     per_variant_runs = collect_variant_runs(simulator_runs, [variant.id for variant in variants])
+    scenario = scenario_metadata_from_card(card)
+    activation_fixture_loader = multi_tier_policy_activation_fixture_loader(scenario, config)
     results = [
-        summarize_variant(variant, per_variant_runs.get(variant.id, []), reward_options)
+        summarize_variant(
+            variant,
+            per_variant_runs.get(variant.id, []),
+            reward_options,
+            multi_tier_fixture_loader=activation_fixture_loader,
+        )
         for variant in variants
     ]
     scored_results = [result for result in results if result["sampleCount"] > 0]
@@ -1001,7 +1010,6 @@ def build_training_report(
     warnings = build_report_warnings(results, simulator_runs)
     scale_validation = build_scale_validation_summary(simulator_runs, config)
     policy_gradient = policy_gradient_metadata_from_card(card)
-    scenario = scenario_metadata_from_card(card)
     if (
         policy_gradient is not None
         and scenario is not None
@@ -1892,6 +1900,75 @@ def collect_variant_runs(
     return collected
 
 
+def multi_tier_policy_activation_fixture_room_summaries(
+    scenario: JsonObject | None,
+    config: SimulationConfig,
+) -> dict[str, JsonObject]:
+    map_source_file = multi_tier_policy_activation_fixture_map_source_file(scenario, config)
+    if map_source_file is None:
+        return {}
+    return simulator_harness._private_map_fixture_room_summaries(map_source_file)
+
+
+def multi_tier_policy_activation_fixture_loader(
+    scenario: JsonObject | None,
+    config: SimulationConfig,
+) -> MultiTierPolicyActivationFixtureLoader | None:
+    map_source_file = multi_tier_policy_activation_fixture_map_source_file(scenario, config)
+    if map_source_file is None:
+        return None
+    cached: tuple[dict[str, JsonObject], str | None] | None = None
+
+    def load() -> tuple[dict[str, JsonObject], str | None]:
+        nonlocal cached
+        if cached is None:
+            cached = (
+                simulator_harness._private_map_fixture_room_summaries(map_source_file),
+                multi_tier_policy_activation_anchor_room(scenario, config),
+            )
+        return cached
+
+    return load
+
+
+def multi_tier_policy_activation_fixture_map_source_file(
+    scenario: JsonObject | None,
+    config: SimulationConfig,
+) -> Path | None:
+    if not scenario_supports_multi_tier_policy_comparison(scenario):
+        return None
+    config_map_source = resolve_multi_tier_map_source_path(config.map_source_file)
+    evidence = scenario.get("evidence") if isinstance(scenario, dict) else None
+    evidence_map_source_text = None
+    if isinstance(evidence, dict):
+        evidence_map_source_text = text_or_none(evidence.get("map_source_file")) or text_or_none(evidence.get("mapSourceFile"))
+    if evidence_map_source_text is None:
+        return config_map_source
+    evidence_map_source = resolve_multi_tier_map_source_path(Path(evidence_map_source_text))
+    if evidence_map_source.resolve(strict=False) != config_map_source.resolve(strict=False):
+        raise TrainingCardError("multi-tier scenario evidence.map_source_file must match simulation.map_source_file")
+    return evidence_map_source
+
+
+def resolve_multi_tier_map_source_path(map_source_file: Path) -> Path:
+    expanded = map_source_file.expanduser()
+    if expanded.is_absolute():
+        return expanded
+    return REPO_ROOT / expanded
+
+
+def multi_tier_policy_activation_anchor_room(
+    scenario: JsonObject | None,
+    config: SimulationConfig,
+) -> str | None:
+    evidence = scenario.get("evidence") if isinstance(scenario, dict) else None
+    if isinstance(evidence, dict):
+        anchor_room = text_or_none(evidence.get("anchor_room")) or text_or_none(evidence.get("anchorRoom"))
+        if anchor_room is not None:
+            return anchor_room
+    return config.room
+
+
 def simulator_run_label(run: JsonObject, run_index: int) -> str:
     run_id = run.get("runId")
     if isinstance(run_id, str) and run_id:
@@ -1918,11 +1995,22 @@ def summarize_variant(
     variant: StrategyVariant,
     runs: Sequence[JsonObject],
     reward_options: JsonObject,
+    *,
+    multi_tier_fixture_room_summaries: dict[str, JsonObject] | None = None,
+    multi_tier_anchor_room: str | None = None,
+    multi_tier_fixture_loader: MultiTierPolicyActivationFixtureLoader | None = None,
 ) -> JsonObject:
     run_metrics_by_attempt: list[JsonObject | None] = []
     for run in runs:
         if run.get("ok") is True:
-            run_metrics_by_attempt.append(compute_run_metrics(run, reward_options))
+            finalized_run = finalize_multi_tier_policy_activation_run(
+                run,
+                variant=variant,
+                fixture_room_summaries=multi_tier_fixture_room_summaries,
+                anchor_room=multi_tier_anchor_room,
+                fixture_loader=multi_tier_fixture_loader,
+            )
+            run_metrics_by_attempt.append(compute_run_metrics(finalized_run, reward_options))
         else:
             run_metrics_by_attempt.append(None)
     run_metrics = [metrics for metrics in run_metrics_by_attempt if metrics is not None]
@@ -1971,6 +2059,69 @@ def summarize_variant(
     if variant.training_role:
         summary["trainingRole"] = variant.training_role
     return summary
+
+
+def finalize_multi_tier_policy_activation_run(
+    run: JsonObject,
+    *,
+    variant: StrategyVariant,
+    fixture_room_summaries: dict[str, JsonObject] | None = None,
+    anchor_room: str | None = None,
+    fixture_loader: MultiTierPolicyActivationFixtureLoader | None = None,
+) -> JsonObject:
+    tick_log = run.get("tick_log", run.get("tickLog"))
+    ticks = [copy.deepcopy(tick) for tick in tick_log if isinstance(tick, dict)] if isinstance(tick_log, list) else []
+    activation = run.get("policyActivation")
+    metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else None
+    fixture_merged = False
+
+    def ensure_fixture_room_summaries() -> dict[str, JsonObject]:
+        nonlocal anchor_room, fixture_merged, fixture_room_summaries
+        if fixture_room_summaries is None:
+            if fixture_loader is None:
+                fixture_room_summaries = {}
+            else:
+                fixture_room_summaries, loaded_anchor_room = fixture_loader()
+                if anchor_room is None:
+                    anchor_room = loaded_anchor_room
+        if fixture_room_summaries and ticks and not fixture_merged:
+            for tick_entry in ticks:
+                simulator_harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_room_summaries)
+            fixture_merged = True
+        return fixture_room_summaries or {}
+
+    if not isinstance(activation, dict):
+        if len(ticks) < 2:
+            return run
+        loaded_fixture_room_summaries = ensure_fixture_room_summaries()
+        if not loaded_fixture_room_summaries:
+            return run
+        allow_offline_projection = simulator_harness._tick_log_has_fixture_generated_rooms(ticks)
+        activation = simulator_harness.build_multi_tier_policy_activation_evidence(
+            ticks,
+            variant.to_json(),
+            loaded_fixture_room_summaries,
+            anchor_room=anchor_room,
+            run_errors=run.get("errors") if isinstance(run.get("errors"), list) else (),
+            evidence_errors=run.get("evidenceErrors") if isinstance(run.get("evidenceErrors"), list) else (),
+            allow_offline_projection=allow_offline_projection,
+        )
+    if not isinstance(activation, dict):
+        return run
+
+    if metrics is None:
+        if not ticks:
+            return run
+        ensure_fixture_room_summaries()
+        metrics = simulator_harness.build_variant_metrics(ticks)
+    finalized = dict(run)
+    if ticks:
+        finalized["tick_log"] = ticks
+        if "tickLog" in finalized:
+            finalized["tickLog"] = ticks
+    finalized["policyActivation"] = activation
+    finalized["metrics"] = simulator_harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+    return finalized
 
 
 def compute_run_metrics(run: JsonObject, reward_options: JsonObject) -> JsonObject:
