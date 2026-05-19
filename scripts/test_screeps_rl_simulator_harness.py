@@ -1728,17 +1728,18 @@ cli:
         self.assertFalse(summary["variants"][0]["runtimeParameterConsumption"])
 
     def test_runtime_parameter_summary_consumption_boolean_is_existential(self) -> None:
-        injection = self.uploaded_runtime_parameter_injection()
+        consumed_injection = self.uploaded_runtime_parameter_injection()
+        missing_injection = self.uploaded_runtime_parameter_injection()
         consumed = harness.apply_runtime_parameter_consumption_to_injection(
-            injection,
+            consumed_injection,
             harness.runtime_parameter_consumption_check(
-                injection,
-                self.runtime_parameter_consumption_evidence(injection),
+                consumed_injection,
+                self.runtime_parameter_consumption_evidence(consumed_injection),
             ),
         )
         missing = harness.apply_runtime_parameter_consumption_to_injection(
-            injection,
-            harness.runtime_parameter_consumption_check(injection, None),
+            missing_injection,
+            harness.runtime_parameter_consumption_check(missing_injection, None),
         )
 
         summary = harness._run_runtime_parameter_injection_summary([

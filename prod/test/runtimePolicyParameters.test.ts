@@ -12,6 +12,7 @@ describe('runtime policy parameters', () => {
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
     delete (globalThis as { Memory?: unknown }).Memory;
+    delete (globalThis as { Game?: unknown }).Game;
   });
 
   it('applies private-simulator payload parameters to matching strategy entries', () => {
@@ -184,6 +185,75 @@ describe('runtime policy parameters', () => {
       consumed: false,
       appliedStrategyIds: [],
       reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
+    });
+  });
+
+  it('keeps consumed evidence sticky across ticks for the same injected payload', () => {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        territorySignalWeight: 29
+      },
+      parametersSha256: 'runtime-use-sha'
+    };
+    const patched = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY).registry;
+    const usedEntry = patched.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+    const consumedRecorder = createRuntimePolicyParameterConsumptionRecorder();
+
+    expect(usedEntry).toBeDefined();
+    consumedRecorder.recordStrategyRuntimeUse(usedEntry!);
+    (globalThis as { Game?: Partial<Game> }).Game = { time: 10 };
+    persistRuntimePolicyParameterConsumptionEvidence(consumedRecorder.buildEvidence());
+
+    const missingTickRecorder = createRuntimePolicyParameterConsumptionRecorder();
+    (globalThis as { Game?: Partial<Game> }).Game = { time: 11 };
+    persistRuntimePolicyParameterConsumptionEvidence(missingTickRecorder.buildEvidence());
+
+    expect(
+      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+    ).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: true,
+      parametersSha256: 'runtime-use-sha',
+      appliedStrategyIds: ['construction-priority.incumbent.v1'],
+      tick: 11
+    });
+    expect(
+      (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL]
+    ).toMatchObject({
+      consumed: true,
+      parametersSha256: 'runtime-use-sha',
+      appliedStrategyIds: ['construction-priority.incumbent.v1']
+    });
+
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        territorySignalWeight: 30
+      },
+      parametersSha256: 'runtime-use-sha-2'
+    };
+    (globalThis as { Game?: Partial<Game> }).Game = { time: 12 };
+    persistRuntimePolicyParameterConsumptionEvidence(createRuntimePolicyParameterConsumptionRecorder().buildEvidence());
+
+    expect(
+      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+    ).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: false,
+      parametersSha256: 'runtime-use-sha-2',
+      appliedStrategyIds: [],
+      tick: 12
     });
   });
 });

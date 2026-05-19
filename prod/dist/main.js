@@ -45871,10 +45871,15 @@ function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
   if (!root.Memory) {
     root.Memory = {};
   }
+  const persistedEvidence = stickyRuntimePolicyParameterConsumptionEvidence(
+    evidence,
+    root.Memory.rlRuntimePolicyParameters
+  );
   root.Memory.rlRuntimePolicyParameters = {
-    ...evidence,
+    ...persistedEvidence,
     tick: runtimeTick()
   };
+  publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 function readRuntimePolicyParameterPayload() {
   const root = globalThis;
@@ -45949,6 +45954,44 @@ function buildConsumptionEvidence(options) {
 function publishRuntimePolicyParameterConsumptionEvidence(evidence) {
   const root = globalThis;
   root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+function stickyRuntimePolicyParameterConsumptionEvidence(evidence, previous) {
+  if (evidence.consumed || !shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous)) {
+    return cloneRuntimePolicyParameterConsumptionEvidence(evidence);
+  }
+  return cloneRuntimePolicyParameterConsumptionEvidence(previous);
+}
+function shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous) {
+  if (!previous || previous.consumed !== true) {
+    return false;
+  }
+  if (evidence.runtimeParameterInjection !== true || previous.runtimeParameterInjection !== true) {
+    return false;
+  }
+  if (!evidence.parameters || !previous.parameters) {
+    return false;
+  }
+  if (evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER || previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER) {
+    return false;
+  }
+  const currentHash = textOrUndefined(evidence.parametersSha256);
+  const previousHash = textOrUndefined(previous.parametersSha256);
+  if (!currentHash || currentHash !== previousHash) {
+    return false;
+  }
+  return sameOptionalText(evidence.strategyVariantId, previous.strategyVariantId) && sameOptionalText(evidence.candidatePolicyId, previous.candidatePolicyId) && sameOptionalText(evidence.family, previous.family);
+}
+function cloneRuntimePolicyParameterConsumptionEvidence(evidence) {
+  const cloned = { ...evidence };
+  delete cloned.tick;
+  return {
+    ...cloned,
+    ...evidence.parameters ? { parameters: { ...evidence.parameters } } : {},
+    appliedStrategyIds: [...evidence.appliedStrategyIds]
+  };
+}
+function sameOptionalText(left, right) {
+  return textOrUndefined(left) === textOrUndefined(right);
 }
 function cloneStrategyRegistryEntry(entry) {
   return {

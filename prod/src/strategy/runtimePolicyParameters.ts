@@ -170,10 +170,15 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
     root.Memory = {};
   }
 
+  const persistedEvidence = stickyRuntimePolicyParameterConsumptionEvidence(
+    evidence,
+    root.Memory.rlRuntimePolicyParameters
+  );
   root.Memory.rlRuntimePolicyParameters = {
-    ...evidence,
+    ...persistedEvidence,
     tick: runtimeTick()
   };
+  publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
@@ -281,6 +286,66 @@ function publishRuntimePolicyParameterConsumptionEvidence(
 ): void {
   const root = globalThis as typeof globalThis & Record<string, unknown>;
   root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+
+function stickyRuntimePolicyParameterConsumptionEvidence(
+  evidence: RuntimePolicyParameterConsumptionEvidence,
+  previous: (RuntimePolicyParameterConsumptionEvidence & { tick: number }) | undefined
+): RuntimePolicyParameterConsumptionEvidence {
+  if (evidence.consumed || !shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous)) {
+    return cloneRuntimePolicyParameterConsumptionEvidence(evidence);
+  }
+
+  return cloneRuntimePolicyParameterConsumptionEvidence(previous);
+}
+
+function shouldCarryRuntimePolicyParameterConsumptionEvidence(
+  evidence: RuntimePolicyParameterConsumptionEvidence,
+  previous: (RuntimePolicyParameterConsumptionEvidence & { tick: number }) | undefined
+): previous is RuntimePolicyParameterConsumptionEvidence & { tick: number } {
+  if (!previous || previous.consumed !== true) {
+    return false;
+  }
+  if (evidence.runtimeParameterInjection !== true || previous.runtimeParameterInjection !== true) {
+    return false;
+  }
+  if (!evidence.parameters || !previous.parameters) {
+    return false;
+  }
+  if (
+    evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER ||
+    previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER
+  ) {
+    return false;
+  }
+
+  const currentHash = textOrUndefined(evidence.parametersSha256);
+  const previousHash = textOrUndefined(previous.parametersSha256);
+  if (!currentHash || currentHash !== previousHash) {
+    return false;
+  }
+
+  return (
+    sameOptionalText(evidence.strategyVariantId, previous.strategyVariantId) &&
+    sameOptionalText(evidence.candidatePolicyId, previous.candidatePolicyId) &&
+    sameOptionalText(evidence.family, previous.family)
+  );
+}
+
+function cloneRuntimePolicyParameterConsumptionEvidence(
+  evidence: RuntimePolicyParameterConsumptionEvidence
+): RuntimePolicyParameterConsumptionEvidence {
+  const cloned = { ...evidence } as RuntimePolicyParameterConsumptionEvidence & { tick?: number };
+  delete cloned.tick;
+  return {
+    ...cloned,
+    ...(evidence.parameters ? { parameters: { ...evidence.parameters } } : {}),
+    appliedStrategyIds: [...evidence.appliedStrategyIds]
+  };
+}
+
+function sameOptionalText(left: unknown, right: unknown): boolean {
+  return textOrUndefined(left) === textOrUndefined(right);
 }
 
 function cloneStrategyRegistryEntry(entry: StrategyRegistryEntry): StrategyRegistryEntry {
