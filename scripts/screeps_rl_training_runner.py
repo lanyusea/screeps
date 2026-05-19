@@ -1006,16 +1006,28 @@ def build_report_runtime_parameter_injection_summary(
         })
 
     injected_count = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
+    partial_count = sum(
+        1
+        for row in rows
+        if row.get("status") == "partial" or row.get("candidateParameterScope") == "partial_runtime_injection"
+    )
+    attempted_runtime_count = sum(1 for row in rows if runtime_parameter_scope_indicates_runtime_attempt(row))
     if rows and injected_count == len(rows):
         status = "injected"
         reason = None
         eligible = True
         scope = "runtime_injected"
-    elif injected_count > 0:
+    elif injected_count > 0 or partial_count > 0:
         status = "partial"
         reason = "not every candidate variant had runtime-injected parameter evidence"
         eligible = False
         scope = "partial_runtime_injection"
+    elif attempted_runtime_count > 0:
+        status = "not_injected"
+        first_reason = next((row.get("reason") for row in rows if row.get("reason")), None)
+        reason = str(first_reason) if first_reason else "runtime-injected candidate parameters had no successful evidence"
+        eligible = False
+        scope = "runtime_injected"
     else:
         status = "metadata_only"
         first_reason = next((row.get("reason") for row in rows if row.get("reason")), None)
@@ -1735,7 +1747,7 @@ def policy_update_evaluated_parameters(
     evaluated: list[JsonObject] = []
     missing_evaluated: list[str] = []
     for summary in scored_summaries:
-        source = policy_update_summary_parameter_source(summary)
+        source = policy_update_summary_parameter_source(summary, runtime_required=require_evaluated_parameters)
         variant_id = text_or_none(summary.get("variantId")) or "<unknown>"
         if source is None:
             missing_evaluated.append(variant_id)
@@ -1816,8 +1828,17 @@ def policy_return_tuple_from_sequence(raw: Any) -> list[float | int] | None:
     return values
 
 
-def policy_update_summary_parameter_source(summary: JsonObject) -> tuple[str, Any] | None:
-    for field in ("evaluatedParameters", "evaluated_parameters", "parameters"):
+def policy_update_summary_parameter_source(
+    summary: JsonObject,
+    *,
+    runtime_required: bool = False,
+) -> tuple[str, Any] | None:
+    fields = ("evaluatedParameters", "evaluated_parameters") if runtime_required else (
+        "evaluatedParameters",
+        "evaluated_parameters",
+        "parameters",
+    )
+    for field in fields:
         if field in summary:
             return field, summary.get(field)
     return None
@@ -2163,11 +2184,112 @@ def summarize_variant(
         summary["sourceStrategyId"] = variant.source_strategy_id
     if variant.parameter_evidence is not None:
         summary["parameterEvidence"] = copy.deepcopy(variant.parameter_evidence)
-    if runtime_parameter_injection.get("runtimeParameterInjection") is True:
-        summary["evaluatedParameters"] = copy.deepcopy(variant.parameters)
+    evaluated_parameters = runtime_parameter_injection.get("evaluatedParameters")
+    if runtime_parameter_injection.get("runtimeParameterInjection") is True and isinstance(evaluated_parameters, dict):
+        summary["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
     if variant.training_role:
         summary["trainingRole"] = variant.training_role
     return summary
+
+
+def runtime_evaluated_parameter_source(run: JsonObject) -> tuple[str, Any] | None:
+    for field in ("evaluatedParameters", "evaluated_parameters"):
+        if field in run:
+            return field, run.get(field)
+    return None
+
+
+def runtime_parameter_scope_indicates_runtime_attempt(row: JsonObject) -> bool:
+    scope = text_or_none(row.get("candidateParameterScope"))
+    status = text_or_none(row.get("status"))
+    return (
+        row.get("runtimeParameterInjection") is True
+        or scope in {"runtime_injected", "partial_runtime_injection"}
+        or status
+        in {
+            "prepared",
+            "injected",
+            "failed",
+            "missing_evaluated_parameters",
+            "invalid_evaluated_parameters",
+            "evaluated_parameter_mismatch",
+            "partial",
+        }
+    )
+
+
+def summarize_runtime_parameter_injection_attempt(
+    *,
+    variant: StrategyVariant,
+    run: JsonObject,
+    index: int,
+) -> JsonObject:
+    injection = run.get("runtimeParameterInjection")
+    variant_run_id = run.get("variant_run_id", run.get("variantRunId"))
+    run_ok = run.get("ok") is True
+    if not isinstance(injection, dict):
+        return {
+            "runIndex": index,
+            "variantRunId": variant_run_id,
+            "status": "missing",
+            "runtimeParameterInjection": False,
+            "candidateParameterScope": "metadata_only",
+            "reason": "simulator run did not include runtime parameter injection evidence",
+        }
+
+    row: JsonObject = {
+        "runIndex": index,
+        "variantRunId": variant_run_id,
+        "status": injection.get("status"),
+        "runtimeParameterInjection": False,
+        "candidateParameterScope": injection.get("candidateParameterScope"),
+        "parametersSha256": injection.get("parametersSha256"),
+        "reason": injection.get("reason"),
+    }
+    if injection.get("runtimeParameterInjection") is not True:
+        return {key: value for key, value in row.items() if value is not None}
+
+    if not run_ok:
+        row["status"] = "failed"
+        row["reason"] = text_or_none(run.get("error")) or (
+            "simulator attempt failed before runtime-injected parameters could become eligible evidence"
+        )
+        return {key: value for key, value in row.items() if value is not None}
+
+    source = runtime_evaluated_parameter_source(run)
+    if source is None:
+        row["status"] = "missing_evaluated_parameters"
+        row["reason"] = "successful simulator attempt did not report evaluatedParameters from the runtime payload"
+        return {key: value for key, value in row.items() if value is not None}
+
+    field, raw_parameters = source
+    if not isinstance(raw_parameters, dict):
+        row["status"] = "invalid_evaluated_parameters"
+        row["reason"] = f"successful simulator attempt reported non-object evaluated parameters in {field}"
+        return {key: value for key, value in row.items() if value is not None}
+
+    evaluated_parameters = copy.deepcopy(raw_parameters)
+    evaluated_hash = canonical_hash(evaluated_parameters)
+    injected_hash = text_or_none(injection.get("parametersSha256"))
+    card_hash = canonical_hash(variant.parameters)
+    if injected_hash is not None and evaluated_hash != injected_hash:
+        row["status"] = "evaluated_parameter_mismatch"
+        row["reason"] = "successful simulator attempt evaluatedParameters disagreed with injected parameters"
+        row["evaluatedParametersSha256"] = evaluated_hash
+        return {key: value for key, value in row.items() if value is not None}
+    if evaluated_hash != card_hash:
+        row["status"] = "evaluated_parameter_mismatch"
+        row["reason"] = "successful simulator attempt evaluatedParameters disagreed with the strategy variant parameters"
+        row["evaluatedParametersSha256"] = evaluated_hash
+        return {key: value for key, value in row.items() if value is not None}
+
+    row["runtimeParameterInjection"] = True
+    row["status"] = "injected"
+    row["evaluatedParameters"] = evaluated_parameters
+    row["evaluatedParametersSource"] = field
+    row["evaluatedParametersSha256"] = evaluated_hash
+    row.pop("reason", None)
+    return {key: value for key, value in row.items() if value is not None}
 
 
 def summarize_variant_runtime_parameter_injection(
@@ -2177,21 +2299,12 @@ def summarize_variant_runtime_parameter_injection(
     attempts: list[JsonObject] = []
     successful_attempts: list[JsonObject] = []
     for index, run in enumerate(runs):
-        injection = run.get("runtimeParameterInjection") if isinstance(run, dict) else None
-        if isinstance(injection, dict):
-            row = {
-                "runIndex": index,
-                "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
-                "status": injection.get("status"),
-                "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
-                "candidateParameterScope": injection.get("candidateParameterScope"),
-                "parametersSha256": injection.get("parametersSha256"),
-                "reason": injection.get("reason"),
-            }
+        if isinstance(run, dict):
+            row = summarize_runtime_parameter_injection_attempt(variant=variant, run=run, index=index)
         else:
             row = {
                 "runIndex": index,
-                "variantRunId": run.get("variant_run_id", run.get("variantRunId")) if isinstance(run, dict) else None,
+                "variantRunId": None,
                 "status": "missing",
                 "runtimeParameterInjection": False,
                 "candidateParameterScope": "metadata_only",
@@ -2216,24 +2329,71 @@ def summarize_variant_runtime_parameter_injection(
             "officialMmoWritesAllowed": False,
         }
 
-    eligible_attempts = successful_attempts or attempts
+    if not successful_attempts:
+        attempted_runtime = any(runtime_parameter_scope_indicates_runtime_attempt(row) for row in attempts)
+        first_reason = next((row.get("reason") for row in attempts if row.get("reason")), None)
+        status = "not_injected" if attempted_runtime else "metadata_only"
+        scope = "runtime_injected" if attempted_runtime else "metadata_only"
+        reason = (
+            str(first_reason)
+            if first_reason
+            else (
+                "variant had no successful simulator attempts with runtime parameter evidence"
+                if attempted_runtime
+                else "candidate parameters were not injected into simulator runtime inputs"
+            )
+        )
+        payload = {
+            "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
+            "schemaVersion": SCHEMA_VERSION,
+            "strategyVariantId": variant.id,
+            "candidatePolicyId": variant.candidate_policy_id,
+            "status": status,
+            "runtimeParameterInjection": False,
+            "inlineCandidatesRuntimeInjected": False,
+            "candidateParameterScope": scope,
+            "mechanism": simulator_harness.RUNTIME_PARAMETER_INJECTION_MECHANISM,
+            "attemptCount": len(attempts),
+            "successfulAttemptCount": 0,
+            "attempts": attempts,
+            "parametersSha256": canonical_hash(variant.parameters),
+            "reason": reason,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        return {key: value for key, value in payload.items() if value is not None}
+
+    eligible_attempts = successful_attempts
     injected = [row for row in eligible_attempts if row.get("runtimeParameterInjection") is True]
     if eligible_attempts and len(injected) == len(eligible_attempts):
         status = "injected"
         reason = None
         runtime_injected = True
         scope = "runtime_injected"
+        evaluated_parameters = copy.deepcopy(injected[0].get("evaluatedParameters"))
     elif injected:
         status = "partial"
         reason = "not every successful simulator attempt included runtime parameter injection evidence"
         runtime_injected = False
         scope = "partial_runtime_injection"
+        evaluated_parameters = None
     else:
-        status = "not_injected"
+        attempted_runtime = any(runtime_parameter_scope_indicates_runtime_attempt(row) for row in attempts)
+        status = "not_injected" if attempted_runtime else "metadata_only"
         first_reason = next((row.get("reason") for row in eligible_attempts if row.get("reason")), None)
-        reason = str(first_reason) if first_reason else "simulator attempts did not inject candidate parameters"
+        reason = (
+            str(first_reason)
+            if first_reason
+            else (
+                "simulator attempts did not inject candidate parameters"
+                if attempted_runtime
+                else "candidate parameters were not injected into simulator runtime inputs"
+            )
+        )
         runtime_injected = False
-        scope = "metadata_only"
+        scope = "runtime_injected" if attempted_runtime else "metadata_only"
+        evaluated_parameters = None
 
     payload: JsonObject = {
         "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
@@ -2255,6 +2415,8 @@ def summarize_variant_runtime_parameter_injection(
     }
     if reason:
         payload["reason"] = reason
+    if runtime_injected and isinstance(evaluated_parameters, dict):
+        payload["evaluatedParameters"] = evaluated_parameters
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -3386,19 +3548,25 @@ def policy_gradient_metadata_with_runner_transport(
         return policy_gradient
 
     injected = runtime_parameter_injection.get("runtimeParameterInjection") is True
+    status = text_or_none(runtime_parameter_injection.get("status"))
+    scope = text_or_none(runtime_parameter_injection.get("candidateParameterScope")) or "metadata_only"
+    attempted_runtime_injection = scope in {"runtime_injected", "partial_runtime_injection"} or status in {
+        "partial",
+        "not_injected",
+    }
     support["inline_candidates_applied_to_simulator"] = injected
     support["inline_candidates_runtime_injected"] = injected
     support["runtime_parameter_injection"] = injected
     support["simulator_variant_transport"] = (
-        "variant_ids_with_runtime_injected_parameters" if injected else "variant_ids_with_inline_metadata"
+        "variant_ids_with_runtime_injected_parameters"
+        if injected or attempted_runtime_injection
+        else "variant_ids_with_inline_metadata"
     )
-    support["candidate_parameter_scope"] = (
-        "runtime_injected" if injected else runtime_parameter_injection.get("candidateParameterScope", "metadata_only")
-    )
+    support["candidate_parameter_scope"] = "runtime_injected" if injected else scope
     support["policy_update_reward_use"] = (
         "eligible_with_evaluated_runtime_parameters" if injected else "blocked_until_runtime_parameter_evidence"
     )
-    support["runtime_parameter_injection_status"] = runtime_parameter_injection.get("status")
+    support["runtime_parameter_injection_status"] = status
     support["runtime_parameter_injection_reason"] = runtime_parameter_injection.get("reason")
     support["runtime_parameter_injection_mechanism"] = runtime_parameter_injection.get("mechanism")
     if injected:
@@ -3433,6 +3601,13 @@ def policy_gradient_candidate_parameters_metadata_only(policy_gradient: JsonObje
     )
     scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
     transport = text_or_none(first_present(support, ("simulator_variant_transport", "simulatorVariantTransport")))
+    status = text_or_none(
+        first_present(support, ("runtime_parameter_injection_status", "runtimeParameterInjectionStatus"))
+    )
+    if status == "partial" or scope == "partial_runtime_injection":
+        return False
+    if scope == "runtime_injected":
+        return False
     if (
         runtime_injection is True
         and inline_applied is True
@@ -3455,6 +3630,9 @@ def policy_gradient_requires_runtime_parameter_evidence(policy_gradient: JsonObj
         return False
     scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
     reward_use = text_or_none(first_present(support, ("policy_update_reward_use", "policyUpdateRewardUse")))
+    status = text_or_none(
+        first_present(support, ("runtime_parameter_injection_status", "runtimeParameterInjectionStatus"))
+    )
     runtime_injection = first_present(
         support,
         (
@@ -3467,6 +3645,9 @@ def policy_gradient_requires_runtime_parameter_evidence(policy_gradient: JsonObj
     return (
         runtime_injection is True
         or scope == "runtime_injected"
+        or scope == "partial_runtime_injection"
+        or status == "partial"
+        or status == "not_injected"
         or reward_use == "eligible_with_evaluated_runtime_parameters"
     )
 

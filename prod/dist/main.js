@@ -45528,6 +45528,153 @@ function isKnobDefaultWithinBounds(value, bounds) {
   }
 }
 
+// src/strategy/runtimePolicyParameters.ts
+var RUNTIME_POLICY_PARAMETERS_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__";
+var RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__";
+var RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1";
+function applyRuntimePolicyParametersToRegistry(registry) {
+  const clonedRegistry = registry.map(cloneStrategyRegistryEntry);
+  const payload = readRuntimePolicyParameterPayload();
+  if (!payload) {
+    const evidence2 = buildConsumptionEvidence({ consumed: false, appliedStrategyIds: [] });
+    publishRuntimePolicyParameterConsumptionEvidence(evidence2);
+    return { registry: clonedRegistry, evidence: evidence2 };
+  }
+  const parameters = normalizeRuntimePolicyParameters(payload.parameters);
+  if (!parameters) {
+    const evidence2 = buildConsumptionEvidence({
+      payload,
+      consumed: false,
+      appliedStrategyIds: [],
+      reason: "runtime policy parameter payload did not include a non-empty parameters object"
+    });
+    publishRuntimePolicyParameterConsumptionEvidence(evidence2);
+    return { registry: clonedRegistry, evidence: evidence2 };
+  }
+  const appliedStrategyIds = [];
+  const patchedRegistry = clonedRegistry.map((entry) => {
+    if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+      return entry;
+    }
+    appliedStrategyIds.push(entry.id);
+    return {
+      ...entry,
+      defaultValues: {
+        ...entry.defaultValues,
+        ...parameters
+      }
+    };
+  });
+  const consumed = appliedStrategyIds.length > 0;
+  const evidence = buildConsumptionEvidence({
+    payload,
+    consumed,
+    parameters,
+    appliedStrategyIds,
+    reason: consumed ? void 0 : "runtime policy parameter payload did not match any strategy registry entry"
+  });
+  publishRuntimePolicyParameterConsumptionEvidence(evidence);
+  return { registry: patchedRegistry, evidence };
+}
+function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
+  if (!evidence.consumed) {
+    return;
+  }
+  const root = globalThis;
+  if (!root.Memory) {
+    root.Memory = {};
+  }
+  root.Memory.rlRuntimePolicyParameters = {
+    ...evidence,
+    tick: runtimeTick()
+  };
+}
+function readRuntimePolicyParameterPayload() {
+  const root = globalThis;
+  const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
+  if (!isRecord41(raw)) {
+    return null;
+  }
+  if (raw.runtimeParameterInjection !== true || raw.candidateParameterScope !== "runtime_injected") {
+    return null;
+  }
+  return raw;
+}
+function normalizeRuntimePolicyParameters(raw) {
+  if (!isRecord41(raw)) {
+    return null;
+  }
+  const parameters = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) {
+        parameters[key] = value;
+      }
+    } else if (typeof value === "string" || typeof value === "boolean") {
+      parameters[key] = value;
+    }
+  }
+  return Object.keys(parameters).length > 0 ? parameters : null;
+}
+function runtimePolicyPayloadTargetsEntry(payload, entry) {
+  const strategyVariantId = textOrUndefined(payload.strategyVariantId);
+  const candidatePolicyId = textOrUndefined(payload.candidatePolicyId);
+  const sourceStrategyId = textOrUndefined(payload.sourceStrategyId);
+  const family = textOrUndefined(payload.family);
+  return entry.id === strategyVariantId || entry.id === candidatePolicyId || entry.id === sourceStrategyId || family !== void 0 && entry.family === family;
+}
+function buildConsumptionEvidence(options) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  return {
+    type: "screeps-rl-runtime-policy-parameter-consumption",
+    consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
+    runtimeParameterInjection: options.consumed,
+    consumed: options.consumed,
+    ...textOrUndefined((_a = options.payload) == null ? void 0 : _a.strategyVariantId) ? { strategyVariantId: textOrUndefined((_b = options.payload) == null ? void 0 : _b.strategyVariantId) } : {},
+    ...textOrUndefined((_c = options.payload) == null ? void 0 : _c.candidatePolicyId) ? { candidatePolicyId: textOrUndefined((_d = options.payload) == null ? void 0 : _d.candidatePolicyId) } : {},
+    ...textOrUndefined((_e = options.payload) == null ? void 0 : _e.family) ? { family: textOrUndefined((_f = options.payload) == null ? void 0 : _f.family) } : {},
+    ...options.parameters ? { parameters: options.parameters } : {},
+    ...textOrUndefined((_g = options.payload) == null ? void 0 : _g.parametersSha256) ? { parametersSha256: textOrUndefined((_h = options.payload) == null ? void 0 : _h.parametersSha256) } : {},
+    appliedStrategyIds: [...options.appliedStrategyIds].sort(),
+    ...options.reason ? { reason: options.reason } : {},
+    liveEffect: false,
+    officialMmoWrites: false,
+    officialMmoWritesAllowed: false
+  };
+}
+function publishRuntimePolicyParameterConsumptionEvidence(evidence) {
+  const root = globalThis;
+  root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+function cloneStrategyRegistryEntry(entry) {
+  return {
+    ...entry,
+    defaultValues: { ...entry.defaultValues },
+    evidenceLinks: entry.evidenceLinks.map((link) => ({ ...link })),
+    rollback: {
+      ...entry.rollback,
+      stopConditions: [...entry.rollback.stopConditions]
+    },
+    supportedContext: {
+      ...entry.supportedContext,
+      artifactTypes: [...entry.supportedContext.artifactTypes],
+      ...entry.supportedContext.shards ? { shards: [...entry.supportedContext.shards] } : {},
+      ...entry.supportedContext.rooms ? { rooms: [...entry.supportedContext.rooms] } : {}
+    },
+    knobBounds: entry.knobBounds.map((knob) => ({ ...knob, bounds: { ...knob.bounds } }))
+  };
+}
+function textOrUndefined(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function runtimeTick() {
+  var _a, _b;
+  return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
+}
+function isRecord41(value) {
+  return typeof value === "object" && value !== null;
+}
+
 // src/strategy/shadowEvaluator.ts
 var DEFAULT_VARIANCE_CONFIG = {
   enabled: true,
@@ -46068,10 +46215,10 @@ function getLatestFiniteScore(scores) {
   return void 0;
 }
 function normalizeHistoricalReplay(rawReplay) {
-  if (!isRecord41(rawReplay)) {
+  if (!isRecord42(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString41(rawReplay.replayId) || !isNonEmptyString41(rawReplay.room) || !isFiniteNumber13(rawReplay.startTick) || !isFiniteNumber13(rawReplay.endTick) || !isFiniteNumber13(rawReplay.finalScore) || !isRecord41(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString41(rawReplay.replayId) || !isNonEmptyString41(rawReplay.room) || !isFiniteNumber13(rawReplay.startTick) || !isFiniteNumber13(rawReplay.endTick) || !isFiniteNumber13(rawReplay.finalScore) || !isRecord42(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -46096,7 +46243,7 @@ function normalizeHistoricalReplay(rawReplay) {
 function formatCorrelation(correlation) {
   return correlation.toFixed(3);
 }
-function isRecord41(value) {
+function isRecord42(value) {
   return typeof value === "object" && value !== null;
 }
 function isNonEmptyString41(value) {
@@ -46144,13 +46291,15 @@ function buildRolloutDetails(strategyId, historicalReplay, failedPrerequisites) 
 var kernel = new Kernel();
 var strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 var kpiWindowMaxLength = 120;
+var runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
 var strategyRegistryState = {
-  entries: DEFAULT_STRATEGY_REGISTRY.map((entry) => ({ ...entry }))
+  entries: runtimePolicyParameters.registry
 };
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
   const summary = kernel.run();
+  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameters.evidence);
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 function runStrategyRolloutMonitoring(summary, registry) {
@@ -46176,7 +46325,7 @@ function runStrategyRolloutMonitoring(summary, registry) {
             disabledId: rollbackResult.disabledId,
             rollbackToId: rollbackResult.rollbackToId,
             reason: rollbackResult.reason,
-            timestamp: runtimeTick()
+            timestamp: runtimeTick2()
           })}`
         );
       }
@@ -46256,7 +46405,7 @@ function persistBaseline(family, windows) {
   memory.kpiBaseline = {
     ...(_a = memory.kpiBaseline) != null ? _a : {},
     [family]: {
-      timestamp: (_c = (_b = windows[windows.length - 1]) == null ? void 0 : _b.timestamp) != null ? _c : runtimeTick(),
+      timestamp: (_c = (_b = windows[windows.length - 1]) == null ? void 0 : _b.timestamp) != null ? _c : runtimeTick2(),
       metrics: averages
     }
   };
@@ -46280,7 +46429,7 @@ function getOrCreateMemory2() {
   }
   return globalThis.Memory;
 }
-function runtimeTick() {
+function runtimeTick2() {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }

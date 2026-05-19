@@ -1406,7 +1406,14 @@ cli:
         self.assertFalse(config["safety"]["officialMmoWrites"])
 
     def test_runtime_parameter_injection_changes_private_runtime_code_input(self) -> None:
-        base_code = '"use strict";\nmodule.exports.loop = function loop() { return 1; };\n'
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "function consumeRuntimePolicyParameters() {\n"
+            f"  return globalThis[{json.dumps(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL)}].parameters;\n"
+            "}\n"
+            "module.exports.loop = function loop() { return consumeRuntimePolicyParameters(); };\n"
+        )
         base_variant = {
             "id": "construction-priority.pg.incumbent-seed.v1",
             "candidatePolicyId": "construction-priority.pg.incumbent-seed.v1",
@@ -1490,6 +1497,30 @@ cli:
             22,
         )
         self.assertFalse(territory_scenario["runtimeParameterInjection"]["safety"]["officialMmoWritesAllowed"])
+
+    def test_runtime_parameter_injection_upload_requires_runtime_consumer(self) -> None:
+        base_code = '"use strict";\nmodule.exports.loop = function loop() { return 1; };\n'
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        uploaded = harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+
+        self.assertEqual(uploaded["status"], "failed")
+        self.assertFalse(uploaded["runtimeParameterInjection"])
+        self.assertFalse(uploaded["inlineCandidatesRuntimeInjected"])
+        self.assertFalse(uploaded["runtimeParameterConsumerObserved"])
+        self.assertIn("consumer marker", uploaded["reason"])
 
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:

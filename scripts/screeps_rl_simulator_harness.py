@@ -93,6 +93,7 @@ MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE = 12.0
 RUNTIME_PARAMETER_INJECTION_TYPE = "screeps-rl-runtime-parameter-injection"
 RUNTIME_PARAMETER_INJECTION_MECHANISM = "private_simulator_code_prelude_v1"
 RUNTIME_PARAMETER_INJECTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__"
+RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUN_RESOURCE_GUARD_MIN_WORKERS = 3
 RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB = 2300
 RUN_RESOURCE_GUARD_HOST_RESERVE_MIB = 1536
@@ -596,12 +597,28 @@ def mark_runtime_parameter_injection_uploaded(
 ) -> JsonObject:
     updated = copy.deepcopy(injection)
     if updated.get("status") == "prepared":
+        updated["uploadedCodeSha256"] = hashlib.sha256(code_text.encode("utf-8")).hexdigest()
+        updated["uploadedCodeBytes"] = len(code_text.encode("utf-8"))
+        if not runtime_parameter_injection_code_has_consumer(code_text):
+            updated["status"] = "failed"
+            updated["runtimeParameterInjection"] = False
+            updated["inlineCandidatesRuntimeInjected"] = False
+            updated["reason"] = (
+                "uploaded bot bundle did not include the runtime policy parameter consumer marker"
+            )
+            updated["runtimeParameterConsumer"] = RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER
+            updated["runtimeParameterConsumerObserved"] = False
+            return updated
         updated["status"] = "injected"
         updated["runtimeParameterInjection"] = True
         updated["inlineCandidatesRuntimeInjected"] = True
-        updated["uploadedCodeSha256"] = hashlib.sha256(code_text.encode("utf-8")).hexdigest()
-        updated["uploadedCodeBytes"] = len(code_text.encode("utf-8"))
+        updated["runtimeParameterConsumer"] = RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER
+        updated["runtimeParameterConsumerObserved"] = True
     return updated
+
+
+def runtime_parameter_injection_code_has_consumer(code_text: str) -> bool:
+    return RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER in code_text
 
 
 def mark_runtime_parameter_injection_failed(injection: JsonObject, error: Any) -> JsonObject:
@@ -1769,13 +1786,26 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
             "reason": injection.get("reason"),
         })
     injected = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
-    status = "injected" if rows and injected == len(rows) else ("partial" if injected > 0 else "not_injected")
+    attempted_runtime = any(_runtime_parameter_summary_row_indicates_runtime_attempt(row) for row in rows)
+    if rows and injected == len(rows):
+        status = "injected"
+        scope = "runtime_injected"
+    elif injected > 0:
+        status = "partial"
+        scope = "partial_runtime_injection"
+    elif attempted_runtime:
+        status = "not_injected"
+        scope = "runtime_injected"
+    else:
+        status = "metadata_only"
+        scope = "metadata_only"
     return {
         "type": RUNTIME_PARAMETER_INJECTION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "status": status,
         "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
         "runtimeParameterInjection": status == "injected",
+        "candidateParameterScope": scope,
         "injectedVariantCount": injected,
         "variantCount": len(rows),
         "variants": rows,
@@ -1783,6 +1813,16 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
     }
+
+
+def _runtime_parameter_summary_row_indicates_runtime_attempt(row: JsonObject) -> bool:
+    scope = _safe_text(row.get("candidateParameterScope"), 120)
+    status = _safe_text(row.get("status"), 120)
+    return (
+        row.get("runtimeParameterInjection") is True
+        or scope in {"runtime_injected", "partial_runtime_injection"}
+        or status in {"prepared", "injected", "failed", "partial"}
+    )
 
 
 def _server_ports_payload(http_port: int | None, cli_port: int | None) -> JsonObject:
@@ -3624,7 +3664,8 @@ def _run_variant(
         "launcherAutoMapImportDisabled": launcher_auto_map_import_disabled,
     }
     if runtime_parameter_injection.get("status") == "injected":
-        result["evaluatedParameters"] = copy.deepcopy(_strategy_variant_parameters(strategy_variant))
+        result["evaluatedParameters"] = copy.deepcopy(runtime_parameter_injection.get("parameters", {}))
+        result["evaluatedParametersSource"] = "runtime_parameter_injection_payload"
     result["ownedRoomScorecard"] = build_variant_owned_room_scorecard(result)
     if not errors and ticks_run > 0 and result["ownedRoomScorecard"]["ownedRoomCount"] < 1:
         detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, structure, or creep found"
