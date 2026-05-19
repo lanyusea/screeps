@@ -2599,10 +2599,8 @@ def select_multi_tier_policy_activation(
     anchor_room: str | None = None,
 ) -> JsonObject | None:
     objective = build_scenario_fixture_objective_summary(fixture_room_summaries)
-    if not objective or objective.get("objectiveSignalPresent") is not True:
-        return None
     target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
-    if target is None:
+    if objective is None or target is None:
         return None
     target_room, target_summary = target
     parameters = _strategy_variant_parameters(strategy_variant)
@@ -2653,8 +2651,6 @@ def build_multi_tier_policy_activation_evidence(
     evidence_errors: Sequence[Any] = (),
 ) -> JsonObject | None:
     if run_errors or evidence_errors or len(tick_log) < 2:
-        return None
-    if _tick_log_has_fixture_generated_rooms(tick_log):
         return None
     activation = select_multi_tier_policy_activation(
         strategy_variant,

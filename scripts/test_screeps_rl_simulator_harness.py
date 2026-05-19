@@ -1075,6 +1075,54 @@ cli:
         self.assertEqual(tick_log, before_activation)
         self.assertEqual(metrics["combat"]["hostileKills"], 1)
 
+    def test_multi_tier_policy_activation_records_peaceful_adjacent_claim(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        tick_log[-1]["rooms"]["E2S1"]["owned"] = True
+        tick_log[-1]["rooms"]["E2S1"]["controller"] = {"level": 1, "my": True, "owner": "rl-sim"}
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["executionAction"], "claim-controller")
+        self.assertEqual(activation["reason"], "visible_adjacent_controller")
+        self.assertFalse(activation["objective"]["objectiveSignalPresent"])
+        self.assertTrue(activation["observedEvidence"]["controllerClaimed"])
+        self.assertFalse(activation["observedEvidence"]["fixtureGeneratedRoomState"])
+        self.assertEqual(tick_log, before_activation)
+
     def test_multi_tier_policy_activation_requires_adjacent_target(self) -> None:
         fixture_summaries = {
             "E1S1": {
@@ -1183,6 +1231,46 @@ cli:
                 anchor_room="E1S1",
             )
         )
+
+    def test_multi_tier_policy_activation_uses_later_real_target_snapshots_after_fixture_fallback(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        fallback_tick = {
+            "tick": 1,
+            "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}},
+        }
+        harness._merge_fixture_room_summaries_into_tick(fallback_tick, fixture_summaries)
+        real_initial_tick = {"tick": 2, "rooms": copy.deepcopy(fixture_summaries)}
+        real_final_tick = copy.deepcopy(real_initial_tick)
+        real_final_tick["tick"] = 3
+        real_final_tick["rooms"]["E2S1"]["combat"]["hostileCreeps"] = 1
+        tick_log = [fallback_tick, real_initial_tick, real_final_tick]
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertEqual(activation["observedEvidence"]["observedTickCount"], 2)
+        self.assertEqual(activation["observedEvidence"]["initialTick"], 2)
+        self.assertEqual(activation["observedEvidence"]["finalTick"], 3)
+        self.assertTrue(activation["observedEvidence"]["hostileCountReduced"])
+        self.assertFalse(activation["observedEvidence"]["fixtureGeneratedRoomState"])
 
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
