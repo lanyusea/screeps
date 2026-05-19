@@ -299,6 +299,7 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
             payload = load_json_object(path)
             if payload is None:
                 continue
+            compute_evidence = static_dashboard.compute_evidence_summary(payload)
             runs.append(
                 {
                     "runId": payload.get("runId") or path.parent.name,
@@ -310,6 +311,9 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
                     "workerUser": payload.get("workerUser"),
                     "inputs": payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {},
                     "safety": payload.get("safety") if isinstance(payload.get("safety"), dict) else {},
+                    "computeEvidence": compute_evidence,
+                    "computeClassification": compute_evidence.get("classification"),
+                    "blocker": compute_evidence.get("blocker"),
                     "path": safe_display_path(path, repo_root),
                     "timestamp": display_timestamp(artifact_timestamp(path, payload)),
                 }
@@ -321,11 +325,15 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
         if run.get("partial") is True or str(run.get("finalStatus", "")).lower() in {"unknown", "running"}
     ]
     completed = [run for run in runs if str(run.get("finalStatus", "")).lower() in {"completed", "success", "ok"}]
+    compute_confirmed = [run for run in runs if run.get("computeClassification") == "COMPUTE_CONFIRMED"]
+    preflight_only = [run for run in runs if run.get("computeClassification") == "PREFLIGHT_ONLY_VALIDATION"]
     return {
         "hasData": bool(runs),
         "runCount": len(runs),
         "activeRunCount": len(active),
         "completedRunCount": len(completed),
+        "computeConfirmedRunCount": len(compute_confirmed),
+        "preflightOnlyRunCount": len(preflight_only),
         "latest": latest,
     }
 
@@ -502,8 +510,11 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Runs", h(format_value(tencent.get("runCount")))),
         ("Active runs", h(format_value(tencent.get("activeRunCount")))),
         ("Completed runs", h(format_value(tencent.get("completedRunCount")))),
+        ("Compute-confirmed runs", h(format_value(tencent.get("computeConfirmedRunCount")))),
+        ("Preflight-only validations", h(format_value(tencent.get("preflightOnlyRunCount")))),
         ("Latest run", h(latest_tencent.get("runId") or "N/A")),
         ("Latest status", render_status(latest_tencent.get("finalStatus"))),
+        ("Latest compute evidence", h(latest_tencent.get("computeClassification") or "N/A")),
         ("Scale down attempted", h(latest_tencent.get("safety", {}).get("scaleDownAttempted") if isinstance(latest_tencent.get("safety"), dict) else "N/A")),
     ]
     safety_rows = [
