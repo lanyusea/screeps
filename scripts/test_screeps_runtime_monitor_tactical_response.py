@@ -1021,6 +1021,40 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["triggers"][0]["severity"], "high")
         self.assertEqual(report["triggers"][0]["priority"], "P1")
 
+    def test_high_health_large_rampart_drop_stays_p1(self) -> None:
+        reason = {
+            "kind": "structure_damage",
+            "room": "shardX/E29N55",
+            "object_id": "6a09deb5b2438b0a399c3f8e",
+            "structure_type": "rampart",
+            "x": 35,
+            "y": 29,
+            "previous_hits": 2_534_911,
+            "current_hits": 2_493_091,
+            "hitsMax": 3_000_000,
+            "delta": 41_820,
+            "message": "rampart hits decreased 2534911->2493091 at 35,29",
+        }
+
+        self.assertGreater(reason["current_hits"], monitor.RAMPART_CRITICAL_DAMAGE_HITS_CEILING)
+        self.assertEqual(monitor.category_severity("owned_structure_damage", reason), "high")
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": [reason],
+                "rooms": ["shardX/E29N55"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["triggers"][0]["severity"], "high")
+        self.assertEqual(report["triggers"][0]["priority"], "P1")
+
     def test_exact_safe_floor_rampart_decay_still_alerts_p0(self) -> None:
         decay = monitor.RAMPART_DECAY_HITS_PER_EVENT
         safe_floor = monitor.RAMPART_SAFE_DECAY_HITS_FLOOR
@@ -1155,6 +1189,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
             tick=current_tick,
         )
         self.assertGreaterEqual(monitor.expected_rampart_decay_delta(previous, current_tick), large_delta)
+        self.assertLessEqual(current_hits, monitor.RAMPART_CRITICAL_DAMAGE_HITS_CEILING)
 
         emitted, suppressed, _next_state = monitor.evaluate_room_alert(
             snapshot,
