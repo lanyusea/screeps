@@ -556,23 +556,23 @@ function planRuntimeStrategyPrioritizedConstruction(
   sourceLogisticsStarved: boolean,
   rcl: number
 ): boolean {
-  if (!options.onStrategyRegistryRuntimeUse) {
-    return false;
-  }
-
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   if (!strategyEntry || !strategyParameters) {
     return false;
   }
 
-  const report = buildRuntimeConstructionPriorityReport(colony, options.creeps ?? [], { strategyParameters });
+  if (!options.creeps) {
+    return false;
+  }
+
+  const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
   const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
   if (priorities.length === 0) {
     return false;
   }
 
-  options.onStrategyRegistryRuntimeUse(strategyEntry);
+  options.onStrategyRegistryRuntimeUse?.(strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -707,6 +707,9 @@ function planRuntimeConstructionPlannerPriority(
 
       if (priorityTowerDefenseSiteState !== 'blocked') {
         planBootstrapDefenseFloor(colony, result, budgetState, options);
+        if (hasBlockingPlacementFailure(result)) {
+          return priorityTowerDefenseSiteState;
+        }
       }
       if (options.includePostClaimRamparts === true) {
         planRamparts(colony, result, budgetState, options);

@@ -12467,20 +12467,20 @@ function planStorage(colony, result, budgetState, options) {
 }
 function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState, sourceLogisticsStarved, rcl) {
   var _a;
-  if (!options.onStrategyRegistryRuntimeUse) {
-    return false;
-  }
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
   const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   if (!strategyEntry || !strategyParameters) {
     return false;
   }
-  const report = buildRuntimeConstructionPriorityReport(colony, (_a = options.creeps) != null ? _a : [], { strategyParameters });
+  if (!options.creeps) {
+    return false;
+  }
+  const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
   const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
   if (priorities.length === 0) {
     return false;
   }
-  options.onStrategyRegistryRuntimeUse(strategyEntry);
+  (_a = options.onStrategyRegistryRuntimeUse) == null ? void 0 : _a.call(options, strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -12589,6 +12589,9 @@ function planRuntimeConstructionPlannerPriority(priority, colony, result, budget
       }
       if (priorityTowerDefenseSiteState !== "blocked") {
         planBootstrapDefenseFloor(colony, result, budgetState, options);
+        if (hasBlockingPlacementFailure(result)) {
+          return priorityTowerDefenseSiteState;
+        }
       }
       if (options.includePostClaimRamparts === true) {
         planRamparts(colony, result, budgetState, options);

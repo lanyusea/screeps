@@ -17,6 +17,7 @@ const mockPlanExpansionDefenseBarrierPlacements =
   planExpansionDefenseBarrierPlacements as jest.MockedFunction<typeof planExpansionDefenseBarrierPlacements>;
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const FIRST_RCL3_TOWER_PRIORITY_ENERGY = Math.max(500, TERRITORY_CONTROLLER_BODY_COST - 100);
 
 const TEST_GLOBALS = {
@@ -146,6 +147,81 @@ describe('owned room construction planner', () => {
     );
   });
 
+  it('uses runtime construction-priority strategy parameters without an audit hook', () => {
+    installOpenTerrain();
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 0,
+      resourceSignalWeight: 30,
+      killSignalWeight: 0,
+      riskPenalty: 0
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_300,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: false,
+      strategyRegistry
+    });
+
+    expect(result.placements[0]).toMatchObject({
+      priority: 'storage',
+      structureType: TEST_GLOBALS.STRUCTURE_STORAGE,
+      result: OK_CODE
+    });
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_STORAGE);
+  });
+
+  it('falls back to legacy construction order when runtime priority lacks creep evidence', () => {
+    installOpenTerrain();
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 0,
+      resourceSignalWeight: 30,
+      killSignalWeight: 0,
+      riskPenalty: 0
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_300,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {
+        '25,25': [{ x: 10, y: 11 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, {
+      respectRoomEnergyBuffer: false,
+      strategyRegistry
+    });
+
+    expect(result.placements[0]).toMatchObject({
+      priority: 'container',
+      structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+      result: OK_CODE
+    });
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(TEST_GLOBALS.STRUCTURE_CONTAINER);
+  });
+
   it('does not rerun normal container planning after the starvation source-logistics pass', () => {
     installOpenTerrain();
     const onStrategyRegistryRuntimeUse = jest.fn();
@@ -218,6 +294,63 @@ describe('owned room construction planner', () => {
     });
     expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_TOWER);
     expect(onStrategyRegistryRuntimeUse).toHaveBeenCalled();
+  });
+
+  it('stops runtime defense-floor work before post-claim ramparts after a blocking placement failure', () => {
+    installOpenTerrain();
+    mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([
+      {
+        roomName: 'W1N1',
+        x: 26,
+        y: 24,
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        stage: 'coreRampart',
+        priority: 2
+      }
+    ]);
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 1,
+      resourceSignalWeight: 0,
+      killSignalWeight: 0,
+      riskPenalty: 100
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_300,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+    room.createConstructionSite.mockReturnValueOnce(ERR_FULL_CODE);
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      includePostClaimRamparts: true,
+      includeStorage: false,
+      respectRoomEnergyBuffer: false,
+      strategyRegistry
+    });
+
+    expect(result.placements).toEqual([
+      {
+        priority: 'rampart',
+        roomName: 'W1N1',
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        result: ERR_FULL_CODE,
+        energyReserved: 0,
+        x: 10,
+        y: 10
+      }
+    ]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
   it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
