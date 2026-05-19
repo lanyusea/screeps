@@ -967,7 +967,7 @@ cli:
         self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
         self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
 
-    def test_multi_tier_policy_activation_engages_hostile_blocker_for_territory_candidate(self) -> None:
+    def test_multi_tier_policy_activation_records_intent_without_mutating_tick_metrics(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
         initial_tick = {
@@ -1003,7 +1003,8 @@ cli:
             },
         )
 
-        activation = harness.apply_multi_tier_policy_activation(tick_log, strategy_variant, fixture_summaries)
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(tick_log, strategy_variant, fixture_summaries)
         metrics = harness.build_variant_metrics(tick_log)
 
         self.assertIsNotNone(activation)
@@ -1011,9 +1012,52 @@ cli:
         self.assertEqual(activation["policyAction"], "claim-adjacent-controller")
         self.assertEqual(activation["executionAction"], "engage-hostiles")
         self.assertEqual(activation["targetRoom"], "E2S1")
-        self.assertEqual(tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"], 1)
-        self.assertEqual(metrics["combat"]["hostileKills"], 1)
-        self.assertEqual(tick_log[-1]["rlPolicyActivation"]["safety"]["officialMmoWrites"], False)
+        self.assertEqual(tick_log, before_activation)
+        self.assertEqual(tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"], 2)
+        self.assertEqual(metrics["combat"]["hostileKills"], 0)
+        self.assertNotIn("rlPolicyActivation", tick_log[-1])
+        self.assertEqual(activation["safety"]["liveEffect"], False)
+        self.assertEqual(activation["safety"]["officialMmoWrites"], False)
+
+    def test_multi_tier_policy_activation_records_structure_only_blocker(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 1, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(tick_log, strategy_variant, fixture_summaries)
+        metrics = harness.build_variant_metrics(tick_log)
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["executionAction"], "engage-hostiles")
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertEqual(tick_log, before_activation)
+        self.assertEqual(metrics["combat"]["hostileKills"], 0)
 
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
@@ -1034,7 +1078,7 @@ cli:
             },
         }
 
-        activation = harness.apply_multi_tier_policy_activation(tick_log, strategy_variant, fixture_summaries)
+        activation = harness.build_multi_tier_policy_activation_evidence(tick_log, strategy_variant, fixture_summaries)
 
         self.assertIsNone(activation)
         self.assertNotIn("rlPolicyActivation", tick_log[-1])
@@ -2258,6 +2302,20 @@ cli:
 
     def test_run_simulator_missing_steam_key_fails_closed_without_secret_leak(self) -> None:
         unrelated_secret = "unrelated-secret-token-123456"
+        variant_id = "construction-priority.pg.territory-seed.v1"
+        variant_configs = {
+            variant_id: {
+                "id": variant_id,
+                "title": "inline candidate that failed setup",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 31,
+                    "resourceSignalWeight": 2,
+                    "killSignalWeight": 5,
+                    "riskPenalty": 4,
+                },
+            }
+        }
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2271,17 +2329,22 @@ cli:
                         harness.run_simulator(
                             ticks=1,
                             workers=1,
-                            variants=["baseline"],
+                            variants=[variant_id],
                             out_dir=out_dir,
                             run_id="missing-steam-key",
                             code_path=root / "main.js",
                             map_source_file=root / "map.json",
+                            variant_configs=variant_configs,
                         )
                     failure_text = (out_dir / "missing-steam-key" / "setup_failure.json").read_text(encoding="utf-8")
+                    summary = read_json(out_dir / "missing-steam-key" / "run_summary.json")
 
         run_variants.assert_not_called()
         self.assertIn("STEAM_KEY environment variable is required", failure_text)
         self.assertNotIn(unrelated_secret, failure_text)
+        strategy_variant = summary["variants"][0]["strategyVariant"]
+        self.assertEqual(strategy_variant["label"], "inline candidate that failed setup")
+        self.assertEqual(strategy_variant["parameters"]["territorySignalWeight"], 31)
 
     def test_run_simulator_rejects_unsafe_run_id_before_writing_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2486,6 +2549,19 @@ cli:
             "reasons": [],
             "warnings": [],
         }
+        variant_configs = {
+            "baseline": {
+                "id": "baseline",
+                "title": "inline failure candidate",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 29,
+                    "resourceSignalWeight": 3,
+                    "killSignalWeight": 4,
+                    "riskPenalty": 2,
+                },
+            }
+        }
 
         cases = [
             ("required-env", "setup-failure", "setup_failure.json", harness.RUN_SETUP_FAILURE_TYPE),
@@ -2511,6 +2587,7 @@ cli:
                     error=f"{phase} failed",
                     resource_guard=resource_guard,
                     cleanup=cleanup,
+                    variant_configs=variant_configs,
                 )
                 failure_path = out_dir / run_id / filename
                 failure = read_json(failure_path)
@@ -2520,6 +2597,8 @@ cli:
                 self.assertEqual(failure["phase"], phase)
                 self.assertEqual(artifact["failureArtifactPath"], str(failure_path))
                 self.assertEqual(summary["failureArtifactPath"], str(failure_path))
+                self.assertEqual(summary["variants"][0]["strategyVariant"]["label"], "inline failure candidate")
+                self.assertEqual(summary["variants"][0]["strategyVariant"]["parameters"]["territorySignalWeight"], 29)
                 self.assertFalse((out_dir / run_id / "resource_guard_failure.json").exists())
 
     def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:

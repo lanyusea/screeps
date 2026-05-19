@@ -2597,74 +2597,14 @@ def select_multi_tier_policy_activation(
     }
 
 
-def _decrement_nonnegative_int(payload: JsonObject, key: str, amount: int = 1) -> int:
-    current = _extract_int(payload.get(key)) or 0
-    updated = max(0, current - amount)
-    payload[key] = updated
-    return updated
-
-
-def _decrement_first_positive_count(payload: JsonObject) -> None:
-    for key in sorted(payload):
-        value = _extract_int(payload.get(key))
-        if value is not None and value > 0:
-            payload[key] = value - 1
-            return
-
-
-def _apply_claim_policy_activation_to_tick(tick_entry: JsonObject, activation: JsonObject) -> bool:
-    target_room = activation.get("targetRoom")
-    if not isinstance(target_room, str):
-        return False
-    rooms = tick_entry.setdefault("rooms", {})
-    if not isinstance(rooms, dict):
-        return False
-    summary = rooms.get(target_room)
-    if not isinstance(summary, dict):
-        return False
-    execution_action = activation.get("executionAction")
-    if execution_action == "engage-hostiles":
-        combat = summary.setdefault("combat", {})
-        if not isinstance(combat, dict):
-            return False
-        if (_extract_int(combat.get("hostileCreeps")) or 0) <= 0:
-            return False
-        _decrement_nonnegative_int(combat, "hostileCreeps")
-        _decrement_nonnegative_int(summary, "creeps")
-        creep_counts = summary.get("creepCounts")
-        if isinstance(creep_counts, dict):
-            _decrement_first_positive_count(creep_counts)
-        combat_events = summary.setdefault("combatEvents", {})
-        if isinstance(combat_events, dict):
-            combat_events["creepDestroyedCount"] = (_extract_int(combat_events.get("creepDestroyedCount")) or 0) + 1
-        return True
-    if execution_action == "claim-controller":
-        controller = summary.setdefault("controller", {})
-        if not isinstance(controller, dict):
-            return False
-        summary["owned"] = True
-        controller["my"] = True
-        controller["owner"] = "rl-sim-policy"
-        controller["level"] = max(1, _extract_int(controller.get("level")) or 0)
-        return True
-    return False
-
-
-def apply_multi_tier_policy_activation(
+def build_multi_tier_policy_activation_evidence(
     tick_log: list[JsonObject],
     strategy_variant: JsonObject,
     fixture_room_summaries: dict[str, JsonObject],
 ) -> JsonObject | None:
     if len(tick_log) < 2:
         return None
-    activation = select_multi_tier_policy_activation(strategy_variant, fixture_room_summaries)
-    if activation is None:
-        return None
-    final_tick = tick_log[-1]
-    if not isinstance(final_tick, dict) or not _apply_claim_policy_activation_to_tick(final_tick, activation):
-        return None
-    final_tick["rlPolicyActivation"] = activation
-    return activation
+    return select_multi_tier_policy_activation(strategy_variant, fixture_room_summaries)
 
 
 def build_variant_owned_room_scorecard(variant_result: JsonObject) -> JsonObject:
@@ -3202,7 +3142,7 @@ def _run_variant(
             except Exception as exc:  # noqa: BLE001 - preserve the original result and surface cleanup failure
                 errors.append(f"cleanup failed: {_safe_text(exc, 420)}")
 
-    policy_activation = apply_multi_tier_policy_activation(variant_ticks, strategy_variant, fixture_room_summaries)
+    policy_activation = build_multi_tier_policy_activation_evidence(variant_ticks, strategy_variant, fixture_room_summaries)
     wall_seconds = round(time.time() - start, 3)
     if wall_seconds <= 0:
         wall_seconds = 0.0
@@ -4407,6 +4347,7 @@ def _build_run_failure_variant_results(
     code_path: Path,
     map_source_file: Path,
     error: Any,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> list[JsonObject]:
     effective_workers = max(1, _effective_run_worker_count(workers, variants))
     results: list[JsonObject] = []
@@ -4417,7 +4358,7 @@ def _build_run_failure_variant_results(
         error_text = _safe_text(error, 480)
         strategy_variant: JsonObject | None = None
         try:
-            strategy_variant = strategy_variant_config_by_id(variant_id)
+            strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
         except Exception:
             strategy_variant = {
                 "id": variant_id,
@@ -4487,6 +4428,7 @@ def write_run_failure_artifacts(
     error: Any,
     resource_guard: JsonObject | None,
     cleanup: JsonObject | None,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     """Persist a redacted run failure report and a schema-compatible run summary."""
     resolved_error = _safe_text(error, 720)
@@ -4501,6 +4443,7 @@ def write_run_failure_artifacts(
         code_path=code_path,
         map_source_file=map_source_file,
         error=resolved_error,
+        variant_configs=variant_configs,
     )
     run_dir = out_dir / run_id
     run_artifact_path = run_dir / "run_summary.json"
@@ -4656,6 +4599,7 @@ def run_simulator(
             error="resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]),
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise RuntimeError("resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]))
     ensure_steam_key_for_simulator_run(env_file=steam_key_env_file)
@@ -4677,6 +4621,7 @@ def run_simulator(
             error="STEAM_KEY environment variable is required for run mode",
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise RuntimeError("STEAM_KEY environment variable is required for run mode")
     try:
@@ -4713,6 +4658,7 @@ def run_simulator(
             error=exc,
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"
