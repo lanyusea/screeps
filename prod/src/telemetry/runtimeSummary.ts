@@ -4,8 +4,13 @@ import {
   type ColonyMode,
   type ColonySuppressionReason
 } from '../colony/colonyStage';
-import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
+import {
+  buildRuntimeConstructionPriorityReport,
+  constructionPriorityStrategyParametersFromRegistry,
+  type ConstructionPriorityScore
+} from '../construction/constructionPriority';
 import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
+import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import {
   buildRuntimeOccupationRecommendationReport,
   persistOccupationRecommendationFollowUpIntent,
@@ -697,6 +702,7 @@ export interface RuntimeSummary {
 
 interface RuntimeSummaryOptions {
   persistOccupationRecommendations?: boolean;
+  strategyRegistry?: StrategyRegistryEntry[];
 }
 
 let cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();
@@ -750,7 +756,8 @@ export function emitRuntimeSummary(
       creepsByColony.get(colony.room.name) ?? [],
       persistOccupationRecommendations,
       eventMetricsByRoom.get(colony.room.name) ?? {},
-      shouldBuildStructureSnapshot(tick)
+      shouldBuildStructureSnapshot(tick),
+      options.strategyRegistry
     )
   );
   const summary: RuntimeSummary = {
@@ -848,7 +855,8 @@ function summarizeRoom(
   colonyCreeps: Creep[],
   persistOccupationRecommendations: boolean,
   eventMetrics: RuntimeRoomEventMetrics,
-  includeStructureSnapshot: boolean
+  includeStructureSnapshot: boolean,
+  strategyRegistry: StrategyRegistryEntry[] | undefined
 ): RuntimeRoomSummary {
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
@@ -890,7 +898,7 @@ function summarizeRoom(
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
@@ -2661,9 +2669,12 @@ function summarizeCombat(room: Room, events: RuntimeCombatEventSummary | undefin
 
 function summarizeConstructionPriority(
   colony: ColonySnapshot,
-  colonyWorkers: Creep[]
+  colonyWorkers: Creep[],
+  strategyRegistry: StrategyRegistryEntry[] | undefined
 ): RuntimeConstructionPrioritySummary {
-  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers);
+  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
+    strategyParameters: constructionPriorityStrategyParametersFromRegistry(strategyRegistry)
+  });
 
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),

@@ -2193,9 +2193,33 @@ def summarize_variant(
 
 
 def runtime_evaluated_parameter_source(run: JsonObject) -> tuple[str, Any] | None:
-    for field in ("evaluatedParameters", "evaluated_parameters"):
-        if field in run:
-            return field, run.get(field)
+    consumption = run.get("runtimeParameterConsumption")
+    if isinstance(consumption, dict) and consumption.get("runtimeParameterConsumption") is True:
+        parameters = consumption.get("evaluatedParameters")
+        if isinstance(parameters, dict):
+            return "runtimeParameterConsumption.evaluatedParameters", parameters
+        evidence = consumption.get("evidence")
+        if isinstance(evidence, dict) and isinstance(evidence.get("parameters"), dict):
+            return "runtimeParameterConsumption.evidence.parameters", evidence.get("parameters")
+
+    nested_injection = run.get("runtimeParameterInjection")
+    if isinstance(nested_injection, dict):
+        nested_consumption = nested_injection.get("runtimeParameterConsumptionEvidence")
+        if isinstance(nested_consumption, dict) and nested_consumption.get("runtimeParameterConsumption") is True:
+            parameters = nested_consumption.get("evaluatedParameters")
+            if isinstance(parameters, dict):
+                return "runtimeParameterInjection.runtimeParameterConsumptionEvidence.evaluatedParameters", parameters
+
+    source = text_or_none(run.get("evaluatedParametersSource", run.get("evaluated_parameters_source")))
+    if source in {
+        "runtime_parameter_consumption",
+        "runtime_policy_parameter_consumption",
+        "Memory.rlRuntimePolicyParameters",
+        simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
+    }:
+        for field in ("evaluatedParameters", "evaluated_parameters"):
+            if field in run:
+                return field, run.get(field)
     return None
 
 
@@ -2258,8 +2282,13 @@ def summarize_runtime_parameter_injection_attempt(
 
     source = runtime_evaluated_parameter_source(run)
     if source is None:
-        row["status"] = "missing_evaluated_parameters"
-        row["reason"] = "successful simulator attempt did not report evaluatedParameters from the runtime payload"
+        consumption = run.get("runtimeParameterConsumption")
+        if isinstance(consumption, dict) and text_or_none(consumption.get("reason")):
+            row["status"] = text_or_none(consumption.get("status")) or "missing_evaluated_parameters"
+            row["reason"] = text_or_none(consumption.get("reason"))
+        else:
+            row["status"] = "missing_evaluated_parameters"
+            row["reason"] = "successful simulator attempt did not report evaluatedParameters from runtime consumption evidence"
         return {key: value for key, value in row.items() if value is not None}
 
     field, raw_parameters = source

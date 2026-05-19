@@ -9310,6 +9310,298 @@ function matchesStructureType5(actual, globalName, fallback) {
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
+// src/strategy/strategyRegistry.ts
+var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
+var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
+var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
+var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
+  shards: [...ACTIVE_OFFICIAL_SHARDS],
+  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
+};
+var DEFAULT_STRATEGY_REGISTRY = [
+  {
+    id: "construction-priority.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Current construction priority scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 6,
+      resourceSignalWeight: 4,
+      killSignalWeight: 6,
+      riskPenalty: 4
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "RL/self-evolving strategy paper", source: "docs", path: RL_RESEARCH_PATH }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "construction-priority.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Territory-first construction priority shadow candidate",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Current expansion and remote candidate scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 8,
+      resourceSignalWeight: 5,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Gameplay evolution roadmap", source: "docs", path: "docs/ops/gameplay-evolution-roadmap.md" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Territory-first expansion and remote candidate shadow model",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 26,
+      resourceSignalWeight: 4,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "defense-repair.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "defense-posture-repair-threshold",
+    title: "Current defense posture and repair threshold shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to observed hostile and damage pressure.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for controller survival and held-room protection.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for storage and productive-structure protection.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile presence and tower/rampart readiness.", 0, 40, 1),
+      numberKnob("riskPenalty", "Penalty for unavailable or insufficient observations.", 0, 30, 1),
+      numberKnob("repairCriticalHitsRatio", "Critical repair hit ratio threshold.", 0.01, 1, 0.01)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 12,
+      resourceSignalWeight: 6,
+      killSignalWeight: 18,
+      riskPenalty: 4,
+      repairCriticalHitsRatio: 0.5
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Runtime room monitor runbook", source: "docs", path: "docs/ops/runtime-room-monitor.md" }
+    ],
+    rollback: passiveRollback("defense-repair.incumbent.v1")
+  }
+];
+function validateStrategyRegistryEntry(entry) {
+  const issues = [];
+  if (entry.schemaVersion !== STRATEGY_REGISTRY_SCHEMA_VERSION) {
+    issues.push(`unsupported schemaVersion ${entry.schemaVersion}`);
+  }
+  if (!entry.id) {
+    issues.push("missing strategy id");
+  }
+  if (!entry.version) {
+    issues.push("missing strategy version");
+  }
+  if (!entry.owner.issue || entry.owner.issue <= 0) {
+    issues.push("missing owning issue");
+  }
+  if (entry.supportedContext.artifactTypes.length === 0) {
+    issues.push("supported context must name at least one artifact type");
+  }
+  if (entry.knobBounds.length === 0) {
+    issues.push("strategy must declare bounded knobs");
+  }
+  const declaredKnobs = /* @__PURE__ */ new Set();
+  for (const knob of entry.knobBounds) {
+    if (declaredKnobs.has(knob.name)) {
+      issues.push(`duplicate knob ${knob.name}`);
+    }
+    declaredKnobs.add(knob.name);
+    if (!(knob.name in entry.defaultValues)) {
+      issues.push(`missing default for knob ${knob.name}`);
+      continue;
+    }
+    const defaultValue = entry.defaultValues[knob.name];
+    if (!isKnobDefaultWithinBounds(defaultValue, knob.bounds)) {
+      issues.push(`default for knob ${knob.name} is outside declared bounds`);
+    }
+  }
+  for (const defaultName of Object.keys(entry.defaultValues)) {
+    if (!declaredKnobs.has(defaultName)) {
+      issues.push(`default declared without knob bounds: ${defaultName}`);
+    }
+  }
+  if (entry.evidenceLinks.length === 0) {
+    issues.push("missing evidence links");
+  }
+  if (!entry.rollback.disableFlag) {
+    issues.push("missing rollback disable flag");
+  }
+  if (entry.rollback.stopConditions.length === 0) {
+    issues.push("missing rollback stop conditions");
+  }
+  return { valid: issues.length === 0, issues };
+}
+function validateStrategyRegistry(entries) {
+  const issues = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (ids.has(entry.id)) {
+      issues.push(`duplicate strategy id ${entry.id}`);
+    }
+    ids.add(entry.id);
+    const entryResult = validateStrategyRegistryEntry(entry);
+    issues.push(...entryResult.issues.map((issue) => `${entry.id}: ${issue}`));
+  }
+  return { valid: issues.length === 0, issues };
+}
+function getStrategyNumberDefault(entry, knobName, fallback = 0) {
+  const value = entry.defaultValues[knobName];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function numberKnob(name, description, min, max, step) {
+  return {
+    name,
+    description,
+    bounds: {
+      kind: "number",
+      min,
+      max,
+      ...step !== void 0 ? { step } : {}
+    }
+  };
+}
+function passiveRollback(rollbackToStrategyId) {
+  return {
+    disabledByDefault: true,
+    disableFlag: "strategyShadowEvaluator.enabled=false",
+    rollbackToStrategyId,
+    stopConditions: [
+      "shadow report is noisy or expensive",
+      "artifact parsing cannot be proven deterministic",
+      "any candidate output is accidentally wired into live Screeps actions"
+    ],
+    notes: "The first slice is pure offline/shadow evaluation; disabling the evaluator leaves live behavior unchanged."
+  };
+}
+function isKnobDefaultWithinBounds(value, bounds) {
+  switch (bounds.kind) {
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max;
+    case "boolean":
+      return typeof value === "boolean";
+    case "enum":
+      return typeof value === "string" && bounds.values.includes(value);
+    default:
+      return false;
+  }
+}
+
 // src/construction/extensionPlanner.ts
 var EXTENSION_LIMITS_BY_RCL = {
   2: 5,
@@ -9863,14 +10155,14 @@ var OBSERVATION_LABELS = {
   "territory-intents": "missing observation: territory intent state",
   "remote-paths": "missing observation: remote path/logistics exposure"
 };
-function scoreConstructionPriorities(roomState, candidates) {
-  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate)).sort(compareConstructionPriorityScores);
+function scoreConstructionPriorities(roomState, candidates, options = {}) {
+  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate, options)).sort(compareConstructionPriorityScores);
   return {
     candidates: scoredCandidates,
     nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
   };
 }
-function scoreConstructionCandidate(roomState, candidate) {
+function scoreConstructionCandidate(roomState, candidate, options = {}) {
   var _a, _b, _c, _d, _e, _f, _g;
   const missingObservations = getMissingObservations(roomState, candidate);
   const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
@@ -9913,7 +10205,7 @@ function scoreConstructionCandidate(roomState, candidate) {
     visionWeight: scoreVisionWeight(candidate),
     riskCost: scoreRiskCost(roomState, candidate)
   };
-  const rawScore = factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
+  const rawScore = scoreConstructionCandidateRawScore(candidate, factors, options.strategyParameters);
   const survivalGatedScore = applySurvivalGate(roomState, candidate, rawScore);
   const gatedScore = applySourceLogisticsEnergyStarvationPriority(roomState, candidate, survivalGatedScore);
   const score = clampScore(Math.round(gatedScore));
@@ -10012,9 +10304,25 @@ function getPostClaimConstructionSiteImpactPriority(site, context) {
   }
   return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
 }
-function buildRuntimeConstructionPriorityReport(colony, creeps) {
+function buildRuntimeConstructionPriorityReport(colony, creeps, options = {}) {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state));
+  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
+}
+function constructionPriorityStrategyParametersFromRegistry(registry) {
+  var _a;
+  const entry = (_a = registry == null ? void 0 : registry.find(
+    (candidate) => candidate.family === "construction-priority" && candidate.rolloutStatus === "incumbent"
+  )) != null ? _a : registry == null ? void 0 : registry.find((candidate) => candidate.family === "construction-priority");
+  if (!entry) {
+    return void 0;
+  }
+  return {
+    baseScoreWeight: getStrategyNumberDefault(entry, "baseScoreWeight", 1),
+    territorySignalWeight: getStrategyNumberDefault(entry, "territorySignalWeight", 0),
+    resourceSignalWeight: getStrategyNumberDefault(entry, "resourceSignalWeight", 0),
+    killSignalWeight: getStrategyNumberDefault(entry, "killSignalWeight", 0),
+    riskPenalty: getStrategyNumberDefault(entry, "riskPenalty", 0)
+  };
 }
 function planTowerConstruction(colony) {
   const limit = getTowerLimitForRcl(getOwnedRoomRcl2(colony.room));
@@ -10657,6 +10965,17 @@ function scoreVisionWeight(candidate) {
   const vision = (_a = candidate.vision) != null ? _a : {};
   const score = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * 13 + normalizeSignal(vision.resources) * 9 + normalizeSignal(vision.enemyKills) * 5;
   return Math.min(MAX_VISION_POINTS, Math.round(score));
+}
+function scoreConstructionCandidateRawScore(candidate, factors, strategyParameters) {
+  var _a;
+  if (!strategyParameters) {
+    return factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
+  }
+  const baseScore = factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit;
+  const vision = (_a = candidate.vision) != null ? _a : {};
+  const weightedVision = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * strategyParameters.territorySignalWeight + normalizeSignal(vision.resources) * strategyParameters.resourceSignalWeight + normalizeSignal(vision.enemyKills) * strategyParameters.killSignalWeight;
+  const riskMultiplier = Math.max(0, strategyParameters.riskPenalty) / 4;
+  return baseScore * Math.max(0, strategyParameters.baseScoreWeight) + weightedVision - factors.riskCost * riskMultiplier;
 }
 function scoreRiskCost(roomState, candidate) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -34900,7 +35219,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
         persistOccupationRecommendations,
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
-        shouldBuildStructureSnapshot(tick)
+        shouldBuildStructureSnapshot(tick),
+        options.strategyRegistry
       );
     }
   );
@@ -34973,7 +35293,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry) {
   const tick = getGameTime31();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -35013,7 +35333,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
@@ -36186,8 +36506,10 @@ function summarizeCombat(room, events) {
     ...events ? { events } : {}
   };
 }
-function summarizeConstructionPriority(colony, colonyWorkers) {
-  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers);
+function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry) {
+  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
+    strategyParameters: constructionPriorityStrategyParametersFromRegistry(strategyRegistry)
+  });
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
@@ -44222,7 +44544,7 @@ var ERR_NO_PATH_CODE8 = -2;
 var OK_CODE20 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
-function runEconomy(preludeTelemetryEvents = []) {
+function runEconomy(preludeTelemetryEvents = [], options = {}) {
   var _a, _b, _c, _d;
   const featureGates = getRuntimeFeatureGates();
   const creeps = Object.values(Game.creeps);
@@ -44392,7 +44714,10 @@ function runEconomy(preludeTelemetryEvents = []) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }
   }
-  return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+  return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
+    persistOccupationRecommendations: false,
+    strategyRegistry: options.strategyRegistry
+  });
 }
 function ensureLocalWorkerColonyMemory(colonies, creeps) {
   var _a;
@@ -45155,13 +45480,12 @@ var Kernel = class {
     this.dependencies = dependencies;
     this.lastForwardedDefenseEventTick = /* @__PURE__ */ new Map();
   }
-  run() {
+  run(options = {}) {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime44())
-    );
+    const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime44());
+    return options.strategyRegistry ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
   }
 };
 function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
@@ -45234,298 +45558,6 @@ function getDefenseEventPriority(event) {
 }
 function getGameTime44() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
-}
-
-// src/strategy/strategyRegistry.ts
-var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
-var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
-var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
-var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
-  shards: [...ACTIVE_OFFICIAL_SHARDS],
-  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
-};
-var DEFAULT_STRATEGY_REGISTRY = [
-  {
-    id: "construction-priority.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "construction-priority",
-    title: "Current construction priority scoring shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      maxRcl: 4,
-      notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 6,
-      resourceSignalWeight: 4,
-      killSignalWeight: 6,
-      riskPenalty: 4
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "RL/self-evolving strategy paper", source: "docs", path: RL_RESEARCH_PATH }
-    ],
-    rollback: passiveRollback("construction-priority.incumbent.v1")
-  },
-  {
-    id: "construction-priority.territory-shadow.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "construction-priority",
-    title: "Territory-first construction priority shadow candidate",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      maxRcl: 4,
-      notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 22,
-      resourceSignalWeight: 3,
-      killSignalWeight: 5,
-      riskPenalty: 4
-    },
-    rolloutStatus: "shadow",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
-    ],
-    rollback: passiveRollback("construction-priority.incumbent.v1")
-  },
-  {
-    id: "expansion-remote.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "expansion-remote-candidate",
-    title: "Current expansion and remote candidate scoring shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
-      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 8,
-      resourceSignalWeight: 5,
-      killSignalWeight: 2,
-      riskPenalty: 10
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Gameplay evolution roadmap", source: "docs", path: "docs/ops/gameplay-evolution-roadmap.md" }
-    ],
-    rollback: passiveRollback("expansion-remote.incumbent.v1")
-  },
-  {
-    id: "expansion-remote.territory-shadow.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "expansion-remote-candidate",
-    title: "Territory-first expansion and remote candidate shadow model",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
-      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 26,
-      resourceSignalWeight: 4,
-      killSignalWeight: 2,
-      riskPenalty: 10
-    },
-    rolloutStatus: "shadow",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
-    ],
-    rollback: passiveRollback("expansion-remote.incumbent.v1")
-  },
-  {
-    id: "defense-repair.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "defense-posture-repair-threshold",
-    title: "Current defense posture and repair threshold shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to observed hostile and damage pressure.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for controller survival and held-room protection.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for storage and productive-structure protection.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile presence and tower/rampart readiness.", 0, 40, 1),
-      numberKnob("riskPenalty", "Penalty for unavailable or insufficient observations.", 0, 30, 1),
-      numberKnob("repairCriticalHitsRatio", "Critical repair hit ratio threshold.", 0.01, 1, 0.01)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 12,
-      resourceSignalWeight: 6,
-      killSignalWeight: 18,
-      riskPenalty: 4,
-      repairCriticalHitsRatio: 0.5
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Runtime room monitor runbook", source: "docs", path: "docs/ops/runtime-room-monitor.md" }
-    ],
-    rollback: passiveRollback("defense-repair.incumbent.v1")
-  }
-];
-function validateStrategyRegistryEntry(entry) {
-  const issues = [];
-  if (entry.schemaVersion !== STRATEGY_REGISTRY_SCHEMA_VERSION) {
-    issues.push(`unsupported schemaVersion ${entry.schemaVersion}`);
-  }
-  if (!entry.id) {
-    issues.push("missing strategy id");
-  }
-  if (!entry.version) {
-    issues.push("missing strategy version");
-  }
-  if (!entry.owner.issue || entry.owner.issue <= 0) {
-    issues.push("missing owning issue");
-  }
-  if (entry.supportedContext.artifactTypes.length === 0) {
-    issues.push("supported context must name at least one artifact type");
-  }
-  if (entry.knobBounds.length === 0) {
-    issues.push("strategy must declare bounded knobs");
-  }
-  const declaredKnobs = /* @__PURE__ */ new Set();
-  for (const knob of entry.knobBounds) {
-    if (declaredKnobs.has(knob.name)) {
-      issues.push(`duplicate knob ${knob.name}`);
-    }
-    declaredKnobs.add(knob.name);
-    if (!(knob.name in entry.defaultValues)) {
-      issues.push(`missing default for knob ${knob.name}`);
-      continue;
-    }
-    const defaultValue = entry.defaultValues[knob.name];
-    if (!isKnobDefaultWithinBounds(defaultValue, knob.bounds)) {
-      issues.push(`default for knob ${knob.name} is outside declared bounds`);
-    }
-  }
-  for (const defaultName of Object.keys(entry.defaultValues)) {
-    if (!declaredKnobs.has(defaultName)) {
-      issues.push(`default declared without knob bounds: ${defaultName}`);
-    }
-  }
-  if (entry.evidenceLinks.length === 0) {
-    issues.push("missing evidence links");
-  }
-  if (!entry.rollback.disableFlag) {
-    issues.push("missing rollback disable flag");
-  }
-  if (entry.rollback.stopConditions.length === 0) {
-    issues.push("missing rollback stop conditions");
-  }
-  return { valid: issues.length === 0, issues };
-}
-function validateStrategyRegistry(entries) {
-  const issues = [];
-  const ids = /* @__PURE__ */ new Set();
-  for (const entry of entries) {
-    if (ids.has(entry.id)) {
-      issues.push(`duplicate strategy id ${entry.id}`);
-    }
-    ids.add(entry.id);
-    const entryResult = validateStrategyRegistryEntry(entry);
-    issues.push(...entryResult.issues.map((issue) => `${entry.id}: ${issue}`));
-  }
-  return { valid: issues.length === 0, issues };
-}
-function getStrategyNumberDefault(entry, knobName, fallback = 0) {
-  const value = entry.defaultValues[knobName];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-function numberKnob(name, description, min, max, step) {
-  return {
-    name,
-    description,
-    bounds: {
-      kind: "number",
-      min,
-      max,
-      ...step !== void 0 ? { step } : {}
-    }
-  };
-}
-function passiveRollback(rollbackToStrategyId) {
-  return {
-    disabledByDefault: true,
-    disableFlag: "strategyShadowEvaluator.enabled=false",
-    rollbackToStrategyId,
-    stopConditions: [
-      "shadow report is noisy or expensive",
-      "artifact parsing cannot be proven deterministic",
-      "any candidate output is accidentally wired into live Screeps actions"
-    ],
-    notes: "The first slice is pure offline/shadow evaluation; disabling the evaluator leaves live behavior unchanged."
-  };
-}
-function isKnobDefaultWithinBounds(value, bounds) {
-  switch (bounds.kind) {
-    case "number":
-      return typeof value === "number" && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
-    case "integer":
-      return typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max;
-    case "boolean":
-      return typeof value === "boolean";
-    case "enum":
-      return typeof value === "string" && bounds.values.includes(value);
-    default:
-      return false;
-  }
 }
 
 // src/strategy/runtimePolicyParameters.ts
@@ -46298,7 +46330,7 @@ var strategyRegistryState = {
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
-  const summary = kernel.run();
+  const summary = kernel.run({ strategyRegistry: strategyRegistryState.entries });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameters.evidence);
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }

@@ -44,7 +44,7 @@ const recentKpiWindows: KpiWindowHistory = {};
 const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
-  const summary = kernel.run();
+  const summary = kernel.run({ strategyRegistry: strategyRegistryState.entries });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameters.evidence);
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }

@@ -192,9 +192,31 @@ class MockSimulator:
                     code_text=code_text,
                 )
                 if self.include_evaluated_parameters:
-                    result["evaluatedParameters"] = copy.deepcopy(
+                    evaluated_parameters = copy.deepcopy(
                         self.evaluated_parameters_by_variant.get(variant_id, variant_config["parameters"])
                     )
+                    consumption_evidence = {
+                        "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+                        "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+                        "runtimeParameterInjection": True,
+                        "consumed": True,
+                        "strategyVariantId": variant_id,
+                        "candidatePolicyId": variant_config.get("candidatePolicyId"),
+                        "family": variant_config.get("family"),
+                        "parameters": evaluated_parameters,
+                        "parametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
+                        "appliedStrategyIds": [variant_id],
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
+                        result["runtimeParameterInjection"],
+                        consumption_evidence,
+                    )
+                    if result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True:
+                        result["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
+                        result["evaluatedParametersSource"] = "runtime_parameter_consumption"
             variants.append(result)
         return {
             "type": "screeps-rl-simulator-run",

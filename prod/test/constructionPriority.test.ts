@@ -110,6 +110,49 @@ describe('construction priority scoring', () => {
     );
   });
 
+  it('applies runtime strategy parameters to construction priority scoring', () => {
+    const state = makeRoomState({
+      rcl: 4,
+      workerCount: 5,
+      energyCapacity: 1_300,
+      activeTerritoryIntentCount: 1
+    });
+
+    const report = scoreConstructionPriorities(
+      state,
+      [
+        {
+          buildItem: 'build remote logistics',
+          buildType: 'remote-logistics',
+          expectedKpiMovement: ['turns territory intent into sustainable income'],
+          signals: { expansionPrerequisite: 0.4 },
+          vision: { territory: 1, resources: 0.1 }
+        },
+        {
+          buildItem: 'build storage logistics',
+          buildType: 'storage',
+          expectedKpiMovement: ['raises stored-energy capacity'],
+          signals: { storageLogistics: 1 },
+          vision: { resources: 1, territory: 0.1 }
+        }
+      ],
+      {
+        strategyParameters: {
+          baseScoreWeight: 1,
+          territorySignalWeight: 30,
+          resourceSignalWeight: 0,
+          killSignalWeight: 0,
+          riskPenalty: 0
+        }
+      }
+    );
+
+    expect(report.nextPrimary?.buildItem).toBe('build remote logistics');
+    expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
+      scoreFor(report.candidates, 'build storage logistics')
+    );
+  });
+
   it('weights expansion prerequisites ahead of lower-chain resource storage when home state is safe', () => {
     const state = makeRoomState({
       rcl: 4,

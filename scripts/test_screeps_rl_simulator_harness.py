@@ -1522,6 +1522,100 @@ cli:
         self.assertFalse(uploaded["runtimeParameterConsumerObserved"])
         self.assertIn("consumer marker", uploaded["reason"])
 
+    def test_runtime_parameter_consumption_required_for_evaluated_parameters(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        consumption = harness.runtime_parameter_consumption_check(injection, None)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertFalse(updated["runtimeParameterConsumption"])
+        self.assertEqual(updated["runtimeParameterConsumptionStatus"], "missing")
+        self.assertIn("did not expose", consumption["reason"])
+
+    def test_runtime_parameter_consumption_accepts_matching_memory_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+        self.assertEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+        self.assertTrue(updated["runtimeParameterConsumption"])
+        self.assertEqual(updated["runtimeParameterConsumptionStatus"], "consumed")
+
+    def test_runtime_parameter_consumption_rejects_parameter_drift(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["parameters"] = {
+            **evidence["parameters"],
+            "territorySignalWeight": evidence["parameters"]["territorySignalWeight"] + 1,
+        }
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("disagreed", consumption["reason"])
+        self.assertNotEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+
+    def test_runtime_parameter_consumption_extracts_memory_payload(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        payload = {
+            "ok": 1,
+            "data": json.dumps({
+                "rlRuntimePolicyParameters": evidence,
+            }, sort_keys=True),
+        }
+
+        extracted = harness.find_runtime_parameter_consumption_evidence(payload)
+
+        self.assertEqual(extracted, evidence)
+
+    def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() { return 1; };\n"
+        )
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        return harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+
+    def runtime_parameter_consumption_evidence(self, injection: harness.JsonObject) -> harness.JsonObject:
+        return {
+            "type": harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+            "consumerMarker": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+            "runtimeParameterInjection": True,
+            "consumed": True,
+            "strategyVariantId": injection["strategyVariantId"],
+            "candidatePolicyId": injection["candidatePolicyId"],
+            "family": injection["family"],
+            "parameters": copy.deepcopy(injection["parameters"]),
+            "parametersSha256": injection["parametersSha256"],
+            "appliedStrategyIds": [injection["strategyVariantId"]],
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:
             def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:

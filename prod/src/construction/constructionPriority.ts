@@ -4,6 +4,7 @@ import {
   isCriticalRoadLogisticsWork,
   type CriticalRoadLogisticsContext
 } from './criticalRoads';
+import { getStrategyNumberDefault, type StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getExtensionLimitForRcl, planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
 import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
@@ -125,6 +126,18 @@ export interface ConstructionPriorityScore {
 export interface ConstructionPriorityReport {
   candidates: ConstructionPriorityScore[];
   nextPrimary: ConstructionPriorityScore | null;
+}
+
+export interface ConstructionPriorityStrategyParameters {
+  baseScoreWeight: number;
+  territorySignalWeight: number;
+  resourceSignalWeight: number;
+  killSignalWeight: number;
+  riskPenalty: number;
+}
+
+export interface ConstructionPriorityScoringOptions {
+  strategyParameters?: ConstructionPriorityStrategyParameters;
 }
 
 export interface ConstructionPriorityPlanningOptions {
@@ -296,10 +309,11 @@ const OBSERVATION_LABELS: Record<ConstructionPriorityObservation, string> = {
 
 export function scoreConstructionPriorities(
   roomState: ConstructionPriorityRoomState,
-  candidates: ConstructionBuildCandidate[]
+  candidates: ConstructionBuildCandidate[],
+  options: ConstructionPriorityScoringOptions = {}
 ): ConstructionPriorityReport {
   const scoredCandidates = candidates
-    .map((candidate) => scoreConstructionCandidate(roomState, candidate))
+    .map((candidate) => scoreConstructionCandidate(roomState, candidate, options))
     .sort(compareConstructionPriorityScores);
 
   return {
@@ -310,7 +324,8 @@ export function scoreConstructionPriorities(
 
 export function scoreConstructionCandidate(
   roomState: ConstructionPriorityRoomState,
-  candidate: ConstructionBuildCandidate
+  candidate: ConstructionBuildCandidate,
+  options: ConstructionPriorityScoringOptions = {}
 ): ConstructionPriorityScore {
   const missingObservations = getMissingObservations(roomState, candidate);
   const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
@@ -355,14 +370,7 @@ export function scoreConstructionCandidate(
     visionWeight: scoreVisionWeight(candidate),
     riskCost: scoreRiskCost(roomState, candidate)
   };
-  const rawScore =
-    factors.urgency +
-    factors.roomState +
-    factors.extensionBootstrapWeight +
-    factors.expansionPrerequisites +
-    factors.economicBenefit +
-    factors.visionWeight -
-    factors.riskCost;
+  const rawScore = scoreConstructionCandidateRawScore(candidate, factors, options.strategyParameters);
   const survivalGatedScore = applySurvivalGate(roomState, candidate, rawScore);
   const gatedScore = applySourceLogisticsEnergyStarvationPriority(roomState, candidate, survivalGatedScore);
   const score = clampScore(Math.round(gatedScore));
@@ -539,10 +547,31 @@ export function selectImpactWeightedConstructionSite(
 
 export function buildRuntimeConstructionPriorityReport(
   colony: ColonySnapshot,
-  creeps: Creep[]
+  creeps: Creep[],
+  options: ConstructionPriorityScoringOptions = {}
 ): ConstructionPriorityReport {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state));
+  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
+}
+
+export function constructionPriorityStrategyParametersFromRegistry(
+  registry: StrategyRegistryEntry[] | undefined
+): ConstructionPriorityStrategyParameters | undefined {
+  const entry =
+    registry?.find(
+      (candidate) => candidate.family === 'construction-priority' && candidate.rolloutStatus === 'incumbent'
+    ) ?? registry?.find((candidate) => candidate.family === 'construction-priority');
+  if (!entry) {
+    return undefined;
+  }
+
+  return {
+    baseScoreWeight: getStrategyNumberDefault(entry, 'baseScoreWeight', 1),
+    territorySignalWeight: getStrategyNumberDefault(entry, 'territorySignalWeight', 0),
+    resourceSignalWeight: getStrategyNumberDefault(entry, 'resourceSignalWeight', 0),
+    killSignalWeight: getStrategyNumberDefault(entry, 'killSignalWeight', 0),
+    riskPenalty: getStrategyNumberDefault(entry, 'riskPenalty', 0)
+  };
 }
 
 export function planPriorityConstructionSites(
@@ -1668,6 +1697,40 @@ function scoreVisionWeight(candidate: ConstructionBuildCandidate): number {
     normalizeSignal(vision.enemyKills) * 5;
 
   return Math.min(MAX_VISION_POINTS, Math.round(score));
+}
+
+function scoreConstructionCandidateRawScore(
+  candidate: ConstructionBuildCandidate,
+  factors: ConstructionPriorityFactors,
+  strategyParameters: ConstructionPriorityStrategyParameters | undefined
+): number {
+  if (!strategyParameters) {
+    return (
+      factors.urgency +
+      factors.roomState +
+      factors.extensionBootstrapWeight +
+      factors.expansionPrerequisites +
+      factors.economicBenefit +
+      factors.visionWeight -
+      factors.riskCost
+    );
+  }
+
+  const baseScore =
+    factors.urgency +
+    factors.roomState +
+    factors.extensionBootstrapWeight +
+    factors.expansionPrerequisites +
+    factors.economicBenefit;
+  const vision = candidate.vision ?? {};
+  const weightedVision =
+    normalizeSignal(vision.survival) * 15 +
+    normalizeSignal(vision.territory) * strategyParameters.territorySignalWeight +
+    normalizeSignal(vision.resources) * strategyParameters.resourceSignalWeight +
+    normalizeSignal(vision.enemyKills) * strategyParameters.killSignalWeight;
+  const riskMultiplier = Math.max(0, strategyParameters.riskPenalty) / 4;
+
+  return baseScore * Math.max(0, strategyParameters.baseScoreWeight) + weightedVision - factors.riskCost * riskMultiplier;
 }
 
 function scoreRiskCost(roomState: ConstructionPriorityRoomState, candidate: ConstructionBuildCandidate): number {
