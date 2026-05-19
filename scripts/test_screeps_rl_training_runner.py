@@ -1859,6 +1859,7 @@ export const STRATEGY_REGISTRY = [
             )
             persisted = read_json(out_dir / "policy-gradient-injected.json")
             artifact_dir_exists = (out_dir / "policy-candidates").exists()
+            artifact_path_exists = Path(report["policyUpdateArtifactPath"]).exists()
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
@@ -1870,6 +1871,7 @@ export const STRATEGY_REGISTRY = [
         self.assertIsNotNone(report["policyUpdateCandidatePolicyId"])
         self.assertIn("policyUpdateArtifactPath", report)
         self.assertTrue(artifact_dir_exists)
+        self.assertTrue(artifact_path_exists)
         self.assertTrue(all(result["runtimeParameterInjection"]["runtimeParameterInjection"] for result in report["variantResults"]))
         self.assertTrue(all("evaluatedParameters" in result for result in report["variantResults"]))
         update = report["policyUpdate"]

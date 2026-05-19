@@ -95,10 +95,6 @@ export function applyRuntimePolicyParametersToRegistry(
 export function persistRuntimePolicyParameterConsumptionEvidence(
   evidence: RuntimePolicyParameterConsumptionEvidence
 ): void {
-  if (!evidence.consumed) {
-    return;
-  }
-
   const root = globalThis as typeof globalThis & { Memory?: RuntimeMemory };
   if (!root.Memory) {
     root.Memory = {};
@@ -165,10 +161,13 @@ function buildConsumptionEvidence(options: {
   appliedStrategyIds: string[];
   reason?: string;
 }): RuntimePolicyParameterConsumptionEvidence {
+  const runtimeParameterInjection =
+    options.payload?.runtimeParameterInjection === true &&
+    options.payload?.candidateParameterScope === 'runtime_injected';
   return {
     type: 'screeps-rl-runtime-policy-parameter-consumption',
     consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
-    runtimeParameterInjection: options.consumed,
+    runtimeParameterInjection,
     consumed: options.consumed,
     ...(textOrUndefined(options.payload?.strategyVariantId)
       ? { strategyVariantId: textOrUndefined(options.payload?.strategyVariantId) }

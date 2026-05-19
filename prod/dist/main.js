@@ -45609,9 +45609,6 @@ function applyRuntimePolicyParametersToRegistry(registry) {
   return { registry: patchedRegistry, evidence };
 }
 function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
-  if (!evidence.consumed) {
-    return;
-  }
   const root = globalThis;
   if (!root.Memory) {
     root.Memory = {};
@@ -45656,17 +45653,18 @@ function runtimePolicyPayloadTargetsEntry(payload, entry) {
   return entry.id === strategyVariantId || entry.id === candidatePolicyId || entry.id === sourceStrategyId || family !== void 0 && entry.family === family;
 }
 function buildConsumptionEvidence(options) {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  const runtimeParameterInjection = ((_a = options.payload) == null ? void 0 : _a.runtimeParameterInjection) === true && ((_b = options.payload) == null ? void 0 : _b.candidateParameterScope) === "runtime_injected";
   return {
     type: "screeps-rl-runtime-policy-parameter-consumption",
     consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
-    runtimeParameterInjection: options.consumed,
+    runtimeParameterInjection,
     consumed: options.consumed,
-    ...textOrUndefined((_a = options.payload) == null ? void 0 : _a.strategyVariantId) ? { strategyVariantId: textOrUndefined((_b = options.payload) == null ? void 0 : _b.strategyVariantId) } : {},
-    ...textOrUndefined((_c = options.payload) == null ? void 0 : _c.candidatePolicyId) ? { candidatePolicyId: textOrUndefined((_d = options.payload) == null ? void 0 : _d.candidatePolicyId) } : {},
-    ...textOrUndefined((_e = options.payload) == null ? void 0 : _e.family) ? { family: textOrUndefined((_f = options.payload) == null ? void 0 : _f.family) } : {},
+    ...textOrUndefined((_c = options.payload) == null ? void 0 : _c.strategyVariantId) ? { strategyVariantId: textOrUndefined((_d = options.payload) == null ? void 0 : _d.strategyVariantId) } : {},
+    ...textOrUndefined((_e = options.payload) == null ? void 0 : _e.candidatePolicyId) ? { candidatePolicyId: textOrUndefined((_f = options.payload) == null ? void 0 : _f.candidatePolicyId) } : {},
+    ...textOrUndefined((_g = options.payload) == null ? void 0 : _g.family) ? { family: textOrUndefined((_h = options.payload) == null ? void 0 : _h.family) } : {},
     ...options.parameters ? { parameters: options.parameters } : {},
-    ...textOrUndefined((_g = options.payload) == null ? void 0 : _g.parametersSha256) ? { parametersSha256: textOrUndefined((_h = options.payload) == null ? void 0 : _h.parametersSha256) } : {},
+    ...textOrUndefined((_i = options.payload) == null ? void 0 : _i.parametersSha256) ? { parametersSha256: textOrUndefined((_j = options.payload) == null ? void 0 : _j.parametersSha256) } : {},
     appliedStrategyIds: [...options.appliedStrategyIds].sort(),
     ...options.reason ? { reason: options.reason } : {},
     liveEffect: false,

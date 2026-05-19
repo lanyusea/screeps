@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import io
 import json
 import math
@@ -1449,6 +1450,8 @@ cli:
         self.assertNotEqual(base_upload, territory_upload)
         self.assertTrue(base_upload.startswith('"use strict";\n'))
         self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, base_upload)
+        self.assertIn('"territorySignalWeight":6', base_upload)
+        self.assertNotIn('"territorySignalWeight":22', base_upload)
         self.assertIn('"territorySignalWeight":22', territory_upload)
         self.assertFalse(base_injection["liveEffect"])
         self.assertFalse(base_injection["officialMmoWrites"])
@@ -1496,6 +1499,12 @@ cli:
             territory_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"],
             22,
         )
+        self.assertEqual(base_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"], 6)
+        self.assertNotEqual(base_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"], 22)
+        self.assertEqual(
+            base_scenario["codeArtifact"]["sha256"],
+            hashlib.sha256(base_upload.encode("utf-8")).hexdigest(),
+        )
         self.assertFalse(territory_scenario["runtimeParameterInjection"]["safety"]["officialMmoWritesAllowed"])
 
     def test_runtime_parameter_injection_upload_requires_runtime_consumer(self) -> None:
@@ -1521,6 +1530,27 @@ cli:
         self.assertFalse(uploaded["inlineCandidatesRuntimeInjected"])
         self.assertFalse(uploaded["runtimeParameterConsumerObserved"])
         self.assertIn("consumer marker", uploaded["reason"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text(base_code, encoding="utf-8")
+            map_path.write_text("{}", encoding="utf-8")
+            scenario = harness.build_scenario_config(
+                "run",
+                variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=harness.runtime_parameter_injection_uploaded_code_text(upload, uploaded),
+                runtime_parameter_injection=uploaded,
+            )
+
+        self.assertEqual(scenario["codeArtifact"]["payloadSource"], "runtime-parameter-injected-upload")
+        self.assertEqual(scenario["codeArtifact"]["sha256"], uploaded["uploadedCodeSha256"])
 
     def test_runtime_parameter_consumption_required_for_evaluated_parameters(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
@@ -1576,6 +1606,72 @@ cli:
         extracted = harness.find_runtime_parameter_consumption_evidence(payload)
 
         self.assertEqual(extracted, evidence)
+
+    def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "candidates": [{"source": "users.memory.rlRuntimePolicyParameters", "value": evidence}],
+                    }),
+                }
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_mongo_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-1] if smoke.command is not None else ""
+        self.assertNotIn("pushCandidate('users.memory', user.memory)", eval_script)
+        self.assertNotIn("pushCandidate(collectionName, record)", eval_script)
+        self.assertIn("rlRuntimePolicyParameters", eval_script)
+
+    def test_runtime_parameter_summary_separates_upload_from_consumption(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        consumption = harness.runtime_parameter_consumption_check(injection, None)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v1",
+                "runtimeParameterInjection": updated,
+            }
+        ])
+
+        self.assertEqual(summary["status"], "injected")
+        self.assertTrue(summary["runtimeParameterInjection"])
+        self.assertFalse(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "missing")
+        self.assertEqual(summary["injectedVariantCount"], 1)
+        self.assertEqual(summary["consumedVariantCount"], 0)
+        self.assertFalse(summary["variants"][0]["runtimeParameterConsumption"])
 
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (

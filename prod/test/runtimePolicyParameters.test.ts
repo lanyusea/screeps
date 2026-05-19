@@ -1,7 +1,8 @@
 import {
   RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL,
   RUNTIME_POLICY_PARAMETERS_GLOBAL,
-  applyRuntimePolicyParametersToRegistry
+  applyRuntimePolicyParametersToRegistry,
+  persistRuntimePolicyParameterConsumptionEvidence
 } from '../src/strategy/runtimePolicyParameters';
 import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 
@@ -9,6 +10,7 @@ describe('runtime policy parameters', () => {
   afterEach(() => {
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
+    delete (globalThis as { Memory?: unknown }).Memory;
   });
 
   it('applies private-simulator payload parameters to matching strategy entries', () => {
@@ -46,5 +48,32 @@ describe('runtime policy parameters', () => {
       DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1')?.defaultValues
         .territorySignalWeight
     ).toBe(6);
+  });
+
+  it('preserves runtime-injected but non-consumed evidence for diagnostics', () => {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'unknown-policy.v1',
+      candidatePolicyId: 'unknown-policy.v1',
+      family: 'unknown-family',
+      parameters: {
+        territorySignalWeight: 31
+      },
+      parametersSha256: 'miss-sha'
+    };
+
+    const result = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+    persistRuntimePolicyParameterConsumptionEvidence(result.evidence);
+
+    expect(result.evidence).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: false,
+      reason: 'runtime policy parameter payload did not match any strategy registry entry',
+      parametersSha256: 'miss-sha'
+    });
+    expect(
+      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+    ).toMatchObject(result.evidence);
   });
 });

@@ -812,20 +812,29 @@ const parseJson = value => {{
   if (typeof value !== 'string') return value;
   try {{ return JSON.parse(value); }} catch (err) {{ return value; }}
 }};
+const pushRuntimePolicyParameterCandidate = (source, value) => {{
+  const parsed = parseJson(value);
+  if (!parsed || typeof parsed !== 'object') return;
+  if (parsed.type === {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_TYPE)}) {{
+    pushCandidate(source, parsed);
+  }}
+  if (parsed.rlRuntimePolicyParameters !== undefined) {{
+    pushCandidate(source + '.rlRuntimePolicyParameters', parsed.rlRuntimePolicyParameters);
+  }}
+}};
 if (user) {{
-  pushCandidate('users.memory', user.memory);
-  pushCandidate('users.Memory', user.Memory);
-  pushCandidate('users.memory.rlRuntimePolicyParameters', parseJson(user.memory)?.rlRuntimePolicyParameters);
-  pushCandidate('users.Memory.rlRuntimePolicyParameters', parseJson(user.Memory)?.rlRuntimePolicyParameters);
+  pushRuntimePolicyParameterCandidate('users.memory', user.memory);
+  pushRuntimePolicyParameterCandidate('users.Memory', user.Memory);
   for (const collectionName of ['users.memory', 'user.memory', 'memory']) {{
     try {{
       const record = smokeDb.getCollection(collectionName).findOne({{
         $or: [{{user: user._id}}, {{user: String(user._id)}}, {{username: user.username}}]
-      }});
-      pushCandidate(collectionName, record);
-      pushCandidate(collectionName + '.memory', record && record.memory);
-      pushCandidate(collectionName + '.data', record && record.data);
-      pushCandidate(collectionName + '.rlRuntimePolicyParameters', record && record.rlRuntimePolicyParameters);
+      }}, {{rlRuntimePolicyParameters: 1, memory: 1, data: 1}});
+      if (record) {{
+        pushRuntimePolicyParameterCandidate(collectionName + '.rlRuntimePolicyParameters', record.rlRuntimePolicyParameters);
+        pushRuntimePolicyParameterCandidate(collectionName + '.memory', record.memory);
+        pushRuntimePolicyParameterCandidate(collectionName + '.data', record.data);
+      }}
     }} catch (err) {{}}
   }}
 }}
@@ -2006,6 +2015,15 @@ def _safe_build_scenario_config(
     return scenario
 
 
+def runtime_parameter_injection_uploaded_code_text(
+    uploaded_code_text: str | None,
+    runtime_parameter_injection: JsonObject,
+) -> str | None:
+    if uploaded_code_text is None:
+        return None
+    return uploaded_code_text if isinstance(runtime_parameter_injection.get("uploadedCodeSha256"), str) else None
+
+
 def _run_summary_fields(variant_results: Sequence[JsonObject]) -> JsonObject:
     variant_rows = [item for item in variant_results if isinstance(item, dict)]
     successful = sum(1 for item in variant_rows if item.get("ok") is True)
@@ -2054,7 +2072,7 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
         rows.append({
             "variantId": item.get("variant_id", item.get("variantId")),
             "status": injection.get("status"),
-            "runtimeParameterInjection": injection.get("runtimeParameterConsumption") is True,
+            "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
             "runtimeParameterUpload": injection.get("runtimeParameterInjection") is True,
             "runtimeParameterConsumption": injection.get("runtimeParameterConsumption") is True,
             "runtimeParameterConsumptionStatus": injection.get("runtimeParameterConsumptionStatus"),
@@ -2063,6 +2081,7 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
             "reason": injection.get("runtimeParameterConsumptionReason", injection.get("reason")),
         })
     injected = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
+    consumed = sum(1 for row in rows if row.get("runtimeParameterConsumption") is True)
     attempted_runtime = any(_runtime_parameter_summary_row_indicates_runtime_attempt(row) for row in rows)
     if rows and injected == len(rows):
         status = "injected"
@@ -2076,20 +2095,46 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
     else:
         status = "metadata_only"
         scope = "metadata_only"
+    consumption_status = _runtime_parameter_consumption_rollup_status(rows)
     return {
         "type": RUNTIME_PARAMETER_INJECTION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "status": status,
         "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
-        "runtimeParameterInjection": status == "injected",
+        "runtimeParameterInjection": injected > 0,
+        "runtimeParameterConsumption": bool(rows) and consumed == len(rows),
+        "runtimeParameterConsumptionStatus": consumption_status,
         "candidateParameterScope": scope,
         "injectedVariantCount": injected,
+        "consumedVariantCount": consumed,
         "variantCount": len(rows),
         "variants": rows,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
     }
+
+
+def _runtime_parameter_consumption_rollup_status(rows: Sequence[JsonObject]) -> str:
+    if not rows:
+        return "missing"
+    consumed = sum(1 for row in rows if row.get("runtimeParameterConsumption") is True)
+    if consumed == len(rows):
+        return "consumed"
+    if consumed > 0:
+        return "partial"
+    statuses = [
+        _safe_text(row.get("runtimeParameterConsumptionStatus"), 120)
+        for row in rows
+        if row.get("runtimeParameterConsumptionStatus") is not None
+    ]
+    statuses = [status for status in statuses if status]
+    if statuses:
+        first = statuses[0]
+        return first if all(status == first for status in statuses) else "mixed"
+    if any(_runtime_parameter_summary_row_indicates_runtime_attempt(row) for row in rows):
+        return "missing"
+    return "not_attempted"
 
 
 def _runtime_parameter_summary_row_indicates_runtime_attempt(row: JsonObject) -> bool:
@@ -3925,7 +3970,10 @@ def _run_variant(
             runtime_parameter_injection,
             runtime_parameter_consumption,
         )
-    scenario_code_text = uploaded_code_text if runtime_parameter_injection.get("status") == "injected" else None
+    scenario_code_text = runtime_parameter_injection_uploaded_code_text(
+        uploaded_code_text,
+        runtime_parameter_injection,
+    )
     result = {
         "variant_id": variant_id,
         "variant_run_id": worker_run_id,
