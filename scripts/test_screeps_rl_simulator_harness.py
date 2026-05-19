@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import io
 import json
 import math
@@ -965,6 +966,103 @@ cli:
         metrics = harness.build_variant_metrics([tick_entry])
         self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
         self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
+
+    def test_multi_tier_policy_activation_engages_hostile_blocker_for_territory_candidate(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        initial_tick = {
+            "tick": 1,
+            "rooms": {
+                "E1S1": {
+                    "roomName": "E1S1",
+                    "owned": True,
+                    "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                    "ownedCreeps": 1,
+                    "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+                }
+            },
+        }
+        harness._merge_fixture_room_summaries_into_tick(initial_tick, fixture_summaries)
+        final_tick = copy.deepcopy(initial_tick)
+        final_tick["tick"] = 2
+        tick_log = [initial_tick, final_tick]
+        strategy_variant = harness.strategy_variant_config_by_id(
+            "construction-priority.pg.territory-seed.v1",
+            variant_configs={
+                "construction-priority.pg.territory-seed.v1": {
+                    "id": "construction-priority.pg.territory-seed.v1",
+                    "title": "territory seed",
+                    "parameters": {
+                        "baseScoreWeight": 1,
+                        "territorySignalWeight": 22,
+                        "resourceSignalWeight": 3,
+                        "killSignalWeight": 5,
+                        "riskPenalty": 4,
+                    },
+                }
+            },
+        )
+
+        activation = harness.apply_multi_tier_policy_activation(tick_log, strategy_variant, fixture_summaries)
+        metrics = harness.build_variant_metrics(tick_log)
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["policyAction"], "claim-adjacent-controller")
+        self.assertEqual(activation["executionAction"], "engage-hostiles")
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertEqual(tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"], 1)
+        self.assertEqual(metrics["combat"]["hostileKills"], 1)
+        self.assertEqual(tick_log[-1]["rlPolicyActivation"]["safety"]["officialMmoWrites"], False)
+
+    def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        initial_tick = {"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}}
+        harness._merge_fixture_room_summaries_into_tick(initial_tick, fixture_summaries)
+        final_tick = copy.deepcopy(initial_tick)
+        final_tick["tick"] = 2
+        tick_log = [initial_tick, final_tick]
+        strategy_variant = {
+            "id": "construction-priority.pg.resource-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 10,
+                "resourceSignalWeight": 18,
+                "killSignalWeight": 4,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.apply_multi_tier_policy_activation(tick_log, strategy_variant, fixture_summaries)
+
+        self.assertIsNone(activation)
+        self.assertNotIn("rlPolicyActivation", tick_log[-1])
+        self.assertEqual(harness.build_variant_metrics(tick_log)["combat"]["hostileKills"], 0)
+
+    def test_inline_strategy_variant_config_overrides_registry_fallback(self) -> None:
+        config = harness.strategy_variant_config_by_id(
+            "construction-priority.pg.territory-seed.v1",
+            variant_configs={
+                "construction-priority.pg.territory-seed.v1": {
+                    "id": "construction-priority.pg.territory-seed.v1",
+                    "title": "Policy-gradient territory seed",
+                    "parameters": {
+                        "baseScoreWeight": 1,
+                        "territorySignalWeight": 22,
+                        "resourceSignalWeight": 3,
+                        "killSignalWeight": 5,
+                        "riskPenalty": 4,
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(config["label"], "Policy-gradient territory seed")
+        self.assertEqual(config["parameters"]["territorySignalWeight"], 22)
+        self.assertEqual(config["defaultValues"]["territorySignalWeight"], 22)
+        self.assertFalse(config["safety"]["liveEffect"])
+        self.assertFalse(config["safety"]["officialMmoWrites"])
 
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:

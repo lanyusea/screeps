@@ -122,8 +122,8 @@ class RlExperimentCardTest(unittest.TestCase):
                 "riskPenalty",
             ],
         )
-        self.assertFalse(runner_support["inline_candidates_applied_to_simulator"])
-        self.assertEqual(runner_support["simulator_variant_transport"], "variant_ids_only")
+        self.assertTrue(runner_support["inline_candidates_applied_to_simulator"])
+        self.assertEqual(runner_support["simulator_variant_transport"], "variant_ids_with_inline_configs")
         self.assertTrue(runner_support["report_preserves_candidate_parameters"])
         self.assertTrue(runner_support["candidate_policy_id_preserved"])
         self.assertEqual(
@@ -1114,7 +1114,7 @@ class RlExperimentCardTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             card_helper.CardValidationError,
-            "runner_support.simulator_variant_transport must be variant_ids_only",
+            "runner_support.simulator_variant_transport must be variant_ids_with_inline_configs",
         ):
             card_helper.validate_card(card)
 

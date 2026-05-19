@@ -784,6 +784,7 @@ def execute_simulator_runs(
     report_id: str,
 ) -> list[JsonObject]:
     variant_ids = [variant.id for variant in variants]
+    variant_configs = {variant.id: variant.to_json() for variant in variants}
     raw_run_id = text_or_none(card.get("run_id")) or text_or_none(card.get("runId")) or report_id
     base_run_id = normalize_simulator_run_id(raw_run_id)
     runs: list[JsonObject] = []
@@ -810,6 +811,7 @@ def execute_simulator_runs(
                 code_path=config.code_path,
                 map_source_file=config.map_source_file,
                 min_concurrent_environments=min_concurrent_environments,
+                variant_configs=variant_configs,
             )
         )
     return runs

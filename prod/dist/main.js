@@ -281,6 +281,7 @@ function normalizeConstructionCandidate(rawCandidate) {
     {
       buildItem: rawCandidate.buildItem,
       ...isNonEmptyString(rawCandidate.room) ? { room: rawCandidate.room } : {},
+      ...isNonEmptyString(rawCandidate.policyAction) ? { policyAction: rawCandidate.policyAction } : {},
       ...isFiniteNumber(rawCandidate.score) ? { score: rawCandidate.score } : {},
       ...isNonEmptyString(rawCandidate.urgency) ? { urgency: rawCandidate.urgency } : {},
       ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString) } : {},
@@ -9870,7 +9871,7 @@ function scoreConstructionPriorities(roomState, candidates) {
   };
 }
 function scoreConstructionCandidate(roomState, candidate) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f, _g;
   const missingObservations = getMissingObservations(roomState, candidate);
   const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
   const preconditions = [
@@ -9883,11 +9884,12 @@ function scoreConstructionCandidate(roomState, candidate) {
     return {
       buildItem: candidate.buildItem,
       room: (_b = candidate.roomName) != null ? _b : roomState.roomName,
+      policyAction: (_c = candidate.policyAction) != null ? _c : "build",
       score: 0,
       urgency: "blocked",
       preconditions,
       expectedKpiMovement: candidate.expectedKpiMovement,
-      risk: (_c = candidate.risk) != null ? _c : [],
+      risk: (_d = candidate.risk) != null ? _d : [],
       factors: {
         urgency: 0,
         roomState: 0,
@@ -9917,12 +9919,13 @@ function scoreConstructionCandidate(roomState, candidate) {
   const score = clampScore(Math.round(gatedScore));
   return {
     buildItem: candidate.buildItem,
-    room: (_d = candidate.roomName) != null ? _d : roomState.roomName,
+    room: (_e = candidate.roomName) != null ? _e : roomState.roomName,
+    policyAction: (_f = candidate.policyAction) != null ? _f : "build",
     score,
     urgency: classifyUrgency(score, urgencyMagnitude),
     preconditions,
     expectedKpiMovement: candidate.expectedKpiMovement,
-    risk: (_e = candidate.risk) != null ? _e : [],
+    risk: (_g = candidate.risk) != null ? _g : [],
     factors,
     missingObservations,
     blocked
@@ -36225,6 +36228,7 @@ function toRuntimeConstructionPriorityCandidateSummary(score) {
   return {
     buildItem: score.buildItem,
     room: score.room,
+    ...score.policyAction !== "build" ? { policyAction: score.policyAction } : {},
     score: score.score,
     urgency: score.urgency,
     preconditions: score.preconditions,

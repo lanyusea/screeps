@@ -1210,6 +1210,7 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(str(report["reportPath"]).endswith("reports/format-check.json"))
         self.assertEqual(simulator.calls[0]["ticks"], 2)
         self.assertEqual(simulator.calls[0]["variants"], ["baseline", "candidate"])
+        self.assertEqual(simulator.calls[0]["variant_configs"]["candidate"]["parameters"]["expansion_aggressiveness"], 1)
 
     def test_policy_gradient_report_preserves_candidate_parameter_evidence(self) -> None:
         card = card_helper.build_card(
@@ -1242,10 +1243,14 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["policyGradient"]["target_family"], "construction-priority")
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertTrue(report["trueGradient"])
-        self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertTrue(report["policyGradient"]["runner_support"]["report_preserves_candidate_parameters"])
         self.assertEqual(simulator.calls[0]["ticks"], 500)
         self.assertEqual(simulator.calls[0]["variants"], variant_ids)
+        self.assertEqual(
+            simulator.calls[0]["variant_configs"]["construction-priority.pg.territory-seed.v1"]["parameters"],
+            card["policy_gradient"]["candidate_parameter_vectors"][1]["parameters"],
+        )
         self.assertEqual(
             [variant["candidatePolicyId"] for variant in report["strategyVariants"]],
             [candidate["candidatePolicyId"] for candidate in card["policy_gradient"]["candidate_parameter_vectors"]],

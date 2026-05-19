@@ -35,6 +35,8 @@ export type ConstructionPriorityBuildType =
   | 'remote-logistics'
   | 'observation';
 
+export type ConstructionPriorityPolicyAction = 'build' | 'claim' | 'reserve' | 'scout' | 'engage-hostiles';
+
 export type ConstructionPriorityExposure = 'none' | 'low' | 'medium' | 'high';
 
 export interface ConstructionPrioritySignals {
@@ -78,6 +80,7 @@ export interface ConstructionBuildCandidate {
   buildItem: string;
   roomName?: string;
   buildType: ConstructionPriorityBuildType;
+  policyAction?: ConstructionPriorityPolicyAction;
   status?: 'existing-site' | 'planned';
   minimumRcl?: number;
   minimumWorkers?: number;
@@ -108,6 +111,7 @@ export interface ConstructionPriorityFactors {
 export interface ConstructionPriorityScore {
   buildItem: string;
   room: string;
+  policyAction: ConstructionPriorityPolicyAction;
   score: number;
   urgency: ConstructionPriorityUrgency;
   preconditions: string[];
@@ -321,6 +325,7 @@ export function scoreConstructionCandidate(
     return {
       buildItem: candidate.buildItem,
       room: candidate.roomName ?? roomState.roomName,
+      policyAction: candidate.policyAction ?? 'build',
       score: 0,
       urgency: 'blocked',
       preconditions,
@@ -365,6 +370,7 @@ export function scoreConstructionCandidate(
   return {
     buildItem: candidate.buildItem,
     room: candidate.roomName ?? roomState.roomName,
+    policyAction: candidate.policyAction ?? 'build',
     score,
     urgency: classifyUrgency(score, urgencyMagnitude),
     preconditions,

@@ -79,6 +79,7 @@ export interface StrategyRuntimeConstructionPrioritySummary {
 export interface StrategyRuntimeConstructionPriorityCandidate {
   buildItem: string;
   room?: string;
+  policyAction?: string;
   score?: number;
   urgency?: string;
   preconditions?: string[];
@@ -549,6 +550,7 @@ function normalizeConstructionCandidate(rawCandidate: unknown): StrategyRuntimeC
     {
       buildItem: rawCandidate.buildItem,
       ...(isNonEmptyString(rawCandidate.room) ? { room: rawCandidate.room } : {}),
+      ...(isNonEmptyString(rawCandidate.policyAction) ? { policyAction: rawCandidate.policyAction } : {}),
       ...(isFiniteNumber(rawCandidate.score) ? { score: rawCandidate.score } : {}),
       ...(isNonEmptyString(rawCandidate.urgency) ? { urgency: rawCandidate.urgency } : {}),
       ...(Array.isArray(rawCandidate.preconditions)

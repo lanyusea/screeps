@@ -803,13 +803,13 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
             "bounded_integer_step": True,
         },
         "runner_support": {
-            "inline_candidates_applied_to_simulator": False,
-            "simulator_variant_transport": "variant_ids_only",
+            "inline_candidates_applied_to_simulator": True,
+            "simulator_variant_transport": "variant_ids_with_inline_configs",
             "report_preserves_candidate_parameters": True,
             "candidate_policy_id_preserved": True,
             "limitation": (
-                "scripts/screeps_rl_training_runner.py currently sends simulator variants by id only; "
-                "inline policy-gradient parameter vectors are preserved in card/report artifacts as offline evidence."
+                "Inline policy-gradient parameter vectors are passed as bounded simulator metadata; "
+                "private/offline activation remains live-effect false and official-MMO-write false."
             ),
         },
         "safety": safety_block(),
@@ -1654,11 +1654,13 @@ def validate_policy_gradient(raw: Any) -> None:
     if not isinstance(support, dict):
         raise CardValidationError("policy_gradient.runner_support must be a JSON object")
     inline_applied = first_present(support, ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"))
-    if inline_applied is not False:
-        raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be false")
+    if inline_applied is not True:
+        raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be true")
     transport = first_present(support, ("simulator_variant_transport", "simulatorVariantTransport"))
-    if transport != "variant_ids_only":
-        raise CardValidationError("policy_gradient.runner_support.simulator_variant_transport must be variant_ids_only")
+    if transport != "variant_ids_with_inline_configs":
+        raise CardValidationError(
+            "policy_gradient.runner_support.simulator_variant_transport must be variant_ids_with_inline_configs"
+        )
     preserves_parameters = first_present(
         support,
         ("report_preserves_candidate_parameters", "reportPreservesCandidateParameters"),
