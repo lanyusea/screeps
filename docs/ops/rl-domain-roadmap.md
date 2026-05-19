@@ -61,7 +61,7 @@ These gates are the active roadmap mapping for the current RL flywheel reset. A 
 | G6 Feedback-to-Act loop | #1240 | RL flywheel | Online/gameplay finding is traced to reward/scenario/policy decision, experiment-card delta, training run, and scorecard outcome | self-iteration |
 | G7 Canonical strategy maintenance | #1241 | RL flywheel | `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md` is published and future strategy changes update it or explicitly state why not | agent continuity |
 
-Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape remains valid smoke/validation proof only; #1236 owns the minimum acceptable 8c16g utilization ladder.
+Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape is smoke-only; validation requires >=200 env rows and >=200k ticks, and #1236 owns the minimum acceptable 8c16g utilization ladder.
 
 ## Current issue map
 

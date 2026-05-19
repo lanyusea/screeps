@@ -104,7 +104,7 @@ As of the 2026-05-19 PM reset:
 - Aggregate recent training evidence: 1303 successful env rows, 27 failed env rows, 355,500 simulator ticks, 1303 artifacts, 216 model reports, and 9 known policy-update iterations.
 - Latest Loop A window: `RUN_WITH_ANOMALY`, 99 completed environments, 1 failed environment, 49,500 simulator ticks, 2 policy-update iterations.
 - Latest Loop B state: `MIXED`, not `POSITIVE` and not rollout-ready.
-- Current Tencent per-batch default: `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 ticks`, which is smoke/validation scale, not scale-first 8c16g training.
+- Current Tencent per-batch default: `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 ticks`, which is smoke scale only, not validation scale or scale-first 8c16g training.
 - SQLite metrics database exists and is populated, but no owner-facing Grafana/live dashboard service was running at the time of audit.
 
 ## 4. Project-management correction
@@ -433,7 +433,7 @@ means five parallel worker slots, five repetitions each, and 500 simulator ticks
 
 ### 10.2 Scale ladder
 
-#1236 defines the production scale ladder:
+The production scale ladder enforced by #1236 is:
 
 | Class | Minimum size | Purpose |
 | --- | --- | --- |
