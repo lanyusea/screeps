@@ -429,7 +429,8 @@ def node_looks_like_controller_summary(node: JsonObject) -> bool:
     if node.get("type") == "screeps-tencent-batch-rl-run":
         return True
     return any(key in node for key in ("finalStatus", "final_status")) and any(
-        key in node for key in ("instanceId", "instance_id", "environmentsRun", "outputs")
+        key in node
+        for key in ("instanceId", "instance_id", "workerUser", "worker_user", "environmentsRun", "outputs")
     )
 
 

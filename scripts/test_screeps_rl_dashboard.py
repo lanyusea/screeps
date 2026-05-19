@@ -1290,6 +1290,48 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E3"]["status"], "OK")
         self.assertEqual(lanes["E5"]["status"], "OK")
 
+    def test_policy_worker_user_controller_summary_unblocks_policy_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "controllerSummary": {
+                        "finalStatus": "completed",
+                        "workerUser": "tencent-worker",
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        signal_fields = {item["field"] for item in report["policy"]["computeEvidence"]["signals"]}
+        self.assertEqual(report["policy"]["status"], "PROVEN")
+        self.assertTrue(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "ADVANTAGE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "COMPUTE_CONFIRMED")
+        self.assertIn("controllerSummary.workerUser", signal_fields)
+        self.assertEqual(lanes["E3"]["status"], "OK")
+        self.assertEqual(lanes["E5"]["status"], "OK")
+
     def test_policy_training_identity_match_can_use_training_compute_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
