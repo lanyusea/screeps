@@ -2028,10 +2028,9 @@ def finalize_multi_tier_policy_activation_run(
     activation = run.get("policyActivation")
     metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else None
     if not isinstance(activation, dict):
-        if metrics is not None:
-            return run
         if len(ticks) < 2:
             return run
+        allow_offline_projection = simulator_harness._tick_log_has_fixture_generated_rooms(ticks)
         activation = simulator_harness.build_multi_tier_policy_activation_evidence(
             ticks,
             variant.to_json(),
@@ -2039,7 +2038,7 @@ def finalize_multi_tier_policy_activation_run(
             anchor_room=anchor_room,
             run_errors=run.get("errors") if isinstance(run.get("errors"), list) else (),
             evidence_errors=run.get("evidenceErrors") if isinstance(run.get("evidenceErrors"), list) else (),
-            allow_offline_projection=True,
+            allow_offline_projection=allow_offline_projection,
         )
     if not isinstance(activation, dict):
         return run
