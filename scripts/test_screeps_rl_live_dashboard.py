@@ -87,6 +87,7 @@ def write_live_artifacts(root: Path) -> None:
             "onlineUtilityStatus": "PROVEN",
             "candidatePolicyId": "candidate-policy",
             "baselinePolicyId": "incumbent-policy",
+            "trainingReportIds": ["training-report-tencent-test"],
             "metricsByCategory": {
                 "territory": {"status": "ADVANTAGE", "candidateValue": 3, "baselineValue": 2, "delta": 1},
             },
