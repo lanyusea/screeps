@@ -2740,9 +2740,13 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     if not isinstance(combat, dict):
         combat = {}
         projected["combat"] = combat
-    existing_hostile_kills = _extract_int(projected.get("hostileKills")) or _extract_int(combat.get("hostileKills")) or 0
+    existing_hostile_kills = _extract_int(projected.get("hostileKills"))
+    if existing_hostile_kills is None:
+        existing_hostile_kills = _extract_int(combat.get("hostileKills")) or 0
     hostile_kills = max(existing_hostile_kills, projected_kills)
-    own_losses = _extract_int(projected.get("ownLosses")) or _extract_int(combat.get("ownLosses")) or 0
+    own_losses = _extract_int(projected.get("ownLosses"))
+    if own_losses is None:
+        own_losses = _extract_int(combat.get("ownLosses")) or 0
     projected["hostileKills"] = hostile_kills
     projected["ownLosses"] = own_losses
     projected["combatDelta"] = hostile_kills - own_losses

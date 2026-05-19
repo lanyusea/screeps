@@ -1317,6 +1317,40 @@ cli:
         self.assertFalse(activation["safety"]["officialMmoWrites"])
         self.assertFalse(activation["safety"]["officialMmoWritesAllowed"])
 
+    def test_multi_tier_policy_activation_projection_preserves_explicit_zero_metrics(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "engage-hostiles",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "targetRoom": "E2S1",
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "projectedHostileKills": 1,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combat": {
+                "hostileKills": 4,
+                "ownLosses": 3,
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["hostileKills"], 1)
+        self.assertEqual(projected["ownLosses"], 0)
+        self.assertEqual(projected["combat"]["hostileKills"], 1)
+        self.assertEqual(projected["combat"]["ownLosses"], 0)
+        self.assertEqual(projected["combatDelta"], 1)
+
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)

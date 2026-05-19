@@ -589,6 +589,83 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(territory_result["metrics"]["objectiveSignal"]["finalRooms"], ["E1S1", "E2S1"])
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
 
+    def test_multi_tier_fixture_loader_rejects_map_source_mismatch(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-map-mismatch",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:28:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        card["simulation"]["map_source_file"] = "scripts/fixtures/rl/not-the-same.map.json"
+        config = runner.simulation_config_from_card(card)
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            "multi-tier scenario evidence.map_source_file must match simulation.map_source_file",
+        ):
+            runner.multi_tier_policy_activation_fixture_room_summaries(card["scenario"], config)
+
+    def test_multi_tier_report_does_not_load_fixture_map_when_existing_payload_is_complete(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-existing-payload",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:29:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        missing_map = "scripts/fixtures/rl/missing-multi-tier.map.json"
+        card["simulation"]["map_source_file"] = missing_map
+        card["scenario"]["evidence"]["map_source_file"] = missing_map
+        variants = runner.load_strategy_variants(card)
+        simulator_run_variants: list[JsonObject] = []
+        for variant in variants:
+            run = variant_result(variant.id, [])
+            run["policyActivation"] = {
+                "type": "screeps-rl-multi-tier-policy-activation",
+                "strategyVariantId": variant.id,
+                "objectiveSignalObserved": True,
+                "objectiveSignalSource": "simulator_payload",
+                "safety": {
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+            }
+            run["metrics"] = {"territoryDelta": 0, "hostileKills": 1, "ownLosses": 0}
+            simulator_run_variants.append(run)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with mock.patch.object(
+                runner.simulator_harness,
+                "_private_map_fixture_room_summaries",
+                side_effect=AssertionError("fixture map should be loaded lazily"),
+            ):
+                report = runner.build_training_report(
+                    card=card,
+                    card_path=root / "card.json",
+                    variants=variants,
+                    config=runner.simulation_config_from_card(card),
+                    simulator_runs=[
+                        {
+                            "type": "screeps-rl-simulator-run",
+                            "runId": "existing-payload",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "variants": simulator_run_variants,
+                        }
+                    ],
+                    reward_options=runner.reward_options_from_card(card),
+                    report_id="multi-tier-existing-payload",
+                    generated_at="2026-05-18T10:29:30Z",
+                )
+
+        self.assertEqual(report["artifactCount"], len(variants))
+        self.assertEqual(report["activationProof"]["fixtureEvidence"]["mapSourceFile"], missing_map)
+
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
         file_secret = "file-secret-token-123456"
