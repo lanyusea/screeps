@@ -101,6 +101,85 @@ TIMESTAMP_KEYS = (
     "lastSeenAt",
 )
 FILENAME_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{4,6}Z)")
+PREFLIGHT_FINAL_STATUS_KEYS = {
+    "preflight",
+    "preflightok",
+    "preflightonly",
+    "preflightpassed",
+    "preflightvalidated",
+}
+CONTROLLER_COMPUTE_FINAL_STATUS_KEYS = {"running", "completed", "success", "ok"}
+TRAINING_COMPUTE_CLAIM_STATUS_KEYS = {
+    "run",
+    "running",
+    "runwithanomaly",
+    "completed",
+    "success",
+    "ok",
+    "traininginflight",
+    "computeready",
+}
+POLICY_COMPUTE_CLAIM_STATUS_KEYS = {
+    "advantage",
+    "approved",
+    "computeready",
+    "pass",
+    "promotable",
+    "proven",
+    "rolloutapproved",
+    "validated",
+}
+POLICY_ADVANTAGE_METRIC_STATUS_KEYS = {
+    "advantage",
+    "better",
+    "promotable",
+    "proven",
+    "validated",
+    "win",
+}
+POLICY_TRAINING_IDENTITY_KEYS = {
+    "report": {
+        "reportid",
+        "trainingreport",
+        "trainingreportid",
+        "trainingreportids",
+        "trainingreportpath",
+        "trainingreportpaths",
+        "trainingreports",
+    },
+    "run": {
+        "batchrunid",
+        "runid",
+        "tencentbatchrunid",
+        "tencentrunid",
+        "trainingrunid",
+    },
+    "instance": {
+        "controllerinstanceid",
+        "instanceid",
+    },
+}
+STRONG_TRAINING_REPORT_KEYS = {
+    "trainingreport",
+    "trainingreportid",
+    "trainingreportids",
+    "trainingreportpath",
+    "trainingreportpaths",
+    "trainingreports",
+}
+ENVIRONMENT_RUN_COUNT_KEYS = {
+    "completedenvironmentruns",
+    "completedenvironments",
+    "environmentruns",
+    "environmentscompleted",
+    "environmentsrun",
+}
+WEAK_COMPUTE_COUNT_KEYS = {
+    "artifactcount",
+    "episodesrun",
+    "policyupdateiterations",
+    "simulatorticksrun",
+}
 
 
 @dataclass(frozen=True)
@@ -306,6 +385,273 @@ def first_present(value: JsonObject, keys: Sequence[str]) -> Any:
     for key in keys:
         if key in value:
             return value[key]
+    return None
+
+
+def iter_json_objects(value: Any) -> Iterable[JsonObject]:
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from iter_json_objects(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from iter_json_objects(item)
+
+
+def value_has_reference(value: Any) -> bool:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return False
+        try:
+            parsed = float(text)
+        except ValueError:
+            return True
+        return math.isfinite(parsed) and parsed > 0
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value > 0
+    if isinstance(value, dict):
+        return any(value_has_reference(item) for item in value.values())
+    if isinstance(value, list):
+        return any(value_has_reference(item) for item in value)
+    return False
+
+
+def positive_count(value: Any) -> int | None:
+    parsed = int_value(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
+
+
+def status_key(value: Any) -> str:
+    raw = text_value(value)
+    return normalized_key(raw) if raw is not None else ""
+
+
+def controller_summary_final_status_key(node: JsonObject) -> str:
+    return status_key(first_present(node, ("finalStatus", "final_status")))
+
+
+def node_looks_like_controller_summary(node: JsonObject) -> bool:
+    if node.get("type") == "screeps-tencent-batch-rl-run":
+        return True
+    return any(key in node for key in ("finalStatus", "final_status")) and any(
+        key in node
+        for key in (
+            "instanceId",
+            "instance_id",
+            "workerUser",
+            "worker_user",
+            "environmentsRun",
+            "environmentExecution",
+            "environment_execution",
+            "outputs",
+        )
+    )
+
+
+def preflight_marker_present(payload: JsonObject) -> bool:
+    return any(
+        node_looks_like_controller_summary(node)
+        and controller_summary_final_status_key(node) in PREFLIGHT_FINAL_STATUS_KEYS
+        for node in iter_json_objects(payload)
+    )
+
+
+def non_blank_text_value(value: Any) -> str | None:
+    text = text_value(value)
+    if text is None:
+        return None
+    stripped = text.strip()
+    return stripped or None
+
+
+def collect_strong_compute_evidence(payload: JsonObject) -> list[JsonObject]:
+    signals: list[JsonObject] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(field: str, value: Any) -> None:
+        key = (field, str(value))
+        if key in seen:
+            return
+        seen.add(key)
+        signals.append({"field": field, "value": value})
+
+    for node in iter_json_objects(payload):
+        for key, raw in node.items():
+            normalized = normalized_key(str(key))
+            if normalized in STRONG_TRAINING_REPORT_KEYS and value_has_reference(raw):
+                add(str(key), "present")
+            if normalized in ENVIRONMENT_RUN_COUNT_KEYS:
+                count = positive_count(raw)
+                if count is not None:
+                    add(str(key), count)
+            if normalized == "environmentexecution":
+                execution = as_dict(raw)
+                completed = (
+                    positive_count(execution.get("completed"))
+                    or positive_count(execution.get("Completed"))
+                    or positive_count(execution.get("completedCount"))
+                )
+                if completed is not None:
+                    add("environmentExecution.completed", completed)
+
+        if not node_looks_like_controller_summary(node):
+            continue
+        final_status = controller_summary_final_status_key(node)
+        if final_status in PREFLIGHT_FINAL_STATUS_KEYS:
+            continue
+        instance_id = non_blank_text_value(first_present(node, ("instanceId", "instance_id")))
+        worker_user = non_blank_text_value(first_present(node, ("workerUser", "worker_user")))
+        has_compute_status = final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS
+        if instance_id is not None and has_compute_status:
+            add("controllerSummary.instanceId", "present")
+        elif worker_user is not None and has_compute_status:
+            add("controllerSummary.workerUser", "present")
+
+    return signals
+
+
+def collect_weak_compute_evidence(payload: JsonObject) -> list[JsonObject]:
+    signals: list[JsonObject] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(field: str, value: Any) -> None:
+        key = (field, str(value))
+        if key in seen:
+            return
+        seen.add(key)
+        signals.append({"field": field, "value": value})
+
+    for node in iter_json_objects(payload):
+        for key, raw in node.items():
+            normalized = normalized_key(str(key))
+            if normalized in WEAK_COMPUTE_COUNT_KEYS:
+                count = positive_count(raw)
+                if count is not None:
+                    add(str(key), count)
+    return signals
+
+
+def compute_evidence_summary(payload: JsonObject) -> JsonObject:
+    strong_signals = collect_strong_compute_evidence(payload)
+    preflight_only = preflight_marker_present(payload) and not strong_signals
+    weak_signals = [] if preflight_only else collect_weak_compute_evidence(payload)
+    signals = strong_signals + weak_signals
+    if strong_signals:
+        classification = "COMPUTE_CONFIRMED"
+        blocker = None
+    elif preflight_only:
+        classification = "PREFLIGHT_ONLY_VALIDATION"
+        blocker = (
+            "Preflight-only controller validation found; no training report, environment completion, "
+            "or provisioned compute evidence is present."
+        )
+    else:
+        classification = "MISSING_COMPUTE_EVIDENCE"
+        blocker = (
+            "No real compute evidence found; require training report IDs, completed environments, "
+            "or controller execution/provisioning beyond preflight."
+        )
+    return {
+        "hasCompute": bool(strong_signals),
+        "classification": classification,
+        "signals": signals[:12],
+        "blocker": blocker,
+    }
+
+
+def strong_compute_evidence_summary(payload: JsonObject) -> JsonObject:
+    signals = collect_strong_compute_evidence(payload)
+    if signals:
+        return {
+            "hasCompute": True,
+            "classification": "COMPUTE_CONFIRMED",
+            "signals": signals[:12],
+            "blocker": None,
+        }
+    if preflight_marker_present(payload):
+        return {
+            "hasCompute": False,
+            "classification": "PREFLIGHT_ONLY_VALIDATION",
+            "signals": [],
+            "blocker": (
+                "Preflight-only controller validation found; no training report, environment completion, "
+                "or provisioned compute evidence is present."
+            ),
+        }
+    return {
+        "hasCompute": False,
+        "classification": "MISSING_COMPUTE_EVIDENCE",
+        "signals": [],
+        "blocker": (
+            "No real compute evidence found; require training report IDs, completed environments, "
+            "or controller execution/provisioning beyond preflight."
+        ),
+    }
+
+
+def compute_evidence_summary_has_strong_signal(summary: JsonObject) -> bool:
+    for signal in as_list(summary.get("signals")):
+        field = text_value(as_dict(signal).get("field"))
+        if field is None:
+            continue
+        if field in {
+            "environmentExecution.completed",
+            "controllerSummary.instanceId",
+            "controllerSummary.workerUser",
+        }:
+            return True
+        normalized = normalized_key(field)
+        if normalized in STRONG_TRAINING_REPORT_KEYS or normalized in ENVIRONMENT_RUN_COUNT_KEYS:
+            return True
+    return False
+
+
+def identity_text_values(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            yield stripped
+    elif isinstance(value, list):
+        for item in value:
+            yield from identity_text_values(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from identity_text_values(item)
+
+
+def collect_policy_training_identities(payload: JsonObject) -> JsonObject:
+    identities: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for node in iter_json_objects(payload):
+        for key, raw in node.items():
+            normalized = normalized_key(str(key))
+            for kind, identity_keys in POLICY_TRAINING_IDENTITY_KEYS.items():
+                if normalized not in identity_keys:
+                    continue
+                for value in identity_text_values(raw):
+                    seen_key = (kind, value)
+                    if seen_key in seen:
+                        continue
+                    seen.add(seen_key)
+                    identities.setdefault(kind, []).append(value)
+    return identities
+
+
+def policy_training_identity_match(payload: JsonObject, training: JsonObject | None) -> JsonObject | None:
+    policy_identities = collect_policy_training_identities(payload)
+    training_identities = as_dict((training or {}).get("identity"))
+    for kind, policy_values in policy_identities.items():
+        training_values = {
+            value
+            for value in as_list(training_identities.get(kind))
+            if isinstance(value, str) and value
+        }
+        for value in policy_values:
+            if value in training_values:
+                return {"kind": kind, "value": value}
     return None
 
 
@@ -1315,16 +1661,19 @@ def reconcile_card_supply_for_training(
     tencent_internal_card_supply: JsonObject | None,
     tencent_internal_card_supply_candidates: Sequence[JsonObject] | None = None,
 ) -> JsonObject:
+    compute_evidence = strong_compute_evidence_summary(payload)
     artifact_count = number_value(payload.get("artifactCount"))
     iteration = as_dict(payload.get("iterationExecution"))
     episodes_run = number_value(iteration.get("episodesRun"))
     policy_updates = number_value(iteration.get("policyUpdateIterations"))
-    training_did_run = (
+    training_claims_compute = (
         payload.get("trainingDidRun") is True
+        or status_key(payload.get("status")) in TRAINING_COMPUTE_CLAIM_STATUS_KEYS
         or (artifact_count or 0) > 0
         or (episodes_run or 0) > 0
         or (policy_updates or 0) > 0
     )
+    training_did_run = compute_evidence.get("hasCompute") is True
     embedded_supply = card_supply_from_training_payload(payload, latest_path)
     if training_did_run and embedded_supply is not None:
         return embedded_supply
@@ -1333,6 +1682,8 @@ def reconcile_card_supply_for_training(
         tencent_internal_card_supply_candidates,
     )
     if not training_did_run:
+        if training_claims_compute:
+            return blocked_card_supply_summary(text_value(compute_evidence.get("blocker")))
         available_supply = best_available_tencent_card_supply(tencent_candidates)
         if available_supply is not None:
             return dict(available_supply)
@@ -1366,14 +1717,24 @@ def training_execution(
         return {
             "hasData": False,
             "status": "N/A",
+            "rawStatus": "N/A",
             "episodes": None,
             "policyUpdates": None,
             "timestamp": None,
             "blocker": "No training ledger found.",
             "latestPath": None,
             "cardSupply": blocked_card_supply_summary("No training ledger found."),
+            "hasComputeEvidence": False,
+            "computeEvidence": {
+                "hasCompute": False,
+                "classification": "MISSING_COMPUTE_EVIDENCE",
+                "signals": [],
+                "blocker": "No training ledger found.",
+            },
+            "identity": {},
         }
     payload = latest_training.payload
+    compute_evidence = compute_evidence_summary(payload)
     iteration = as_dict(payload.get("iterationExecution"))
     metrics_feed = as_dict(as_dict(payload.get("metricsFeed")).get("forIssue906"))
     episodes = number_value(iteration.get("episodesRun"))
@@ -1396,9 +1757,24 @@ def training_execution(
         and not blocker
     ):
         blocker = text_value(card_supply.get("reason"))
+    raw_status = non_blank_text_value(payload.get("status")) or ("RUN" if payload.get("trainingDidRun") else "NOT_RUN")
+    effective_status = raw_status
+    training_claims_compute = (
+        payload.get("trainingDidRun") is True
+        or status_key(raw_status) in TRAINING_COMPUTE_CLAIM_STATUS_KEYS
+        or (episodes or 0) > 0
+        or (updates or 0) > 0
+    )
+    if compute_evidence.get("classification") == "PREFLIGHT_ONLY_VALIDATION":
+        effective_status = "PREFLIGHT_ONLY"
+        blocker = text_value(compute_evidence.get("blocker")) or blocker
+    elif training_claims_compute and compute_evidence.get("hasCompute") is not True:
+        effective_status = "BLOCKED"
+        blocker = text_value(compute_evidence.get("blocker")) or blocker
     return {
         "hasData": True,
-        "status": text_value(payload.get("status")) or ("RUN" if payload.get("trainingDidRun") else "NOT_RUN"),
+        "status": effective_status,
+        "rawStatus": raw_status,
         "trainingDidRun": payload.get("trainingDidRun"),
         "episodes": episodes,
         "policyUpdates": updates,
@@ -1406,6 +1782,9 @@ def training_execution(
         "blocker": blocker,
         "latestPath": latest_training.path,
         "cardSupply": card_supply,
+        "hasComputeEvidence": compute_evidence.get("hasCompute") is True,
+        "computeEvidence": compute_evidence,
+        "identity": collect_policy_training_identities(payload),
     }
 
 
@@ -1442,6 +1821,70 @@ def card_supply_finding_for_policy(payload: JsonObject, training: JsonObject | N
     }
 
 
+def policy_compute_evidence(payload: JsonObject, training: JsonObject | None) -> JsonObject:
+    evidence = strong_compute_evidence_summary(payload)
+    training_evidence = as_dict((training or {}).get("computeEvidence"))
+    identity_match = policy_training_identity_match(payload, training)
+    if (
+        training_evidence.get("hasCompute") is True
+        and compute_evidence_summary_has_strong_signal(training_evidence)
+        and identity_match is not None
+    ):
+        signals = list(as_list(evidence.get("signals")))
+        signals.append(
+            {
+                "field": "training.computeEvidence",
+                "value": training_evidence.get("classification") or "COMPUTE_CONFIRMED",
+            }
+        )
+        signals.append(
+            {
+                "field": f"policy.trainingIdentity.{identity_match['kind']}",
+                "value": identity_match["value"],
+            }
+        )
+        return {
+            "hasCompute": True,
+            "classification": "COMPUTE_CONFIRMED",
+            "signals": signals[:12],
+            "blocker": None,
+        }
+    if (
+        evidence.get("hasCompute") is not True
+        and training_evidence.get("classification") == "PREFLIGHT_ONLY_VALIDATION"
+        and identity_match is not None
+    ):
+        return {
+            "hasCompute": False,
+            "classification": "PREFLIGHT_ONLY_VALIDATION",
+            "signals": [],
+            "blocker": training_evidence.get("blocker") or evidence.get("blocker"),
+        }
+    return evidence
+
+
+def metric_status_claims_advantage(metric: JsonObject) -> bool:
+    return status_key(metric.get("status")) in POLICY_ADVANTAGE_METRIC_STATUS_KEYS
+
+
+def policy_requires_compute(status: str, metrics: Sequence[JsonObject]) -> bool:
+    return (
+        status_key(status) in POLICY_COMPUTE_CLAIM_STATUS_KEYS
+        or any(metric_status_claims_advantage(metric) for metric in metrics)
+    )
+
+
+def guard_policy_metrics_for_compute(metrics: Sequence[JsonObject], has_compute: bool) -> list[JsonObject]:
+    guarded: list[JsonObject] = []
+    for metric in metrics:
+        item = dict(metric)
+        if not has_compute and metric_status_claims_advantage(item):
+            item["rawStatus"] = item.get("status")
+            item["status"] = "BLOCKED_NO_COMPUTE"
+        guarded.append(item)
+    return guarded
+
+
 def policy_advantage(
     latest_policy: LoadedArtifact | None,
     latest_metrics: LoadedArtifact | None,
@@ -1453,6 +1896,7 @@ def policy_advantage(
         return {
             "hasData": False,
             "status": "N/A",
+            "rawStatus": "N/A",
             "candidate": "N/A",
             "baseline": "N/A",
             "timestamp": None,
@@ -1460,6 +1904,14 @@ def policy_advantage(
             "metrics": [],
             "shadowMetrics": shadow_metrics(observations),
             "cardSupplyFinding": None,
+            "hasComputeEvidence": False,
+            "computeEvidence": {
+                "hasCompute": False,
+                "classification": "MISSING_COMPUTE_EVIDENCE",
+                "signals": [],
+                "blocker": "No policy advantage artifact found.",
+            },
+            "blocker": "No policy advantage artifact found.",
         }
 
     payload = latest_policy.payload
@@ -1481,16 +1933,34 @@ def policy_advantage(
             if isinstance(value, dict):
                 metrics.append({"category": key, "status": value.get("advantage", "UNKNOWN"), "delta": value.get("delta")})
 
+    raw_status = (
+        non_blank_text_value(payload.get("onlineUtilityStatus"))
+        or non_blank_text_value(payload.get("status"))
+        or "UNKNOWN"
+    )
+    compute_evidence = policy_compute_evidence(payload, training)
+    has_compute = compute_evidence.get("hasCompute") is True
+    requires_compute = policy_requires_compute(raw_status, metrics)
+    status = raw_status
+    blocker = None
+    if requires_compute and not has_compute:
+        status = "BLOCKED"
+        blocker = text_value(compute_evidence.get("blocker"))
+    guarded_metrics = guard_policy_metrics_for_compute(metrics[:8], has_compute)
     return {
         "hasData": True,
-        "status": text_value(payload.get("onlineUtilityStatus")) or text_value(payload.get("status")) or "UNKNOWN",
+        "status": status,
+        "rawStatus": raw_status,
         "candidate": text_value(payload.get("candidatePolicyId")) or "N/A",
         "baseline": text_value(payload.get("baselinePolicyId")) or "N/A",
         "timestamp": latest_policy.timestamp,
         "latestPath": latest_policy.path,
-        "metrics": metrics[:8],
+        "metrics": guarded_metrics,
         "shadowMetrics": shadow_metrics(observations),
         "cardSupplyFinding": card_supply_finding_for_policy(payload, training),
+        "hasComputeEvidence": has_compute,
+        "computeEvidence": compute_evidence,
+        "blocker": blocker,
     }
 
 
@@ -1543,6 +2013,8 @@ def lane_statuses(
         lanes.append(lane("E3", "strategy comparison", "BLOCKED", None, "No policy advantage artifact found."))
     elif policy_status in {"PROVEN", "VALIDATED", "PROMOTABLE", "ADVANTAGE"}:
         lanes.append(lane("E3", "strategy comparison", "OK", policy.get("latestPath"), "None"))
+    elif policy_status == "BLOCKED":
+        lanes.append(lane("E3", "strategy comparison", "BLOCKED", policy.get("latestPath"), policy.get("blocker") or "Policy advantage is blocked."))
     elif policy_status == "UNPROVEN":
         lanes.append(lane("E3", "strategy comparison", "BLOCKED", policy.get("latestPath"), "Policy advantage remains UNPROVEN."))
     else:
@@ -1553,9 +2025,9 @@ def lane_statuses(
     policy_updates = number_value(training.get("policyUpdates"))
     if not training.get("hasData"):
         lanes.append(lane("E4", "training", "BLOCKED", None, "No training ledger found."))
-    elif training.get("trainingDidRun") is True or (episodes or 0) > 0 or (policy_updates or 0) > 0:
+    elif training.get("hasComputeEvidence") is True:
         lanes.append(lane("E4", "training", "OK", training.get("latestPath"), "None"))
-    elif training_status in {"NOT_RUN", "BLOCKED"}:
+    elif training_status in {"NOT_RUN", "BLOCKED", "PREFLIGHT_ONLY"}:
         lanes.append(lane("E4", "training", "BLOCKED", training.get("latestPath"), training.get("blocker") or "Training not running."))
     else:
         lanes.append(lane("E4", "training", "DEGRADED", training.get("latestPath"), training.get("blocker") or training_status))
@@ -1564,6 +2036,8 @@ def lane_statuses(
         lanes.append(lane("E5", "rollout", "BLOCKED", None, "No rollout evidence found."))
     elif policy_status in {"PROVEN", "VALIDATED", "PROMOTABLE", "ROLLOUT_APPROVED"}:
         lanes.append(lane("E5", "rollout", "OK", policy.get("latestPath"), "None"))
+    elif policy_status == "BLOCKED":
+        lanes.append(lane("E5", "rollout", "BLOCKED", policy.get("latestPath"), policy.get("blocker") or "Rollout blocked until compute evidence exists."))
     elif policy_status == "UNPROVEN":
         lanes.append(lane("E5", "rollout", "BLOCKED", policy.get("latestPath"), "Rollout blocked until policy advantage is proven."))
     else:
@@ -1763,6 +2237,7 @@ def render_simulator(simulator: JsonObject, repo_root: Path) -> str:
 
 def render_training(training: JsonObject, repo_root: Path) -> str:
     card_supply = as_dict(training.get("cardSupply"))
+    compute_evidence = as_dict(training.get("computeEvidence"))
     card_supply_status = "N/A"
     if card_supply:
         card_supply_status = (
@@ -1774,6 +2249,7 @@ def render_training(training: JsonObject, repo_root: Path) -> str:
         f"<tr><td>Status</td><td>{h(training.get('status', 'N/A'))}</td></tr>",
         f"<tr><td>Episodes</td><td>{h(format_count(training.get('episodes')))}</td></tr>",
         f"<tr><td>Policy updates</td><td>{h(format_count(training.get('policyUpdates')))}</td></tr>",
+        f"<tr><td>Compute evidence</td><td>{h(compute_evidence.get('classification', 'N/A'))}</td></tr>",
         f"<tr><td>Card supply</td><td>{h(card_supply_status)}</td></tr>",
         f"<tr><td>Last ledger timestamp</td><td>{h(display_timestamp(training.get('timestamp')))}</td></tr>",
         f"<tr><td>Blocker</td><td>{h(shorten(training.get('blocker') or 'N/A', 260))}</td></tr>",
@@ -1798,7 +2274,9 @@ def render_policy(policy: JsonObject, repo_root: Path) -> str:
         )
     shadow = as_dict(policy.get("shadowMetrics"))
     card_supply_finding = as_dict(policy.get("cardSupplyFinding"))
+    compute_evidence = as_dict(policy.get("computeEvidence"))
     shadow_rows = [
+        f"<tr><td>compute evidence</td><td>{h(compute_evidence.get('classification', 'N/A'))}</td></tr>",
         f"<tr><td>changedTopCount</td><td>{h(format_count(shadow.get('changedTopCount')))}</td></tr>",
         f"<tr><td>rankingDiffCount</td><td>{h(format_count(shadow.get('rankingDiffCount')))}</td></tr>",
         f"<tr><td>shadow territory KPI</td><td>{h(format_count(shadow.get('territory')))}</td></tr>",
