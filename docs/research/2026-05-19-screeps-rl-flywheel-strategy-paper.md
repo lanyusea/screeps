@@ -559,7 +559,7 @@ Required views:
 2. **E1 data:** latest gate freshness, accepted/rejected samples, rejection reasons.
 3. **Loop A training:** env rows, ticks, episodes, policy updates, anomalies, batch class.
 4. **Loop B advantage:** utility status, metric deltas, candidate/baseline identity.
-5. **Tencent utilization:** active time, scale-down proof, cost, utilization target, smoke/validation/campaign classification.
+5. **Tencent utilization:** active time, scale-down proof, cost, utilization target, and smoke/validation/normal-scale/large-campaign classification.
 6. **Scorecard:** current decision and missing evidence.
 7. **Safety:** live/official write flags, OOD/conservative status.
 8. **Feedback Act:** finding -> decision -> card -> training -> scorecard trace.
@@ -571,7 +571,7 @@ Current status: SQLite exists and is populated; the live owner-facing Grafana/da
 
 Hard rules:
 
-- training/evaluation must preserve `liveEffect=false` and `officialMmoWrites=false`;
+- training/evaluation must preserve `liveEffect=false`, `officialMmoWrites=false`, and `officialMmoWritesAllowed=false`;
 - no learned policy can write official MMO state before canary approval;
 - no raw creep/spawn/construction/market intent authority for learned policies;
 - Memory/RawMemory writes remain deterministic production-code responsibility;
