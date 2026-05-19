@@ -1128,6 +1128,164 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E4"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 
+    def test_unrelated_training_compute_does_not_unblock_preflight_policy_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "trainingReportIds": ["training-report-a"],
+                    "environmentExecution": {"completed": 2, "failed": 0},
+                    "controllerSummary": {
+                        "finalStatus": "completed",
+                        "instanceId": "ins-training-a",
+                        "environmentsRun": 2,
+                    },
+                    "createdAt": "2026-05-19T00:01:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "controllerSummary": {
+                        "finalStatus": "preflight_ok",
+                        "instanceId": None,
+                        "environmentsRun": 0,
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["training"]["status"], "RUN")
+        self.assertTrue(report["training"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
+        self.assertEqual(report["policy"]["status"], "BLOCKED")
+        self.assertFalse(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "PREFLIGHT_ONLY_VALIDATION")
+        self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
+    def test_policy_local_compute_evidence_unblocks_policy_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "trainingReportIds": ["policy-local-report"],
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["policy"]["status"], "PROVEN")
+        self.assertTrue(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "ADVANTAGE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "COMPUTE_CONFIRMED")
+        self.assertEqual(lanes["E3"]["status"], "OK")
+        self.assertEqual(lanes["E5"]["status"], "OK")
+
+    def test_policy_training_identity_match_can_use_training_compute_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "runId": "shared-training-run",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "environmentExecution": {"completed": 1, "failed": 0},
+                    "controllerSummary": {
+                        "finalStatus": "completed",
+                        "instanceId": "ins-shared",
+                        "environmentsRun": 1,
+                    },
+                    "createdAt": "2026-05-19T00:01:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "runId": "shared-training-run",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "controllerSummary": {
+                        "finalStatus": "preflight_ok",
+                        "instanceId": None,
+                        "environmentsRun": 0,
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        signal_fields = {item["field"] for item in report["policy"]["computeEvidence"]["signals"]}
+        self.assertEqual(report["policy"]["status"], "PROVEN")
+        self.assertTrue(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "ADVANTAGE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "COMPUTE_CONFIRMED")
+        self.assertIn("training.computeEvidence", signal_fields)
+        self.assertIn("policy.trainingIdentity.run", signal_fields)
+        self.assertEqual(lanes["E3"]["status"], "OK")
+        self.assertEqual(lanes["E5"]["status"], "OK")
+
     def test_tencent_internal_card_evidence_requires_safety_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

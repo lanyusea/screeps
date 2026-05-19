@@ -136,6 +136,28 @@ POLICY_ADVANTAGE_METRIC_STATUS_KEYS = {
     "validated",
     "win",
 }
+POLICY_TRAINING_IDENTITY_KEYS = {
+    "report": {
+        "reportid",
+        "trainingreport",
+        "trainingreportid",
+        "trainingreportids",
+        "trainingreportpath",
+        "trainingreportpaths",
+        "trainingreports",
+    },
+    "run": {
+        "batchrunid",
+        "runid",
+        "tencentbatchrunid",
+        "tencentrunid",
+        "trainingrunid",
+    },
+    "instance": {
+        "controllerinstanceid",
+        "instanceid",
+    },
+}
 STRONG_TRAINING_REPORT_KEYS = {
     "trainingreport",
     "trainingreportid",
@@ -510,6 +532,52 @@ def compute_evidence_summary(payload: JsonObject) -> JsonObject:
         "signals": signals[:12],
         "blocker": blocker,
     }
+
+
+def identity_text_values(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            yield stripped
+    elif isinstance(value, list):
+        for item in value:
+            yield from identity_text_values(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from identity_text_values(item)
+
+
+def collect_policy_training_identities(payload: JsonObject) -> JsonObject:
+    identities: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for node in iter_json_objects(payload):
+        for key, raw in node.items():
+            normalized = normalized_key(str(key))
+            for kind, identity_keys in POLICY_TRAINING_IDENTITY_KEYS.items():
+                if normalized not in identity_keys:
+                    continue
+                for value in identity_text_values(raw):
+                    seen_key = (kind, value)
+                    if seen_key in seen:
+                        continue
+                    seen.add(seen_key)
+                    identities.setdefault(kind, []).append(value)
+    return identities
+
+
+def policy_training_identity_match(payload: JsonObject, training: JsonObject | None) -> JsonObject | None:
+    policy_identities = collect_policy_training_identities(payload)
+    training_identities = as_dict((training or {}).get("identity"))
+    for kind, policy_values in policy_identities.items():
+        training_values = {
+            value
+            for value in as_list(training_identities.get(kind))
+            if isinstance(value, str) and value
+        }
+        for value in policy_values:
+            if value in training_values:
+                return {"kind": kind, "value": value}
+    return None
 
 
 def card_training_approach(card: JsonObject) -> str | None:
@@ -1584,6 +1652,7 @@ def training_execution(
                 "signals": [],
                 "blocker": "No training ledger found.",
             },
+            "identity": {},
         }
     payload = latest_training.payload
     compute_evidence = compute_evidence_summary(payload)
@@ -1637,6 +1706,7 @@ def training_execution(
         "cardSupply": card_supply,
         "hasComputeEvidence": compute_evidence.get("hasCompute") is True,
         "computeEvidence": compute_evidence,
+        "identity": collect_policy_training_identities(payload),
     }
 
 
@@ -1676,12 +1746,19 @@ def card_supply_finding_for_policy(payload: JsonObject, training: JsonObject | N
 def policy_compute_evidence(payload: JsonObject, training: JsonObject | None) -> JsonObject:
     evidence = compute_evidence_summary(payload)
     training_evidence = as_dict((training or {}).get("computeEvidence"))
-    if training_evidence.get("hasCompute") is True:
+    identity_match = policy_training_identity_match(payload, training)
+    if training_evidence.get("hasCompute") is True and identity_match is not None:
         signals = list(as_list(evidence.get("signals")))
         signals.append(
             {
                 "field": "training.computeEvidence",
                 "value": training_evidence.get("classification") or "COMPUTE_CONFIRMED",
+            }
+        )
+        signals.append(
+            {
+                "field": f"policy.trainingIdentity.{identity_match['kind']}",
+                "value": identity_match["value"],
             }
         )
         return {
