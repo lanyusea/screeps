@@ -20,6 +20,7 @@ export interface KernelDependencies {
 
 export interface KernelRunOptions {
   strategyRegistry?: StrategyRegistryEntry[];
+  onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
 export class Kernel {
@@ -39,10 +40,14 @@ export class Kernel {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime());
-    return options.strategyRegistry
+    return hasKernelRunOptions(options)
       ? this.dependencies.runEconomy(forwardedEvents, options)
       : this.dependencies.runEconomy(forwardedEvents);
   }
+}
+
+function hasKernelRunOptions(options: KernelRunOptions): boolean {
+  return options.strategyRegistry !== undefined || options.onStrategyRegistryRuntimeUse !== undefined;
 }
 
 function selectForwardedDefenseEvents(

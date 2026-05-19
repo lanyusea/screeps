@@ -230,6 +230,7 @@ class MockSimulator:
             "runId": kwargs["run_id"],
             "liveEffect": False,
             "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
             "variants": variants,
         }
 

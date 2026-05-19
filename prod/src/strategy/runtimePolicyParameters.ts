@@ -26,6 +26,11 @@ export interface RuntimePolicyParameterRegistryResult {
   evidence: RuntimePolicyParameterConsumptionEvidence;
 }
 
+export interface RuntimePolicyParameterConsumptionRecorder {
+  recordStrategyRuntimeUse: (entry: StrategyRegistryEntry) => void;
+  buildEvidence: () => RuntimePolicyParameterConsumptionEvidence;
+}
+
 interface RuntimePolicyParameterPayload {
   runtimeParameterInjection?: unknown;
   candidateParameterScope?: unknown;
@@ -92,6 +97,54 @@ export function applyRuntimePolicyParametersToRegistry(
   return { registry: patchedRegistry, evidence };
 }
 
+export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicyParameterConsumptionRecorder {
+  const payload = readRuntimePolicyParameterPayload();
+  const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
+  const appliedStrategyIds = new Set<string>();
+
+  return {
+    recordStrategyRuntimeUse(entry: StrategyRegistryEntry): void {
+      if (!payload || !parameters) {
+        return;
+      }
+      if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+        return;
+      }
+      if (!strategyEntryUsesRuntimeParameters(entry, parameters)) {
+        return;
+      }
+
+      appliedStrategyIds.add(entry.id);
+    },
+
+    buildEvidence(): RuntimePolicyParameterConsumptionEvidence {
+      if (!payload) {
+        return buildConsumptionEvidence({ consumed: false, appliedStrategyIds: [] });
+      }
+      if (!parameters) {
+        return buildConsumptionEvidence({
+          payload,
+          consumed: false,
+          appliedStrategyIds: [],
+          reason: 'runtime policy parameter payload did not include a non-empty parameters object'
+        });
+      }
+
+      const observedStrategyIds = [...appliedStrategyIds].sort();
+      const consumed = observedStrategyIds.length > 0;
+      return buildConsumptionEvidence({
+        payload,
+        consumed,
+        parameters,
+        appliedStrategyIds: observedStrategyIds,
+        reason: consumed
+          ? undefined
+          : 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
+      });
+    }
+  };
+}
+
 export function persistRuntimePolicyParameterConsumptionEvidence(
   evidence: RuntimePolicyParameterConsumptionEvidence
 ): void {
@@ -152,6 +205,19 @@ function runtimePolicyPayloadTargetsEntry(
     entry.id === sourceStrategyId ||
     (family !== undefined && entry.family === family)
   );
+}
+
+function strategyEntryUsesRuntimeParameters(
+  entry: StrategyRegistryEntry,
+  parameters: Record<string, StrategyKnobValue>
+): boolean {
+  for (const [key, value] of Object.entries(parameters)) {
+    if (entry.defaultValues[key] !== value) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function buildConsumptionEvidence(options: {

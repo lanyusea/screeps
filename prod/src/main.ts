@@ -14,6 +14,7 @@ import {
 } from './strategy/strategyRegistry';
 import {
   applyRuntimePolicyParametersToRegistry,
+  createRuntimePolicyParameterConsumptionRecorder,
   persistRuntimePolicyParameterConsumptionEvidence
 } from './strategy/runtimePolicyParameters';
 import { type RuntimeSummary, RUNTIME_SUMMARY_PREFIX } from './telemetry/runtimeSummary';
@@ -44,8 +45,12 @@ const recentKpiWindows: KpiWindowHistory = {};
 const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
-  const summary = kernel.run({ strategyRegistry: strategyRegistryState.entries });
-  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameters.evidence);
+  const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
+  const summary = kernel.run({
+    strategyRegistry: strategyRegistryState.entries,
+    onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+  });
+  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 

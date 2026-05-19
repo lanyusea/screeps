@@ -10308,11 +10308,13 @@ function buildRuntimeConstructionPriorityReport(colony, creeps, options = {}) {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
   return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
 }
-function constructionPriorityStrategyParametersFromRegistry(registry) {
+function selectConstructionPriorityStrategyRegistryEntry(registry) {
   var _a;
-  const entry = (_a = registry == null ? void 0 : registry.find(
+  return (_a = registry == null ? void 0 : registry.find(
     (candidate) => candidate.family === "construction-priority" && candidate.rolloutStatus === "incumbent"
   )) != null ? _a : registry == null ? void 0 : registry.find((candidate) => candidate.family === "construction-priority");
+}
+function constructionPriorityStrategyParametersFromEntry(entry) {
   if (!entry) {
     return void 0;
   }
@@ -35220,7 +35222,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         persistOccupationRecommendations,
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
         shouldBuildStructureSnapshot(tick),
-        options.strategyRegistry
+        options.strategyRegistry,
+        options.onStrategyRegistryRuntimeUse
       );
     }
   );
@@ -35293,7 +35296,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse) {
   const tick = getGameTime31();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -35333,7 +35336,12 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
+    constructionPriority: summarizeConstructionPriority(
+      colony,
+      colonyWorkers,
+      strategyRegistry,
+      onStrategyRegistryRuntimeUse
+    ),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
@@ -36506,9 +36514,13 @@ function summarizeCombat(room, events) {
     ...events ? { events } : {}
   };
 }
-function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry) {
+function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry, onStrategyRegistryRuntimeUse) {
+  const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
+  if (strategyEntry) {
+    onStrategyRegistryRuntimeUse == null ? void 0 : onStrategyRegistryRuntimeUse(strategyEntry);
+  }
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
-    strategyParameters: constructionPriorityStrategyParametersFromRegistry(strategyRegistry)
+    strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
   });
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
@@ -44716,7 +44728,8 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
     persistOccupationRecommendations: false,
-    strategyRegistry: options.strategyRegistry
+    strategyRegistry: options.strategyRegistry,
+    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   });
 }
 function ensureLocalWorkerColonyMemory(colonies, creeps) {
@@ -45485,9 +45498,12 @@ var Kernel = class {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime44());
-    return options.strategyRegistry ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
+    return hasKernelRunOptions(options) ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
   }
 };
+function hasKernelRunOptions(options) {
+  return options.strategyRegistry !== void 0 || options.onStrategyRegistryRuntimeUse !== void 0;
+}
 function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
   const forwardedEvents = [];
   pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
@@ -45608,6 +45624,47 @@ function applyRuntimePolicyParametersToRegistry(registry) {
   publishRuntimePolicyParameterConsumptionEvidence(evidence);
   return { registry: patchedRegistry, evidence };
 }
+function createRuntimePolicyParameterConsumptionRecorder() {
+  const payload = readRuntimePolicyParameterPayload();
+  const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
+  const appliedStrategyIds = /* @__PURE__ */ new Set();
+  return {
+    recordStrategyRuntimeUse(entry) {
+      if (!payload || !parameters) {
+        return;
+      }
+      if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+        return;
+      }
+      if (!strategyEntryUsesRuntimeParameters(entry, parameters)) {
+        return;
+      }
+      appliedStrategyIds.add(entry.id);
+    },
+    buildEvidence() {
+      if (!payload) {
+        return buildConsumptionEvidence({ consumed: false, appliedStrategyIds: [] });
+      }
+      if (!parameters) {
+        return buildConsumptionEvidence({
+          payload,
+          consumed: false,
+          appliedStrategyIds: [],
+          reason: "runtime policy parameter payload did not include a non-empty parameters object"
+        });
+      }
+      const observedStrategyIds = [...appliedStrategyIds].sort();
+      const consumed = observedStrategyIds.length > 0;
+      return buildConsumptionEvidence({
+        payload,
+        consumed,
+        parameters,
+        appliedStrategyIds: observedStrategyIds,
+        reason: consumed ? void 0 : "runtime policy parameter payload was not used by tick runtime strategy evaluation"
+      });
+    }
+  };
+}
 function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
   const root = globalThis;
   if (!root.Memory) {
@@ -45651,6 +45708,14 @@ function runtimePolicyPayloadTargetsEntry(payload, entry) {
   const sourceStrategyId = textOrUndefined(payload.sourceStrategyId);
   const family = textOrUndefined(payload.family);
   return entry.id === strategyVariantId || entry.id === candidatePolicyId || entry.id === sourceStrategyId || family !== void 0 && entry.family === family;
+}
+function strategyEntryUsesRuntimeParameters(entry, parameters) {
+  for (const [key, value] of Object.entries(parameters)) {
+    if (entry.defaultValues[key] !== value) {
+      return false;
+    }
+  }
+  return true;
 }
 function buildConsumptionEvidence(options) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
@@ -46328,8 +46393,12 @@ var strategyRegistryState = {
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
-  const summary = kernel.run({ strategyRegistry: strategyRegistryState.entries });
-  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameters.evidence);
+  const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
+  const summary = kernel.run({
+    strategyRegistry: strategyRegistryState.entries,
+    onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+  });
+  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 function runStrategyRolloutMonitoring(summary, registry) {

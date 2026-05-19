@@ -557,10 +557,22 @@ export function buildRuntimeConstructionPriorityReport(
 export function constructionPriorityStrategyParametersFromRegistry(
   registry: StrategyRegistryEntry[] | undefined
 ): ConstructionPriorityStrategyParameters | undefined {
-  const entry =
+  return constructionPriorityStrategyParametersFromEntry(selectConstructionPriorityStrategyRegistryEntry(registry));
+}
+
+export function selectConstructionPriorityStrategyRegistryEntry(
+  registry: StrategyRegistryEntry[] | undefined
+): StrategyRegistryEntry | undefined {
+  return (
     registry?.find(
       (candidate) => candidate.family === 'construction-priority' && candidate.rolloutStatus === 'incumbent'
-    ) ?? registry?.find((candidate) => candidate.family === 'construction-priority');
+    ) ?? registry?.find((candidate) => candidate.family === 'construction-priority')
+  );
+}
+
+export function constructionPriorityStrategyParametersFromEntry(
+  entry: StrategyRegistryEntry | undefined
+): ConstructionPriorityStrategyParameters | undefined {
   if (!entry) {
     return undefined;
   }

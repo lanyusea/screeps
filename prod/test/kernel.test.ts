@@ -148,6 +148,25 @@ describe('Kernel', () => {
     expect(runEconomy).toHaveBeenNthCalledWith(2, [safeModeEvent]);
   });
 
+  it('forwards strategy runtime-use options to the economy loop', () => {
+    const runEconomy = jest.fn();
+    const onStrategyRegistryRuntimeUse = jest.fn();
+    const options = {
+      strategyRegistry: [],
+      onStrategyRegistryRuntimeUse
+    };
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense: jest.fn().mockReturnValue([]),
+      runEconomy
+    });
+
+    kernel.run(options);
+
+    expect(runEconomy).toHaveBeenCalledWith([], options);
+  });
+
   it('does not throw when no rooms or spawns exist', () => {
     const kernel = new Kernel({
       initializeMemory: jest.fn(),
