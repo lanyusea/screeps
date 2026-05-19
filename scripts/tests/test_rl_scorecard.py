@@ -215,8 +215,25 @@ def test_scorecard_is_inconclusive_when_gameplay_evidence_is_absent(tmp_path: Pa
     assert report["dimensions"]["combat"]["status"] == "neutral"
 
 
+def test_value_has_reference_parses_numeric_strings() -> None:
+    assert not scorecard.value_has_reference("0")
+    assert not scorecard.value_has_reference("0.0")
+    assert not scorecard.value_has_reference(["0"])
+    assert not scorecard.value_has_reference({"ids": ["0", {"fallback": "0.0"}]})
+    assert scorecard.value_has_reference("1")
+    assert scorecard.value_has_reference(["0", "2.5"])
+    assert scorecard.value_has_reference("training-report-a")
+
+
 def test_scorecard_ignores_preflight_only_policy_advantage_as_compute(tmp_path: Path) -> None:
-    for case, training_report_ids in (("empty-list", []), ("scalar-zero", 0)):
+    for case, training_report_ids in (
+        ("empty-list", []),
+        ("scalar-zero", 0),
+        ("string-zero", "0"),
+        ("string-float-zero", "0.0"),
+        ("list-string-zero", ["0"]),
+        ("nested-string-zero", {"ids": ["0", {"fallback": "0.0"}]}),
+    ):
         baseline = tmp_path / case / "baseline"
         candidate = tmp_path / case / "candidate"
         baseline.mkdir(parents=True)
@@ -252,6 +269,44 @@ def test_scorecard_ignores_preflight_only_policy_advantage_as_compute(tmp_path: 
         assert self_metric["candidate"] is None
         assert self_metric["baseline"] is None
         assert "productive_energy" in resources["missingEvidence"]
+
+
+def test_scorecard_accepts_nonzero_string_training_report_ids_as_compute(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    for root, resources in ((baseline, 1), (candidate, 10)):
+        write_json(
+            root / "policy-advantage.json",
+            {
+                "type": "screeps-rl-policy-advantage-report",
+                "reportId": f"nonzero-training-id-{root.name}",
+                "advantageResources": resources,
+                "trainingReportIds": ["0", "2"],
+                "environmentExecution": {"completed": 0},
+                "controllerSummary": {
+                    "finalStatus": "preflight_ok",
+                    "instanceId": None,
+                    "environmentsRun": 0,
+                },
+            },
+        )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-19T00:00:00Z",
+        run_id="scorecard-nonzero-string-training-id",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert resources["status"] == "improved"
+    assert self_metric["candidate"] == 10
+    assert self_metric["baseline"] == 1
+    assert "productive_energy" not in resources["missingEvidence"]
 
 
 def test_scorecard_preflight_marker_requires_controller_summary_shape() -> None:
