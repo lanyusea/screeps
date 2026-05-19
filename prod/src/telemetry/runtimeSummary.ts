@@ -704,6 +704,7 @@ export interface RuntimeSummary {
 interface RuntimeSummaryOptions {
   persistOccupationRecommendations?: boolean;
   strategyRegistry?: StrategyRegistryEntry[];
+  onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
 let cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();

@@ -2465,7 +2465,8 @@ describe('runtime telemetry summaries', () => {
     const onStrategyRegistryRuntimeUse = jest.fn();
 
     emitRuntimeSummary([colony], [], [], {
-      strategyRegistry: DEFAULT_STRATEGY_REGISTRY
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      onStrategyRegistryRuntimeUse
     });
 
     expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();

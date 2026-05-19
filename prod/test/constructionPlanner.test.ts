@@ -146,6 +146,80 @@ describe('owned room construction planner', () => {
     );
   });
 
+  it('does not rerun normal container planning after the starvation source-logistics pass', () => {
+    installOpenTerrain();
+    const onStrategyRegistryRuntimeUse = jest.fn();
+    const { room, colony } = makeColony({
+      controllerLevel: 4,
+      energyAvailable: 490,
+      energyCapacityAvailable: 1_000,
+      structures: [
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        ),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      sources: [makeSource('source-a', 20, 10)],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }],
+        '25,25': [{ x: 10, y: 11 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      maxContainerSitesPerTick: 2,
+      respectRoomEnergyBuffer: true,
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      onStrategyRegistryRuntimeUse
+    });
+
+    const containerPlacements = result.placements.filter((placement) => placement.priority === 'container');
+    expect(containerPlacements).toHaveLength(1);
+    expect(room.createConstructionSite.mock.calls.filter(([, , structureType]) => structureType === STRUCTURE_CONTAINER))
+      .toHaveLength(1);
+    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalled();
+  });
+
+  it('keeps the first-tower safeguard ahead of runtime-prioritized defense-floor work', () => {
+    installOpenTerrain();
+    const onStrategyRegistryRuntimeUse = jest.fn();
+    const strategyRegistry = withConstructionPriorityDefaults({
+      baseScoreWeight: 0,
+      territorySignalWeight: 1,
+      resourceSignalWeight: 0,
+      killSignalWeight: 0,
+      riskPenalty: 100
+    });
+    const { room, colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 800,
+      structures: [
+        ...Array.from({ length: 10 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 20 + index, 30)
+        )
+      ],
+      sources: [],
+      pathsByTarget: {}
+    });
+
+    const result = planConstructionForColony(colony, {
+      creeps: makeWorkerCreeps(5),
+      respectRoomEnergyBuffer: false,
+      strategyRegistry,
+      onStrategyRegistryRuntimeUse
+    });
+
+    expect(result.placements[0]).toMatchObject({
+      priority: 'tower',
+      structureType: STRUCTURE_TOWER,
+      result: OK_CODE
+    });
+    expect(room.createConstructionSite.mock.calls[0][2]).toBe(STRUCTURE_TOWER);
+    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalled();
+  });
+
   it('reserves the first RCL3 tower before routine extension logistics when respecting the energy buffer', () => {
     expect(FIRST_RCL3_TOWER_PRIORITY_ENERGY).toBeLessThan(TERRITORY_CONTROLLER_BODY_COST);
     installOpenTerrain();

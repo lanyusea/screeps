@@ -11222,10 +11222,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const hostileCreeps = findRoomObjects13(room, "FIND_HOSTILE_CREEPS");
   const hostileStructures = findRoomObjects13(room, "FIND_HOSTILE_STRUCTURES");
   const sources = findRoomObjects13(room, "FIND_SOURCES");
-  const colonyWorkers = creeps.filter((creep) => {
-    var _a2, _b2;
-    return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
-  });
+  const colonyWorkers = creeps.filter((creep) => isRuntimeConstructionWorkerForRoom(creep, room.name));
   const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
   return {
@@ -11264,6 +11261,17 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
     ownedStructures,
     visibleStructures
   };
+}
+function isRuntimeConstructionWorkerForRoom(creep, roomName) {
+  var _a, _b;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
+    return false;
+  }
+  const colonyName = creep.memory.colony;
+  if (typeof colonyName === "string" && colonyName.length > 0) {
+    return colonyName === roomName;
+  }
+  return ((_b = creep.room) == null ? void 0 : _b.name) === roomName && typeof creep.name === "string" && creep.name.startsWith(`worker-${roomName}-`);
 }
 function summarizeRuntimeStoredEnergy(colony, ownedStructures, visibleStructures) {
   var _a, _b;
@@ -12313,7 +12321,9 @@ function planConstructionForColony(colony, options = {}) {
     result,
     budgetState,
     options,
-    priorityTowerDefenseSiteState
+    priorityTowerDefenseSiteState,
+    sourceLogisticsStarved,
+    rcl
   )) {
     return result;
   }
@@ -12455,7 +12465,7 @@ function planStorage(colony, result, budgetState, options) {
     recordPlacement(result, budgetState, "storage", storageResult, options);
   }
 }
-function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState) {
+function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState, sourceLogisticsStarved, rcl) {
   var _a;
   if (!options.onStrategyRegistryRuntimeUse) {
     return false;
@@ -12466,19 +12476,21 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
     return false;
   }
   const report = buildRuntimeConstructionPriorityReport(colony, (_a = options.creeps) != null ? _a : [], { strategyParameters });
-  const priorities = runtimeConstructionPlannerPriorityOrder(report);
+  const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
   if (priorities.length === 0) {
     return false;
   }
   options.onStrategyRegistryRuntimeUse(strategyEntry);
+  let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
-    planRuntimeConstructionPlannerPriority(
+    activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
       priority,
       colony,
       result,
       budgetState,
       options,
-      priorityTowerDefenseSiteState
+      activePriorityTowerDefenseSiteState,
+      rcl
     );
     if (hasBlockingPlacementFailure(result)) {
       return true;
@@ -12486,24 +12498,27 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
   }
   return true;
 }
-function runtimeConstructionPlannerPriorityOrder(report) {
+function runtimeConstructionPlannerPriorityOrder(report, options = {}) {
   const priorities = [];
   for (const score of report.candidates) {
     if (score.blocked || score.policyAction !== "build") {
       continue;
     }
     for (const priority of constructionPriorityScorePlannerPriorities(score)) {
-      if (!priorities.includes(priority)) {
+      if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
         priorities.push(priority);
       }
     }
   }
   for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
-    if (!priorities.includes(priority)) {
+    if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
       priorities.push(priority);
     }
   }
   return priorities;
+}
+function shouldSkipRuntimeConstructionPriority(priority, options) {
+  return options.sourceLogisticsStarved === true && (priority === "container" || priority === "road");
 }
 function constructionPriorityScorePlannerPriorities(score) {
   switch (score.buildType) {
@@ -12527,36 +12542,61 @@ function constructionPriorityScorePlannerPriorities(score) {
       return [];
   }
 }
-function planRuntimeConstructionPlannerPriority(priority, colony, result, budgetState, options, priorityTowerDefenseSiteState) {
+function planRuntimeConstructionPlannerPriority(priority, colony, result, budgetState, options, priorityTowerDefenseSiteState, rcl) {
   switch (priority) {
     case "spawn":
-      return;
+      return priorityTowerDefenseSiteState;
     case "extension":
       planExtensions(colony, result, budgetState, options);
-      return;
+      return priorityTowerDefenseSiteState;
     case "container":
       planContainers(colony, result, budgetState, options);
-      return;
+      return priorityTowerDefenseSiteState;
     case "road":
       planRoads(colony, result, budgetState, options);
-      return;
+      return priorityTowerDefenseSiteState;
     case "tower":
+      if (priorityTowerDefenseSiteState !== "notNeeded") {
+        return priorityTowerDefenseSiteState;
+      }
+      priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+        colony,
+        result,
+        budgetState,
+        options,
+        rcl
+      );
+      if (hasBlockingPlacementFailure(result)) {
+        return priorityTowerDefenseSiteState;
+      }
       if (priorityTowerDefenseSiteState === "notNeeded") {
         planTowers(colony, result, budgetState, options);
       }
-      return;
+      return priorityTowerDefenseSiteState;
     case "rampart":
     case "wall":
+      if (priorityTowerDefenseSiteState === "notNeeded") {
+        priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+          colony,
+          result,
+          budgetState,
+          options,
+          rcl
+        );
+        if (hasBlockingPlacementFailure(result)) {
+          return priorityTowerDefenseSiteState;
+        }
+      }
       if (priorityTowerDefenseSiteState !== "blocked") {
         planBootstrapDefenseFloor(colony, result, budgetState, options);
       }
       if (options.includePostClaimRamparts === true) {
         planRamparts(colony, result, budgetState, options);
       }
-      return;
+      return priorityTowerDefenseSiteState;
     case "storage":
       planStorage(colony, result, budgetState, options);
-      return;
+      return priorityTowerDefenseSiteState;
   }
 }
 function buildSourceLogisticsStarvationRoadOptions(colony, options) {

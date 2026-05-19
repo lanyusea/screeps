@@ -724,6 +724,32 @@ describe('runtime construction priority report', () => {
     expect(scoreByName(report.candidates, 'build extension capacity').blocked).toBe(false);
   });
 
+  it('counts room-local worker names when legacy worker memory lacks colony', () => {
+    const { colony, room } = makeRuntimeColony({
+      controllerLevel: 4,
+      energyCapacityAvailable: 1_300,
+      ownedStructures: [
+        makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 22 + index, 20)
+        )
+      ]
+    });
+    const workers = Array.from(
+      { length: 3 },
+      (_unused, index) =>
+        ({
+          name: `worker-W1N1-${index}`,
+          room,
+          memory: { role: 'worker' }
+        }) as Creep
+    );
+
+    const report = buildRuntimeConstructionPriorityReport(colony, workers);
+
+    expect(scoreByName(report.candidates, 'build storage logistics').blocked).toBe(false);
+  });
+
   it('skips malformed territory intent entries while counting runtime intent pressure', () => {
     const { colony } = makeRuntimeColony();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

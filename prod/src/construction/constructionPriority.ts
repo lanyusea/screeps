@@ -2097,7 +2097,7 @@ function buildRuntimeConstructionPriorityState(
   const hostileCreeps = findRoomObjects(room, 'FIND_HOSTILE_CREEPS') as Creep[] | null;
   const hostileStructures = findRoomObjects(room, 'FIND_HOSTILE_STRUCTURES') as Structure[] | null;
   const sources = findRoomObjects(room, 'FIND_SOURCES') as Source[] | null;
-  const colonyWorkers = creeps.filter((creep) => creep.memory?.role === 'worker' && creep.memory?.colony === room.name);
+  const colonyWorkers = creeps.filter((creep) => isRuntimeConstructionWorkerForRoom(creep, room.name));
   const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
 
@@ -2137,6 +2137,19 @@ function buildRuntimeConstructionPriorityState(
     ownedStructures,
     visibleStructures
   };
+}
+
+function isRuntimeConstructionWorkerForRoom(creep: Creep, roomName: string): boolean {
+  if (creep.memory?.role !== 'worker') {
+    return false;
+  }
+
+  const colonyName = creep.memory.colony;
+  if (typeof colonyName === 'string' && colonyName.length > 0) {
+    return colonyName === roomName;
+  }
+
+  return creep.room?.name === roomName && typeof creep.name === 'string' && creep.name.startsWith(`worker-${roomName}-`);
 }
 
 function summarizeRuntimeStoredEnergy(
