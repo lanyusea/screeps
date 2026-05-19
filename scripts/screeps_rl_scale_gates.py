@@ -93,9 +93,12 @@ def batch_scale_thresholds() -> JsonObject:
             "operator": "OR",
         },
         BATCH_CLASS_INTERMEDIATE: {
-            "environmentRows": f">={SMOKE_ENVIRONMENT_ROWS} and <{VALIDATION_ENVIRONMENT_ROWS}",
-            "simulatorTicks": f">={SMOKE_SIMULATOR_TICKS} and <{VALIDATION_SIMULATOR_TICKS}",
-            "operator": "above smoke but below validation",
+            "environmentRows": f">={SMOKE_ENVIRONMENT_ROWS}",
+            "simulatorTicks": f">={SMOKE_SIMULATOR_TICKS}",
+            "operator": (
+                f"AND with (environmentRows <{VALIDATION_ENVIRONMENT_ROWS} "
+                f"OR simulatorTicks <{VALIDATION_SIMULATOR_TICKS})"
+            ),
         },
         BATCH_CLASS_VALIDATION: {
             "environmentRows": f">={VALIDATION_ENVIRONMENT_ROWS}",

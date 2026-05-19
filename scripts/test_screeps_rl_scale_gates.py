@@ -37,6 +37,16 @@ class RlScaleGatesTest(unittest.TestCase):
         self.assertTrue(gates.scale_first_eligible("normal-scale"))
         self.assertTrue(gates.scale_first_eligible("large-campaign"))
 
+    def test_intermediate_threshold_descriptor_matches_classifier_logic(self) -> None:
+        threshold = gates.batch_scale_thresholds()["intermediate"]
+
+        self.assertEqual(threshold["environmentRows"], ">=50")
+        self.assertEqual(threshold["simulatorTicks"], ">=50000")
+        self.assertEqual(
+            threshold["operator"],
+            "AND with (environmentRows <200 OR simulatorTicks <200000)",
+        )
+
     def test_summary_includes_utilization_when_wall_and_asg_time_are_available(self) -> None:
         summary = gates.build_batch_scale_summary(
             environment_rows=200,
