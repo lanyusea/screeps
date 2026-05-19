@@ -77,6 +77,12 @@ def write_live_artifacts(root: Path) -> None:
                 "simulatorTicksRun": 1400,
             },
             "environmentExecution": {"completed": 2, "failed": 0, "lastNewRunAt": "2026-05-18T10:05:00Z"},
+            "policyGradient": {
+                "runner_support": {
+                    "runtime_parameter_injection": False,
+                    "candidate_parameter_scope": "metadata_only",
+                }
+            },
             "createdAt": "2026-05-18T10:05:00Z",
         },
     )
@@ -116,13 +122,32 @@ def write_live_artifacts(root: Path) -> None:
             "instanceId": "ins-live",
             "workerUser": "screeps-batch",
             "inputs": {"ticks": 500, "workers": 5, "repetitions": 5},
+            "batchScale": {
+                "environmentRows": 25,
+                "simulatorTicks": 12500,
+                "wallClockSeconds": 420,
+                "asgActiveSeconds": 600,
+                "costEstimate": {"currency": "USD", "amount": 1.23},
+            },
             "safety": {
                 "liveEffect": False,
                 "officialMmoWrites": False,
                 "officialMmoWritesAllowed": False,
+                "conservative_actions_only": True,
+                "ood_rejection": True,
                 "billingGuardBeforeScale": True,
                 "scaleDownAttempted": True,
             },
+        },
+    )
+    write_json(
+        root / "rl-control-loop" / "decision.json",
+        {
+            "type": "screeps-rl-iteration-decision",
+            "decisionId": "decision-live",
+            "decision": "hold",
+            "feedbackIngestion": {"findingId": "finding-live"},
+            "createdAt": "2026-05-18T10:08:30Z",
         },
     )
     (root / "rl-training").mkdir(parents=True, exist_ok=True)
@@ -139,6 +164,19 @@ def read_json_url(url: str, timeout: float = 1.0) -> JsonObject:
     if not isinstance(payload, dict):
         raise AssertionError(f"expected JSON object from {url}")
     return payload
+
+
+def get_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            status = response.status
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        status = error.code
+        payload = json.loads(error.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise AssertionError(f"expected JSON object from {url}")
+    return status, payload
 
 
 def post_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
@@ -212,14 +250,26 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["batchClass"], "smoke")
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["environmentRows"], 25)
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["simulatorTicks"], 12500)
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["asgActiveSeconds"], 600.0)
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["utilizationRatio"], 0.7)
         self.assertFalse(summary["tencentBatch"]["latest"]["batchScale"]["scaleFirstEligible"])
         self.assertEqual(summary["safety"]["status"], "OK")
+        self.assertTrue(summary["safety"]["conservativeActionsOnly"])
+        self.assertTrue(summary["safety"]["oodRejection"])
+        self.assertEqual(summary["runtimeCandidateInjection"]["status"], "BLOCKED")
+        self.assertEqual(summary["zeroIterationPolicyUpdate"]["status"], "N/A")
+        self.assertEqual(summary["flywheelStages"][0]["stage"], "construction-landed")
+        self.assertIn("#879", {row["issue"] for row in summary["projectGates"]})
         self.assertIn("E1 Gate Acceptance", html)
         self.assertIn("Loop A Env Ticks Episodes", html)
         self.assertIn("Loop B Utility Scorecard", html)
         self.assertIn("Tencent Batch Utilization", html)
         self.assertIn("Latest batch class", html)
         self.assertIn("Safety Flags", html)
+        self.assertIn("#879 Flywheel Stage Proof", html)
+        self.assertIn("Project Gate Status", html)
+        self.assertIn("SQLite Table Counts", html)
+        self.assertIn("#924 Scorecard Status", html)
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -245,7 +295,10 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             if flag.get("source") == "tencent" and flag.get("value") == "missing"
         }
         self.assertEqual(summary["safety"]["status"], "BLOCKED")
-        self.assertEqual(missing_fields, set(live.REQUIRED_TENCENT_SAFETY_FIELDS))
+        self.assertEqual(
+            missing_fields,
+            set(live.REQUIRED_TENCENT_SAFETY_FIELDS) | set(live.REQUIRED_TENCENT_SHADOW_SAFETY_FIELDS),
+        )
 
     def test_missing_tencent_safety_field_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -315,6 +368,135 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             summary["safety"]["unsafeFlags"],
         )
 
+    def test_runtime_candidate_injection_uses_newest_relevant_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "old-success.json",
+                {
+                    "createdAt": "2026-05-18T10:00:00Z",
+                    "runtime_parameter_injection": True,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "new-blocked.json",
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+
+            summary = live.runtime_candidate_injection_summary(artifact_root, repo_root)
+
+        self.assertEqual(summary["status"], "BLOCKED")
+        self.assertEqual(summary["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(summary["latestPath"].endswith("new-blocked.json"))
+        self.assertEqual(summary["updatedAt"], "2026-05-18T10:10:00Z")
+
+    def test_equal_timestamp_artifact_gate_ties_are_conservative(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            timestamp = "2026-05-18T10:10:00Z"
+            write_json(
+                artifact_root / "rl-control-loop" / "a-runtime-success.json",
+                {
+                    "createdAt": timestamp,
+                    "runtime_parameter_injection": True,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "z-runtime-blocked.json",
+                {
+                    "createdAt": timestamp,
+                    "runtime_parameter_injection": False,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "a-zero-safe.json",
+                {
+                    "createdAt": timestamp,
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {"skippedReason": "no samples"},
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "z-zero-blocked.json",
+                {
+                    "createdAt": timestamp,
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {},
+                },
+            )
+
+            injection = live.runtime_candidate_injection_summary(artifact_root, repo_root)
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertEqual(injection["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(injection["latestPath"].endswith("z-runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertTrue(zero_iteration["latestPath"].endswith("z-zero-blocked.json"))
+
+    def test_health_helper_requires_successful_auto_refresh(self) -> None:
+        health = live.health_with_refresh(
+            {"ok": True, "status": "ok", "failures": []},
+            {
+                "mode": "auto",
+                "autoRefreshSeconds": 60,
+                "lastRefreshAt": "2026-05-18T10:09:00Z",
+                "lastRefreshOk": False,
+            },
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["status"], "degraded")
+        self.assertIn("auto-refresh has not completed successfully", health["failures"])
+
+    def test_project_gate_requires_successful_auto_refresh(self) -> None:
+        flywheel_stages = [{"stage": "construction-landed", "status": "OK"}]
+        tencent = {
+            "hasData": True,
+            "runCount": 1,
+            "latest": {"batchScale": {"scaleFirstEligible": True}},
+        }
+        injection = {"status": "OK", "evidence": "runtime_parameter_injection=true"}
+        zero_iteration = {"status": "OK", "evidence": "safe zero-iteration no-op: no update"}
+        pending_refresh = {
+            "mode": "auto",
+            "autoRefreshSeconds": 60,
+            "lastRefreshAt": None,
+            "lastRefreshOk": None,
+        }
+        successful_refresh = {
+            "mode": "auto",
+            "autoRefreshSeconds": 60,
+            "lastRefreshAt": "2026-05-18T10:09:00Z",
+            "lastRefreshOk": True,
+        }
+
+        pending_gates = live.project_gate_summary(
+            flywheel_stages=flywheel_stages,
+            tencent=tencent,
+            injection=injection,
+            zero_iteration=zero_iteration,
+            refresh=pending_refresh,
+        )
+        successful_gates = live.project_gate_summary(
+            flywheel_stages=flywheel_stages,
+            tencent=tencent,
+            injection=injection,
+            zero_iteration=zero_iteration,
+            refresh=successful_refresh,
+        )
+
+        pending_gate = {gate["issue"]: gate for gate in pending_gates}["#1233"]
+        successful_gate = {gate["issue"]: gate for gate in successful_gates}["#1233"]
+        self.assertEqual(pending_gate["status"], "BLOCKED")
+        self.assertEqual(successful_gate["status"], "OK")
+        self.assertIn("lastRefreshOk=True", successful_gate["evidence"])
+
     def test_health_and_summary_endpoints_are_startable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -339,9 +521,139 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 thread.join(timeout=5)
 
         self.assertTrue(health["ok"])
+        self.assertEqual(health["message"], "OK")
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+
+    def test_healthz_fails_when_auto_refresh_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                server.record_refresh(
+                    {"ok": False, "error": "ingestor soft failure"},
+                    refreshed_at="2026-05-18T10:09:00Z",
+                )
+                host, port = server.server_address
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+                summary = read_json_url(f"http://{host}:{port}/api/summary")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertEqual(status, 503)
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["message"], "DEGRADED")
+        self.assertIn("auto-refresh has not completed successfully", health["failures"])
+        self.assertFalse(health["refresh"]["lastRefreshOk"])
+        self.assertFalse(summary["health"]["ok"])
+        self.assertEqual(summary["health"]["status"], "degraded")
+        self.assertIn("auto-refresh has not completed successfully", summary["health"]["failures"])
+        self.assertFalse(summary["refresh"]["lastRefreshOk"])
+
+    def test_summary_and_healthz_read_sqlite_under_refresh_lock(self) -> None:
+        original_sqlite_summary = live.sqlite_summary
+        observed_locked_reads: list[bool] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+
+            def locked_sqlite_summary(db_path_arg: Path, repo_root_arg: Path) -> JsonObject:
+                observed_locked_reads.append(server.refresh_lock.locked())
+                return original_sqlite_summary(db_path_arg, repo_root_arg)
+
+            live.sqlite_summary = locked_sqlite_summary
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+                summary = read_json_url(f"http://{host}:{port}/api/summary")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.sqlite_summary = original_sqlite_summary
+
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+        self.assertTrue(summary["health"]["ok"])
+        self.assertGreaterEqual(len(observed_locked_reads), 2)
+        self.assertTrue(all(observed_locked_reads))
+
+    def test_auto_refresh_state_is_exposed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            try:
+                pending_summary = live.build_live_summary(
+                    repo_root,
+                    artifact_root,
+                    db_path,
+                    generated_at="2026-05-18T10:08:30Z",
+                    refresh=server.refresh_snapshot(),
+                )
+                server.record_refresh({"ok": True, "files_scanned": 1}, refreshed_at="2026-05-18T10:09:00Z")
+                summary = live.build_live_summary(
+                    repo_root,
+                    artifact_root,
+                    db_path,
+                    generated_at="2026-05-18T10:09:30Z",
+                    refresh=server.refresh_snapshot(),
+                )
+                html = live.render_live_html(summary, config)
+            finally:
+                server.server_close()
+
+        self.assertEqual(summary["refresh"]["mode"], "auto")
+        self.assertEqual(summary["refresh"]["autoRefreshSeconds"], 60)
+        self.assertTrue(summary["refresh"]["lastRefreshOk"])
+        pending_gates = {gate["issue"]: gate for gate in pending_summary["projectGates"]}
+        refreshed_gates = {gate["issue"]: gate for gate in summary["projectGates"]}
+        self.assertEqual(pending_gates["#1233"]["status"], "BLOCKED")
+        self.assertEqual(refreshed_gates["#1233"]["status"], "OK")
+        self.assertIn("lastRefreshOk=True", refreshed_gates["#1233"]["evidence"])
+        self.assertIn("Last refresh", html)
+        self.assertIn("Auto refresh seconds", html)
 
     def test_refresh_endpoint_is_disabled_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -408,6 +720,47 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "refresh failed")
         self.assertEqual(payload["refresh"]["error"], "ingestor soft failure")
+        self.assertFalse(payload["summary"]["refresh"]["lastRefreshOk"])
+        self.assertEqual(payload["summary"]["refresh"]["lastRefresh"]["error"], "ingestor soft failure")
+
+    def test_refresh_endpoint_records_successful_refresh_state(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+
+        def successful_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+            return {"ok": True, "files_scanned": 7}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                enable_refresh_endpoint=True,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.refresh_metrics = successful_refresh_metrics
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                wait_for_json_url(f"http://{host}:{port}/api/summary")
+                status, payload = post_json_url(f"http://{host}:{port}/refresh")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["summary"]["refresh"]["lastRefreshOk"])
+        self.assertEqual(payload["summary"]["refresh"]["lastRefresh"]["files_scanned"], 7)
 
     def test_refresh_on_start_returns_failure_when_refresh_reports_not_ok(self) -> None:
         original_refresh_metrics = live.refresh_metrics
