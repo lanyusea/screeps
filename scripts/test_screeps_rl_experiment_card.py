@@ -945,6 +945,65 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(selected_exit_code, 0)
         self.assertEqual(selected_card["card_path"], str(output_path))
 
+    def test_loop_a_local_fallback_accepts_e1_gate_by_dataset_run_id_outside_gate_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "gate-20260519T074023Z"
+            dataset_run_id = "rl-e1-current-canonical"
+            gate_path = runtime_root / "rl-control-loop" / dataset_run_id / "gate_report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_payload = {
+                "type": card_helper.SOURCE_GATE_TYPE,
+                "ok": True,
+                "gateId": gate_id,
+                "createdAt": "2026-05-19T07:40:23Z",
+                "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                "datasetGate": {"status": "pass", "sampleCount": 200},
+                "quality_checks": {
+                    "status": "pass",
+                    "samples_accepted": 200,
+                    "samples_rejected": 0,
+                    "acceptance_rate": 1.0,
+                },
+                "shadowEvaluation": {"status": "pass", "ok": True},
+            }
+            gate_path.write_text(json.dumps(gate_payload), encoding="utf-8")
+
+            selected = card_helper.select_accepted_dataset_gate(runtime_root)
+
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], dataset_run_id)
+        self.assertTrue(selected["gate_report_path"].endswith(f"rl-control-loop/{dataset_run_id}/gate_report.json"))
+
+    def test_e1_current_gate_accepts_float_near_one_but_rejects_partial_rate(self) -> None:
+        gate_id = "gate-20260519T074023Z"
+        dataset_run_id = "rl-e1-current-rate"
+        near_full_payload = {
+            "type": card_helper.SOURCE_GATE_TYPE,
+            "ok": True,
+            "gateId": gate_id,
+            "createdAt": "2026-05-19T07:40:23Z",
+            "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+            "datasetGate": {"status": "pass", "sampleCount": 200},
+            "quality_checks": {
+                "status": "pass",
+                "acceptance_rate": 0.9999999999999999,
+            },
+            "shadowEvaluation": {"status": "pass", "ok": True},
+        }
+        partial_payload = {
+            **near_full_payload,
+            "dataset": {"ok": True, "runId": "rl-e1-current-partial", "sampleCount": 200},
+            "quality_checks": {
+                "status": "pass",
+                "acceptance_rate": 0.995,
+            },
+        }
+
+        self.assertTrue(card_helper.is_acceptable_dataset_gate_report(near_full_payload))
+        self.assertFalse(card_helper.is_acceptable_dataset_gate_report(partial_payload))
+
     def test_loop_a_local_fallback_without_full_e1_gate_stays_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

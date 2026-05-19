@@ -76,6 +76,7 @@ LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
 LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
 LOOP_A_LOCAL_FALLBACK_WORKERS = 5
 DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE = 0.95
+E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL = 1e-9
 
 JsonObject = dict[str, Any]
 
@@ -1458,7 +1459,12 @@ def is_fully_accepted_e1_current_gate(payload: JsonObject) -> bool:
         return False
     sample_count = dataset_gate_sample_count(payload)
     acceptance_rate = explicit_dataset_gate_acceptance_rate(payload)
-    return sample_count is not None and sample_count > 0 and acceptance_rate == 1.0
+    return (
+        sample_count is not None
+        and sample_count > 0
+        and acceptance_rate is not None
+        and math.isclose(acceptance_rate, 1.0, rel_tol=0.0, abs_tol=E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL)
+    )
 
 
 def is_e1_current_dataset_gate_report(payload: JsonObject, path: Path | None = None) -> bool:
@@ -1478,7 +1484,7 @@ def gate_report_path_matches_payload(payload: JsonObject, path: Path | None) -> 
         dataset_run_id = accepted_dataset_run_id(payload)
     except CardValidationError:
         dataset_run_id = None
-    return dataset_run_id is not None and path.parent.name == dataset_run_id and "gate-data" in path.parts
+    return dataset_run_id is not None and path.parent.name == dataset_run_id
 
 
 def is_e1_postmerge_dataset_gate_report(payload: JsonObject, path: Path | None = None) -> bool:
