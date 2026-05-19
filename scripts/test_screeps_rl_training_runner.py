@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import copy
 import json
 import os
 import sys
@@ -496,6 +497,66 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertTrue(proof["ok"])
         self.assertEqual(proof["passingVariants"], [variant_ids[0]])
         self.assertNotIn("blocker", proof)
+
+    def test_multi_tier_activation_proof_passes_with_offline_policy_activation_projection(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-projected-activation",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:26:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = runner.simulator_harness._private_map_fixture_room_summaries(fixture_path)
+        variants_by_id = {variant["id"]: variant for variant in card["strategy_variants"]}
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id, strategy_variant in variants_by_id.items():
+            tick_log = [{"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}}]
+            tick_log.append(copy.deepcopy(tick_log[0]))
+            tick_log[-1]["tick"] = 2
+            for tick_entry in tick_log:
+                runner.simulator_harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+            activation = runner.simulator_harness.build_multi_tier_policy_activation_evidence(
+                tick_log,
+                strategy_variant,
+                fixture_summaries,
+                anchor_room="E1S1",
+                allow_offline_projection=True,
+            )
+            result = variant_result(variant_id, tick_log)
+            result["metrics"] = runner.simulator_harness.project_multi_tier_policy_activation_metrics(
+                runner.simulator_harness.build_variant_metrics(tick_log),
+                activation,
+            )
+            result["policyActivation"] = activation
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-projected-activation",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        self.assertTrue(proof["ok"])
+        self.assertIn("construction-priority.pg.territory-seed.v1", proof["passingVariants"])
+        territory_result = next(
+            result
+            for result in report["variantResults"]
+            if result["variantId"] == "construction-priority.pg.territory-seed.v1"
+        )
+        self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
+        self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
 
     def test_steam_key_env_var_wins_over_env_file(self) -> None:
         env_secret = "env-secret-token-123456"
