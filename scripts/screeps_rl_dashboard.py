@@ -108,6 +108,7 @@ PREFLIGHT_FINAL_STATUS_KEYS = {
     "preflightpassed",
     "preflightvalidated",
 }
+CONTROLLER_COMPUTE_FINAL_STATUS_KEYS = {"running", "completed", "success", "ok"}
 TRAINING_COMPUTE_CLAIM_STATUS_KEYS = {
     "run",
     "running",
@@ -486,9 +487,10 @@ def collect_strong_compute_evidence(payload: JsonObject) -> list[JsonObject]:
             continue
         instance_id = text_value(first_present(node, ("instanceId", "instance_id")))
         worker_user = text_value(first_present(node, ("workerUser", "worker_user")))
-        if instance_id is not None:
+        has_compute_status = final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS
+        if instance_id is not None and has_compute_status:
             add("controllerSummary.instanceId", "present")
-        elif worker_user is not None and final_status in {"running", "completed", "success", "ok"}:
+        elif worker_user is not None and has_compute_status:
             add("controllerSummary.workerUser", "present")
 
     return signals

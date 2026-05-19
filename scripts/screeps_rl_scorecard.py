@@ -357,10 +357,14 @@ def real_compute_evidence_present(payload: JsonObject) -> bool:
         final_status = controller_summary_final_status_key(node)
         if final_status in PREFLIGHT_FINAL_STATUS_KEYS:
             continue
-        if text_value(node.get("instanceId")) is not None or text_value(node.get("instance_id")) is not None:
+        has_compute_status = final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS
+        if (
+            has_compute_status
+            and (text_value(node.get("instanceId")) is not None or text_value(node.get("instance_id")) is not None)
+        ):
             return True
         worker_user = text_value(node.get("workerUser")) or text_value(node.get("worker_user"))
-        if worker_user is not None and final_status in CONTROLLER_COMPUTE_FINAL_STATUS_KEYS:
+        if worker_user is not None and has_compute_status:
             return True
     return False
 

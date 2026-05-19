@@ -1482,6 +1482,53 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E3"]["status"], "OK")
         self.assertEqual(lanes["E5"]["status"], "OK")
 
+    def test_failed_controller_instance_id_does_not_unblock_policy_claims(self) -> None:
+        for final_status in ("failed", "signal_15"):
+            with self.subTest(final_status=final_status):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    artifact_root = root / "runtime-artifacts"
+                    write_json(
+                        artifact_root / "rl-control-loop" / "policy-advantage.json",
+                        {
+                            "type": "screeps-rl-policy-online-advantage-report",
+                            "onlineUtilityStatus": "PROVEN",
+                            "candidatePolicyId": "candidate",
+                            "baselinePolicyId": "incumbent",
+                            "trainingReportIds": "0",
+                            "environmentExecution": {"completed": 0, "failed": 1},
+                            "metricsByCategory": {
+                                "resources": {
+                                    "status": "ADVANTAGE",
+                                    "candidateValue": 10,
+                                    "baselineValue": 5,
+                                    "delta": 5,
+                                },
+                            },
+                            "controllerSummary": {
+                                "finalStatus": final_status,
+                                "instanceId": "ins-failed",
+                                "environmentsRun": 0,
+                            },
+                            "createdAt": "2026-05-19T00:02:00Z",
+                        },
+                    )
+                    report = dashboard.build_dashboard(
+                        repo_root=root,
+                        artifact_root=artifact_root,
+                        generated_at="2026-05-19T00:03:00Z",
+                    )
+
+                lanes = {item["lane"]: item for item in report["lanes"]}
+                self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
+                self.assertEqual(report["policy"]["status"], "BLOCKED")
+                self.assertFalse(report["policy"]["hasComputeEvidence"])
+                self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
+                self.assertEqual(report["policy"]["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
+                self.assertEqual(report["policy"]["computeEvidence"]["signals"], [])
+                self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+                self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
     def test_policy_training_identity_match_can_use_training_compute_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
