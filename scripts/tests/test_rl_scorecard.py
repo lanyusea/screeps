@@ -254,6 +254,37 @@ def test_scorecard_ignores_preflight_only_policy_advantage_as_compute(tmp_path: 
         assert "productive_energy" in resources["missingEvidence"]
 
 
+def test_scorecard_ignores_policy_advantage_without_compute_evidence(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    for root, resources in ((baseline, 1), (candidate, 10)):
+        write_json(
+            root / "policy-advantage.json",
+            {
+                "type": "screeps-rl-policy-advantage-report",
+                "reportId": f"no-compute-{root.name}",
+                "advantageResources": resources,
+            },
+        )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-19T00:00:00Z",
+        run_id="scorecard-no-compute-policy-advantage",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert resources["status"] == "inconclusive"
+    assert self_metric["candidate"] is None
+    assert self_metric["baseline"] is None
+    assert "productive_energy" in resources["missingEvidence"]
+
+
 def test_cli_writes_scorecard_json(tmp_path: Path) -> None:
     baseline = write_bundle(tmp_path / "baseline", candidate=False)
     candidate = write_bundle(tmp_path / "candidate", candidate=True)

@@ -720,8 +720,10 @@ def ingest_json_artifact(accumulator: MetricAccumulator, payload: JsonObject, pa
     kind = artifact_kind(path, payload)
     if kind in {"evaluation_gate", "shadow_eval", "conclusion_registry"}:
         ingest_gate_or_shadow(accumulator, payload, source)
-    if kind in {"training_ledger", "policy_advantage"}:
+    if kind == "training_ledger":
         ingest_training_or_advantage(accumulator, payload, source)
+    if kind == "policy_advantage":
+        ingest_training_or_advantage(accumulator, payload, source, require_compute=True)
     if kind == "postdeploy_summary":
         ingest_postdeploy(accumulator, payload, source)
     if payload.get("type") == "runtime-kpi-report":
@@ -768,8 +770,14 @@ def normalized_status(payload: JsonObject) -> str | None:
     return None
 
 
-def ingest_training_or_advantage(accumulator: MetricAccumulator, payload: JsonObject, source: str) -> None:
-    if preflight_only_compute_payload(payload):
+def ingest_training_or_advantage(
+    accumulator: MetricAccumulator,
+    payload: JsonObject,
+    source: str,
+    *,
+    require_compute: bool = False,
+) -> None:
+    if preflight_only_compute_payload(payload) or (require_compute and not real_compute_evidence_present(payload)):
         return
 
     for result in as_list(payload.get("variantResults")):

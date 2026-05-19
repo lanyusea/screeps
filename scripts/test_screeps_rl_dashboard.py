@@ -1077,6 +1077,10 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                     "status": "RUN",
                     "trainingDidRun": True,
                     "trainingReportIds": 0,
+                    "iterationExecution": {
+                        "episodesRun": 1,
+                        "policyUpdateIterations": 1,
+                    },
                     "environmentExecution": {"completed": 0, "failed": 0},
                     "controllerSummary": {
                         "finalStatus": "preflight_ok",
@@ -1120,6 +1124,17 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(report["training"]["status"], "PREFLIGHT_ONLY")
         self.assertFalse(report["training"]["hasComputeEvidence"])
         self.assertEqual(report["training"]["computeEvidence"]["classification"], "PREFLIGHT_ONLY_VALIDATION")
+        for blocker in (
+            report["training"]["blocker"],
+            report["training"]["computeEvidence"]["blocker"],
+            report["policy"]["blocker"],
+            report["policy"]["computeEvidence"]["blocker"],
+            lanes["E3"]["blocker"],
+            lanes["E4"]["blocker"],
+            lanes["E5"]["blocker"],
+        ):
+            self.assertIsInstance(blocker, str)
+            self.assertIn("Preflight-only", blocker)
         self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
         self.assertEqual(report["policy"]["status"], "BLOCKED")
         self.assertEqual(report["policy"]["metrics"][0]["rawStatus"], "ADVANTAGE")

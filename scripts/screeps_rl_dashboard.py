@@ -1938,7 +1938,7 @@ def lane_statuses(
     policy_updates = number_value(training.get("policyUpdates"))
     if not training.get("hasData"):
         lanes.append(lane("E4", "training", "BLOCKED", None, "No training ledger found."))
-    elif training.get("hasComputeEvidence") is True or (episodes or 0) > 0 or (policy_updates or 0) > 0:
+    elif training.get("hasComputeEvidence") is True:
         lanes.append(lane("E4", "training", "OK", training.get("latestPath"), "None"))
     elif training_status in {"NOT_RUN", "BLOCKED", "PREFLIGHT_ONLY"}:
         lanes.append(lane("E4", "training", "BLOCKED", training.get("latestPath"), training.get("blocker") or "Training not running."))
