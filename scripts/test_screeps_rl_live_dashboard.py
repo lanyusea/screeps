@@ -77,6 +77,12 @@ def write_live_artifacts(root: Path) -> None:
                 "simulatorTicksRun": 1400,
             },
             "environmentExecution": {"completed": 2, "failed": 0, "lastNewRunAt": "2026-05-18T10:05:00Z"},
+            "policyGradient": {
+                "runner_support": {
+                    "runtime_parameter_injection": False,
+                    "candidate_parameter_scope": "metadata_only",
+                }
+            },
             "createdAt": "2026-05-18T10:05:00Z",
         },
     )
@@ -116,13 +122,32 @@ def write_live_artifacts(root: Path) -> None:
             "instanceId": "ins-live",
             "workerUser": "screeps-batch",
             "inputs": {"ticks": 500, "workers": 5, "repetitions": 5},
+            "batchScale": {
+                "environmentRows": 25,
+                "simulatorTicks": 12500,
+                "wallClockSeconds": 420,
+                "asgActiveSeconds": 600,
+                "costEstimate": {"currency": "USD", "amount": 1.23},
+            },
             "safety": {
                 "liveEffect": False,
                 "officialMmoWrites": False,
                 "officialMmoWritesAllowed": False,
+                "conservative_actions_only": True,
+                "ood_rejection": True,
                 "billingGuardBeforeScale": True,
                 "scaleDownAttempted": True,
             },
+        },
+    )
+    write_json(
+        root / "rl-control-loop" / "decision.json",
+        {
+            "type": "screeps-rl-iteration-decision",
+            "decisionId": "decision-live",
+            "decision": "hold",
+            "feedbackIngestion": {"findingId": "finding-live"},
+            "createdAt": "2026-05-18T10:08:30Z",
         },
     )
     (root / "rl-training").mkdir(parents=True, exist_ok=True)
@@ -212,14 +237,26 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["batchClass"], "smoke")
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["environmentRows"], 25)
         self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["simulatorTicks"], 12500)
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["asgActiveSeconds"], 600.0)
+        self.assertEqual(summary["tencentBatch"]["latest"]["batchScale"]["utilizationRatio"], 0.7)
         self.assertFalse(summary["tencentBatch"]["latest"]["batchScale"]["scaleFirstEligible"])
         self.assertEqual(summary["safety"]["status"], "OK")
+        self.assertTrue(summary["safety"]["conservativeActionsOnly"])
+        self.assertTrue(summary["safety"]["oodRejection"])
+        self.assertEqual(summary["runtimeCandidateInjection"]["status"], "BLOCKED")
+        self.assertEqual(summary["zeroIterationPolicyUpdate"]["status"], "N/A")
+        self.assertEqual(summary["flywheelStages"][0]["stage"], "construction-landed")
+        self.assertIn("#879", {row["issue"] for row in summary["projectGates"]})
         self.assertIn("E1 Gate Acceptance", html)
         self.assertIn("Loop A Env Ticks Episodes", html)
         self.assertIn("Loop B Utility Scorecard", html)
         self.assertIn("Tencent Batch Utilization", html)
         self.assertIn("Latest batch class", html)
         self.assertIn("Safety Flags", html)
+        self.assertIn("#879 Flywheel Stage Proof", html)
+        self.assertIn("Project Gate Status", html)
+        self.assertIn("SQLite Table Counts", html)
+        self.assertIn("#924 Scorecard Status", html)
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -245,7 +282,10 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             if flag.get("source") == "tencent" and flag.get("value") == "missing"
         }
         self.assertEqual(summary["safety"]["status"], "BLOCKED")
-        self.assertEqual(missing_fields, set(live.REQUIRED_TENCENT_SAFETY_FIELDS))
+        self.assertEqual(
+            missing_fields,
+            set(live.REQUIRED_TENCENT_SAFETY_FIELDS) | set(live.REQUIRED_TENCENT_SHADOW_SAFETY_FIELDS),
+        )
 
     def test_missing_tencent_safety_field_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -339,9 +379,46 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 thread.join(timeout=5)
 
         self.assertTrue(health["ok"])
+        self.assertEqual(health["message"], "OK")
         self.assertEqual(summary["type"], "screeps-rl-live-dashboard")
         self.assertEqual(summary["dashboardUrl"], f"http://{host}:{port}/")
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+
+    def test_auto_refresh_state_is_exposed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            try:
+                server.record_refresh({"ok": True, "files_scanned": 1}, refreshed_at="2026-05-18T10:09:00Z")
+                summary = live.build_live_summary(
+                    repo_root,
+                    artifact_root,
+                    db_path,
+                    generated_at="2026-05-18T10:09:30Z",
+                    refresh=server.refresh_snapshot(),
+                )
+                html = live.render_live_html(summary, config)
+            finally:
+                server.server_close()
+
+        self.assertEqual(summary["refresh"]["mode"], "auto")
+        self.assertEqual(summary["refresh"]["autoRefreshSeconds"], 60)
+        self.assertTrue(summary["refresh"]["lastRefreshOk"])
+        self.assertIn("Last refresh", html)
+        self.assertIn("Auto refresh seconds", html)
 
     def test_refresh_endpoint_is_disabled_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

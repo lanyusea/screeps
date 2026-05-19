@@ -1,6 +1,6 @@
 # RL Live Dashboard Runbook
 
-Status: issue #1184 live observability surface for the #879 RL evidence loop.
+Status: issue #1237 live observability surface for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation without reopening it.
 
 This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the checked-in live surface is a dependency-light local service so it does not require a Grafana SQLite plugin, external network access, or secrets.
 
@@ -18,10 +18,10 @@ Refresh the SQLite store with the existing ingestor:
 npm run rl-metrics-refresh
 ```
 
-Start the live dashboard and refresh once before serving:
+Start the live dashboard. The npm command refreshes once before serving and then refreshes SQLite every 300 seconds while the process is running:
 
 ```bash
-npm run rl-dashboard-live -- --refresh-on-start
+npm run rl-dashboard-live
 ```
 
 Default dashboard URL:
@@ -48,6 +48,16 @@ Equivalent direct check:
 python3 scripts/screeps_rl_live_dashboard.py healthcheck --url http://127.0.0.1:8790/healthz
 ```
 
+Expected healthy output includes JSON with `"ok": true` and `"message": "OK"`. The command checks the running local dashboard, so start `npm run rl-dashboard-live` first.
+
+For a one-shot foreground start with an explicit cadence:
+
+```bash
+python3 scripts/screeps_rl_live_dashboard.py serve \
+  --refresh-on-start \
+  --auto-refresh-seconds 300
+```
+
 Trigger a local refresh through the running service only after starting it with `--enable-refresh-endpoint`:
 
 ```bash
@@ -67,6 +77,21 @@ The live page and `/api/summary` cover:
 | Tencent batch utilization | Latest controller summaries under `runtime-artifacts/tencent-cloud/batch-runs/`. |
 | Safety flags | Tencent run safety flags, required scorecard evidence, scorecard safety regressions, and card-supply status. |
 | SQLite freshness | Required table presence, row counts, and latest observation timestamp from `rl_metrics.sqlite`. |
+| #879 flywheel stages | Explicit construction-landed, training-running, online-proven, and self-iterating states. |
+| Project gates | Local evidence status for #879, #1032, #1229, #1233, and #1234. |
+| #924 scorecard | Latest scorecard status, required actions, missing evidence, safety regressions, candidate, and baseline. |
+
+Owner evidence for #879 can be copied from `/api/summary`:
+
+```text
+dashboardUrl
+db.path
+db.latestObservedAt
+db.tables
+refresh.lastRefreshAt
+```
+
+The same fields are visible on the HTML dashboard under Metrics Store and SQLite Table Counts.
 
 The static HTML dashboard remains available through:
 

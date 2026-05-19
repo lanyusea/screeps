@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,6 +28,7 @@ import screeps_rl_scale_gates as scale_gates
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 DEFAULT_REFRESH_SECONDS = 60
+DEFAULT_AUTO_REFRESH_SECONDS = 300
 DEFAULT_HEALTHCHECK_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/healthz"
 REQUIRED_TABLES = (
     "metric_definitions",
@@ -47,6 +48,14 @@ DEFAULT_ARTIFACT_SUBDIRS = (
     "rl-training",
 )
 REQUIRED_TENCENT_SAFETY_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
+REQUIRED_TENCENT_SHADOW_SAFETY_FIELDS = ("conservative_actions_only", "ood_rejection")
+RUNTIME_INJECTION_TRUE_KEYS = {
+    "runtimeparameterinjection",
+    "inlinecandidatesruntimeinjected",
+    "inlinecandidatesappliedtosimulator",
+}
+RUNTIME_INJECTION_SCOPE_KEYS = {"candidateparameterscope"}
+RUNTIME_INJECTION_METADATA_ONLY_VALUES = {"metadataonly"}
 
 JsonObject = dict[str, Any]
 
@@ -58,11 +67,13 @@ class LiveDashboardConfig:
     db_path: Path
     refresh_seconds: int = DEFAULT_REFRESH_SECONDS
     enable_refresh_endpoint: bool = False
+    auto_refresh_seconds: int = 0
 
 
 class LiveDashboardHTTPServer(ThreadingHTTPServer):
     config: LiveDashboardConfig
     refresh_lock: threading.Lock
+    refresh_state_lock: threading.Lock
 
     def __init__(
         self,
@@ -73,10 +84,72 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         super().__init__(server_address, handler_class)
         self.config = config
         self.refresh_lock = threading.Lock()
+        self.refresh_state_lock = threading.Lock()
+        self.refresh_stop = threading.Event()
+        self.refresh_thread: threading.Thread | None = None
+        self.refresh_state: JsonObject = {
+            "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
+            "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
+            "lastRefreshAt": None,
+            "lastRefreshOk": None,
+            "lastRefresh": None,
+            "nextRefreshAt": utc_iso_after(config.auto_refresh_seconds)
+            if config.auto_refresh_seconds > 0
+            else None,
+        }
+        if config.auto_refresh_seconds > 0:
+            self.start_auto_refresh()
+
+    def record_refresh(self, refresh: JsonObject, refreshed_at: str | None = None) -> None:
+        timestamp = refreshed_at or utc_now_iso()
+        with self.refresh_state_lock:
+            self.refresh_state["lastRefreshAt"] = timestamp
+            self.refresh_state["lastRefreshOk"] = refresh_succeeded(refresh)
+            self.refresh_state["lastRefresh"] = dashboard_json_safe(refresh, self.config.repo_root)
+            self.refresh_state["nextRefreshAt"] = (
+                utc_iso_after(self.config.auto_refresh_seconds)
+                if self.config.auto_refresh_seconds > 0
+                else None
+            )
+
+    def refresh_snapshot(self) -> JsonObject:
+        with self.refresh_state_lock:
+            return dict(self.refresh_state)
+
+    def start_auto_refresh(self) -> None:
+        if self.refresh_thread is not None:
+            return
+
+        def refresh_loop() -> None:
+            while not self.refresh_stop.wait(self.config.auto_refresh_seconds):
+                with self.refresh_lock:
+                    try:
+                        refresh = refresh_metrics(self.config.db_path, self.config.artifact_root)
+                    except Exception as error:  # pragma: no cover - defensive background loop boundary
+                        refresh = {"ok": False, "error": str(error)}
+                self.record_refresh(refresh)
+
+        self.refresh_thread = threading.Thread(target=refresh_loop, daemon=True, name="rl-dashboard-refresh")
+        self.refresh_thread.start()
+
+    def server_close(self) -> None:
+        self.refresh_stop.set()
+        if self.refresh_thread is not None:
+            self.refresh_thread.join(timeout=2)
+            self.refresh_thread = None
+        super().server_close()
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_iso_from_datetime(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_iso_after(seconds: int) -> str:
+    return utc_iso_from_datetime(datetime.now(timezone.utc) + timedelta(seconds=seconds))
 
 
 def parse_iso_datetime(value: Any) -> datetime | None:
@@ -97,10 +170,33 @@ def parse_iso_datetime(value: Any) -> datetime | None:
 def display_timestamp(value: Any) -> str:
     parsed = parse_iso_datetime(value)
     if parsed is not None:
-        return parsed.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return utc_iso_from_datetime(parsed)
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return utc_iso_from_datetime(value)
     return str(value) if value not in (None, "") else "N/A"
+
+
+def seconds_since(value: Any, *, now: Any | None = None) -> int | None:
+    parsed = parse_iso_datetime(value)
+    current = parse_iso_datetime(now) if now is not None else datetime.now(timezone.utc)
+    if parsed is None or current is None:
+        return None
+    return max(0, int((current - parsed).total_seconds()))
+
+
+def age_label(value: Any, *, now: Any | None = None) -> str:
+    age_seconds = seconds_since(value, now=now)
+    if age_seconds is None:
+        return "N/A"
+    if age_seconds < 120:
+        return f"{age_seconds}s"
+    minutes = age_seconds // 60
+    if minutes < 120:
+        return f"{minutes}m"
+    hours = minutes // 60
+    if hours < 72:
+        return f"{hours}h"
+    return f"{hours // 24}d"
 
 
 def repo_root_from_script() -> Path:
@@ -141,6 +237,69 @@ def load_json_object(path: Path) -> JsonObject | None:
     except (OSError, json.JSONDecodeError):
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def as_dict(value: Any) -> JsonObject:
+    return value if isinstance(value, dict) else {}
+
+
+def as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def text_value(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def normalized_key(value: Any) -> str:
+    return "".join(character.lower() for character in str(value) if character.isalnum())
+
+
+def iter_json_objects(value: Any) -> list[JsonObject]:
+    objects: list[JsonObject] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            objects.append(node)
+            for nested in node.values():
+                if isinstance(nested, (dict, list)):
+                    visit(nested)
+        elif isinstance(node, list):
+            for nested in node:
+                if isinstance(nested, (dict, list)):
+                    visit(nested)
+
+    visit(value)
+    return objects
+
+
+def compact_value(value: Any, *, limit: int = 160) -> str:
+    if value in (None, "", [], {}):
+        return "N/A"
+    if isinstance(value, str):
+        text = value
+    else:
+        text = json.dumps(value, sort_keys=True, ensure_ascii=True)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def compact_sequence(value: Any, *, limit: int = 3) -> str:
+    if isinstance(value, dict):
+        items = [f"{key}:{item}" for key, item in value.items()]
+    elif isinstance(value, list):
+        items = [compact_value(item, limit=80) for item in value]
+    else:
+        text = compact_value(value)
+        return text
+    if not items:
+        return "N/A"
+    suffix = "" if len(items) <= limit else f" (+{len(items) - limit} more)"
+    return "; ".join(items[:limit]) + suffix
 
 
 def artifact_timestamp(path: Path, payload: JsonObject) -> datetime:
@@ -262,6 +421,17 @@ def refresh_succeeded(refresh: JsonObject) -> bool:
     return refresh.get("ok") is True
 
 
+def collect_values_by_key(value: Any, key_names: set[str], *, limit: int = 12) -> list[Any]:
+    found: list[Any] = []
+    for node in iter_json_objects(value):
+        for key, raw in node.items():
+            if normalized_key(key) in key_names and raw not in (None, "", [], {}):
+                found.append(raw)
+                if len(found) >= limit:
+                    return found
+    return found
+
+
 def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
     latest = latest_json_artifact(
         artifact_root / "rl-control-loop" / "scorecards",
@@ -276,9 +446,14 @@ def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject
             "updatedAt": None,
             "safetyRegressions": [],
             "requiredActions": [],
+            "missingEvidence": ["scorecard artifact missing"],
         }
     path, payload, timestamp = latest
     overall_gate = payload.get("overallGate") if isinstance(payload.get("overallGate"), dict) else {}
+    missing_evidence = collect_values_by_key(
+        payload,
+        {"missingevidence", "missingevidences", "missingrequiredevidence"},
+    )
     return {
         "hasData": True,
         "status": overall_gate.get("status") or overall_gate.get("decision") or payload.get("status") or "UNKNOWN",
@@ -289,6 +464,7 @@ def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject
         "updatedAt": display_timestamp(timestamp),
         "safetyRegressions": overall_gate.get("safetyRegressions") or payload.get("safetyRegressions") or [],
         "requiredActions": payload.get("requiredActions") or [],
+        "missingEvidence": missing_evidence,
     }
 
 
@@ -399,6 +575,13 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
             value = tencent_safety[field]
             if value is not False:
                 unsafe_flags.append({"source": "tencent", "field": field, "value": value})
+        for field in REQUIRED_TENCENT_SHADOW_SAFETY_FIELDS:
+            if field not in tencent_safety:
+                unsafe_flags.append({"source": "tencent", "field": field, "value": "missing"})
+                continue
+            value = tencent_safety[field]
+            if value is not True:
+                unsafe_flags.append({"source": "tencent", "field": field, "value": value})
     if not scorecard.get("hasData"):
         unsafe_flags.append({"source": "scorecard", "field": "summary", "value": "missing"})
     else:
@@ -411,7 +594,241 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
         "cardSupplyStatus": card_supply.get("status"),
         "cardSupplySeverity": card_supply.get("severity"),
         "fallbackStatus": card_supply.get("fallbackStatus"),
+        "conservativeActionsOnly": tencent_safety.get("conservative_actions_only"),
+        "oodRejection": tencent_safety.get("ood_rejection"),
     }
+
+
+def scan_artifact_json(artifact_root: Path) -> list[tuple[Path, JsonObject, datetime]]:
+    artifacts: list[tuple[Path, JsonObject, datetime]] = []
+    roots = (
+        artifact_root / "rl-control-loop",
+        artifact_root / "rl-training",
+        artifact_root / "tencent-cloud" / "batch-runs",
+    )
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.json"):
+            if not path.is_file():
+                continue
+            payload = load_json_object(path)
+            if payload is None:
+                continue
+            artifacts.append((path, payload, artifact_timestamp(path, payload)))
+    return sorted(artifacts, key=lambda item: item[2], reverse=True)
+
+
+def runtime_candidate_injection_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+    explicit_false: list[JsonObject] = []
+    metadata_only: list[JsonObject] = []
+    for path, payload, timestamp in scan_artifact_json(artifact_root):
+        for node in iter_json_objects(payload):
+            for key, value in node.items():
+                normalized = normalized_key(key)
+                if normalized in RUNTIME_INJECTION_TRUE_KEYS and value is True:
+                    return {
+                        "status": "OK",
+                        "evidence": f"{key}=true",
+                        "latestPath": safe_display_path(path, repo_root),
+                        "updatedAt": display_timestamp(timestamp),
+                    }
+                if normalized in RUNTIME_INJECTION_TRUE_KEYS and value is False:
+                    explicit_false.append(
+                        {
+                            "field": key,
+                            "value": value,
+                            "path": safe_display_path(path, repo_root),
+                            "updatedAt": display_timestamp(timestamp),
+                        }
+                    )
+                if normalized in RUNTIME_INJECTION_SCOPE_KEYS:
+                    scope = text_value(value)
+                    if scope is not None and normalized_key(scope) in RUNTIME_INJECTION_METADATA_ONLY_VALUES:
+                        metadata_only.append(
+                            {
+                                "field": key,
+                                "value": value,
+                                "path": safe_display_path(path, repo_root),
+                                "updatedAt": display_timestamp(timestamp),
+                            }
+                        )
+    if explicit_false or metadata_only:
+        evidence = explicit_false[0] if explicit_false else metadata_only[0]
+        return {
+            "status": "BLOCKED",
+            "evidence": f"{evidence['field']}={evidence['value']}",
+            "latestPath": evidence["path"],
+            "updatedAt": evidence["updatedAt"],
+        }
+    return {
+        "status": "N/A",
+        "evidence": "no runtime candidate injection evidence found",
+        "latestPath": None,
+        "updatedAt": None,
+    }
+
+
+def zero_iteration_policy_update_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+    for path, payload, timestamp in scan_artifact_json(artifact_root):
+        for node in iter_json_objects(payload):
+            iterations = node.get("policyUpdateIterations")
+            policy_update = node.get("policyUpdate")
+            if iterations is None and not isinstance(policy_update, dict):
+                continue
+            if iterations == 0:
+                if not isinstance(policy_update, dict):
+                    return {
+                        "status": "OK",
+                        "evidence": "zero policy updates with no update artifact",
+                        "latestPath": safe_display_path(path, repo_root),
+                        "updatedAt": display_timestamp(timestamp),
+                    }
+                skipped = text_value(policy_update.get("skippedReason"))
+                if skipped and not node.get("policyUpdateArtifactPath"):
+                    return {
+                        "status": "OK",
+                        "evidence": f"safe zero-iteration no-op: {skipped}",
+                        "latestPath": safe_display_path(path, repo_root),
+                        "updatedAt": display_timestamp(timestamp),
+                    }
+                return {
+                    "status": "BLOCKED",
+                    "evidence": "zero-iteration policy update lacks safe skippedReason or has update artifact",
+                    "latestPath": safe_display_path(path, repo_root),
+                    "updatedAt": display_timestamp(timestamp),
+                }
+            if isinstance(iterations, (int, float)) and iterations > 0:
+                return {
+                    "status": "N/A",
+                    "evidence": f"latest policy update had {iterations} iteration(s)",
+                    "latestPath": safe_display_path(path, repo_root),
+                    "updatedAt": display_timestamp(timestamp),
+                }
+    return {
+        "status": "N/A",
+        "evidence": "no policy update evidence found",
+        "latestPath": None,
+        "updatedAt": None,
+    }
+
+
+def policy_status_is_online_proven(status: Any) -> bool:
+    return str(status or "").upper() in {"PROVEN", "VALIDATED", "PROMOTABLE", "ADVANTAGE", "ROLLOUT_APPROVED"}
+
+
+def flywheel_stage_summary(
+    *,
+    db: JsonObject,
+    dashboard: JsonObject,
+    scorecard: JsonObject,
+    safety: JsonObject,
+) -> list[JsonObject]:
+    training = as_dict(dashboard.get("training"))
+    policy = as_dict(dashboard.get("policy"))
+    iteration_count = as_dict(db.get("tables")).get("metric_iteration_decisions")
+    stages = [
+        {
+            "stage": "construction-landed",
+            "status": "OK" if db.get("schemaReady") else "BLOCKED",
+            "evidence": "live dashboard service and SQLite schema are available"
+            if db.get("schemaReady")
+            else "SQLite schema is not ready",
+        },
+        {
+            "stage": "training-running",
+            "status": "OK" if training.get("hasComputeEvidence") else "BLOCKED",
+            "evidence": as_dict(training.get("computeEvidence")).get("classification") or training.get("blocker") or "N/A",
+        },
+        {
+            "stage": "online-proven",
+            "status": "OK" if policy_status_is_online_proven(policy.get("status")) else "BLOCKED",
+            "evidence": f"onlineUtilityStatus={policy.get('status') or 'N/A'}",
+        },
+        {
+            "stage": "self-iterating",
+            "status": "OK"
+            if isinstance(iteration_count, int)
+            and iteration_count > 0
+            and scorecard.get("hasData")
+            and safety.get("status") == "OK"
+            else "BLOCKED",
+            "evidence": (
+                f"iteration decisions={iteration_count}; scorecard={scorecard.get('status')}; safety={safety.get('status')}"
+            ),
+        },
+    ]
+    return stages
+
+
+def latest_batch_scale(tencent: JsonObject) -> JsonObject:
+    latest = as_dict(tencent.get("latest"))
+    return as_dict(latest.get("batchScale"))
+
+
+def project_gate_summary(
+    *,
+    flywheel_stages: Sequence[JsonObject],
+    tencent: JsonObject,
+    injection: JsonObject,
+    zero_iteration: JsonObject,
+    refresh: JsonObject,
+) -> list[JsonObject]:
+    stage_statuses = {stage.get("stage"): stage.get("status") for stage in flywheel_stages}
+    scale = latest_batch_scale(tencent)
+    auto_refresh_ok = refresh.get("mode") == "auto" and refresh.get("autoRefreshSeconds")
+    refresh_cadence = (
+        f"{refresh.get('autoRefreshSeconds')}s"
+        if refresh.get("autoRefreshSeconds")
+        else "off"
+    )
+    all_stages_ok = all(status == "OK" for status in stage_statuses.values())
+    return [
+        {
+            "issue": "#879",
+            "gate": "recurring RL flywheel",
+            "status": "OK" if all_stages_ok else "BLOCKED",
+            "evidence": ", ".join(f"{key}={value}" for key, value in stage_statuses.items()),
+            "nextAction": "clear blocked flywheel stages" if not all_stages_ok else "keep evidence fresh",
+        },
+        {
+            "issue": "#1032",
+            "gate": "scale-first training",
+            "status": "OK" if scale.get("scaleFirstEligible") is True else "BLOCKED",
+            "evidence": (
+                f"batchClass={scale.get('batchClass', 'N/A')}; rows={scale.get('environmentRows', 'N/A')}; "
+                f"ticks={scale.get('simulatorTicks', 'N/A')}"
+            ),
+            "nextAction": "run validation-or-larger batch" if scale.get("scaleFirstEligible") is not True else "score candidate",
+        },
+        {
+            "issue": "#1229",
+            "gate": "runtime candidate injection",
+            "status": injection.get("status"),
+            "evidence": injection.get("evidence"),
+            "nextAction": "prove candidate params affect simulator/runtime behavior"
+            if injection.get("status") != "OK"
+            else "use injected candidate in scorecard",
+        },
+        {
+            "issue": "#1233",
+            "gate": "autonomous compute cadence",
+            "status": "OK" if auto_refresh_ok and tencent.get("hasData") else "BLOCKED",
+            "evidence": f"autoRefresh={refresh_cadence}; tencentRuns={tencent.get('runCount', 0)}",
+            "nextAction": "keep dashboard auto-refresh and compute evidence alive"
+            if auto_refresh_ok and tencent.get("hasData")
+            else "restore recurring refresh/compute evidence",
+        },
+        {
+            "issue": "#1234",
+            "gate": "zero-iteration no-op policy update",
+            "status": zero_iteration.get("status"),
+            "evidence": zero_iteration.get("evidence"),
+            "nextAction": "preserve safe no-op semantics"
+            if zero_iteration.get("status") == "OK"
+            else "verify latest zero-iteration policyUpdate evidence",
+        },
+    ]
 
 
 def build_live_summary(
@@ -421,8 +838,17 @@ def build_live_summary(
     *,
     generated_at: str | None = None,
     dashboard_url: str | None = None,
+    refresh: JsonObject | None = None,
 ) -> JsonObject:
     generated = generated_at or utc_now_iso()
+    refresh_summary: JsonObject = refresh or {
+        "mode": "manual",
+        "autoRefreshSeconds": None,
+        "lastRefreshAt": None,
+        "lastRefreshOk": None,
+        "lastRefresh": None,
+        "nextRefreshAt": None,
+    }
     db = sqlite_summary(db_path, repo_root)
     health = health_from_db_summary(db)
     raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
@@ -430,6 +856,16 @@ def build_live_summary(
     scorecard = latest_scorecard_summary(artifact_root, repo_root)
     tencent = tencent_batch_summary(artifact_root, repo_root)
     safety = safety_summary(dashboard, tencent, scorecard)
+    injection = runtime_candidate_injection_summary(artifact_root, repo_root)
+    zero_iteration = zero_iteration_policy_update_summary(artifact_root, repo_root)
+    flywheel_stages = flywheel_stage_summary(db=db, dashboard=dashboard, scorecard=scorecard, safety=safety)
+    project_gates = project_gate_summary(
+        flywheel_stages=flywheel_stages,
+        tencent=tencent,
+        injection=injection,
+        zero_iteration=zero_iteration,
+        refresh=refresh_summary,
+    )
     loop_a = {
         "environment": dashboard.get("simulator", {}),
         "training": dashboard.get("training", {}),
@@ -447,6 +883,11 @@ def build_live_summary(
         "dashboardUrl": dashboard_url or format_dashboard_url(DEFAULT_HOST, DEFAULT_PORT),
         "health": health,
         "db": db,
+        "refresh": refresh_summary,
+        "flywheelStages": flywheel_stages,
+        "projectGates": project_gates,
+        "runtimeCandidateInjection": injection,
+        "zeroIterationPolicyUpdate": zero_iteration,
         "lanes": dashboard.get("lanes", []),
         "e1Gate": dashboard.get("gate"),
         "loopA": loop_a,
@@ -512,6 +953,11 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
     latest_batch_scale = latest_tencent.get("batchScale") if isinstance(latest_tencent.get("batchScale"), dict) else {}
     safety = summary.get("safety") if isinstance(summary.get("safety"), dict) else {}
     db = summary.get("db") if isinstance(summary.get("db"), dict) else {}
+    refresh = summary.get("refresh") if isinstance(summary.get("refresh"), dict) else {}
+    flywheel_stages = [row for row in summary.get("flywheelStages", []) if isinstance(row, dict)]
+    project_gates = [row for row in summary.get("projectGates", []) if isinstance(row, dict)]
+    policy = loop_b.get("policy") if isinstance(loop_b.get("policy"), dict) else {}
+    policy_metrics = [row for row in policy.get("metrics", []) if isinstance(row, dict)]
 
     lane_rows = [
         (
@@ -528,14 +974,27 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Path", h(db.get("path"))),
         ("Exists", render_status("OK" if db.get("exists") else "missing")),
         ("Schema", render_status("OK" if db.get("schemaReady") else "incomplete")),
+        ("Size bytes", h(format_value(db.get("sizeBytes")))),
         ("Latest observation", h(display_timestamp(db.get("latestObservedAt")))),
+        ("Observation age", h(age_label(db.get("latestObservedAt"), now=summary.get("generatedAt")))),
+        ("Last refresh", h(display_timestamp(refresh.get("lastRefreshAt")))),
+        ("Refresh mode", h(refresh.get("mode") or "manual")),
+        ("Auto refresh seconds", h(format_value(refresh.get("autoRefreshSeconds")))),
+        ("Next refresh", h(display_timestamp(refresh.get("nextRefreshAt")))),
+    ]
+    db_table_rows = [
+        (h(table_name), h("missing" if count is None else count))
+        for table_name, count in as_dict(db.get("tables")).items()
     ]
     e1_rows = [
         ("Status", render_status(e1.get("status"))),
+        ("Latest gate", h(display_timestamp(e1.get("timestamp")))),
+        ("Gate age", h(age_label(e1.get("timestamp"), now=summary.get("generatedAt")))),
         ("Acceptance", h(percent_value(e1.get("acceptanceRate")))),
         ("Sample count", h(format_value(e1.get("sampleCount")))),
         ("Accepted", h(format_value(e1.get("samplesAccepted")))),
         ("Rejected", h(format_value(e1.get("samplesRejected")))),
+        ("Rejection reasons", h(compact_sequence(e1.get("rejectionReasons")))),
         ("Source", h(e1.get("displayPath") or "N/A")),
     ]
     loop_a_rows = [
@@ -545,13 +1004,20 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Training status", render_status(training.get("status"))),
         ("Episodes", h(format_value(training.get("episodes")))),
         ("Policy updates", h(format_value(training.get("policyUpdates")))),
+        ("Compute evidence", h(as_dict(training.get("computeEvidence")).get("classification") or "N/A")),
+        ("Batch class", h(latest_batch_scale.get("batchClass") or "N/A")),
+        ("Anomalies", h(compact_sequence(environment.get("failureModes")))),
+        ("Blocker", h(training.get("blocker") or "N/A")),
     ]
     loop_b_rows = [
         ("Online utility", render_status(loop_b.get("onlineUtilityStatus"))),
-        ("Candidate", h(loop_b.get("policy", {}).get("candidate") if isinstance(loop_b.get("policy"), dict) else "N/A")),
-        ("Baseline", h(loop_b.get("policy", {}).get("baseline") if isinstance(loop_b.get("policy"), dict) else "N/A")),
+        ("Candidate", h(policy.get("candidate") or "N/A")),
+        ("Baseline", h(policy.get("baseline") or "N/A")),
+        ("Advantages", h(compact_sequence([row for row in policy_metrics if str(row.get("status", "")).upper() in {"ADVANTAGE", "IMPROVED"}]))),
+        ("Regressions", h(compact_sequence([row for row in policy_metrics if str(row.get("status", "")).upper() in {"REGRESSED", "REGRESSION"}]))),
         ("Scorecard", render_status(scorecard.get("status"))),
         ("Scorecard run", h(scorecard.get("runId") or "N/A")),
+        ("Safety regressions", h(compact_sequence(scorecard.get("safetyRegressions")))),
     ]
     tencent_rows = [
         ("Runs", h(format_value(tencent.get("runCount")))),
@@ -566,6 +1032,10 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Latest env rows", h(latest_batch_scale.get("environmentRows", "N/A"))),
         ("Latest simulator ticks", h(latest_batch_scale.get("simulatorTicks", "N/A"))),
         ("Scale-first eligible", h(latest_batch_scale.get("scaleFirstEligible", "N/A"))),
+        ("Wall clock seconds", h(format_value(latest_batch_scale.get("wallClockSeconds")))),
+        ("ASG active seconds", h(format_value(latest_batch_scale.get("asgActiveSeconds")))),
+        ("Utilization ratio", h(format_value(latest_batch_scale.get("utilizationRatio")))),
+        ("Cost estimate", h(compact_value(latest_batch_scale.get("costEstimate")))),
         ("Scale down attempted", h(latest_tencent.get("safety", {}).get("scaleDownAttempted") if isinstance(latest_tencent.get("safety"), dict) else "N/A")),
     ]
     safety_rows = [
@@ -576,8 +1046,34 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
             "officialMmoWritesAllowed",
             h(safety.get("tencent", {}).get("officialMmoWritesAllowed") if isinstance(safety.get("tencent"), dict) else "N/A"),
         ),
+        ("conservative_actions_only", h(safety.get("conservativeActionsOnly", "N/A"))),
+        ("ood_rejection", h(safety.get("oodRejection", "N/A"))),
         ("Card supply", h(safety.get("cardSupplyStatus") or "N/A")),
         ("Unsafe flags", h(len(safety.get("unsafeFlags", [])))),
+    ]
+    scorecard_rows = [
+        ("Status", render_status(scorecard.get("status"))),
+        ("Run", h(scorecard.get("runId") or "N/A")),
+        ("Candidate", h(scorecard.get("candidate") or "N/A")),
+        ("Baseline", h(scorecard.get("baseline") or "N/A")),
+        ("Updated", h(display_timestamp(scorecard.get("updatedAt")))),
+        ("Missing evidence", h(compact_sequence(scorecard.get("missingEvidence")))),
+        ("Required actions", h(compact_sequence(scorecard.get("requiredActions")))),
+        ("Source", h(scorecard.get("latestPath") or "N/A")),
+    ]
+    stage_rows = [
+        (h(row.get("stage")), render_status(row.get("status")), h(row.get("evidence") or "N/A"))
+        for row in flywheel_stages
+    ]
+    project_gate_rows = [
+        (
+            h(row.get("issue")),
+            h(row.get("gate")),
+            render_status(row.get("status")),
+            h(row.get("evidence") or "N/A"),
+            h(row.get("nextAction") or "N/A"),
+        )
+        for row in project_gates
     ]
 
     return f"""<!doctype html>
@@ -692,9 +1188,19 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
   </section>
 
   <div class="grid two">
+    <section class="panel"><h2>#879 Flywheel Stage Proof</h2>{table(("Stage", "Status", "Evidence"), stage_rows)}</section>
+    <section class="panel"><h2>Project Gate Status</h2>{table(("Issue", "Gate", "Status", "Evidence", "Next action"), project_gate_rows)}</section>
+  </div>
+
+  <div class="grid two">
     <section class="panel"><h2>Metrics Store</h2>{table(("Item", "Value"), db_rows)}</section>
     <section class="panel"><h2>E1 Gate Acceptance</h2>{table(("Item", "Value"), e1_rows)}</section>
   </div>
+
+  <section class="panel grid">
+    <h2>SQLite Table Counts</h2>
+    {table(("Table", "Rows"), db_table_rows)}
+  </section>
 
   <div class="grid two">
     <section class="panel"><h2>Loop A Env Ticks Episodes</h2>{table(("Item", "Value"), loop_a_rows)}</section>
@@ -705,6 +1211,11 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
     <section class="panel"><h2>Tencent Batch Utilization</h2>{table(("Item", "Value"), tencent_rows)}</section>
     <section class="panel"><h2>Safety Flags</h2>{table(("Item", "Value"), safety_rows)}</section>
   </div>
+
+  <section class="panel grid">
+    <h2>#924 Scorecard Status</h2>
+    {table(("Item", "Value"), scorecard_rows)}
+  </section>
 </main>
 </body>
 </html>
@@ -725,7 +1236,16 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             summary = self.summary()
             status = HTTPStatus.OK if summary["health"]["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
-            self.write_json(status, summary["health"] | {"db": summary["db"], "generatedAt": summary["generatedAt"]})
+            self.write_json(
+                status,
+                summary["health"]
+                | {
+                    "message": "OK" if summary["health"]["ok"] else "DEGRADED",
+                    "db": summary["db"],
+                    "refresh": summary["refresh"],
+                    "generatedAt": summary["generatedAt"],
+                },
+            )
             return
         self.write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
@@ -762,6 +1282,7 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
             config.artifact_root,
             config.db_path,
             dashboard_url=format_dashboard_url(str(host), int(port)),
+            refresh=self.server.refresh_snapshot(),
         )
 
     def write_json(self, status: HTTPStatus, payload: JsonObject) -> None:
@@ -795,6 +1316,7 @@ def build_config(args: argparse.Namespace) -> LiveDashboardConfig:
         db_path=db_path,
         refresh_seconds=args.refresh_seconds,
         enable_refresh_endpoint=bool(getattr(args, "enable_refresh_endpoint", False)),
+        auto_refresh_seconds=max(0, int(getattr(args, "auto_refresh_seconds", 0) or 0)),
     )
 
 
@@ -830,6 +1352,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port.")
     serve.add_argument("--refresh-on-start", action="store_true", help="Run the metrics ingestor before serving.")
     serve.add_argument(
+        "--auto-refresh-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Refresh the SQLite metrics store in the background while serving. "
+            f"Use {DEFAULT_AUTO_REFRESH_SECONDS} for the standard owner-facing local surface."
+        ),
+    )
+    serve.add_argument(
         "--enable-refresh-endpoint",
         action="store_true",
         help="Enable POST /refresh. Disabled by default because it mutates the local SQLite metrics store.",
@@ -853,6 +1384,8 @@ def run_healthcheck(url: str, timeout: float) -> int:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
             ok = bool(payload.get("ok"))
+            if ok and "message" not in payload:
+                payload["message"] = "OK"
             print(json.dumps(payload, sort_keys=True))
             return 0 if ok else 1
     except urllib.error.HTTPError as error:
@@ -879,6 +1412,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(build_live_summary(config.repo_root, config.artifact_root, config.db_path), sort_keys=True))
         return 0
     if args.command == "serve":
+        initial_refresh: JsonObject | None = None
         if args.refresh_on_start:
             refresh = refresh_metrics(config.db_path, config.artifact_root)
             if not refresh_succeeded(refresh):
@@ -887,7 +1421,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 1
+            initial_refresh = refresh
         server = make_server(args.host, args.port, config)
+        if initial_refresh is not None:
+            server.record_refresh(initial_refresh)
         host, port = server.server_address
         print(f"Serving Screeps RL live dashboard at {format_dashboard_url(str(host), int(port))}")
         try:
