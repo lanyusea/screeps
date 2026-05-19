@@ -973,6 +973,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 json.dumps(
                     {
                         "reportId": "run-test",
+                        "generatedAt": "2026-05-19T12:38:23Z",
+                        "experimentCard": {"codeCommit": "a" * 40},
+                        "activationProof": {
+                            "status": "passed",
+                            "ok": True,
+                            "audit": {
+                                "comparisonKey": "activation-key",
+                                "codeCommit": "a" * 40,
+                            },
+                        },
                         "liveEffect": False,
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
@@ -1013,6 +1023,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             )
             self.assertEqual(summary["outputs"]["trainingReport"]["policyUpdateIterations"], 1)
+            self.assertEqual(summary["outputs"]["trainingReport"]["generatedAt"], "2026-05-19T12:38:23Z")
+            self.assertEqual(summary["outputs"]["trainingReport"]["experimentCard"]["codeCommit"], "a" * 40)
+            self.assertEqual(
+                summary["outputs"]["trainingReport"]["activationProof"]["audit"]["comparisonKey"],
+                "activation-key",
+            )
             self.assertEqual(
                 summary["outputs"]["trainingReport"]["policyUpdateArtifactPath"],
                 "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",

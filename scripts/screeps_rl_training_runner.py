@@ -45,6 +45,8 @@ METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
+MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
+MULTI_TIER_ACTIVATION_IMPLEMENTATION = "multi-tier-policy-activation-proof-v2"
 MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD = 2
 MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD = 0
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
@@ -1103,6 +1105,14 @@ def build_training_report(
             results=results,
             scenario=scenario,
             kpi_summary=report["kpiSummary"],
+            audit=build_multi_tier_activation_audit(
+                card=card,
+                variants=variants,
+                config=config,
+                scenario=scenario,
+                report_id=report_id,
+                generated_at=generated_at,
+            ),
         )
         if activation_proof is not None:
             report["activationProof"] = activation_proof
@@ -2054,6 +2064,7 @@ def summarize_variant(
     multi_tier_fixture_loader: MultiTierPolicyActivationFixtureLoader | None = None,
 ) -> JsonObject:
     run_metrics_by_attempt: list[JsonObject | None] = []
+    successful_runs: list[JsonObject] = []
     for run in runs:
         if run.get("ok") is True:
             finalized_run = finalize_multi_tier_policy_activation_run(
@@ -2063,6 +2074,7 @@ def summarize_variant(
                 anchor_room=multi_tier_anchor_room,
                 fixture_loader=multi_tier_fixture_loader,
             )
+            successful_runs.append(finalized_run)
             run_metrics_by_attempt.append(compute_run_metrics(finalized_run, reward_options))
         else:
             run_metrics_by_attempt.append(None)
@@ -2075,6 +2087,15 @@ def summarize_variant(
     activation_samples = [
         multi_tier_activation_metric_evidence(metric, sample_index=index)
         for index, metric in enumerate(run_metrics)
+    ]
+    activation_traces = [
+        multi_tier_activation_sample_trace(
+            run=run,
+            variant=variant,
+            activation_evidence=activation_samples[index],
+            sample_index=index,
+        )
+        for index, run in enumerate(successful_runs)
     ]
     summary: JsonObject = {
         "variantId": variant.id,
@@ -2093,6 +2114,7 @@ def summarize_variant(
         },
         "metrics": metrics,
         "multiTierActivationSamples": activation_samples,
+        "multiTierActivationTraces": activation_traces,
         "runs": [
             {
                 "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
@@ -2112,6 +2134,84 @@ def summarize_variant(
     if variant.training_role:
         summary["trainingRole"] = variant.training_role
     return summary
+
+
+def multi_tier_activation_sample_trace(
+    *,
+    run: JsonObject,
+    variant: StrategyVariant,
+    activation_evidence: JsonObject,
+    sample_index: int,
+) -> JsonObject:
+    activation = json_object_or_none(run.get("policyActivation"))
+    metrics = json_object_or_none(run.get("metrics")) or {}
+    projected_activation = json_object_or_none(metrics.get("policyActivation"))
+    scenario = json_object_or_none(run.get("scenario")) or {}
+    code_artifact = json_object_or_none(scenario.get("codeArtifact")) or {}
+    map_artifact = json_object_or_none(scenario.get("mapArtifact")) or {}
+    projected_evidence = json_object_or_none(activation.get("projectedEvidence")) if activation is not None else None
+    observed_evidence = json_object_or_none(activation.get("observedEvidence")) if activation is not None else None
+    policy_activation = activation if activation is not None else projected_activation
+    trace: JsonObject = {
+        "sampleIndex": sample_index,
+        "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
+        "ticksRun": number_or_none(run.get("ticks_run", run.get("ticksRun"))),
+        "ok": run.get("ok") is True,
+        "strategyVariantId": variant.id,
+        "candidatePolicyId": variant.candidate_policy_id,
+        "sourceStrategyId": variant.source_strategy_id,
+        "parameterHash": canonical_hash(variant.parameters),
+        "activationEvidence": copy.deepcopy(activation_evidence),
+        "policyActivationPresent": policy_activation is not None,
+        "metricsSource": "projected_policy_activation"
+        if projected_activation is not None
+        else ("simulator_policy_activation" if activation is not None else "raw_metric_reduction"),
+        "scenario": {
+            "runId": scenario.get("runId"),
+            "room": scenario.get("room"),
+            "shard": scenario.get("shard"),
+            "activeWorldBranch": scenario.get("activeWorldBranch"),
+            "codeSha256": code_artifact.get("sha256"),
+            "codePath": code_artifact.get("path"),
+            "mapSha256": map_artifact.get("sha256"),
+            "mapSourcePath": map_artifact.get("sourcePath"),
+        },
+    }
+    if policy_activation is not None:
+        trace["policyActivation"] = {
+            "type": policy_activation.get("type"),
+            "policyAction": policy_activation.get("policyAction"),
+            "executionAction": policy_activation.get("executionAction"),
+            "objectiveSignalSource": policy_activation.get("objectiveSignalSource"),
+            "targetRoom": policy_activation.get("targetRoom"),
+            "anchorRoom": policy_activation.get("anchorRoom"),
+            "activationScore": policy_activation.get("activationScore"),
+            "threshold": policy_activation.get("threshold"),
+            "reason": policy_activation.get("reason"),
+        }
+    if projected_evidence is not None:
+        trace["projectedEvidence"] = {
+            "mode": projected_evidence.get("mode"),
+            "targetRoom": projected_evidence.get("targetRoom"),
+            "initialHostileCount": projected_evidence.get("initialHostileCount"),
+            "finalHostileCount": projected_evidence.get("finalHostileCount"),
+            "projectedHostileKills": projected_evidence.get("projectedHostileKills"),
+            "fixtureGeneratedRoomState": projected_evidence.get("fixtureGeneratedRoomState"),
+        }
+    if observed_evidence is not None:
+        trace["observedEvidence"] = {
+            "targetRoom": observed_evidence.get("targetRoom"),
+            "observedTickCount": observed_evidence.get("observedTickCount"),
+            "initialTick": observed_evidence.get("initialTick"),
+            "finalTick": observed_evidence.get("finalTick"),
+            "initialHostileCount": observed_evidence.get("initialHostileCount"),
+            "finalHostileCount": observed_evidence.get("finalHostileCount"),
+            "hostileCountReduced": observed_evidence.get("hostileCountReduced"),
+            "controllerClaimed": observed_evidence.get("controllerClaimed"),
+            "ownPresenceIncreased": observed_evidence.get("ownPresenceIncreased"),
+            "fixtureGeneratedRoomState": observed_evidence.get("fixtureGeneratedRoomState"),
+        }
+    return trace
 
 
 def finalize_multi_tier_policy_activation_run(
@@ -2591,6 +2691,10 @@ def number_or_none(value: Any) -> int | float | None:
     return None
 
 
+def json_object_or_none(value: Any) -> JsonObject | None:
+    return value if isinstance(value, dict) else None
+
+
 def round_float(value: float | int) -> float | int:
     if isinstance(value, int):
         return value
@@ -2995,11 +3099,74 @@ def build_kpi_summary(results: Sequence[JsonObject]) -> JsonObject:
     }
 
 
+def build_multi_tier_activation_audit(
+    *,
+    card: JsonObject,
+    variants: Sequence[StrategyVariant],
+    config: SimulationConfig,
+    scenario: JsonObject | None,
+    report_id: str,
+    generated_at: str,
+) -> JsonObject:
+    evidence = scenario.get("evidence") if isinstance(scenario, dict) else {}
+    if not isinstance(evidence, dict):
+        evidence = {}
+    scenario_id = (
+        text_or_none(scenario.get("scenario_id")) or text_or_none(scenario.get("scenarioId"))
+        if isinstance(scenario, dict)
+        else None
+    )
+    fixture_sha256 = text_or_none(evidence.get("fixture_sha256")) or text_or_none(evidence.get("fixtureSha256"))
+    code_commit = text_or_none(card.get("code_commit")) or text_or_none(card.get("codeCommit"))
+    strategy_variant_fingerprint = [
+        {
+            "id": variant.id,
+            "candidatePolicyId": variant.candidate_policy_id,
+            "sourceStrategyId": variant.source_strategy_id,
+            "parameterHash": canonical_hash(variant.parameters),
+        }
+        for variant in variants
+    ]
+    comparison_seed: JsonObject = {
+        "activationImplementation": MULTI_TIER_ACTIVATION_IMPLEMENTATION,
+        "codeCommit": code_commit,
+        "scenarioId": scenario_id,
+        "mapSourceFile": str(config.map_source_file),
+        "fixtureSha256": fixture_sha256,
+        "room": config.room,
+        "shard": config.shard,
+        "branch": config.branch,
+        "ticks": config.ticks,
+        "strategyVariantFingerprint": strategy_variant_fingerprint,
+    }
+    return {
+        "type": MULTI_TIER_ACTIVATION_AUDIT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "reportId": report_id,
+        "generatedAt": generated_at,
+        "activationImplementation": MULTI_TIER_ACTIVATION_IMPLEMENTATION,
+        "comparisonKey": canonical_hash(comparison_seed),
+        "comparisonKeyFields": sorted(comparison_seed),
+        "sameScenarioMapRequiresSameCodeCommit": True,
+        "codeCommit": code_commit,
+        "scenarioId": scenario_id,
+        "mapSourceFile": str(config.map_source_file),
+        "fixtureSha256": fixture_sha256,
+        "room": config.room,
+        "shard": config.shard,
+        "branch": config.branch,
+        "ticks": config.ticks,
+        "strategyVariantIds": [variant.id for variant in variants],
+        "strategyVariantFingerprint": strategy_variant_fingerprint,
+    }
+
+
 def build_multi_tier_activation_proof(
     *,
     results: Sequence[JsonObject],
     scenario: JsonObject | None,
     kpi_summary: JsonObject,
+    audit: JsonObject | None = None,
 ) -> JsonObject | None:
     if not scenario_supports_multi_tier_policy_comparison(scenario):
         return None
@@ -3034,6 +3201,8 @@ def build_multi_tier_activation_proof(
         },
         "variants": rows,
     }
+    if audit is not None:
+        proof["audit"] = copy.deepcopy(audit)
     if passed_rows:
         proof["passingVariants"] = [row["variantId"] for row in passed_rows]
     else:
@@ -3062,6 +3231,8 @@ def build_multi_tier_activation_proof(
 def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
     raw_samples = result.get("multiTierActivationSamples")
     samples = [sample for sample in raw_samples if isinstance(sample, dict)] if isinstance(raw_samples, list) else []
+    raw_traces = result.get("multiTierActivationTraces")
+    traces = [trace for trace in raw_traces if isinstance(trace, dict)] if isinstance(raw_traces, list) else []
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
     aggregate_evidence = multi_tier_activation_metric_evidence(metrics) if metrics else empty_multi_tier_activation_evidence()
     sample_count = int_or_none(result.get("sampleCount")) or 0
@@ -3080,6 +3251,7 @@ def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:
         "passesActivation": passes,
         "activationSampleCount": len(evidence_samples),
         "activationSamples": copy.deepcopy(evidence_samples),
+        "activationTraces": copy.deepcopy(traces),
         "objectiveSignal": copy.deepcopy(objective),
     }
 
@@ -3376,6 +3548,8 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
             "passingVariants": copy.deepcopy(proof.get("passingVariants", [])),
             "bestObserved": copy.deepcopy(proof.get("bestObserved", {})),
         }
+        if isinstance(proof.get("audit"), dict):
+            summary["activationProof"]["audit"] = copy.deepcopy(proof["audit"])
     return summary
 
 
