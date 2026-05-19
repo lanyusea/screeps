@@ -970,13 +970,22 @@ def scale_validation_environment_containers(variant: JsonObject) -> list[JsonObj
 def build_report_runtime_parameter_injection_summary(
     results: Sequence[JsonObject],
     variants: Sequence[StrategyVariant],
+    policy_gradient: JsonObject | None = None,
 ) -> JsonObject:
-    expected_ids = {variant.id for variant in variants}
+    candidate_match_ids = policy_gradient_candidate_match_ids(policy_gradient)
+    expected_ids = set(candidate_match_ids.values()) if candidate_match_ids else {variant.id for variant in variants}
     rows: list[JsonObject] = []
+    observed_ids: set[str] = set()
     for result in results:
-        variant_id = text_or_none(result.get("variantId"))
-        if variant_id is None:
+        raw_variant_id = text_or_none(result.get("variantId"))
+        if raw_variant_id is None:
             continue
+        base_variant_id = simulator_harness.scale_environment_base_variant_id(raw_variant_id)
+        expected_id = candidate_match_ids.get(base_variant_id) if candidate_match_ids else raw_variant_id
+        if expected_id is None:
+            continue
+        observed_ids.add(expected_id)
+        variant_id = raw_variant_id
         injection = result.get("runtimeParameterInjection")
         if isinstance(injection, dict):
             rows.append({
@@ -995,7 +1004,6 @@ def build_report_runtime_parameter_injection_summary(
                 "candidateParameterScope": "metadata_only",
                 "reason": "variant summary did not include runtime parameter injection evidence",
             })
-    observed_ids = {text_or_none(row.get("variantId")) for row in rows}
     for missing in sorted(expected_ids - observed_ids):
         rows.append({
             "variantId": missing,
@@ -1057,6 +1065,27 @@ def build_report_runtime_parameter_injection_summary(
     return payload
 
 
+def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> dict[str, str]:
+    if policy_gradient is None:
+        return {}
+    raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(raw_candidates, list):
+        return {}
+    match_ids: dict[str, str] = {}
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
+        candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
+        expected_id = strategy_variant_id or candidate_policy_id
+        if expected_id is None:
+            continue
+        match_ids[expected_id] = expected_id
+        if candidate_policy_id is not None:
+            match_ids[candidate_policy_id] = expected_id
+    return match_ids
+
+
 def stable_identity_text(value: Any) -> str:
     try:
         return canonical_hash(value)
@@ -1102,7 +1131,7 @@ def build_training_report(
     scale_validation = build_scale_validation_summary(simulator_runs, config)
     raw_policy_gradient = raw_policy_gradient_metadata_from_card(card)
     runtime_parameter_injection = (
-        build_report_runtime_parameter_injection_summary(results, variants)
+        build_report_runtime_parameter_injection_summary(results, variants, raw_policy_gradient)
         if raw_policy_gradient is not None
         else None
     )
@@ -2231,6 +2260,7 @@ def runtime_parameter_scope_indicates_runtime_attempt(row: JsonObject) -> bool:
             "prepared",
             "injected",
             "failed",
+            "not_attempted",
             "missing_evaluated_parameters",
             "invalid_evaluated_parameters",
             "evaluated_parameter_mismatch",

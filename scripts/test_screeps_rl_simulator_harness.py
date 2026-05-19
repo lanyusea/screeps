@@ -1549,8 +1549,9 @@ cli:
                 runtime_parameter_injection=uploaded,
             )
 
-        self.assertEqual(scenario["codeArtifact"]["payloadSource"], "runtime-parameter-injected-upload")
-        self.assertEqual(scenario["codeArtifact"]["sha256"], uploaded["uploadedCodeSha256"])
+        self.assertIsNone(harness.runtime_parameter_injection_uploaded_code_text(upload, uploaded))
+        self.assertNotIn("payloadSource", scenario["codeArtifact"])
+        self.assertEqual(scenario["codeArtifact"]["sha256"], hashlib.sha256(base_code.encode("utf-8")).hexdigest())
 
     def test_runtime_parameter_consumption_required_for_evaluated_parameters(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

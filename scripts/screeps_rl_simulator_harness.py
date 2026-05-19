@@ -2058,7 +2058,13 @@ def runtime_parameter_injection_uploaded_code_text(
 ) -> str | None:
     if uploaded_code_text is None:
         return None
-    return uploaded_code_text if isinstance(runtime_parameter_injection.get("uploadedCodeSha256"), str) else None
+    if (
+        runtime_parameter_injection.get("status") != "injected"
+        or runtime_parameter_injection.get("runtimeParameterInjection") is not True
+        or not isinstance(runtime_parameter_injection.get("uploadedCodeSha256"), str)
+    ):
+        return None
+    return uploaded_code_text
 
 
 def _run_summary_fields(variant_results: Sequence[JsonObject]) -> JsonObject:

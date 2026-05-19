@@ -1634,6 +1634,71 @@ export const STRATEGY_REGISTRY = [
                 parameter_space,
             )
 
+    def test_runtime_parameter_report_summary_uses_policy_gradient_candidate_ids(self) -> None:
+        summary = runner.build_report_runtime_parameter_injection_summary(
+            [
+                {
+                    "variantId": "candidate",
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "parametersSha256": "candidate-sha",
+                    },
+                },
+                {
+                    "variantId": "control",
+                    "runtimeParameterInjection": {
+                        "status": "missing",
+                        "runtimeParameterInjection": False,
+                        "candidateParameterScope": "metadata_only",
+                        "reason": "non-candidate control did not run injected parameters",
+                    },
+                },
+            ],
+            [
+                runner.StrategyVariant(id="candidate", family="test-family", parameters={"knob": 1}),
+                runner.StrategyVariant(id="control", family="test-family", parameters={"knob": 0}),
+            ],
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate-policy",
+                        "strategyVariantId": "candidate",
+                        "parameters": {"knob": 1},
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(summary["status"], "injected")
+        self.assertTrue(summary["runtimeParameterInjection"])
+        self.assertEqual(summary["variantCount"], 1)
+        self.assertEqual([row["variantId"] for row in summary["variants"]], ["candidate"])
+
+    def test_not_attempted_runtime_parameter_status_counts_as_runtime_attempt(self) -> None:
+        variant = runner.StrategyVariant(id="candidate", family="test-family", parameters={"knob": 1})
+
+        self.assertTrue(runner.runtime_parameter_scope_indicates_runtime_attempt({"status": "not_attempted"}))
+        summary = runner.summarize_variant_runtime_parameter_injection(
+            variant,
+            [
+                {
+                    "ok": False,
+                    "runtimeParameterInjection": {
+                        "status": "not_attempted",
+                        "runtimeParameterInjection": False,
+                        "parametersSha256": "candidate-sha",
+                        "reason": "resource guard blocked before runtime upload",
+                    },
+                }
+            ],
+        )
+
+        self.assertEqual(summary["status"], "not_injected")
+        self.assertEqual(summary["candidateParameterScope"], "runtime_injected")
+        self.assertIn("resource guard", summary["reason"])
+
     def test_policy_update_candidate_rows_uses_reward_weight_defaults_for_sample_count(self) -> None:
         parameter_space = {"knob": {"min": 0, "max": 10}}
         rows = runner.policy_update_candidate_rows(
