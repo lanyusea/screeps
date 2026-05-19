@@ -914,6 +914,28 @@ def mark_runtime_parameter_injection_failed(injection: JsonObject, error: Any) -
     return updated
 
 
+def mark_runtime_parameter_injection_not_attempted(injection: JsonObject, error: Any) -> JsonObject:
+    updated = copy.deepcopy(injection)
+    if updated.get("candidateParameterScope") == "runtime_injected":
+        updated["status"] = "not_attempted"
+        updated["runtimeParameterInjection"] = False
+        updated["inlineCandidatesRuntimeInjected"] = False
+        updated["reason"] = (
+            "simulator run failed before runtime parameter upload was attempted: "
+            f"{_safe_text(error, 240)}"
+        )
+    updated.setdefault("runtimeParameterInjection", False)
+    updated.setdefault("inlineCandidatesRuntimeInjected", False)
+    updated.setdefault("candidateParameterScope", "metadata_only")
+    updated.setdefault("parametersSha256", None)
+    updated.setdefault("reason", "runtime parameter upload was not attempted")
+    consumption = runtime_parameter_consumption_check(updated, None)
+    updated = apply_runtime_parameter_consumption_to_injection(updated, consumption)
+    updated.setdefault("runtimeParameterConsumption", False)
+    updated.setdefault("runtimeParameterConsumptionStatus", consumption.get("status", "not_attempted"))
+    return updated
+
+
 def _safe_compose_project_name(value: str) -> str:
     """Return a Docker Compose-compatible project name.
 
@@ -5213,6 +5235,11 @@ def _build_run_failure_variant_results(
                 "rolloutStatus": "unknown",
                 "source": "run failure before variant validation",
             }
+        runtime_parameter_injection = mark_runtime_parameter_injection_not_attempted(
+            runtime_parameter_injection_for_variant(variant_id, strategy_variant),
+            error_text,
+        )
+        runtime_parameter_consumption = runtime_parameter_consumption_check(runtime_parameter_injection, None)
         result: JsonObject = {
             "variant_id": variant_id,
             "variant_run_id": f"{run_id}-{variant_slug}",
@@ -5226,6 +5253,7 @@ def _build_run_failure_variant_results(
                 ticks=ticks,
                 code_path=code_path,
                 map_source_file=map_source_file,
+                runtime_parameter_injection=runtime_parameter_injection,
             ),
             "ticks_requested": ticks,
             "ticks_run": 0,
@@ -5242,6 +5270,8 @@ def _build_run_failure_variant_results(
             "serverPorts": {},
             "branch": api_branch,
             "requestedBranch": branch,
+            "runtimeParameterInjection": runtime_parameter_injection,
+            "runtimeParameterConsumption": runtime_parameter_consumption,
         }
         result["strategyVariant"] = strategy_variant
         result["strategy_variant"] = strategy_variant

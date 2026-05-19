@@ -3002,6 +3002,20 @@ cli:
             "errors": [],
         }
         variants = [f"scale-env-{index}" for index in range(5)]
+        variant_configs = {
+            variant_id: {
+                "id": variant_id,
+                "title": f"{variant_id} guarded candidate",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 24,
+                    "resourceSignalWeight": 3,
+                    "killSignalWeight": 4,
+                    "riskPenalty": 2,
+                },
+            }
+            for variant_id in variants
+        }
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3022,6 +3036,7 @@ cli:
                                     run_id="guard-reject",
                                     code_path=root / "main.js",
                                     map_source_file=root / "map.json",
+                                    variant_configs=variant_configs,
                                 )
                             failure_texts.append(failure_path.read_text(encoding="utf-8"))
                             summary_text = (out_dir / "guard-reject" / "run_summary.json").read_text(encoding="utf-8")
@@ -3042,6 +3057,16 @@ cli:
         self.assertEqual(failure["resourceGuard"]["guardedWorkerEstimate"], 5)
         self.assertIn("requires", failure["resourceGuard"]["reasons"][0])
         self.assertEqual(failure["cleanup"]["matchedContainers"], [])
+        self.assertEqual(summary["runtimeParameterInjection"]["status"], "not_injected")
+        self.assertEqual(summary["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(summary["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "not_attempted")
+        first_variant_injection = summary["variants"][0]["runtimeParameterInjection"]
+        self.assertEqual(first_variant_injection["status"], "not_attempted")
+        self.assertFalse(first_variant_injection["runtimeParameterInjection"])
+        self.assertFalse(first_variant_injection["runtimeParameterConsumption"])
+        self.assertEqual(first_variant_injection["runtimeParameterConsumptionStatus"], "not_attempted")
+        self.assertEqual(first_variant_injection["candidateParameterScope"], "runtime_injected")
+        self.assertIsInstance(first_variant_injection["parametersSha256"], str)
         two_variant_decision = harness.build_resource_guard_decision(
             run_id="guard-reject-two-variants",
             workers=5,
@@ -3203,6 +3228,17 @@ cli:
                 self.assertEqual(summary["failureArtifactPath"], str(failure_path))
                 self.assertEqual(summary["variants"][0]["strategyVariant"]["label"], "inline failure candidate")
                 self.assertEqual(summary["variants"][0]["strategyVariant"]["parameters"]["territorySignalWeight"], 29)
+                runtime_summary = summary["runtimeParameterInjection"]
+                self.assertEqual(runtime_summary["status"], "not_injected")
+                self.assertEqual(runtime_summary["candidateParameterScope"], "runtime_injected")
+                self.assertEqual(runtime_summary["runtimeParameterConsumptionStatus"], "not_attempted")
+                variant_injection = summary["variants"][0]["runtimeParameterInjection"]
+                self.assertEqual(variant_injection["status"], "not_attempted")
+                self.assertFalse(variant_injection["runtimeParameterInjection"])
+                self.assertFalse(variant_injection["runtimeParameterConsumption"])
+                self.assertEqual(variant_injection["runtimeParameterConsumptionStatus"], "not_attempted")
+                self.assertEqual(variant_injection["candidateParameterScope"], "runtime_injected")
+                self.assertIsInstance(variant_injection["parametersSha256"], str)
                 self.assertFalse((out_dir / run_id / "resource_guard_failure.json").exists())
 
     def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:

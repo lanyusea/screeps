@@ -158,13 +158,16 @@ class MockSimulator:
         *,
         inject_runtime_parameters: bool = False,
         include_evaluated_parameters: bool = True,
+        include_runtime_consumption_parameters: bool = True,
         evaluated_parameters_by_variant: dict[str, JsonObject] | None = None,
     ) -> None:
         self.results_by_variant = results_by_variant
         self.inject_runtime_parameters = inject_runtime_parameters
         self.include_evaluated_parameters = include_evaluated_parameters
+        self.include_runtime_consumption_parameters = include_runtime_consumption_parameters
         self.evaluated_parameters_by_variant = evaluated_parameters_by_variant or {}
         self.calls: list[JsonObject] = []
+        self.last_variants: list[JsonObject] = []
 
     def __call__(self, **kwargs: Any) -> JsonObject:
         self.calls.append(dict(kwargs))
@@ -191,33 +194,38 @@ class MockSimulator:
                     injection,
                     code_text=code_text,
                 )
+                evaluated_parameters = copy.deepcopy(
+                    self.evaluated_parameters_by_variant.get(variant_id, variant_config["parameters"])
+                )
+                consumption_evidence = {
+                    "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+                    "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+                    "runtimeParameterInjection": True,
+                    "consumed": True,
+                    "strategyVariantId": variant_id,
+                    "candidatePolicyId": variant_config.get("candidatePolicyId"),
+                    "family": variant_config.get("family"),
+                    "parameters": evaluated_parameters,
+                    "parametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
+                    "appliedStrategyIds": [variant_id],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                }
+                result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
+                    result["runtimeParameterInjection"],
+                    consumption_evidence,
+                )
+                if not self.include_runtime_consumption_parameters:
+                    result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
+                    result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
+                    result["runtimeParameterConsumption"].pop("evidence", None)
                 if self.include_evaluated_parameters:
-                    evaluated_parameters = copy.deepcopy(
-                        self.evaluated_parameters_by_variant.get(variant_id, variant_config["parameters"])
-                    )
-                    consumption_evidence = {
-                        "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
-                        "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
-                        "runtimeParameterInjection": True,
-                        "consumed": True,
-                        "strategyVariantId": variant_id,
-                        "candidatePolicyId": variant_config.get("candidatePolicyId"),
-                        "family": variant_config.get("family"),
-                        "parameters": evaluated_parameters,
-                        "parametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
-                        "appliedStrategyIds": [variant_id],
-                        "liveEffect": False,
-                        "officialMmoWrites": False,
-                        "officialMmoWritesAllowed": False,
-                    }
-                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
-                        result["runtimeParameterInjection"],
-                        consumption_evidence,
-                    )
                     if result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True:
                         result["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
                         result["evaluatedParametersSource"] = "runtime_parameter_consumption"
             variants.append(result)
+        self.last_variants = copy.deepcopy(variants)
         return {
             "type": "screeps-rl-simulator-run",
             "runId": kwargs["run_id"],
@@ -1901,6 +1909,7 @@ export const STRATEGY_REGISTRY = [
             simulator_results,
             inject_runtime_parameters=True,
             include_evaluated_parameters=False,
+            include_runtime_consumption_parameters=False,
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1927,6 +1936,18 @@ export const STRATEGY_REGISTRY = [
         self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertTrue(
             all("evaluatedParameters" not in result for result in report["variantResults"])
+        )
+        self.assertTrue(
+            all(
+                result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True
+                for result in simulator.last_variants
+            )
+        )
+        self.assertTrue(
+            all(
+                "evaluatedParameters" not in result["runtimeParameterConsumption"]
+                for result in simulator.last_variants
+            )
         )
 
     def test_failed_only_runtime_parameter_uploads_do_not_become_injected_evidence(self) -> None:
