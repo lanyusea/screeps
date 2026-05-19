@@ -154,6 +154,14 @@ export interface ConstructionPriorityPlanningResult {
   storageResult: ScreepsReturnCode | null;
 }
 
+const CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES = [
+  'baseScoreWeight',
+  'territorySignalWeight',
+  'resourceSignalWeight',
+  'killSignalWeight',
+  'riskPenalty'
+] as const;
+
 export interface ConstructionSiteImpactPriorityContext {
   criticalRoadContext?: CriticalRoadLogisticsContext;
   claimedRoomName?: string;
@@ -574,6 +582,12 @@ export function constructionPriorityStrategyParametersFromEntry(
   entry: StrategyRegistryEntry | undefined
 ): ConstructionPriorityStrategyParameters | undefined {
   if (!entry) {
+    return undefined;
+  }
+  const hasExplicitParameter = CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES.some((name) =>
+    Object.prototype.hasOwnProperty.call(entry.defaultValues, name)
+  );
+  if (!hasExplicitParameter) {
     return undefined;
   }
 

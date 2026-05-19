@@ -1947,6 +1947,8 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(artifact_path_exists)
         self.assertTrue(all(result["runtimeParameterInjection"]["runtimeParameterInjection"] for result in report["variantResults"]))
         self.assertTrue(all("evaluatedParameters" in result for result in report["variantResults"]))
+        self.assertFalse(report["officialMmoWritesAllowed"])
+        self.assertFalse(persisted["officialMmoWritesAllowed"])
         update = report["policyUpdate"]
         self.assertEqual(update["algorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertEqual(update["candidateCount"], len(variant_ids))

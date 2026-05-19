@@ -96,6 +96,11 @@ RUNTIME_PARAMETER_INJECTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__"
 RUNTIME_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__"
 RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consumption"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
+STRICT_DIRECTIVE_PREFIX_RE = re.compile(
+    r"\A(\ufeff?(?:(?:\s+)|(?://[^\r\n]*(?:\r?\n|$))|(?:/\*.*?\*/))*"
+    r"(?:(?:['\"]use strict['\"]\s*;?\s*)+))",
+    re.DOTALL,
+)
 RUN_RESOURCE_GUARD_MIN_WORKERS = 3
 RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB = 2300
 RUN_RESOURCE_GUARD_HOST_RESERVE_MIB = 1536
@@ -588,7 +593,7 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
 
 
 def runtime_parameter_injection_insert_index(code_text: str) -> int:
-    match = re.match(r"^((?:['\"]use strict['\"];\s*)+)", code_text)
+    match = STRICT_DIRECTIVE_PREFIX_RE.match(code_text)
     return match.end() if match is not None else 0
 
 

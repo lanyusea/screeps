@@ -2,6 +2,7 @@ import {
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   buildConstructionSiteImpactPriorityContext,
   buildRuntimeConstructionPriorityReport,
+  constructionPriorityStrategyParametersFromEntry,
   isPostClaimConstructionRoom,
   planTowerConstruction,
   selectImpactWeightedConstructionSite,
@@ -11,6 +12,7 @@ import {
   type ConstructionPriorityRoomState
 } from '../src/construction/constructionPriority';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { DEFAULT_STRATEGY_REGISTRY, type StrategyRegistryEntry } from '../src/strategy/strategyRegistry';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -151,6 +153,30 @@ describe('construction priority scoring', () => {
     expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
       scoreFor(report.candidates, 'build storage logistics')
     );
+  });
+
+  it('preserves legacy construction scoring for registry entries without explicit parameters', () => {
+    const incumbent = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+    expect(incumbent).toBeDefined();
+    const plainEntry: StrategyRegistryEntry = {
+      ...incumbent!,
+      defaultValues: {}
+    };
+
+    expect(constructionPriorityStrategyParametersFromEntry(plainEntry)).toBeUndefined();
+  });
+
+  it('extracts construction priority scoring parameters when registry defaults are explicit', () => {
+    const incumbent = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+
+    expect(incumbent).toBeDefined();
+    expect(constructionPriorityStrategyParametersFromEntry(incumbent)).toMatchObject({
+      baseScoreWeight: 1,
+      territorySignalWeight: 6,
+      resourceSignalWeight: 4,
+      killSignalWeight: 6,
+      riskPenalty: 4
+    });
   });
 
   it('weights expansion prerequisites ahead of lower-chain resource storage when home state is safe', () => {

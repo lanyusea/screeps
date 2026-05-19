@@ -1507,6 +1507,41 @@ cli:
         )
         self.assertFalse(territory_scenario["runtimeParameterInjection"]["safety"]["officialMmoWritesAllowed"])
 
+    def test_runtime_parameter_injection_preserves_strict_directive_after_bundle_prefixes(self) -> None:
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        code_cases = [
+            (
+                "\ufeff// generated bundle\n"
+                "'use strict'\n"
+                f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() { return 1; };\n"
+            ),
+            (
+                "/* generated bundle */\n"
+                '  "use strict"\n'
+                f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() { return 1; };\n"
+            ),
+        ]
+
+        for code_text in code_cases:
+            with self.subTest(code_text=code_text[:24]):
+                upload = harness.apply_runtime_parameter_injection_to_code(code_text, injection)
+
+                self.assertLess(upload.index("use strict"), upload.index("private-simulator"))
+                self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, upload)
+
     def test_runtime_parameter_injection_upload_requires_runtime_consumer(self) -> None:
         base_code = '"use strict";\nmodule.exports.loop = function loop() { return 1; };\n'
         variant = {

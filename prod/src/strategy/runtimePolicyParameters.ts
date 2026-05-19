@@ -85,13 +85,15 @@ export function applyRuntimePolicyParametersToRegistry(
     };
   });
 
-  const consumed = appliedStrategyIds.length > 0;
+  const matched = appliedStrategyIds.length > 0;
   const evidence = buildConsumptionEvidence({
     payload,
-    consumed,
+    consumed: false,
     parameters,
     appliedStrategyIds,
-    reason: consumed ? undefined : 'runtime policy parameter payload did not match any strategy registry entry'
+    reason: matched
+      ? 'runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation'
+      : 'runtime policy parameter payload did not match any strategy registry entry'
   });
   publishRuntimePolicyParameterConsumptionEvidence(evidence);
   return { registry: patchedRegistry, evidence };

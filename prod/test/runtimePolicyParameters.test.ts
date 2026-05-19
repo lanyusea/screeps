@@ -36,10 +36,14 @@ describe('runtime policy parameters', () => {
 
     expect(result.evidence).toMatchObject({
       runtimeParameterInjection: true,
-      consumed: true,
+      consumed: false,
       family: 'construction-priority',
-      parametersSha256: 'example-sha'
+      parametersSha256: 'example-sha',
+      reason: 'runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation'
     });
+    expect(result.evidence.appliedStrategyIds).toEqual(
+      expect.arrayContaining(['construction-priority.incumbent.v1', 'construction-priority.territory-shadow.v1'])
+    );
     expect(constructionEntries.length).toBeGreaterThan(0);
     expect(constructionEntries.every((entry) => entry.defaultValues.territorySignalWeight === 29)).toBe(true);
     expect(

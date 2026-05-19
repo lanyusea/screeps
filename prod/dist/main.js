@@ -10051,6 +10051,13 @@ function getOkCode2() {
 }
 
 // src/construction/constructionPriority.ts
+var CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES = [
+  "baseScoreWeight",
+  "territorySignalWeight",
+  "resourceSignalWeight",
+  "killSignalWeight",
+  "riskPenalty"
+];
 var CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5e3;
 var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
 var EARLY_ENERGY_CAPACITY_TARGET = 550;
@@ -10316,6 +10323,12 @@ function selectConstructionPriorityStrategyRegistryEntry(registry) {
 }
 function constructionPriorityStrategyParametersFromEntry(entry) {
   if (!entry) {
+    return void 0;
+  }
+  const hasExplicitParameter = CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES.some(
+    (name) => Object.prototype.hasOwnProperty.call(entry.defaultValues, name)
+  );
+  if (!hasExplicitParameter) {
     return void 0;
   }
   return {
@@ -45613,13 +45626,13 @@ function applyRuntimePolicyParametersToRegistry(registry) {
       }
     };
   });
-  const consumed = appliedStrategyIds.length > 0;
+  const matched = appliedStrategyIds.length > 0;
   const evidence = buildConsumptionEvidence({
     payload,
-    consumed,
+    consumed: false,
     parameters,
     appliedStrategyIds,
-    reason: consumed ? void 0 : "runtime policy parameter payload did not match any strategy registry entry"
+    reason: matched ? "runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation" : "runtime policy parameter payload did not match any strategy registry entry"
   });
   publishRuntimePolicyParameterConsumptionEvidence(evidence);
   return { registry: patchedRegistry, evidence };
