@@ -394,6 +394,51 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(summary["latestPath"].endswith("new-blocked.json"))
         self.assertEqual(summary["updatedAt"], "2026-05-18T10:10:00Z")
 
+    def test_equal_timestamp_artifact_gate_ties_are_conservative(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            timestamp = "2026-05-18T10:10:00Z"
+            write_json(
+                artifact_root / "rl-control-loop" / "a-runtime-success.json",
+                {
+                    "createdAt": timestamp,
+                    "runtime_parameter_injection": True,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "z-runtime-blocked.json",
+                {
+                    "createdAt": timestamp,
+                    "runtime_parameter_injection": False,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "a-zero-safe.json",
+                {
+                    "createdAt": timestamp,
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {"skippedReason": "no samples"},
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "z-zero-blocked.json",
+                {
+                    "createdAt": timestamp,
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {},
+                },
+            )
+
+            injection = live.runtime_candidate_injection_summary(artifact_root, repo_root)
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertEqual(injection["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(injection["latestPath"].endswith("z-runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertTrue(zero_iteration["latestPath"].endswith("z-zero-blocked.json"))
+
     def test_health_helper_requires_successful_auto_refresh(self) -> None:
         health = live.health_with_refresh(
             {"ok": True, "status": "ok", "failures": []},
@@ -507,6 +552,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 )
                 host, port = server.server_address
                 status, health = get_json_url(f"http://{host}:{port}/healthz")
+                summary = read_json_url(f"http://{host}:{port}/api/summary")
             finally:
                 server.shutdown()
                 server.server_close()
@@ -517,6 +563,10 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(health["message"], "DEGRADED")
         self.assertIn("auto-refresh has not completed successfully", health["failures"])
         self.assertFalse(health["refresh"]["lastRefreshOk"])
+        self.assertFalse(summary["health"]["ok"])
+        self.assertEqual(summary["health"]["status"], "degraded")
+        self.assertIn("auto-refresh has not completed successfully", summary["health"]["failures"])
+        self.assertFalse(summary["refresh"]["lastRefreshOk"])
 
     def test_auto_refresh_state_is_exposed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

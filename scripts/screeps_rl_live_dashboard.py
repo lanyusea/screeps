@@ -56,6 +56,7 @@ RUNTIME_INJECTION_TRUE_KEYS = {
 }
 RUNTIME_INJECTION_SCOPE_KEYS = {"candidateparameterscope"}
 RUNTIME_INJECTION_METADATA_ONLY_VALUES = {"metadataonly"}
+SUMMARY_STATUS_PRIORITY = {"BLOCKED": 2, "OK": 1, "N/A": 0}
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -620,16 +621,34 @@ def scan_artifact_json(artifact_root: Path) -> Iterator[ArtifactJson]:
         artifact_root / "rl-training",
         artifact_root / "tencent-cloud" / "batch-runs",
     )
+    paths: list[Path] = []
     for root in roots:
         if not root.exists():
             continue
         for path in root.rglob("*.json"):
             if not path.is_file():
                 continue
-            payload = load_json_object(path)
-            if payload is None:
-                continue
-            yield path, payload, artifact_timestamp(path, payload)
+            paths.append(path)
+    for path in sorted(paths, key=lambda candidate: candidate.as_posix()):
+        payload = load_json_object(path)
+        if payload is None:
+            continue
+        yield path, payload, artifact_timestamp(path, payload)
+
+
+def summary_status_priority(summary: JsonObject) -> int:
+    return SUMMARY_STATUS_PRIORITY.get(str(summary.get("status") or "").upper(), 0)
+
+
+def summary_tie_key(summary: JsonObject) -> str:
+    for key in ("latestPath", "path", "runId", "id", "name", "evidence"):
+        value = summary.get(key)
+        if value not in (None, ""):
+            return str(value)
+    try:
+        return json.dumps(summary, sort_keys=True, ensure_ascii=True)
+    except TypeError:
+        return str(summary)
 
 
 def newest_summary(current: JsonObject | None, candidate: JsonObject | None) -> JsonObject | None:
@@ -643,7 +662,15 @@ def newest_summary(current: JsonObject | None, candidate: JsonObject | None) -> 
         return candidate
     if candidate_timestamp is None:
         return current
-    return candidate if candidate_timestamp > current_timestamp else current
+    if candidate_timestamp > current_timestamp:
+        return candidate
+    if candidate_timestamp < current_timestamp:
+        return current
+    current_priority = summary_status_priority(current)
+    candidate_priority = summary_status_priority(candidate)
+    if candidate_priority != current_priority:
+        return candidate if candidate_priority > current_priority else current
+    return candidate if summary_tie_key(candidate) > summary_tie_key(current) else current
 
 
 def runtime_candidate_injection_from_artifact(
@@ -946,7 +973,7 @@ def build_live_summary(
         "nextRefreshAt": None,
     }
     db = sqlite_summary(db_path, repo_root)
-    health = health_from_db_summary(db)
+    health = health_with_refresh(health_from_db_summary(db), refresh_summary)
     raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
     scorecard = latest_scorecard_summary(artifact_root, repo_root)
