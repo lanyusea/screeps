@@ -110,6 +110,7 @@ OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
 PRIVATE_MAP_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 _WORKER_PHASE_DEBUG_DISABLED = False
 SCALE_ENVIRONMENT_VARIANT_RE = re.compile(r"^(?P<base>.+)\.scale-env-(?P<index>\d{2,})$")
+ROOM_NAME_RE = re.compile(r"^(?P<horizontal>[WE])(?P<x>\d+)(?P<vertical>[NS])(?P<y>\d+)$")
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
 HARNESS_BINARY_FILE_EXTENSIONS = (
     ".bmp",
@@ -2532,10 +2533,51 @@ def _fixture_room_hostile_count(summary: JsonObject) -> int:
     return (_extract_int(combat.get("hostileCreeps")) or 0) + (_extract_int(combat.get("hostileStructures")) or 0)
 
 
-def _select_multi_tier_target_room(fixture_room_summaries: dict[str, JsonObject]) -> tuple[str, JsonObject] | None:
+def _parse_room_xy(room_name: str) -> tuple[int, int] | None:
+    match = ROOM_NAME_RE.fullmatch(room_name)
+    if match is None:
+        return None
+    raw_x = int(match.group("x"))
+    raw_y = int(match.group("y"))
+    x = raw_x if match.group("horizontal") == "E" else -raw_x - 1
+    y = raw_y if match.group("vertical") == "S" else -raw_y - 1
+    return x, y
+
+
+def _room_manhattan_distance(left_room: str, right_room: str) -> int | None:
+    left = _parse_room_xy(left_room)
+    right = _parse_room_xy(right_room)
+    if left is None or right is None:
+        return None
+    return abs(left[0] - right[0]) + abs(left[1] - right[1])
+
+
+def _room_is_adjacent(left_room: str, right_room: str) -> bool:
+    return _room_manhattan_distance(left_room, right_room) == 1
+
+
+def _owned_fixture_anchor_room(fixture_room_summaries: dict[str, JsonObject]) -> str | None:
+    owned = [
+        room_name
+        for room_name, summary in fixture_room_summaries.items()
+        if isinstance(room_name, str) and isinstance(summary, dict) and _room_summary_owned(summary)
+    ]
+    return sorted(owned)[0] if owned else None
+
+
+def _select_multi_tier_target_room(
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> tuple[str, JsonObject] | None:
+    resolved_anchor = anchor_room or _owned_fixture_anchor_room(fixture_room_summaries)
+    if not isinstance(resolved_anchor, str) or _parse_room_xy(resolved_anchor) is None:
+        return None
     candidates: list[tuple[int, str, JsonObject]] = []
     for room_name, summary in fixture_room_summaries.items():
         if not isinstance(room_name, str) or not isinstance(summary, dict):
+            continue
+        if not _room_is_adjacent(resolved_anchor, room_name):
             continue
         controller = summary.get("controller")
         if not isinstance(controller, dict):
@@ -2553,11 +2595,13 @@ def _select_multi_tier_target_room(fixture_room_summaries: dict[str, JsonObject]
 def select_multi_tier_policy_activation(
     strategy_variant: JsonObject,
     fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
 ) -> JsonObject | None:
     objective = build_scenario_fixture_objective_summary(fixture_room_summaries)
     if not objective or objective.get("objectiveSignalPresent") is not True:
         return None
-    target = _select_multi_tier_target_room(fixture_room_summaries)
+    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
     if target is None:
         return None
     target_room, target_summary = target
@@ -2577,10 +2621,12 @@ def select_multi_tier_policy_activation(
         "policyAction": "claim-adjacent-controller",
         "executionAction": execution_action,
         "targetRoom": target_room,
+        "anchorRoom": anchor_room or _owned_fixture_anchor_room(fixture_room_summaries),
         "activationScore": round(activation_score, 3),
         "threshold": MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE,
         "reason": "hostile_objective_blocks_claim" if execution_action == "engage-hostiles" else "visible_adjacent_controller",
-        "objectiveSignalObserved": True,
+        "objectiveSignalObserved": False,
+        "objectiveSignalSource": "fixture_metadata",
         "objective": objective,
         "parameters": {
             "baseScoreWeight": base_weight,
@@ -2601,10 +2647,120 @@ def build_multi_tier_policy_activation_evidence(
     tick_log: list[JsonObject],
     strategy_variant: JsonObject,
     fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+    run_errors: Sequence[Any] = (),
+    evidence_errors: Sequence[Any] = (),
 ) -> JsonObject | None:
-    if len(tick_log) < 2:
+    if run_errors or evidence_errors or len(tick_log) < 2:
         return None
-    return select_multi_tier_policy_activation(strategy_variant, fixture_room_summaries)
+    if _tick_log_has_fixture_generated_rooms(tick_log):
+        return None
+    activation = select_multi_tier_policy_activation(
+        strategy_variant,
+        fixture_room_summaries,
+        anchor_room=anchor_room,
+    )
+    if activation is None:
+        return None
+    target_room = activation.get("targetRoom")
+    if not isinstance(target_room, str):
+        return None
+    observed = _multi_tier_policy_activation_observed_evidence(tick_log, target_room)
+    if observed is None:
+        return None
+    activation["objectiveSignalObserved"] = True
+    activation["objectiveSignalSource"] = "tick_log"
+    activation["observedEvidence"] = observed
+    return activation
+
+
+def _tick_fixture_merged_rooms(tick_entry: JsonObject) -> set[str] | None:
+    fixture_state = tick_entry.get("fixtureRoomState")
+    if not isinstance(fixture_state, dict):
+        sources = tick_entry.get("roomStateSources")
+        if isinstance(sources, list) and "map-fixture" in sources:
+            return None
+        return set()
+    merged = fixture_state.get("mergedRooms")
+    if isinstance(merged, list):
+        return {room for room in merged if isinstance(room, str)}
+    return None
+
+
+def _tick_room_is_fixture_generated(tick_entry: JsonObject, room_name: str) -> bool:
+    merged = _tick_fixture_merged_rooms(tick_entry)
+    if merged is None:
+        return True
+    return room_name in merged
+
+
+def _tick_log_has_fixture_generated_rooms(tick_log: Sequence[JsonObject]) -> bool:
+    for tick_entry in tick_log:
+        if not isinstance(tick_entry, dict):
+            continue
+        merged = _tick_fixture_merged_rooms(tick_entry)
+        if merged is None or merged:
+            return True
+    return False
+
+
+def _tick_room_summary(tick_entry: JsonObject, room_name: str) -> JsonObject | None:
+    rooms = tick_entry.get("rooms")
+    if not isinstance(rooms, dict):
+        return None
+    summary = rooms.get(room_name)
+    return summary if isinstance(summary, dict) else None
+
+
+def _room_own_presence_count(summary: JsonObject) -> int:
+    return (_extract_int(summary.get("ownedCreeps")) or 0) + (_extract_int(summary.get("ownStructures")) or 0)
+
+
+def _multi_tier_policy_activation_observed_evidence(
+    tick_log: Sequence[JsonObject],
+    target_room: str,
+) -> JsonObject | None:
+    snapshots: list[tuple[int | None, JsonObject]] = []
+    for tick_entry in tick_log:
+        if not isinstance(tick_entry, dict):
+            continue
+        if _tick_room_is_fixture_generated(tick_entry, target_room):
+            continue
+        summary = _tick_room_summary(tick_entry, target_room)
+        if summary is None or not _room_summary_has_observable_state(summary):
+            continue
+        tick_value = _extract_int(tick_entry.get("tick"))
+        snapshots.append((tick_value, summary))
+    if len(snapshots) < 2:
+        return None
+
+    initial_tick, initial_summary = snapshots[0]
+    final_tick, final_summary = snapshots[-1]
+    initial_hostiles = _fixture_room_hostile_count(initial_summary)
+    final_hostiles = _fixture_room_hostile_count(final_summary)
+    initial_owned = _room_summary_owned(initial_summary)
+    final_owned = _room_summary_owned(final_summary)
+    initial_own_presence = _room_own_presence_count(initial_summary)
+    final_own_presence = _room_own_presence_count(final_summary)
+    hostile_reduced = final_hostiles < initial_hostiles
+    controller_claimed = not initial_owned and final_owned
+    own_presence_increased = final_own_presence > initial_own_presence
+    if not (hostile_reduced or controller_claimed or own_presence_increased):
+        return None
+
+    return {
+        "targetRoom": target_room,
+        "observedTickCount": len(snapshots),
+        "initialTick": initial_tick,
+        "finalTick": final_tick,
+        "initialHostileCount": initial_hostiles,
+        "finalHostileCount": final_hostiles,
+        "hostileCountReduced": hostile_reduced,
+        "controllerClaimed": controller_claimed,
+        "ownPresenceIncreased": own_presence_increased,
+        "fixtureGeneratedRoomState": False,
+    }
 
 
 def build_variant_owned_room_scorecard(variant_result: JsonObject) -> JsonObject:
@@ -3142,7 +3298,6 @@ def _run_variant(
             except Exception as exc:  # noqa: BLE001 - preserve the original result and surface cleanup failure
                 errors.append(f"cleanup failed: {_safe_text(exc, 420)}")
 
-    policy_activation = build_multi_tier_policy_activation_evidence(variant_ticks, strategy_variant, fixture_room_summaries)
     wall_seconds = round(time.time() - start, 3)
     if wall_seconds <= 0:
         wall_seconds = 0.0
@@ -3170,7 +3325,7 @@ def _run_variant(
         "ticks_per_second": ticks_per_second,
         "tick_log": variant_ticks,
         "metrics": build_variant_metrics(variant_ticks),
-        "policyActivation": policy_activation,
+        "policyActivation": None,
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": False,
@@ -3194,6 +3349,15 @@ def _run_variant(
         result["errors"] = errors
     result["ok"] = len(errors) == 0
     result["error"] = errors[0] if errors else None
+    if result["ok"]:
+        result["policyActivation"] = build_multi_tier_policy_activation_evidence(
+            variant_ticks,
+            strategy_variant,
+            fixture_room_summaries,
+            anchor_room=room,
+            run_errors=errors,
+            evidence_errors=evidence_errors,
+        )
     return result
 
 
