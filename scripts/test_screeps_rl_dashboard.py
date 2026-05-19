@@ -1078,8 +1078,8 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                     "trainingDidRun": True,
                     "trainingReportIds": 0,
                     "iterationExecution": {
-                        "episodesRun": 1,
-                        "policyUpdateIterations": 1,
+                        "episodesRun": 0,
+                        "policyUpdateIterations": 0,
                     },
                     "environmentExecution": {"completed": 0, "failed": 0},
                     "controllerSummary": {
