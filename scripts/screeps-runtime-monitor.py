@@ -47,6 +47,7 @@ RAMPART_DECAY_EVENT_TICKS = 100
 RAMPART_DECAY_RECENT_HOSTILE_TICKS = RAMPART_DECAY_EVENT_TICKS
 RAMPART_SAFE_DECAY_HITS_FLOOR = 10_000
 RAMPART_CRITICAL_DAMAGE_DELTA = 5_000
+RAMPART_CRITICAL_DAMAGE_HITS_CEILING = 121_000
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
@@ -2503,7 +2504,12 @@ def category_severity(category: str, reason: dict[str, Any]) -> str:
             delta = number_from_reason(reason, "delta")
             if hits is not None and hits <= RAMPART_SAFE_DECAY_HITS_FLOOR:
                 return "critical"
-            if delta is not None and delta >= RAMPART_CRITICAL_DAMAGE_DELTA:
+            if (
+                hits is not None
+                and hits <= RAMPART_CRITICAL_DAMAGE_HITS_CEILING
+                and delta is not None
+                and delta >= RAMPART_CRITICAL_DAMAGE_DELTA
+            ):
                 return "critical"
         elif hits is not None and hits_max and hits / hits_max <= 0.25:
             return "critical"
