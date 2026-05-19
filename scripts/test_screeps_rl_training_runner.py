@@ -555,7 +555,9 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(proof["audit"]["codeCommit"], card["code_commit"])
         self.assertEqual(proof["audit"]["scenarioId"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(proof["audit"]["activationImplementation"], runner.MULTI_TIER_ACTIVATION_IMPLEMENTATION)
-        self.assertIsInstance(proof["audit"]["comparisonKey"], str)
+        comparison_key = proof["audit"]["comparisonKey"]
+        self.assertIsInstance(comparison_key, str)
+        self.assertTrue(comparison_key.strip(), "comparisonKey must not be empty")
         territory_result = next(
             result
             for result in report["variantResults"]
@@ -626,7 +628,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
     def test_multi_tier_activation_audit_key_includes_code_commit_for_same_scenario_map(self) -> None:
         def run_report(code_commit: str, report_id: str) -> JsonObject:
             card = card_helper.build_card(
-                dataset_run_id=f"rl-training-multitier-audit-{code_commit[0]}",
+                dataset_run_id="rl-training-multitier-audit-same-scenario-map",
                 code_commit=code_commit,
                 training_approach="policy_gradient",
                 created_at="2026-05-18T10:28:00Z",
