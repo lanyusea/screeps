@@ -568,6 +568,45 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertIn("auto-refresh has not completed successfully", summary["health"]["failures"])
         self.assertFalse(summary["refresh"]["lastRefreshOk"])
 
+    def test_summary_and_healthz_read_sqlite_under_refresh_lock(self) -> None:
+        original_sqlite_summary = live.sqlite_summary
+        observed_locked_reads: list[bool] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+
+            def locked_sqlite_summary(db_path_arg: Path, repo_root_arg: Path) -> JsonObject:
+                observed_locked_reads.append(server.refresh_lock.locked())
+                return original_sqlite_summary(db_path_arg, repo_root_arg)
+
+            live.sqlite_summary = locked_sqlite_summary
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+                summary = read_json_url(f"http://{host}:{port}/api/summary")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.sqlite_summary = original_sqlite_summary
+
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+        self.assertTrue(summary["health"]["ok"])
+        self.assertGreaterEqual(len(observed_locked_reads), 2)
+        self.assertTrue(all(observed_locked_reads))
+
     def test_auto_refresh_state_is_exposed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

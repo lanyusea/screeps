@@ -129,7 +129,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                         refresh = refresh_metrics(self.config.db_path, self.config.artifact_root)
                     except Exception as error:  # pragma: no cover - defensive background loop boundary
                         refresh = {"ok": False, "error": str(error)}
-                self.record_refresh(refresh)
+                    self.record_refresh(refresh)
 
         self.refresh_thread = threading.Thread(target=refresh_loop, daemon=True, name="rl-dashboard-refresh")
         self.refresh_thread.start()
@@ -962,6 +962,7 @@ def build_live_summary(
     generated_at: str | None = None,
     dashboard_url: str | None = None,
     refresh: JsonObject | None = None,
+    db_summary: JsonObject | None = None,
 ) -> JsonObject:
     generated = generated_at or utc_now_iso()
     refresh_summary: JsonObject = refresh or {
@@ -972,7 +973,7 @@ def build_live_summary(
         "lastRefresh": None,
         "nextRefreshAt": None,
     }
-    db = sqlite_summary(db_path, repo_root)
+    db = db_summary if db_summary is not None else sqlite_summary(db_path, repo_root)
     health = health_with_refresh(health_from_db_summary(db), refresh_summary)
     raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
@@ -1358,9 +1359,10 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             config = self.server.config
             generated = utc_now_iso()
-            db = sqlite_summary(config.db_path, config.repo_root)
-            refresh = self.server.refresh_snapshot()
-            health = health_with_refresh(health_from_db_summary(db), refresh)
+            with self.server.refresh_lock:
+                db = sqlite_summary(config.db_path, config.repo_root)
+                refresh = self.server.refresh_snapshot()
+                health = health_with_refresh(health_from_db_summary(db), refresh)
             status = HTTPStatus.OK if health["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
             self.write_json(
                 status,
@@ -1383,15 +1385,17 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if not self.server.config.enable_refresh_endpoint:
             self.write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "refresh endpoint disabled"})
             return
+        refresh_raised = False
         with self.server.refresh_lock:
             try:
                 refresh = refresh_metrics(self.server.config.db_path, self.server.config.artifact_root)
             except Exception as error:  # pragma: no cover - defensive handler boundary
                 refresh = {"ok": False, "error": str(error)}
-                self.server.record_refresh(refresh)
-                self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, refresh)
-                return
-        self.server.record_refresh(refresh)
+                refresh_raised = True
+            self.server.record_refresh(refresh)
+        if refresh_raised:
+            self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, refresh)
+            return
         if not refresh_succeeded(refresh):
             self.write_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -1406,12 +1410,16 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
     def summary(self) -> JsonObject:
         config = self.server.config
         host, port = self.server.server_address[:2]
+        with self.server.refresh_lock:
+            db = sqlite_summary(config.db_path, config.repo_root)
+            refresh = self.server.refresh_snapshot()
         return build_live_summary(
             config.repo_root,
             config.artifact_root,
             config.db_path,
             dashboard_url=format_dashboard_url(str(host), int(port)),
-            refresh=self.server.refresh_snapshot(),
+            refresh=refresh,
+            db_summary=db,
         )
 
     def write_json(self, status: HTTPStatus, payload: JsonObject) -> None:
