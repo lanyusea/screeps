@@ -2163,9 +2163,9 @@ def multi_tier_activation_sample_trace(
         "parameterHash": canonical_hash(variant.parameters),
         "activationEvidence": copy.deepcopy(activation_evidence),
         "policyActivationPresent": policy_activation is not None,
-        "metricsSource": "projected_policy_activation"
-        if projected_activation is not None
-        else ("simulator_policy_activation" if activation is not None else "raw_metric_reduction"),
+        "metricsSource": "simulator_policy_activation"
+        if activation is not None
+        else ("projected_policy_activation" if projected_activation is not None else "raw_metric_reduction"),
         "scenario": {
             "runId": scenario.get("runId"),
             "room": scenario.get("room"),

@@ -564,6 +564,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
         self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
         territory_trace = territory_result["multiTierActivationTraces"][0]
+        self.assertEqual(territory_trace["metricsSource"], "simulator_policy_activation")
         self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
         self.assertEqual(territory_trace["projectedEvidence"]["projectedHostileKills"], 1)
         self.assertEqual(
