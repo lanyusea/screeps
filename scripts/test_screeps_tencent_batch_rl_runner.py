@@ -1018,6 +1018,45 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
             )
             self.assertFalse(summary["outputs"]["trainingReport"]["policyUpdate"]["liveEffect"])
+            self.assertEqual(summary["outputs"]["trainingReport"]["batchScale"]["batchClass"], "smoke")
+            self.assertFalse(summary["outputs"]["trainingReport"]["batchScale"]["scaleFirstEligible"])
+            self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
+
+    def test_verify_remote_training_report_records_smoke_batch_scale_from_simulator_ticks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                json.dumps(
+                    {
+                        "reportId": "run-test",
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                        "artifactCount": 5,
+                        "simulation": {"ticks": 500},
+                        "variantResults": [
+                            {"variantId": f"variant-{index}", "runs": [{"ticksRun": 500, "ok": True}]}
+                            for index in range(5)
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+            controller.verify_remote_training_report()
+            controller.write_summary()
+
+            summary = json.loads((root / "controller-summary.json").read_text(encoding="utf-8"))
+
+        batch_scale = summary["outputs"]["trainingReport"]["batchScale"]
+        self.assertEqual(batch_scale["batchClass"], "smoke")
+        self.assertEqual(batch_scale["environmentRows"], 5)
+        self.assertEqual(batch_scale["simulatorTicks"], 2500)
+        self.assertFalse(batch_scale["scaleFirstEligible"])
+        self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
+        self.assertEqual(summary["batchScale"]["basis"], "training_report")
 
     def test_e1s1_repeat_launch_guard_blocks_after_three_dead_tier_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

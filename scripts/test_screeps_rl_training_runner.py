@@ -323,6 +323,28 @@ class RlTrainingRunnerTest(unittest.TestCase):
             report["warnings"],
         )
 
+    def test_training_report_classifies_default_smoke_batch_scale(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, base_card())
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="smoke-batch-scale",
+                simulator_runner=MockSimulator({"baseline": baseline, "candidate": candidate}),
+            )
+
+        self.assertEqual(report["batchScale"]["batchClass"], "smoke")
+        self.assertEqual(report["batchScale"]["environmentRows"], 2)
+        self.assertEqual(report["batchScale"]["simulatorTicks"], 4)
+        self.assertFalse(report["batchScale"]["scaleFirstEligible"])
+        self.assertEqual(runner.build_generation_summary(report)["batchScale"]["batchClass"], "smoke")
+
     def test_multi_tier_activation_proof_blocks_when_fixture_signal_has_no_objective_movement(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-multitier-blocked",

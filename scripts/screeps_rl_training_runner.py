@@ -25,6 +25,7 @@ from screeps_rl_experiment_card import (
 import screeps_rl_dataset_export as dataset_export
 import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
+import screeps_rl_scale_gates as scale_gates
 
 
 SCHEMA_VERSION = 1
@@ -1129,6 +1130,13 @@ def build_training_report(
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
     scale_validation = build_scale_validation_summary(simulator_runs, config)
+    artifact_count = sum(result["sampleCount"] for result in results)
+    batch_scale = scale_gates.build_batch_scale_summary(
+        environment_rows=artifact_count,
+        simulator_ticks=training_simulator_ticks(simulator_runs),
+        wall_clock_seconds=training_wall_clock_seconds(simulator_runs),
+        basis="training_report",
+    )
     raw_policy_gradient = raw_policy_gradient_metadata_from_card(card)
     runtime_parameter_injection = (
         build_report_runtime_parameter_injection_summary(results, variants, raw_policy_gradient)
@@ -1190,7 +1198,8 @@ def build_training_report(
         "strategyVariants": [variant.to_json() for variant in variants],
         "candidateStrategyIds": [variant.id for variant in variants],
         "incumbentStrategyIds": incumbent_ids,
-        "artifactCount": sum(result["sampleCount"] for result in results),
+        "artifactCount": artifact_count,
+        "batchScale": batch_scale,
         "variantResults": results,
         "ranking": ranking,
         "statisticalComparison": {
@@ -1249,6 +1258,50 @@ def build_training_report(
             report["policyUpdateCandidatePolicyId"] = text_or_none(next_candidate_policy.get("candidatePolicyId"))
         report["policyUpdate"] = policy_update
     return report
+
+
+def training_simulator_ticks(simulator_runs: Sequence[JsonObject]) -> int:
+    total = 0
+    for run in simulator_runs:
+        run_total = int_or_none(run.get("total_ticks", run.get("totalTicks"))) if isinstance(run, dict) else None
+        if run_total is not None:
+            total += run_total
+            continue
+        variants = run.get("variants") if isinstance(run, dict) else None
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            total += int_or_none(variant.get("ticks_run", variant.get("ticksRun"))) or 0
+    return total
+
+
+def training_wall_clock_seconds(simulator_runs: Sequence[JsonObject]) -> float | None:
+    total = 0.0
+    observed = False
+    for run in simulator_runs:
+        if not isinstance(run, dict):
+            continue
+        run_wall = number_or_none(run.get("wallClockSeconds", run.get("wall_clock_seconds")))
+        if run_wall is not None:
+            total += float(run_wall)
+            observed = True
+            continue
+        variants = run.get("variants")
+        if not isinstance(variants, list):
+            continue
+        variant_wall = [
+            float(value)
+            for variant in variants
+            if isinstance(variant, dict)
+            for value in [number_or_none(variant.get("wall_clock_seconds", variant.get("wallClockSeconds")))]
+            if value is not None
+        ]
+        if variant_wall:
+            total += max(variant_wall)
+            observed = True
+    return total if observed else None
 
 
 def build_policy_update(
@@ -3834,6 +3887,7 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "incumbentStrategyIds": report["incumbentStrategyIds"],
         "topVariantId": report["ranking"][0]["variantId"] if report["ranking"] else None,
         "artifactCount": report["artifactCount"],
+        "batchScale": copy.deepcopy(report.get("batchScale")),
         "changedTopCount": report["changedTopCount"],
         "policyUpdateIterations": report.get("policyUpdateIterations", 0),
         "policyUpdateAlgorithm": report.get("policyUpdateAlgorithm"),
