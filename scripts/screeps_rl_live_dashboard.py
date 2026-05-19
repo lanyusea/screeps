@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 import screeps_rl_dashboard as static_dashboard
 import screeps_rl_metrics_ingestor as metrics_ingestor
+import screeps_rl_scale_gates as scale_gates
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -300,6 +301,7 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
             if payload is None:
                 continue
             compute_evidence = static_dashboard.compute_evidence_summary(payload)
+            batch_scale = tencent_batch_scale(payload)
             runs.append(
                 {
                     "runId": payload.get("runId") or path.parent.name,
@@ -313,6 +315,7 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
                     "safety": payload.get("safety") if isinstance(payload.get("safety"), dict) else {},
                     "computeEvidence": compute_evidence,
                     "computeClassification": compute_evidence.get("classification"),
+                    "batchScale": batch_scale,
                     "blocker": compute_evidence.get("blocker"),
                     "path": safe_display_path(path, repo_root),
                     "timestamp": display_timestamp(artifact_timestamp(path, payload)),
@@ -336,6 +339,49 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
         "preflightOnlyRunCount": len(preflight_only),
         "latest": latest,
     }
+
+
+def tencent_batch_scale(payload: JsonObject) -> JsonObject:
+    for candidate in (
+        payload.get("batchScale"),
+        static_dashboard.nested_value(payload, ("outputs", "trainingReport", "batchScale")),
+    ):
+        if isinstance(candidate, dict):
+            rows = scale_gates.non_negative_int(candidate.get("environmentRows"))
+            ticks = scale_gates.non_negative_int(candidate.get("simulatorTicks"))
+            if rows is not None and ticks is not None:
+                return scale_gates.build_batch_scale_summary(
+                    environment_rows=rows,
+                    simulator_ticks=ticks,
+                    wall_clock_seconds=candidate.get("wallClockSeconds"),
+                    asg_active_seconds=candidate.get("asgActiveSeconds"),
+                    cost_estimate=candidate.get("costEstimate"),
+                    basis=str(candidate.get("basis") or "controller_summary"),
+                )
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    planned = inputs.get("plannedBatchScale")
+    if isinstance(planned, dict):
+        rows = scale_gates.non_negative_int(planned.get("environmentRows"))
+        ticks = scale_gates.non_negative_int(planned.get("simulatorTicks"))
+        if rows is not None and ticks is not None:
+            return scale_gates.build_batch_scale_summary(
+                environment_rows=rows,
+                simulator_ticks=ticks,
+                basis="planned_inputs",
+            )
+    workers = (
+        scale_gates.non_negative_int(inputs.get("scaleEnvironments"))
+        or scale_gates.non_negative_int(inputs.get("workers"))
+        or 0
+    )
+    repetitions = scale_gates.non_negative_int(inputs.get("repetitions")) or 1
+    ticks_per_row = scale_gates.non_negative_int(inputs.get("ticks")) or 0
+    environment_rows = workers * repetitions
+    return scale_gates.build_batch_scale_summary(
+        environment_rows=environment_rows,
+        simulator_ticks=environment_rows * ticks_per_row,
+        basis="legacy_inputs",
+    )
 
 
 def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonObject) -> JsonObject:
@@ -463,6 +509,7 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
     scorecard = loop_b.get("scorecard") if isinstance(loop_b.get("scorecard"), dict) else {}
     tencent = summary.get("tencentBatch") if isinstance(summary.get("tencentBatch"), dict) else {}
     latest_tencent = tencent.get("latest") if isinstance(tencent.get("latest"), dict) else {}
+    latest_batch_scale = latest_tencent.get("batchScale") if isinstance(latest_tencent.get("batchScale"), dict) else {}
     safety = summary.get("safety") if isinstance(summary.get("safety"), dict) else {}
     db = summary.get("db") if isinstance(summary.get("db"), dict) else {}
 
@@ -515,6 +562,10 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Latest run", h(latest_tencent.get("runId") or "N/A")),
         ("Latest status", render_status(latest_tencent.get("finalStatus"))),
         ("Latest compute evidence", h(latest_tencent.get("computeClassification") or "N/A")),
+        ("Latest batch class", h(latest_batch_scale.get("batchClass") or "N/A")),
+        ("Latest env rows", h(latest_batch_scale.get("environmentRows", "N/A"))),
+        ("Latest simulator ticks", h(latest_batch_scale.get("simulatorTicks", "N/A"))),
+        ("Scale-first eligible", h(latest_batch_scale.get("scaleFirstEligible", "N/A"))),
         ("Scale down attempted", h(latest_tencent.get("safety", {}).get("scaleDownAttempted") if isinstance(latest_tencent.get("safety"), dict) else "N/A")),
     ]
     safety_rows = [

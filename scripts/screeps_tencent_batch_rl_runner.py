@@ -41,6 +41,7 @@ from screeps_rl_experiment_card import (
     multi_tier_scenario_fixture_summary,
     scenario_supports_multi_tier_policy_comparison,
 )
+import screeps_rl_scale_gates as scale_gates
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TCCLI = Path("/root/.hermes/hermes-agent/venv/bin/tccli")
@@ -224,6 +225,7 @@ class Controller:
         training_report = self.result.get("trainingReport")
         report_safety = training_report if isinstance(training_report, dict) else {}
         execution = controller_execution_summary(self.args, self.steps, self.result, self.scaled_up, self.instance_id)
+        batch_scale = controller_batch_scale_summary(self.args, self.steps, self.result)
         payload = {
             "type": "screeps-tencent-batch-rl-run",
             "schemaVersion": 1,
@@ -241,6 +243,7 @@ class Controller:
             "remoteDir": self.remote_dir,
             "localArtifactDir": str(self.artifact_dir),
             "execution": execution,
+            "batchScale": batch_scale,
             "safety": {
                 "liveEffect": report_safety.get("liveEffect", False),
                 "officialMmoWrites": report_safety.get("officialMmoWrites", False),
@@ -262,6 +265,7 @@ class Controller:
                 "trainingApproach": self.args.training_approach,
                 "scenarioId": getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
                 "requireMultiTierScenario": getattr(self.args, "require_multi_tier_scenario", False),
+                "plannedBatchScale": planned_batch_scale_from_args(self.args),
             },
             "outputs": self.result,
             "steps": [step.__dict__ for step in self.steps],
@@ -906,6 +910,7 @@ tar -czf remote-artifacts.tar.gz \
         artifact_count = data.get("artifactCount")
         if not isinstance(artifact_count, int) or artifact_count <= 0:
             raise BatchRunError(f"remote training artifactCount invalid: {artifact_count!r}")
+        batch_scale = batch_scale_summary_from_training_report(data, artifact_count)
         scale_environments = resolve_scale_environment_count(self.args)
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
@@ -916,6 +921,7 @@ tar -czf remote-artifacts.tar.gz \
             "reportId": data.get("reportId"),
             **safety_flags,
             "artifactCount": artifact_count,
+            "batchScale": batch_scale,
             "changedTopCount": data.get("changedTopCount"),
             **policy_update_fields,
             "ranking": data.get("ranking"),
@@ -1068,6 +1074,165 @@ def controller_execution_summary(
         "artifactCount": training_report_data.get("artifactCount"),
         "environmentsRun": environments_run,
     }
+
+
+def controller_batch_scale_summary(
+    args: argparse.Namespace,
+    steps: Sequence[StepRecord],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    training_report = result.get("trainingReport")
+    report_data = training_report if isinstance(training_report, dict) else {}
+    report_scale = dict_value(report_data.get("batchScale"))
+    planned_scale = planned_batch_scale_from_args(args)
+    basis = "training_report" if report_scale is not None else "requested_inputs"
+    source = report_scale or planned_scale
+    environment_rows = scale_gates.non_negative_int(source.get("environmentRows")) or 0
+    simulator_ticks = scale_gates.non_negative_int(source.get("simulatorTicks")) or 0
+    wall_seconds = remote_training_wall_seconds(steps)
+    if wall_seconds is None:
+        wall_seconds = scale_gates.non_negative_float(source.get("wallClockSeconds"))
+    cost_estimate = cost_estimate_from_result(result)
+    if cost_estimate is None:
+        cost_estimate = source.get("costEstimate")
+    return scale_gates.build_batch_scale_summary(
+        environment_rows=environment_rows,
+        simulator_ticks=simulator_ticks,
+        wall_clock_seconds=wall_seconds,
+        asg_active_seconds=asg_active_seconds(steps),
+        cost_estimate=cost_estimate,
+        basis=basis,
+    )
+
+
+def planned_batch_scale_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    repetitions = max(1, int(getattr(args, "repetitions", 1) or 1))
+    environment_count = resolve_scale_environment_count(args)
+    if environment_count is None:
+        environment_count = max(1, int(getattr(args, "workers", 1) or 1))
+    environment_rows = environment_count * repetitions
+    return scale_gates.build_batch_scale_summary(
+        environment_rows=environment_rows,
+        simulator_ticks=environment_rows * effective_training_ticks(args),
+        basis="requested_inputs",
+    )
+
+
+def batch_scale_summary_from_training_report(
+    data: dict[str, Any],
+    artifact_count: int,
+) -> dict[str, Any]:
+    raw_batch_scale = dict_value(data.get("batchScale"))
+    environment_rows = (
+        scale_gates.non_negative_int(path_value(raw_batch_scale, "environmentRows"))
+        if raw_batch_scale is not None
+        else None
+    )
+    simulator_ticks = (
+        scale_gates.non_negative_int(path_value(raw_batch_scale, "simulatorTicks"))
+        if raw_batch_scale is not None
+        else None
+    )
+    wall_seconds = (
+        scale_gates.non_negative_float(path_value(raw_batch_scale, "wallClockSeconds"))
+        if raw_batch_scale is not None
+        else None
+    )
+    if environment_rows is None:
+        environment_rows = artifact_count
+    if simulator_ticks is None:
+        simulator_ticks = training_report_simulator_ticks(data, environment_rows)
+    return scale_gates.build_batch_scale_summary(
+        environment_rows=environment_rows,
+        simulator_ticks=simulator_ticks,
+        wall_clock_seconds=wall_seconds,
+        basis="training_report",
+    )
+
+
+def training_report_simulator_ticks(data: dict[str, Any], environment_rows: int) -> int:
+    total = 0
+    for result in list_value(data.get("variantResults")):
+        if not isinstance(result, dict):
+            continue
+        for run in list_value(result.get("runs")):
+            if not isinstance(run, dict):
+                continue
+            total += scale_gates.non_negative_int(run.get("ticksRun", run.get("ticks_run"))) or 0
+    if total > 0:
+        return total
+    ticks_per_row = scale_gates.non_negative_int(path_value(data, "simulation", "ticks")) or 0
+    return environment_rows * ticks_per_row
+
+
+def remote_training_wall_seconds(steps: Sequence[StepRecord]) -> float | None:
+    durations = [
+        duration
+        for step in steps
+        if step.name == "remote_training"
+        for duration in [step_duration_seconds(step)]
+        if duration is not None
+    ]
+    return sum(durations) if durations else None
+
+
+def asg_active_seconds(steps: Sequence[StepRecord]) -> float | None:
+    starts = [
+        value
+        for step in steps
+        if step.name == "scale_up"
+        for value in [parse_iso_epoch(step.started_at)]
+        if value is not None
+    ]
+    ends = [
+        value
+        for step in steps
+        if step.name == "scale_down"
+        for value in [parse_iso_epoch(step.ended_at)]
+        if value is not None
+    ]
+    if not starts or not ends:
+        return None
+    active = max(ends) - min(starts)
+    return active if active >= 0 else None
+
+
+def step_duration_seconds(step: StepRecord) -> float | None:
+    started = parse_iso_epoch(step.started_at)
+    ended = parse_iso_epoch(step.ended_at)
+    if started is None or ended is None:
+        return None
+    duration = ended - started
+    return duration if duration >= 0 else None
+
+
+def parse_iso_epoch(value: Any) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def cost_estimate_from_result(result: dict[str, Any]) -> Any | None:
+    guard = dict_value(result.get("billingGuard"))
+    if guard is None:
+        return None
+    for path in (
+        ("costEstimate",),
+        ("cost_estimate",),
+        ("estimatedCost",),
+        ("estimated_cost",),
+        ("estimatedCostUsd",),
+        ("estimatedCostCny",),
+        ("maxCostUsd",),
+        ("max_cost_usd",),
+    ):
+        value = path_value(guard, *path)
+        if value is not None:
+            return value
+    return None
 
 
 def training_environments_run(training_report: dict[str, Any]) -> int:
