@@ -535,6 +535,53 @@ def compute_evidence_summary(payload: JsonObject) -> JsonObject:
     }
 
 
+def strong_compute_evidence_summary(payload: JsonObject) -> JsonObject:
+    signals = collect_strong_compute_evidence(payload)
+    if signals:
+        return {
+            "hasCompute": True,
+            "classification": "COMPUTE_CONFIRMED",
+            "signals": signals[:12],
+            "blocker": None,
+        }
+    if preflight_marker_present(payload):
+        return {
+            "hasCompute": False,
+            "classification": "PREFLIGHT_ONLY_VALIDATION",
+            "signals": [],
+            "blocker": (
+                "Preflight-only controller validation found; no training report, environment completion, "
+                "or provisioned compute evidence is present."
+            ),
+        }
+    return {
+        "hasCompute": False,
+        "classification": "MISSING_COMPUTE_EVIDENCE",
+        "signals": [],
+        "blocker": (
+            "No real compute evidence found; require training report IDs, completed environments, "
+            "or controller execution/provisioning beyond preflight."
+        ),
+    }
+
+
+def compute_evidence_summary_has_strong_signal(summary: JsonObject) -> bool:
+    for signal in as_list(summary.get("signals")):
+        field = text_value(as_dict(signal).get("field"))
+        if field is None:
+            continue
+        if field in {
+            "environmentExecution.completed",
+            "controllerSummary.instanceId",
+            "controllerSummary.workerUser",
+        }:
+            return True
+        normalized = normalized_key(field)
+        if normalized in STRONG_TRAINING_REPORT_KEYS or normalized in ENVIRONMENT_RUN_COUNT_KEYS:
+            return True
+    return False
+
+
 def identity_text_values(value: Any) -> Iterable[str]:
     if isinstance(value, str):
         stripped = value.strip()
@@ -1745,10 +1792,14 @@ def card_supply_finding_for_policy(payload: JsonObject, training: JsonObject | N
 
 
 def policy_compute_evidence(payload: JsonObject, training: JsonObject | None) -> JsonObject:
-    evidence = compute_evidence_summary(payload)
+    evidence = strong_compute_evidence_summary(payload)
     training_evidence = as_dict((training or {}).get("computeEvidence"))
     identity_match = policy_training_identity_match(payload, training)
-    if training_evidence.get("hasCompute") is True and identity_match is not None:
+    if (
+        training_evidence.get("hasCompute") is True
+        and compute_evidence_summary_has_strong_signal(training_evidence)
+        and identity_match is not None
+    ):
         signals = list(as_list(evidence.get("signals")))
         signals.append(
             {

@@ -1144,6 +1144,50 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(lanes["E4"]["status"], "BLOCKED")
         self.assertEqual(lanes["E5"]["status"], "BLOCKED")
 
+    def test_weak_policy_counters_do_not_unblock_policy_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate",
+                    "baselinePolicyId": "incumbent",
+                    "artifactCount": 1,
+                    "iterationExecution": {
+                        "episodesRun": 12,
+                        "policyUpdateIterations": 3,
+                    },
+                    "metricsByCategory": {
+                        "resources": {
+                            "status": "ADVANTAGE",
+                            "candidateValue": 10,
+                            "baselineValue": 5,
+                            "delta": 5,
+                        },
+                    },
+                    "createdAt": "2026-05-19T00:02:00Z",
+                },
+            )
+            report = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T00:03:00Z",
+            )
+
+        lanes = {item["lane"]: item for item in report["lanes"]}
+        self.assertEqual(report["policy"]["rawStatus"], "PROVEN")
+        self.assertEqual(report["policy"]["status"], "BLOCKED")
+        self.assertFalse(report["policy"]["hasComputeEvidence"])
+        self.assertEqual(report["policy"]["metrics"][0]["rawStatus"], "ADVANTAGE")
+        self.assertEqual(report["policy"]["metrics"][0]["status"], "BLOCKED_NO_COMPUTE")
+        self.assertEqual(report["policy"]["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
+        self.assertEqual(report["policy"]["computeEvidence"]["signals"], [])
+        self.assertEqual(lanes["E3"]["status"], "BLOCKED")
+        self.assertEqual(lanes["E5"]["status"], "BLOCKED")
+
     def test_unrelated_training_compute_does_not_unblock_preflight_policy_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
