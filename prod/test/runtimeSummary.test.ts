@@ -2460,18 +2460,15 @@ describe('runtime telemetry summaries', () => {
     ).toBe(true);
   });
 
-  it('reports runtime use of the construction-priority strategy entry while summarizing a tick', () => {
+  it('does not report construction-priority runtime use from summary-only scoring', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const onStrategyRegistryRuntimeUse = jest.fn();
 
     emitRuntimeSummary([colony], [], [], {
-      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
-      onStrategyRegistryRuntimeUse
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY
     });
 
-    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'construction-priority.incumbent.v1' })
-    );
+    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
   function parseLoggedSummary(): Record<string, unknown> {

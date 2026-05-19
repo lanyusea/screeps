@@ -204,7 +204,12 @@ export function runEconomy(
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     if (postClaimBootstrapRefresh.deferred !== true) {
-      planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
+      planClaimedRoomConstruction(colony, {
+        respectRoomEnergyBuffer: true,
+        creeps,
+        strategyRegistry: options.strategyRegistry,
+        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+      });
     }
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -338,8 +343,7 @@ export function runEconomy(
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
     persistOccupationRecommendations: false,
-    strategyRegistry: options.strategyRegistry,
-    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+    strategyRegistry: options.strategyRegistry
   });
 }
 

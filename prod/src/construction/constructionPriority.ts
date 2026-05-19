@@ -111,6 +111,7 @@ export interface ConstructionPriorityFactors {
 
 export interface ConstructionPriorityScore {
   buildItem: string;
+  buildType: ConstructionPriorityBuildType;
   room: string;
   policyAction: ConstructionPriorityPolicyAction;
   score: number;
@@ -347,6 +348,7 @@ export function scoreConstructionCandidate(
   if (blocked) {
     return {
       buildItem: candidate.buildItem,
+      buildType: candidate.buildType,
       room: candidate.roomName ?? roomState.roomName,
       policyAction: candidate.policyAction ?? 'build',
       score: 0,
@@ -385,6 +387,7 @@ export function scoreConstructionCandidate(
 
   return {
     buildItem: candidate.buildItem,
+    buildType: candidate.buildType,
     room: candidate.roomName ?? roomState.roomName,
     policyAction: candidate.policyAction ?? 'build',
     score,

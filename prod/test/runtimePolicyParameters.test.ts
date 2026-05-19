@@ -20,6 +20,7 @@ describe('runtime policy parameters', () => {
       candidateParameterScope: 'runtime_injected',
       strategyVariantId: 'construction-priority.pg.territory-seed.v1',
       candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.territory-shadow.v1',
       family: 'construction-priority',
       parameters: {
         baseScoreWeight: 1,
@@ -41,11 +42,20 @@ describe('runtime policy parameters', () => {
       parametersSha256: 'example-sha',
       reason: 'runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation'
     });
-    expect(result.evidence.appliedStrategyIds).toEqual(
-      expect.arrayContaining(['construction-priority.incumbent.v1', 'construction-priority.territory-shadow.v1'])
-    );
+    expect(result.evidence.appliedStrategyIds).toEqual(['construction-priority.territory-shadow.v1']);
     expect(constructionEntries.length).toBeGreaterThan(0);
-    expect(constructionEntries.every((entry) => entry.defaultValues.territorySignalWeight === 29)).toBe(true);
+    expect(
+      constructionEntries.find((entry) => entry.id === 'construction-priority.territory-shadow.v1')
+    ).toMatchObject({
+      rolloutStatus: 'incumbent',
+      defaultValues: expect.objectContaining({ territorySignalWeight: 29 })
+    });
+    expect(
+      constructionEntries.find((entry) => entry.id === 'construction-priority.incumbent.v1')
+    ).toMatchObject({
+      rolloutStatus: 'shadow',
+      defaultValues: expect.objectContaining({ territorySignalWeight: 6 })
+    });
     expect(
       (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL]
     ).toMatchObject(result.evidence);
@@ -82,12 +92,40 @@ describe('runtime policy parameters', () => {
     ).toMatchObject(result.evidence);
   });
 
+  it('does not fan out explicit candidate payloads to every family sibling', () => {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.resource-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.resource-seed.v1',
+      family: 'construction-priority',
+      parameters: {
+        territorySignalWeight: 2
+      },
+      parametersSha256: 'candidate-only-sha'
+    };
+
+    const result = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+    const constructionEntries = result.registry.filter((entry) => entry.family === 'construction-priority');
+
+    expect(result.evidence).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: false,
+      reason: 'runtime policy parameter payload did not match any strategy registry entry'
+    });
+    expect(result.evidence.appliedStrategyIds).toEqual([]);
+    expect(
+      constructionEntries.every((entry) => entry.defaultValues.territorySignalWeight !== 2)
+    ).toBe(true);
+  });
+
   it('marks consumption only after a patched strategy entry is used during a tick', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
       strategyVariantId: 'construction-priority.pg.territory-seed.v1',
       candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
       family: 'construction-priority',
       parameters: {
         baseScoreWeight: 1,
@@ -128,6 +166,7 @@ describe('runtime policy parameters', () => {
       candidateParameterScope: 'runtime_injected',
       strategyVariantId: 'construction-priority.pg.territory-seed.v1',
       candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
       family: 'construction-priority',
       parameters: {
         territorySignalWeight: 29

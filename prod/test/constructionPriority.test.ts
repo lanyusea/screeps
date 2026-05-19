@@ -116,42 +116,46 @@ describe('construction priority scoring', () => {
     const state = makeRoomState({
       rcl: 4,
       workerCount: 5,
-      energyCapacity: 1_300,
-      activeTerritoryIntentCount: 1
+      energyCapacity: 1_300
+    });
+    const candidates = [
+      {
+        buildItem: 'build remote logistics',
+        buildType: 'remote-logistics',
+        expectedKpiMovement: ['turns territory intent into sustainable income'],
+        signals: {},
+        vision: { territory: 1, resources: 0 }
+      },
+      {
+        buildItem: 'build storage logistics',
+        buildType: 'storage',
+        expectedKpiMovement: ['raises stored-energy capacity'],
+        signals: { energyBottleneck: 1, spawnUtilization: 1, rclAcceleration: 1, storageLogistics: 1 },
+        vision: { resources: 1, territory: 0 }
+      }
+    ] satisfies ConstructionBuildCandidate[];
+
+    const baseline = scoreConstructionPriorities(state, candidates);
+    const report = scoreConstructionPriorities(state, candidates, {
+      strategyParameters: {
+        baseScoreWeight: 0,
+        territorySignalWeight: 30,
+        resourceSignalWeight: 0,
+        killSignalWeight: 0,
+        riskPenalty: 0
+      }
     });
 
-    const report = scoreConstructionPriorities(
-      state,
-      [
-        {
-          buildItem: 'build remote logistics',
-          buildType: 'remote-logistics',
-          expectedKpiMovement: ['turns territory intent into sustainable income'],
-          signals: { expansionPrerequisite: 0.4 },
-          vision: { territory: 1, resources: 0.1 }
-        },
-        {
-          buildItem: 'build storage logistics',
-          buildType: 'storage',
-          expectedKpiMovement: ['raises stored-energy capacity'],
-          signals: { storageLogistics: 1 },
-          vision: { resources: 1, territory: 0.1 }
-        }
-      ],
-      {
-        strategyParameters: {
-          baseScoreWeight: 1,
-          territorySignalWeight: 30,
-          resourceSignalWeight: 0,
-          killSignalWeight: 0,
-          riskPenalty: 0
-        }
-      }
+    expect(baseline.nextPrimary?.buildItem).toBe('build storage logistics');
+    expect(scoreFor(baseline.candidates, 'build storage logistics')).toBeGreaterThan(
+      scoreFor(baseline.candidates, 'build remote logistics')
     );
-
     expect(report.nextPrimary?.buildItem).toBe('build remote logistics');
     expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
       scoreFor(report.candidates, 'build storage logistics')
+    );
+    expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
+      scoreFor(baseline.candidates, 'build remote logistics')
     );
   });
 

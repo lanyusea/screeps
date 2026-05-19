@@ -704,7 +704,6 @@ export interface RuntimeSummary {
 interface RuntimeSummaryOptions {
   persistOccupationRecommendations?: boolean;
   strategyRegistry?: StrategyRegistryEntry[];
-  onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
 let cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();
@@ -759,8 +758,7 @@ export function emitRuntimeSummary(
       persistOccupationRecommendations,
       eventMetricsByRoom.get(colony.room.name) ?? {},
       shouldBuildStructureSnapshot(tick),
-      options.strategyRegistry,
-      options.onStrategyRegistryRuntimeUse
+      options.strategyRegistry
     )
   );
   const summary: RuntimeSummary = {
@@ -859,8 +857,7 @@ function summarizeRoom(
   persistOccupationRecommendations: boolean,
   eventMetrics: RuntimeRoomEventMetrics,
   includeStructureSnapshot: boolean,
-  strategyRegistry: StrategyRegistryEntry[] | undefined,
-  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
+  strategyRegistry: StrategyRegistryEntry[] | undefined
 ): RuntimeRoomSummary {
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
@@ -902,12 +899,7 @@ function summarizeRoom(
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(
-      colony,
-      colonyWorkers,
-      strategyRegistry,
-      onStrategyRegistryRuntimeUse
-    ),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
@@ -2679,13 +2671,9 @@ function summarizeCombat(room: Room, events: RuntimeCombatEventSummary | undefin
 function summarizeConstructionPriority(
   colony: ColonySnapshot,
   colonyWorkers: Creep[],
-  strategyRegistry: StrategyRegistryEntry[] | undefined,
-  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
+  strategyRegistry: StrategyRegistryEntry[] | undefined
 ): RuntimeConstructionPrioritySummary {
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
-  if (strategyEntry) {
-    onStrategyRegistryRuntimeUse?.(strategyEntry);
-  }
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
     strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
   });

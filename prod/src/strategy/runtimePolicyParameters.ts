@@ -70,14 +70,29 @@ export function applyRuntimePolicyParametersToRegistry(
   }
 
   const appliedStrategyIds: string[] = [];
+  const targetedStrategyIds = new Set(
+    clonedRegistry.filter((entry) => runtimePolicyPayloadTargetsEntry(payload, entry)).map((entry) => entry.id)
+  );
+  const activatesSingleExplicitTarget =
+    targetedStrategyIds.size === 1 && runtimePolicyPayloadExplicitIds(payload).length > 0;
+  const activatedFamily = activatesSingleExplicitTarget
+    ? clonedRegistry.find((entry) => targetedStrategyIds.has(entry.id))?.family
+    : undefined;
   const patchedRegistry = clonedRegistry.map((entry) => {
-    if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+    if (!targetedStrategyIds.has(entry.id)) {
+      if (activatedFamily !== undefined && entry.family === activatedFamily && entry.rolloutStatus === 'incumbent') {
+        return {
+          ...entry,
+          rolloutStatus: 'shadow' as const
+        };
+      }
       return entry;
     }
 
     appliedStrategyIds.push(entry.id);
     return {
       ...entry,
+      ...(activatesSingleExplicitTarget ? { rolloutStatus: 'incumbent' as const } : {}),
       defaultValues: {
         ...entry.defaultValues,
         ...parameters
@@ -196,17 +211,22 @@ function runtimePolicyPayloadTargetsEntry(
   payload: RuntimePolicyParameterPayload,
   entry: StrategyRegistryEntry
 ): boolean {
-  const strategyVariantId = textOrUndefined(payload.strategyVariantId);
-  const candidatePolicyId = textOrUndefined(payload.candidatePolicyId);
-  const sourceStrategyId = textOrUndefined(payload.sourceStrategyId);
+  const explicitIds = runtimePolicyPayloadExplicitIds(payload);
   const family = textOrUndefined(payload.family);
 
-  return (
-    entry.id === strategyVariantId ||
-    entry.id === candidatePolicyId ||
-    entry.id === sourceStrategyId ||
-    (family !== undefined && entry.family === family)
-  );
+  if (explicitIds.length > 0) {
+    return explicitIds.includes(entry.id);
+  }
+
+  return family !== undefined && entry.family === family;
+}
+
+function runtimePolicyPayloadExplicitIds(payload: RuntimePolicyParameterPayload): string[] {
+  return [
+    textOrUndefined(payload.strategyVariantId),
+    textOrUndefined(payload.candidatePolicyId),
+    textOrUndefined(payload.sourceStrategyId)
+  ].filter((id): id is string => id !== undefined);
 }
 
 function strategyEntryUsesRuntimeParameters(

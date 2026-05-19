@@ -38,6 +38,9 @@ const kernel = new Kernel();
 const strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 const kpiWindowMaxLength = 120;
 const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+const runtimePolicyParameterPlanningEnabled =
+  runtimePolicyParameters.evidence.runtimeParameterInjection === true &&
+  runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
 const strategyRegistryState = {
   entries: runtimePolicyParameters.registry
 };
@@ -48,7 +51,9 @@ export function loop(): void {
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   const summary = kernel.run({
     strategyRegistry: strategyRegistryState.entries,
-    onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+    ...(runtimePolicyParameterPlanningEnabled
+      ? { onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse }
+      : {})
   });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);

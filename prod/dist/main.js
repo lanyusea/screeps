@@ -10182,6 +10182,7 @@ function scoreConstructionCandidate(roomState, candidate, options = {}) {
   if (blocked) {
     return {
       buildItem: candidate.buildItem,
+      buildType: candidate.buildType,
       room: (_b = candidate.roomName) != null ? _b : roomState.roomName,
       policyAction: (_c = candidate.policyAction) != null ? _c : "build",
       score: 0,
@@ -10218,6 +10219,7 @@ function scoreConstructionCandidate(roomState, candidate, options = {}) {
   const score = clampScore(Math.round(gatedScore));
   return {
     buildItem: candidate.buildItem,
+    buildType: candidate.buildType,
     room: (_e = candidate.roomName) != null ? _e : roomState.roomName,
     policyAction: (_f = candidate.policyAction) != null ? _f : "build",
     score,
@@ -12199,6 +12201,14 @@ var FALLBACK_CONTROLLER_STRUCTURES = {
   STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6],
   STRUCTURE_STORAGE: [0, 0, 0, 0, 1, 1, 1, 1, 1]
 };
+var DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES = [
+  "extension",
+  "container",
+  "road",
+  "tower",
+  "rampart",
+  "storage"
+];
 var PRIORITY_STRUCTURE_TYPES = {
   spawn: "STRUCTURE_SPAWN",
   extension: "STRUCTURE_EXTENSION",
@@ -12297,6 +12307,15 @@ function planConstructionForColony(colony, options = {}) {
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
+  }
+  if (planRuntimeStrategyPrioritizedConstruction(
+    colony,
+    result,
+    budgetState,
+    options,
+    priorityTowerDefenseSiteState
+  )) {
+    return result;
   }
   planExtensions(colony, result, budgetState, options);
   if (hasBlockingPlacementFailure(result)) {
@@ -12434,6 +12453,110 @@ function planStorage(colony, result, budgetState, options) {
   const storageResult = planStorageConstruction(colony);
   if (storageResult !== null) {
     recordPlacement(result, budgetState, "storage", storageResult, options);
+  }
+}
+function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState) {
+  var _a;
+  if (!options.onStrategyRegistryRuntimeUse) {
+    return false;
+  }
+  const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
+  const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
+  if (!strategyEntry || !strategyParameters) {
+    return false;
+  }
+  const report = buildRuntimeConstructionPriorityReport(colony, (_a = options.creeps) != null ? _a : [], { strategyParameters });
+  const priorities = runtimeConstructionPlannerPriorityOrder(report);
+  if (priorities.length === 0) {
+    return false;
+  }
+  options.onStrategyRegistryRuntimeUse(strategyEntry);
+  for (const priority of priorities) {
+    planRuntimeConstructionPlannerPriority(
+      priority,
+      colony,
+      result,
+      budgetState,
+      options,
+      priorityTowerDefenseSiteState
+    );
+    if (hasBlockingPlacementFailure(result)) {
+      return true;
+    }
+  }
+  return true;
+}
+function runtimeConstructionPlannerPriorityOrder(report) {
+  const priorities = [];
+  for (const score of report.candidates) {
+    if (score.blocked || score.policyAction !== "build") {
+      continue;
+    }
+    for (const priority of constructionPriorityScorePlannerPriorities(score)) {
+      if (!priorities.includes(priority)) {
+        priorities.push(priority);
+      }
+    }
+  }
+  for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
+    if (!priorities.includes(priority)) {
+      priorities.push(priority);
+    }
+  }
+  return priorities;
+}
+function constructionPriorityScorePlannerPriorities(score) {
+  switch (score.buildType) {
+    case "spawn":
+      return ["spawn"];
+    case "extension":
+      return ["extension"];
+    case "tower":
+      return ["tower"];
+    case "rampart":
+      return ["rampart"];
+    case "road":
+      return ["road"];
+    case "container":
+      return ["container"];
+    case "storage":
+      return ["storage"];
+    case "remote-logistics":
+      return ["container", "road"];
+    case "observation":
+      return [];
+  }
+}
+function planRuntimeConstructionPlannerPriority(priority, colony, result, budgetState, options, priorityTowerDefenseSiteState) {
+  switch (priority) {
+    case "spawn":
+      return;
+    case "extension":
+      planExtensions(colony, result, budgetState, options);
+      return;
+    case "container":
+      planContainers(colony, result, budgetState, options);
+      return;
+    case "road":
+      planRoads(colony, result, budgetState, options);
+      return;
+    case "tower":
+      if (priorityTowerDefenseSiteState === "notNeeded") {
+        planTowers(colony, result, budgetState, options);
+      }
+      return;
+    case "rampart":
+    case "wall":
+      if (priorityTowerDefenseSiteState !== "blocked") {
+        planBootstrapDefenseFloor(colony, result, budgetState, options);
+      }
+      if (options.includePostClaimRamparts === true) {
+        planRamparts(colony, result, budgetState, options);
+      }
+      return;
+    case "storage":
+      planStorage(colony, result, budgetState, options);
+      return;
   }
 }
 function buildSourceLogisticsStarvationRoadOptions(colony, options) {
@@ -35235,8 +35358,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         persistOccupationRecommendations,
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
         shouldBuildStructureSnapshot(tick),
-        options.strategyRegistry,
-        options.onStrategyRegistryRuntimeUse
+        options.strategyRegistry
       );
     }
   );
@@ -35309,7 +35431,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry) {
   const tick = getGameTime31();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -35349,12 +35471,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(
-      colony,
-      colonyWorkers,
-      strategyRegistry,
-      onStrategyRegistryRuntimeUse
-    ),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
@@ -36527,11 +36644,8 @@ function summarizeCombat(room, events) {
     ...events ? { events } : {}
   };
 }
-function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry, onStrategyRegistryRuntimeUse) {
+function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry) {
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
-  if (strategyEntry) {
-    onStrategyRegistryRuntimeUse == null ? void 0 : onStrategyRegistryRuntimeUse(strategyEntry);
-  }
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
     strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
   });
@@ -44621,7 +44735,12 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     if (postClaimBootstrapRefresh.deferred !== true) {
-      planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
+      planClaimedRoomConstruction(colony, {
+        respectRoomEnergyBuffer: true,
+        creeps,
+        strategyRegistry: options.strategyRegistry,
+        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+      });
     }
     if (survivalAssessment.mode === "TERRITORY_READY") {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -44741,8 +44860,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
     persistOccupationRecommendations: false,
-    strategyRegistry: options.strategyRegistry,
-    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+    strategyRegistry: options.strategyRegistry
   });
 }
 function ensureLocalWorkerColonyMemory(colonies, creeps) {
@@ -45594,6 +45712,7 @@ var RUNTIME_POLICY_PARAMETERS_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__
 var RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__";
 var RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1";
 function applyRuntimePolicyParametersToRegistry(registry) {
+  var _a;
   const clonedRegistry = registry.map(cloneStrategyRegistryEntry);
   const payload = readRuntimePolicyParameterPayload();
   if (!payload) {
@@ -45613,13 +45732,25 @@ function applyRuntimePolicyParametersToRegistry(registry) {
     return { registry: clonedRegistry, evidence: evidence2 };
   }
   const appliedStrategyIds = [];
+  const targetedStrategyIds = new Set(
+    clonedRegistry.filter((entry) => runtimePolicyPayloadTargetsEntry(payload, entry)).map((entry) => entry.id)
+  );
+  const activatesSingleExplicitTarget = targetedStrategyIds.size === 1 && runtimePolicyPayloadExplicitIds(payload).length > 0;
+  const activatedFamily = activatesSingleExplicitTarget ? (_a = clonedRegistry.find((entry) => targetedStrategyIds.has(entry.id))) == null ? void 0 : _a.family : void 0;
   const patchedRegistry = clonedRegistry.map((entry) => {
-    if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+    if (!targetedStrategyIds.has(entry.id)) {
+      if (activatedFamily !== void 0 && entry.family === activatedFamily && entry.rolloutStatus === "incumbent") {
+        return {
+          ...entry,
+          rolloutStatus: "shadow"
+        };
+      }
       return entry;
     }
     appliedStrategyIds.push(entry.id);
     return {
       ...entry,
+      ...activatesSingleExplicitTarget ? { rolloutStatus: "incumbent" } : {},
       defaultValues: {
         ...entry.defaultValues,
         ...parameters
@@ -45716,11 +45847,19 @@ function normalizeRuntimePolicyParameters(raw) {
   return Object.keys(parameters).length > 0 ? parameters : null;
 }
 function runtimePolicyPayloadTargetsEntry(payload, entry) {
-  const strategyVariantId = textOrUndefined(payload.strategyVariantId);
-  const candidatePolicyId = textOrUndefined(payload.candidatePolicyId);
-  const sourceStrategyId = textOrUndefined(payload.sourceStrategyId);
+  const explicitIds = runtimePolicyPayloadExplicitIds(payload);
   const family = textOrUndefined(payload.family);
-  return entry.id === strategyVariantId || entry.id === candidatePolicyId || entry.id === sourceStrategyId || family !== void 0 && entry.family === family;
+  if (explicitIds.length > 0) {
+    return explicitIds.includes(entry.id);
+  }
+  return family !== void 0 && entry.family === family;
+}
+function runtimePolicyPayloadExplicitIds(payload) {
+  return [
+    textOrUndefined(payload.strategyVariantId),
+    textOrUndefined(payload.candidatePolicyId),
+    textOrUndefined(payload.sourceStrategyId)
+  ].filter((id) => id !== void 0);
 }
 function strategyEntryUsesRuntimeParameters(entry, parameters) {
   for (const [key, value] of Object.entries(parameters)) {
@@ -46400,6 +46539,7 @@ var kernel = new Kernel();
 var strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 var kpiWindowMaxLength = 120;
 var runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+var runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
 var strategyRegistryState = {
   entries: runtimePolicyParameters.registry
 };
@@ -46409,7 +46549,7 @@ function loop() {
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   const summary = kernel.run({
     strategyRegistry: strategyRegistryState.entries,
-    onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+    ...runtimePolicyParameterPlanningEnabled ? { onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse } : {}
   });
   persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
