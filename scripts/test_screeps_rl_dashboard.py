@@ -103,6 +103,93 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertTrue(dashboard.value_has_reference(["0", "2.5"]))
         self.assertTrue(dashboard.value_has_reference("training-report-a"))
 
+    def test_dashboard_prefers_fresh_acceptable_gate_data_over_stale_dataset_gate_and_embedded_ledger_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-dataset-gates" / "rl-gate-db16ca9c3de7" / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "ok": False,
+                    "gateId": "rl-gate-db16ca9c3de7",
+                    "createdAt": "2026-05-11T14:23:09Z",
+                    "dataset": {"ok": True, "runId": "rl-stale", "sampleCount": 200},
+                    "datasetGate": {"status": "pass", "sampleCount": 200},
+                    "quality_checks": {
+                        "status": "fail",
+                        "samples_accepted": 126,
+                        "samples_rejected": 74,
+                    },
+                },
+            )
+            gate_id = "gate-20260518T201617Z"
+            dataset_run_id = "rl-3f50bf443ad6"
+            write_json(
+                artifact_root / "rl-control-loop" / "gate-data" / gate_id / "gate_report.json",
+                {
+                    "type": "screeps-rl-dataset-evaluation-gate",
+                    "ok": False,
+                    "gateId": gate_id,
+                    "createdAt": "2026-05-18T20:16:18Z",
+                    "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                    "datasetGate": {"status": "pass", "sampleCount": 200},
+                    "shadowEvaluation": {"status": "pass", "ok": True},
+                    "blockingReasons": [
+                        {
+                            "gate": "quality_checks",
+                            "name": "sample_quality",
+                            "status": "fail",
+                            "samplesAccepted": 191,
+                            "samplesRejected": 9,
+                        }
+                    ],
+                    "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{gate_id}"},
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "gate-20260519T074023Z-shadow.json",
+                {
+                    "type": "screeps-strategy-shadow-report",
+                    "createdAt": "2026-05-19T07:40:24Z",
+                    "reportId": "gate-20260519T074023Z-shadow",
+                    "ok": True,
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "20260519T091400Z-training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "createdAt": "2026-05-19T09:14:00Z",
+                    "status": "RUN_WITH_ANOMALY",
+                    "trainingDidRun": True,
+                    "e1Gate": {
+                        "gateId": gate_id,
+                        "ok": False,
+                        "datasetRunId": dataset_run_id,
+                        "sampleCount": 200,
+                        "acceptanceRate": 0.955,
+                        "blockingReasons": [
+                            "quality_checks: 9 rejected samples"
+                        ],
+                    },
+                },
+            )
+
+            summary = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-19T09:20:00Z",
+            )
+
+        gate = summary["gate"]
+        self.assertEqual(gate["gateId"], gate_id)
+        self.assertEqual(gate["status"], "pass")
+        self.assertEqual(gate["acceptanceRate"], 0.955)
+        self.assertTrue(str(gate["sourcePath"]).endswith(f"rl-control-loop/gate-data/{gate_id}/gate_report.json"))
+        e1_lane = next(item for item in summary["lanes"] if item["lane"] == "E1")
+        self.assertEqual(e1_lane["status"], "OK")
+
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

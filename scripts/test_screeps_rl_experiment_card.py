@@ -945,6 +945,91 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(selected_exit_code, 0)
         self.assertEqual(selected_card["card_path"], str(output_path))
 
+    def test_loop_a_local_fallback_accepts_quality_only_gate_data_tail_over_stale_dataset_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-db16ca9c3de7" / "gate_report.json"
+            gate_id = "gate-20260518T201617Z"
+            dataset_run_id = "rl-3f50bf443ad6"
+            gate_data_gate = runtime_root / "rl-control-loop" / "gate-data" / gate_id / "gate_report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            stale_gate.parent.mkdir(parents=True)
+            gate_data_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": False,
+                        "gateId": "rl-gate-db16ca9c3de7",
+                        "createdAt": "2026-05-11T14:23:09Z",
+                        "dataset": {"ok": True, "runId": "rl-stale", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "fail",
+                            "samples_accepted": 126,
+                            "samples_rejected": 74,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fresh_gate_payload = {
+                "type": card_helper.SOURCE_GATE_TYPE,
+                "ok": False,
+                "gateId": gate_id,
+                "createdAt": "2026-05-18T20:16:18Z",
+                "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                "datasetGate": {"status": "pass", "sampleCount": 200},
+                "shadowEvaluation": {"status": "pass", "ok": True},
+                "blockingReasons": [
+                    {
+                        "gate": "quality_checks",
+                        "name": "sample_quality",
+                        "status": "fail",
+                        "samplesAccepted": 191,
+                        "samplesRejected": 9,
+                        "rejectionReasons": {
+                            "no_harvest_or_upgrade_task": 9,
+                            "no_owned_creeps": 4,
+                            "no_room_energy": 6,
+                        },
+                    }
+                ],
+                "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{gate_id}"},
+            }
+            gate_data_gate.write_text(json.dumps(fresh_gate_payload), encoding="utf-8")
+
+            selected = card_helper.select_accepted_dataset_gate(runtime_root)
+            stdout = io.StringIO()
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--dataset-gate-root",
+                    str(runtime_root),
+                    "--code-commit",
+                    "8" * 40,
+                    "--created-at",
+                    "2026-05-19T08:20:00Z",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+
+        self.assertTrue(card_helper.is_degraded_e1_gate_acceptable(fresh_gate_payload, gate_data_gate))
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], dataset_run_id)
+        self.assertFalse(selected["gate_report_ok"])
+        self.assertEqual(selected["quality_acceptance_rate"], 0.955)
+        self.assertTrue(selected["gate_report_path"].endswith(f"rl-control-loop/gate-data/{gate_id}/gate_report.json"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+
     def test_loop_a_local_fallback_accepts_e1_gate_by_dataset_run_id_outside_gate_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
