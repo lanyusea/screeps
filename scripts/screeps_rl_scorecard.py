@@ -290,7 +290,7 @@ def value_has_reference(value: Any) -> bool:
     if isinstance(value, str):
         return bool(value)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return True
+        return value > 0
     if isinstance(value, dict):
         return any(value_has_reference(item) for item in value.values())
     if isinstance(value, list):

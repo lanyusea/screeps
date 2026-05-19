@@ -1076,7 +1076,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                     "type": "screeps-rl-training-execution-ledger",
                     "status": "RUN",
                     "trainingDidRun": True,
-                    "trainingReportIds": [],
+                    "trainingReportIds": 0,
                     "environmentExecution": {"completed": 0, "failed": 0},
                     "controllerSummary": {
                         "finalStatus": "preflight_ok",
@@ -1093,6 +1093,7 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
                     "onlineUtilityStatus": "PROVEN",
                     "candidatePolicyId": "candidate",
                     "baselinePolicyId": "incumbent",
+                    "trainingReportIds": 0,
                     "metricsByCategory": {
                         "resources": {
                             "status": "ADVANTAGE",

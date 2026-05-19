@@ -216,41 +216,42 @@ def test_scorecard_is_inconclusive_when_gameplay_evidence_is_absent(tmp_path: Pa
 
 
 def test_scorecard_ignores_preflight_only_policy_advantage_as_compute(tmp_path: Path) -> None:
-    baseline = tmp_path / "baseline"
-    candidate = tmp_path / "candidate"
-    baseline.mkdir()
-    candidate.mkdir()
-    for root, resources in ((baseline, 1), (candidate, 10)):
-        write_json(
-            root / "policy-advantage.json",
-            {
-                "type": "screeps-rl-policy-advantage-report",
-                "reportId": f"preflight-{root.name}",
-                "advantageResources": resources,
-                "trainingReportIds": [],
-                "environmentExecution": {"completed": 0},
-                "controllerSummary": {
-                    "finalStatus": "preflight_ok",
-                    "instanceId": None,
-                    "environmentsRun": 0,
+    for case, training_report_ids in (("empty-list", []), ("scalar-zero", 0)):
+        baseline = tmp_path / case / "baseline"
+        candidate = tmp_path / case / "candidate"
+        baseline.mkdir(parents=True)
+        candidate.mkdir(parents=True)
+        for root, resources in ((baseline, 1), (candidate, 10)):
+            write_json(
+                root / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-advantage-report",
+                    "reportId": f"preflight-{root.name}",
+                    "advantageResources": resources,
+                    "trainingReportIds": training_report_ids,
+                    "environmentExecution": {"completed": 0},
+                    "controllerSummary": {
+                        "finalStatus": "preflight_ok",
+                        "instanceId": None,
+                        "environmentsRun": 0,
+                    },
                 },
-            },
+            )
+
+        report = scorecard.build_scorecard(
+            candidate_path=candidate,
+            baseline_path=baseline,
+            repo_root=tmp_path,
+            timestamp="2026-05-19T00:00:00Z",
+            run_id=f"scorecard-preflight-only-{case}",
         )
 
-    report = scorecard.build_scorecard(
-        candidate_path=candidate,
-        baseline_path=baseline,
-        repo_root=tmp_path,
-        timestamp="2026-05-19T00:00:00Z",
-        run_id="scorecard-preflight-only",
-    )
-
-    resources = report["dimensions"]["resources_economy"]
-    self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
-    assert resources["status"] == "inconclusive"
-    assert self_metric["candidate"] is None
-    assert self_metric["baseline"] is None
-    assert "productive_energy" in resources["missingEvidence"]
+        resources = report["dimensions"]["resources_economy"]
+        self_metric = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+        assert resources["status"] == "inconclusive"
+        assert self_metric["candidate"] is None
+        assert self_metric["baseline"] is None
+        assert "productive_energy" in resources["missingEvidence"]
 
 
 def test_cli_writes_scorecard_json(tmp_path: Path) -> None:
