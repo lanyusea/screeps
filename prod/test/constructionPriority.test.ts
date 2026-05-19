@@ -154,6 +154,57 @@ describe('construction priority scoring', () => {
     );
   });
 
+  it('can surface an adjacent-controller claim intent when territory objective evidence is visible', () => {
+    const state = makeRoomState({
+      rcl: 4,
+      workerCount: 5,
+      energyCapacity: 1_300,
+      activeTerritoryIntentCount: 1,
+      remoteLogisticsReady: true
+    });
+
+    const report = scoreConstructionPriorities(state, [
+      {
+        buildItem: 'claim adjacent controller objective',
+        roomName: 'W2N1',
+        buildType: 'remote-logistics',
+        policyAction: 'claim',
+        minimumRcl: 2,
+        minimumWorkers: 3,
+        requiresSafeHome: true,
+        requiredObservations: ['territory-intents', 'remote-paths', 'worker-count', 'hostile-presence'],
+        expectedKpiMovement: ['activates adjacent-room territory reward tier'],
+        risk: ['claim intent must be blocked or escorted if hostile defenders are present'],
+        estimatedEnergyCost: 650,
+        pathExposure: 'low',
+        signals: { expansionPrerequisite: 1, harvestThroughput: 0.2, enemyKillPotential: 0.2 },
+        vision: { territory: 1, enemyKills: 0.2 }
+      },
+      {
+        buildItem: 'build storage logistics',
+        buildType: 'storage',
+        minimumRcl: 4,
+        minimumWorkers: 3,
+        requiredObservations: ['room-controller', 'energy-capacity', 'worker-count'],
+        expectedKpiMovement: ['improves local resource buffering'],
+        risk: ['very high energy commitment'],
+        estimatedEnergyCost: 30_000,
+        signals: { storageLogistics: 0.95 },
+        vision: { resources: 1 }
+      }
+    ]);
+
+    expect(report.nextPrimary).toMatchObject({
+      buildItem: 'claim adjacent controller objective',
+      room: 'W2N1',
+      policyAction: 'claim',
+      blocked: false
+    });
+    expect(scoreFor(report.candidates, 'claim adjacent controller objective')).toBeGreaterThan(
+      scoreFor(report.candidates, 'build storage logistics')
+    );
+  });
+
   it('orders economic throughput construction above low-impact combat infrastructure without hostile pressure', () => {
     const state = makeRoomState({
       rcl: 3,

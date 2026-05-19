@@ -20,7 +20,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence, TextIO
+from typing import Any, Mapping, Sequence, TextIO
 
 import screeps_rl_dataset_export as dataset_export
 import screeps_secret_env
@@ -88,6 +88,8 @@ RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV = "SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE"
+MULTI_TIER_POLICY_ACTIVATION_TYPE = "screeps-rl-multi-tier-policy-activation"
+MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE = 12.0
 RUN_RESOURCE_GUARD_MIN_WORKERS = 3
 RUN_RESOURCE_GUARD_MEMORY_PER_WORKER_MIB = 2300
 RUN_RESOURCE_GUARD_HOST_RESERVE_MIB = 1536
@@ -108,6 +110,7 @@ OWNED_ROOM_SCORECARD_TYPE = "screeps-rl-simulator-owned-room-scorecard"
 PRIVATE_MAP_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 _WORKER_PHASE_DEBUG_DISABLED = False
 SCALE_ENVIRONMENT_VARIANT_RE = re.compile(r"^(?P<base>.+)\.scale-env-(?P<index>\d{2,})$")
+ROOM_NAME_RE = re.compile(r"^(?P<horizontal>[WE])(?P<x>\d+)(?P<vertical>[NS])(?P<y>\d+)$")
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
 HARNESS_BINARY_FILE_EXTENSIONS = (
     ".bmp",
@@ -363,11 +366,37 @@ def expand_scale_environment_variants(variant_ids: Sequence[str], environment_co
     ]
 
 
-def strategy_variant_config_by_id(variant_id: str) -> JsonObject:
+def _normalized_inline_strategy_variant_config(variant_id: str, raw_config: Mapping[str, Any]) -> JsonObject:
+    """Return a sanitized offline strategy config supplied by the training runner."""
+    config = copy.deepcopy(dict(raw_config))
+    config["id"] = variant_id
+    if not isinstance(config.get("label"), str) or not config["label"]:
+        title = config.get("title")
+        config["label"] = title if isinstance(title, str) and title else variant_id
+    config.setdefault("family", "construction-priority")
+    config.setdefault("rolloutStatus", config.get("rollout_status") or "inline")
+    config.setdefault("source", "inline-policy-gradient-candidate")
+    parameters = config.get("parameters")
+    if isinstance(parameters, dict) and not isinstance(config.get("defaultValues"), dict):
+        config["defaultValues"] = copy.deepcopy(parameters)
+    safety = config.get("safety") if isinstance(config.get("safety"), dict) else {}
+    config["safety"] = {
+        **safety,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    return config
+
+
+def strategy_variant_config_by_id(
+    variant_id: str,
+    variant_configs: Mapping[str, JsonObject] | None = None,
+) -> JsonObject:
     """Return bounded public config for a strategy variant id."""
     base_variant_id = scale_environment_base_variant_id(variant_id)
     if base_variant_id != variant_id:
-        base_config = strategy_variant_config_by_id(base_variant_id)
+        base_config = strategy_variant_config_by_id(base_variant_id, variant_configs=variant_configs)
         environment_index = scale_environment_index(variant_id)
         base_label = base_config.get("label") if isinstance(base_config.get("label"), str) else base_variant_id
         config = copy.deepcopy(base_config)
@@ -390,6 +419,10 @@ def strategy_variant_config_by_id(variant_id: str) -> JsonObject:
             "officialMmoWritesAllowed": False,
         }
         return config
+    if variant_configs is not None:
+        override = variant_configs.get(variant_id)
+        if isinstance(override, dict):
+            return _normalized_inline_strategy_variant_config(variant_id, override)
     for config in DEFAULT_STRATEGY_VARIANT_CONFIGS:
         if config.get("id") == variant_id:
             return copy.deepcopy(config)
@@ -408,9 +441,12 @@ def strategy_variant_config_by_id(variant_id: str) -> JsonObject:
     }
 
 
-def resolve_strategy_variant_configs(variant_ids: Sequence[str]) -> list[JsonObject]:
+def resolve_strategy_variant_configs(
+    variant_ids: Sequence[str],
+    variant_configs: Mapping[str, JsonObject] | None = None,
+) -> list[JsonObject]:
     """Return variant config objects in the same order as the selected ids."""
-    return [strategy_variant_config_by_id(variant_id) for variant_id in variant_ids]
+    return [strategy_variant_config_by_id(variant_id, variant_configs=variant_configs) for variant_id in variant_ids]
 
 
 def discover_strategy_variants(path: Path = DEFAULT_STRATEGY_REGISTRY_PATH) -> list[str]:
@@ -1616,6 +1652,7 @@ def _build_variant_failure_result(
     cli_port: int | None = None,
     terrain_ready: JsonObject | None = None,
     repair_mod_path: Path | None = None,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     api_branch = normalize_private_server_code_branch(branch)
     variant_slug = _safe_filename(variant_id)
@@ -1623,7 +1660,7 @@ def _build_variant_failure_result(
     wall_seconds = round(wall_clock_seconds, 3)
     if wall_seconds < 0:
         wall_seconds = 0.0
-    strategy_variant = strategy_variant_config_by_id(variant_id)
+    strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
     error_text = _safe_text(error, 480)
     return {
         "variant_id": variant_id,
@@ -2471,6 +2508,257 @@ def build_scenario_fixture_objective_summary(fixture_room_summaries: dict[str, J
     }
 
 
+def _strategy_variant_parameters(strategy_variant: JsonObject) -> JsonObject:
+    for key in ("parameters", "defaultValues", "default_values"):
+        value = strategy_variant.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def _numeric_strategy_parameter(parameters: JsonObject, name: str, default: float = 0.0) -> float:
+    value = parameters.get(name)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else default
+    return default
+
+
+def _fixture_room_hostile_count(summary: JsonObject) -> int:
+    combat = summary.get("combat")
+    if not isinstance(combat, dict):
+        return 0
+    return (_extract_int(combat.get("hostileCreeps")) or 0) + (_extract_int(combat.get("hostileStructures")) or 0)
+
+
+def _parse_room_xy(room_name: str) -> tuple[int, int] | None:
+    match = ROOM_NAME_RE.fullmatch(room_name)
+    if match is None:
+        return None
+    raw_x = int(match.group("x"))
+    raw_y = int(match.group("y"))
+    x = raw_x if match.group("horizontal") == "E" else -raw_x - 1
+    y = raw_y if match.group("vertical") == "S" else -raw_y - 1
+    return x, y
+
+
+def _room_manhattan_distance(left_room: str, right_room: str) -> int | None:
+    left = _parse_room_xy(left_room)
+    right = _parse_room_xy(right_room)
+    if left is None or right is None:
+        return None
+    return abs(left[0] - right[0]) + abs(left[1] - right[1])
+
+
+def _room_is_adjacent(left_room: str, right_room: str) -> bool:
+    return _room_manhattan_distance(left_room, right_room) == 1
+
+
+def _owned_fixture_anchor_room(fixture_room_summaries: dict[str, JsonObject]) -> str | None:
+    owned = [
+        room_name
+        for room_name, summary in fixture_room_summaries.items()
+        if isinstance(room_name, str) and isinstance(summary, dict) and _room_summary_owned(summary)
+    ]
+    return sorted(owned)[0] if owned else None
+
+
+def _select_multi_tier_target_room(
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> tuple[str, JsonObject] | None:
+    resolved_anchor = anchor_room or _owned_fixture_anchor_room(fixture_room_summaries)
+    if not isinstance(resolved_anchor, str) or _parse_room_xy(resolved_anchor) is None:
+        return None
+    candidates: list[tuple[int, str, JsonObject]] = []
+    for room_name, summary in fixture_room_summaries.items():
+        if not isinstance(room_name, str) or not isinstance(summary, dict):
+            continue
+        if not _room_is_adjacent(resolved_anchor, room_name):
+            continue
+        controller = summary.get("controller")
+        if not isinstance(controller, dict):
+            continue
+        if summary.get("owned") is True or controller.get("my") is True:
+            continue
+        candidates.append((_fixture_room_hostile_count(summary), room_name, summary))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    _, room_name, summary = candidates[0]
+    return room_name, summary
+
+
+def select_multi_tier_policy_activation(
+    strategy_variant: JsonObject,
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> JsonObject | None:
+    objective = build_scenario_fixture_objective_summary(fixture_room_summaries)
+    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
+    if objective is None or target is None:
+        return None
+    target_room, target_summary = target
+    parameters = _strategy_variant_parameters(strategy_variant)
+    base_weight = max(0.0, _numeric_strategy_parameter(parameters, "baseScoreWeight", 1.0))
+    territory_weight = _numeric_strategy_parameter(parameters, "territorySignalWeight")
+    kill_weight = _numeric_strategy_parameter(parameters, "killSignalWeight")
+    risk_penalty = _numeric_strategy_parameter(parameters, "riskPenalty")
+    hostile_count = _fixture_room_hostile_count(target_summary)
+    activation_score = (territory_weight * base_weight) + (min(kill_weight, 8.0) * 0.25) - (risk_penalty * 0.25)
+    if activation_score < MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE:
+        return None
+    execution_action = "engage-hostiles" if hostile_count > 0 else "claim-controller"
+    return {
+        "type": MULTI_TIER_POLICY_ACTIVATION_TYPE,
+        "strategyVariantId": strategy_variant.get("id"),
+        "policyAction": "claim-adjacent-controller",
+        "executionAction": execution_action,
+        "targetRoom": target_room,
+        "anchorRoom": anchor_room or _owned_fixture_anchor_room(fixture_room_summaries),
+        "activationScore": round(activation_score, 3),
+        "threshold": MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE,
+        "reason": "hostile_objective_blocks_claim" if execution_action == "engage-hostiles" else "visible_adjacent_controller",
+        "objectiveSignalObserved": False,
+        "objectiveSignalSource": "fixture_metadata",
+        "objective": objective,
+        "parameters": {
+            "baseScoreWeight": base_weight,
+            "territorySignalWeight": territory_weight,
+            "killSignalWeight": kill_weight,
+            "riskPenalty": risk_penalty,
+        },
+        "safety": {
+            "offlineSimulatorOnly": True,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    }
+
+
+def build_multi_tier_policy_activation_evidence(
+    tick_log: list[JsonObject],
+    strategy_variant: JsonObject,
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+    run_errors: Sequence[Any] = (),
+    evidence_errors: Sequence[Any] = (),
+) -> JsonObject | None:
+    if run_errors or evidence_errors or len(tick_log) < 2:
+        return None
+    activation = select_multi_tier_policy_activation(
+        strategy_variant,
+        fixture_room_summaries,
+        anchor_room=anchor_room,
+    )
+    if activation is None:
+        return None
+    target_room = activation.get("targetRoom")
+    if not isinstance(target_room, str):
+        return None
+    observed = _multi_tier_policy_activation_observed_evidence(tick_log, target_room)
+    if observed is None:
+        return None
+    activation["objectiveSignalObserved"] = True
+    activation["objectiveSignalSource"] = "tick_log"
+    activation["observedEvidence"] = observed
+    return activation
+
+
+def _tick_fixture_merged_rooms(tick_entry: JsonObject) -> set[str] | None:
+    fixture_state = tick_entry.get("fixtureRoomState")
+    if not isinstance(fixture_state, dict):
+        sources = tick_entry.get("roomStateSources")
+        if isinstance(sources, list) and "map-fixture" in sources:
+            return None
+        return set()
+    merged = fixture_state.get("mergedRooms")
+    if isinstance(merged, list):
+        return {room for room in merged if isinstance(room, str)}
+    return None
+
+
+def _tick_room_is_fixture_generated(tick_entry: JsonObject, room_name: str) -> bool:
+    merged = _tick_fixture_merged_rooms(tick_entry)
+    if merged is None:
+        return True
+    return room_name in merged
+
+
+def _tick_log_has_fixture_generated_rooms(tick_log: Sequence[JsonObject]) -> bool:
+    for tick_entry in tick_log:
+        if not isinstance(tick_entry, dict):
+            continue
+        merged = _tick_fixture_merged_rooms(tick_entry)
+        if merged is None or merged:
+            return True
+    return False
+
+
+def _tick_room_summary(tick_entry: JsonObject, room_name: str) -> JsonObject | None:
+    rooms = tick_entry.get("rooms")
+    if not isinstance(rooms, dict):
+        return None
+    summary = rooms.get(room_name)
+    return summary if isinstance(summary, dict) else None
+
+
+def _room_own_presence_count(summary: JsonObject) -> int:
+    return (_extract_int(summary.get("ownedCreeps")) or 0) + (_extract_int(summary.get("ownStructures")) or 0)
+
+
+def _multi_tier_policy_activation_observed_evidence(
+    tick_log: Sequence[JsonObject],
+    target_room: str,
+) -> JsonObject | None:
+    snapshots: list[tuple[int | None, JsonObject]] = []
+    for tick_entry in tick_log:
+        if not isinstance(tick_entry, dict):
+            continue
+        if _tick_room_is_fixture_generated(tick_entry, target_room):
+            continue
+        summary = _tick_room_summary(tick_entry, target_room)
+        if summary is None or not _room_summary_has_observable_state(summary):
+            continue
+        tick_value = _extract_int(tick_entry.get("tick"))
+        snapshots.append((tick_value, summary))
+    if len(snapshots) < 2:
+        return None
+
+    initial_tick, initial_summary = snapshots[0]
+    final_tick, final_summary = snapshots[-1]
+    initial_hostiles = _fixture_room_hostile_count(initial_summary)
+    final_hostiles = _fixture_room_hostile_count(final_summary)
+    initial_owned = _room_summary_owned(initial_summary)
+    final_owned = _room_summary_owned(final_summary)
+    initial_own_presence = _room_own_presence_count(initial_summary)
+    final_own_presence = _room_own_presence_count(final_summary)
+    hostile_reduced = final_hostiles < initial_hostiles
+    controller_claimed = not initial_owned and final_owned
+    own_presence_increased = final_own_presence > initial_own_presence
+    if not (hostile_reduced or controller_claimed or own_presence_increased):
+        return None
+
+    return {
+        "targetRoom": target_room,
+        "observedTickCount": len(snapshots),
+        "initialTick": initial_tick,
+        "finalTick": final_tick,
+        "initialHostileCount": initial_hostiles,
+        "finalHostileCount": final_hostiles,
+        "hostileCountReduced": hostile_reduced,
+        "controllerClaimed": controller_claimed,
+        "ownPresenceIncreased": own_presence_increased,
+        "fixtureGeneratedRoomState": False,
+    }
+
+
 def build_variant_owned_room_scorecard(variant_result: JsonObject) -> JsonObject:
     tick_log = variant_result.get("tick_log", variant_result.get("tickLog"))
     ticks = [tick for tick in tick_log if isinstance(tick, dict)] if isinstance(tick_log, list) else []
@@ -2758,9 +3046,10 @@ def _run_variant(
     code_path: Path,
     map_source_file: Path,
     out_dir: Path,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     api_branch = normalize_private_server_code_branch(branch)
-    strategy_variant = strategy_variant_config_by_id(variant_id)
+    strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
     variant_slug = _safe_filename(variant_id)
     worker_run_id = f"{run_id}-{variant_slug}"
     safe_run_root = _worker_output_dir(out_dir, run_id, worker_index)
@@ -3032,6 +3321,7 @@ def _run_variant(
         "ticks_per_second": ticks_per_second,
         "tick_log": variant_ticks,
         "metrics": build_variant_metrics(variant_ticks),
+        "policyActivation": None,
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": False,
@@ -3055,6 +3345,15 @@ def _run_variant(
         result["errors"] = errors
     result["ok"] = len(errors) == 0
     result["error"] = errors[0] if errors else None
+    if result["ok"]:
+        result["policyActivation"] = build_multi_tier_policy_activation_evidence(
+            variant_ticks,
+            strategy_variant,
+            fixture_room_summaries,
+            anchor_room=room,
+            run_errors=errors,
+            evidence_errors=evidence_errors,
+        )
     return result
 
 
@@ -3118,6 +3417,7 @@ def run_variants(
     out_dir: Path,
     run_id: str,
     bot_commit: str | None = None,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> tuple[JsonObject, list[JsonObject]]:
     if ticks <= 0:
         raise ValueError("ticks must be a positive integer")
@@ -3165,6 +3465,7 @@ def run_variants(
                         code_path=code_path,
                         map_source_file=map_source_file,
                         out_dir=out_dir,
+                        variant_configs=variant_configs,
                     )
                     if result.get("ok") is True or not _variant_result_mentions_broken_pipe(result):
                         break
@@ -3195,6 +3496,7 @@ def run_variants(
                         map_source_file=map_source_file,
                         error=f"worker {worker_id} failed while running variant: {_safe_text(exc, 420)}",
                         wall_clock_seconds=time.time() - variant_start,
+                        variant_configs=variant_configs,
                     )
                 )
         return results
@@ -3223,6 +3525,7 @@ def run_variants(
                         code_path=code_path,
                         map_source_file=map_source_file,
                         error=f"worker failed before result collection: {_safe_text(exc, 420)}",
+                        variant_configs=variant_configs,
                     )
                     for variant_id in assigned
                 ]
@@ -3244,6 +3547,7 @@ def run_variants(
             code_path=code_path,
             map_source_file=map_source_file,
             error="variant missing from worker result collection",
+            variant_configs=variant_configs,
         )
     ordered = [result_map[variant] for variant in variants]
     artifact = build_run_artifact(
@@ -4203,6 +4507,7 @@ def _build_run_failure_variant_results(
     code_path: Path,
     map_source_file: Path,
     error: Any,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> list[JsonObject]:
     effective_workers = max(1, _effective_run_worker_count(workers, variants))
     results: list[JsonObject] = []
@@ -4213,7 +4518,7 @@ def _build_run_failure_variant_results(
         error_text = _safe_text(error, 480)
         strategy_variant: JsonObject | None = None
         try:
-            strategy_variant = strategy_variant_config_by_id(variant_id)
+            strategy_variant = strategy_variant_config_by_id(variant_id, variant_configs=variant_configs)
         except Exception:
             strategy_variant = {
                 "id": variant_id,
@@ -4283,6 +4588,7 @@ def write_run_failure_artifacts(
     error: Any,
     resource_guard: JsonObject | None,
     cleanup: JsonObject | None,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     """Persist a redacted run failure report and a schema-compatible run summary."""
     resolved_error = _safe_text(error, 720)
@@ -4297,6 +4603,7 @@ def write_run_failure_artifacts(
         code_path=code_path,
         map_source_file=map_source_file,
         error=resolved_error,
+        variant_configs=variant_configs,
     )
     run_dir = out_dir / run_id
     run_artifact_path = run_dir / "run_summary.json"
@@ -4416,6 +4723,7 @@ def run_simulator(
     allow_unsafe_scale: bool = False,
     min_concurrent_environments: int = 0,
     steam_key_env_file: Path | None = None,
+    variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
@@ -4451,6 +4759,7 @@ def run_simulator(
             error="resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]),
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise RuntimeError("resource guard rejected simulator scale run: " + "; ".join(resource_guard["reasons"]))
     ensure_steam_key_for_simulator_run(env_file=steam_key_env_file)
@@ -4472,6 +4781,7 @@ def run_simulator(
             error="STEAM_KEY environment variable is required for run mode",
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise RuntimeError("STEAM_KEY environment variable is required for run mode")
     try:
@@ -4488,6 +4798,7 @@ def run_simulator(
             out_dir=resolved_out_dir,
             run_id=resolved_run_id,
             bot_commit=resolved_bot_commit,
+            variant_configs=variant_configs,
         )
     except Exception as exc:
         cleanup = cleanup_exact_run_worker_containers(resolved_run_id)
@@ -4507,6 +4818,7 @@ def run_simulator(
             error=exc,
             resource_guard=resource_guard,
             cleanup=cleanup,
+            variant_configs=variant_configs,
         )
         raise
     run_artifact_path = resolved_out_dir / resolved_run_id / "run_summary.json"

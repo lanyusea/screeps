@@ -804,12 +804,18 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
         },
         "runner_support": {
             "inline_candidates_applied_to_simulator": False,
-            "simulator_variant_transport": "variant_ids_only",
+            "inline_candidates_runtime_injected": False,
+            "runtime_parameter_injection": False,
+            "simulator_variant_transport": "variant_ids_with_inline_metadata",
+            "candidate_parameter_scope": "metadata_only",
+            "policy_update_reward_use": "blocked_until_runtime_parameter_evidence",
             "report_preserves_candidate_parameters": True,
             "candidate_policy_id_preserved": True,
             "limitation": (
-                "scripts/screeps_rl_training_runner.py currently sends simulator variants by id only; "
-                "inline policy-gradient parameter vectors are preserved in card/report artifacts as offline evidence."
+                "Inline policy-gradient parameter vectors are passed as bounded simulator metadata only; "
+                "the runner does not rewrite uploaded bot code per variant, so policy updates stay blocked until "
+                "runtime parameter evidence exists. "
+                "private/offline activation remains live-effect false and official-MMO-write false."
             ),
         },
         "safety": safety_block(),
@@ -1656,9 +1662,30 @@ def validate_policy_gradient(raw: Any) -> None:
     inline_applied = first_present(support, ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"))
     if inline_applied is not False:
         raise CardValidationError("policy_gradient.runner_support.inline_candidates_applied_to_simulator must be false")
+    runtime_injection = first_present(
+        support,
+        (
+            "runtime_parameter_injection",
+            "runtimeParameterInjection",
+            "inline_candidates_runtime_injected",
+            "inlineCandidatesRuntimeInjected",
+        ),
+    )
+    if runtime_injection is not False:
+        raise CardValidationError("policy_gradient.runner_support.runtime_parameter_injection must be false")
     transport = first_present(support, ("simulator_variant_transport", "simulatorVariantTransport"))
-    if transport != "variant_ids_only":
-        raise CardValidationError("policy_gradient.runner_support.simulator_variant_transport must be variant_ids_only")
+    if transport != "variant_ids_with_inline_metadata":
+        raise CardValidationError(
+            "policy_gradient.runner_support.simulator_variant_transport must be variant_ids_with_inline_metadata"
+        )
+    parameter_scope = first_present(support, ("candidate_parameter_scope", "candidateParameterScope"))
+    if parameter_scope != "metadata_only":
+        raise CardValidationError("policy_gradient.runner_support.candidate_parameter_scope must be metadata_only")
+    reward_use = first_present(support, ("policy_update_reward_use", "policyUpdateRewardUse"))
+    if reward_use != "blocked_until_runtime_parameter_evidence":
+        raise CardValidationError(
+            "policy_gradient.runner_support.policy_update_reward_use must be blocked_until_runtime_parameter_evidence"
+        )
     preserves_parameters = first_present(
         support,
         ("report_preserves_candidate_parameters", "reportPreservesCandidateParameters"),

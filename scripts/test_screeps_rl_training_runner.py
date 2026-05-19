@@ -1210,6 +1210,7 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(str(report["reportPath"]).endswith("reports/format-check.json"))
         self.assertEqual(simulator.calls[0]["ticks"], 2)
         self.assertEqual(simulator.calls[0]["variants"], ["baseline", "candidate"])
+        self.assertEqual(simulator.calls[0]["variant_configs"]["candidate"]["parameters"]["expansion_aggressiveness"], 1)
 
     def test_policy_gradient_report_preserves_candidate_parameter_evidence(self) -> None:
         card = card_helper.build_card(
@@ -1243,9 +1244,22 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertTrue(report["trueGradient"])
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
+        self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "metadata_only")
+        self.assertEqual(
+            report["policyGradient"]["runner_support"]["policy_update_reward_use"],
+            "blocked_until_runtime_parameter_evidence",
+        )
         self.assertTrue(report["policyGradient"]["runner_support"]["report_preserves_candidate_parameters"])
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertEqual(report["policyUpdate"]["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertEqual(simulator.calls[0]["ticks"], 500)
         self.assertEqual(simulator.calls[0]["variants"], variant_ids)
+        self.assertEqual(
+            simulator.calls[0]["variant_configs"]["construction-priority.pg.territory-seed.v1"]["parameters"],
+            card["policy_gradient"]["candidate_parameter_vectors"][1]["parameters"],
+        )
         self.assertEqual(
             [variant["candidatePolicyId"] for variant in report["strategyVariants"]],
             [candidate["candidatePolicyId"] for candidate in card["policy_gradient"]["candidate_parameter_vectors"]],
@@ -1435,7 +1449,7 @@ export const STRATEGY_REGISTRY = [
         self.assertNotIn("updatedParameters", update)
         self.assertNotIn("parameterDelta", update)
 
-    def test_reinforce_true_gradient_consumes_returns_and_persists_candidate_update(self) -> None:
+    def test_reinforce_metadata_only_parameters_skip_candidate_update_artifact(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-reinforce",
             code_commit="f" * 40,
@@ -1482,38 +1496,27 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=simulator,
             )
             persisted = read_json(out_dir / "policy-gradient-reinforce.json")
-            artifact = read_json(Path(report["policyUpdateArtifactPath"]))
 
             self.assertNotIn("STEAM_KEY", os.environ)
 
         self.assertEqual(len(simulator.calls), 2)
         self.assertTrue(all(call["variants"] == variant_ids for call in simulator.calls))
-        self.assertEqual(report["policyUpdateIterations"], 1)
-        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertEqual(persisted["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertTrue(report["trueGradient"])
         self.assertTrue(persisted["trueGradient"])
-        self.assertEqual(report["policyUpdateCandidatePolicyId"], artifact["candidatePolicyId"])
+        self.assertIsNone(report["policyUpdateCandidatePolicyId"])
+        self.assertNotIn("policyUpdateArtifactPath", report)
         update = report["policyUpdate"]
         self.assertEqual(update["algorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertEqual(update["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(update["trueGradient"])
-        self.assertEqual(update["policyGradientEstimator"], "score_function_reinforce_v1")
-        self.assertEqual(update["returnSummary"]["type"], "monte_carlo_reward_tuple_returns")
-        self.assertEqual(update["returnSummary"]["sampleCount"], 8)
-        self.assertEqual(update["returnSummary"]["baselineType"], "mean_return")
-        self.assertTrue(all(item["returnSampleCount"] == 2 for item in update["returnSummary"]["candidateReturns"]))
-        self.assertIn("territorySignalWeight", update["gradientByRewardTier"])
-        self.assertTrue(any(float(value) != 0 for value in update["parameterDelta"].values()))
-        self.assertEqual(artifact["sourcePolicyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertEqual(artifact["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(artifact["trueGradient"])
-        self.assertTrue(artifact["parameterEvidence"]["trueGradient"])
-        self.assertEqual(artifact["parameterEvidence"]["returnSampleCount"], 8)
-        self.assertEqual(artifact["parameterEvidence"]["returnBaseline"], update["returnSummary"]["baseline"])
+        self.assertEqual(update["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertEqual(update["metadataCandidateCount"], len(variant_ids))
+        self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
 
-    def test_loop_a_true_gradient_card_takes_bounded_step_on_small_safe_advantage(self) -> None:
+    def test_loop_a_metadata_only_parameters_skip_candidate_update_artifact(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-loop-a-true-gradient-proof",
             code_commit="9" * 40,
@@ -1554,29 +1557,23 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=MockSimulator({variant_id: result_for(variant_id) for variant_id in variant_ids}),
             )
             persisted = read_json(out_dir / "loop-a-true-gradient-proof.json")
-            artifact = read_json(Path(report["policyUpdateArtifactPath"]))
 
-        self.assertEqual(report["policyUpdateIterations"], 1)
-        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertTrue(report["trueGradient"])
         self.assertEqual(report["policyGradient"]["policy_update"]["learning_rate"], 1)
         update = report["policyUpdate"]
-        self.assertEqual(update["iterations"], 1)
-        self.assertEqual(update["policyUpdateAlgorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
-        self.assertTrue(update["trueGradient"])
-        self.assertEqual(update["learningRate"], 1)
-        self.assertEqual(update["selectedRewardTierByParameter"]["territorySignalWeight"], "territory")
-        self.assertEqual(update["parameterDelta"]["territorySignalWeight"], 1)
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertEqual(update["metadataCandidateCount"], len(variant_ids))
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
-        self.assertEqual(artifact["candidatePolicyId"], report["policyUpdateCandidatePolicyId"])
-        self.assertEqual(artifact["parameters"], update["updatedParameters"])
-        self.assertTrue(artifact["trueGradient"])
-        self.assertFalse(artifact["officialMmoWrites"])
+        self.assertIsNone(report["policyUpdateCandidatePolicyId"])
+        self.assertNotIn("policyUpdateArtifactPath", report)
 
-    def test_policy_gradient_computes_and_persists_bounded_policy_update(self) -> None:
+    def test_policy_gradient_metadata_only_parameters_skip_bounded_update_artifact(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-update",
             code_commit="d" * 40,
@@ -1621,41 +1618,24 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=MockSimulator(simulator_results),
             )
             persisted = read_json(out_dir / "policy-gradient-update.json")
-            artifact_path = Path(report["policyUpdateArtifactPath"])
-            artifact = read_json(artifact_path)
 
-        self.assertEqual(report["policyUpdateIterations"], 1)
-        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdateAlgorithm"], runner.RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM)
         self.assertFalse(report["trueGradient"])
         update = report["policyUpdate"]
-        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["iterations"], 0)
         self.assertEqual(update["algorithm"], runner.RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM)
-        self.assertEqual(update["policyUpdateAlgorithm"], runner.RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM)
-        self.assertFalse(update["trueGradient"])
+        self.assertEqual(update["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertEqual(update["metadataCandidateCount"], len(variant_ids))
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
-        self.assertGreater(
-            update["updatedParameters"]["territorySignalWeight"],
-            update["anchor"]["parameters"]["territorySignalWeight"],
-        )
-        self.assertTrue(any(float(value) != 0 for value in update["parameterDelta"].values()))
-        for name, spec in update["parameterSpace"].items():
-            self.assertGreaterEqual(update["updatedParameters"][name], spec["min"])
-            self.assertLessEqual(update["updatedParameters"][name], spec["max"])
-        self.assertEqual(artifact["parameters"], update["updatedParameters"])
-        self.assertEqual(artifact["policyUpdateIterations"], 1)
-        self.assertEqual(artifact["sourceReportId"], "policy-gradient-update")
-        self.assertEqual(artifact["sourcePolicyUpdateAlgorithm"], runner.RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM)
-        self.assertFalse(artifact["trueGradient"])
-        self.assertFalse(artifact["liveEffect"])
-        self.assertFalse(artifact["officialMmoWrites"])
-        self.assertFalse(artifact["officialMmoWritesAllowed"])
-        self.assertFalse(artifact["safety"]["liveEffect"])
-        self.assertFalse(artifact["safety"]["officialMmoWrites"])
+        self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertIsNone(report["policyUpdateCandidatePolicyId"])
+        self.assertNotIn("policyUpdateArtifactPath", report)
 
-    def test_policy_gradient_rejects_card_and_evaluated_parameter_drift(self) -> None:
+    def test_policy_gradient_metadata_only_skips_card_parameter_drift_update(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-drift",
             code_commit="e" * 40,
@@ -1681,13 +1661,16 @@ export const STRATEGY_REGISTRY = [
             card_path = root / "card.json"
             write_json(card_path, card)
 
-            with self.assertRaisesRegex(runner.TrainingCardError, "drift from evaluated parameters"):
-                runner.run_training_experiment(
-                    card_path,
-                    root / "reports",
-                    report_id="policy-gradient-drift",
-                    simulator_runner=MockSimulator(simulator_results),
-                )
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="policy-gradient-drift",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertEqual(report["policyUpdate"]["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertNotIn("policyUpdateArtifactPath", report)
 
     def test_loop_a_supply_report_preserves_card_supply_and_is_discoverably_consumed(self) -> None:
         card = card_helper.build_card(

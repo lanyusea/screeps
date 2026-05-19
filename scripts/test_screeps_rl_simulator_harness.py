@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import io
 import json
 import math
@@ -965,6 +966,365 @@ cli:
         metrics = harness.build_variant_metrics([tick_entry])
         self.assertEqual(metrics["finalRooms"]["roomCount"], 2)
         self.assertEqual(metrics["combat"]["peakHostileCreeps"], 2)
+
+    def test_multi_tier_policy_activation_records_intent_without_mutating_tick_metrics(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 2, "hostileStructures": 1, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        initial_tick = {"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}
+        final_tick = copy.deepcopy(initial_tick)
+        final_tick["tick"] = 2
+        final_tick["rooms"]["E2S1"]["combat"]["hostileCreeps"] = 1
+        tick_log = [initial_tick, final_tick]
+        strategy_variant = harness.strategy_variant_config_by_id(
+            "construction-priority.pg.territory-seed.v1",
+            variant_configs={
+                "construction-priority.pg.territory-seed.v1": {
+                    "id": "construction-priority.pg.territory-seed.v1",
+                    "title": "territory seed",
+                    "parameters": {
+                        "baseScoreWeight": 1,
+                        "territorySignalWeight": 22,
+                        "resourceSignalWeight": 3,
+                        "killSignalWeight": 5,
+                        "riskPenalty": 4,
+                    },
+                }
+            },
+        )
+
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+        metrics = harness.build_variant_metrics(tick_log)
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["policyAction"], "claim-adjacent-controller")
+        self.assertEqual(activation["executionAction"], "engage-hostiles")
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertTrue(activation["objectiveSignalObserved"])
+        self.assertEqual(activation["objectiveSignalSource"], "tick_log")
+        self.assertTrue(activation["observedEvidence"]["hostileCountReduced"])
+        self.assertEqual(tick_log, before_activation)
+        self.assertEqual(tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"], 1)
+        self.assertEqual(metrics["combat"]["hostileKills"], 1)
+        self.assertNotIn("rlPolicyActivation", tick_log[-1])
+        self.assertEqual(activation["safety"]["liveEffect"], False)
+        self.assertEqual(activation["safety"]["officialMmoWrites"], False)
+
+    def test_multi_tier_policy_activation_records_structure_only_blocker(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 1, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileStructures"] = 0
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+        metrics = harness.build_variant_metrics(tick_log)
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["executionAction"], "engage-hostiles")
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertTrue(activation["observedEvidence"]["hostileCountReduced"])
+        self.assertEqual(tick_log, before_activation)
+        self.assertEqual(metrics["combat"]["hostileKills"], 1)
+
+    def test_multi_tier_policy_activation_records_peaceful_adjacent_claim(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        tick_log[-1]["rooms"]["E2S1"]["owned"] = True
+        tick_log[-1]["rooms"]["E2S1"]["controller"] = {"level": 1, "my": True, "owner": "rl-sim"}
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        before_activation = copy.deepcopy(tick_log)
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["executionAction"], "claim-controller")
+        self.assertEqual(activation["reason"], "visible_adjacent_controller")
+        self.assertFalse(activation["objective"]["objectiveSignalPresent"])
+        self.assertTrue(activation["observedEvidence"]["controllerClaimed"])
+        self.assertFalse(activation["observedEvidence"]["fixtureGeneratedRoomState"])
+        self.assertEqual(tick_log, before_activation)
+
+    def test_multi_tier_policy_activation_requires_adjacent_target(self) -> None:
+        fixture_summaries = {
+            "E1S1": {
+                "room": "E1S1",
+                "owned": True,
+                "controller": {"level": 1, "my": True, "owner": "rl-sim"},
+                "combat": {"hostileCreeps": 0, "hostileStructures": 0, "ownCreeps": 1, "ownStructures": 1},
+            },
+            "E2S1": {
+                "room": "E2S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 1, "hostileStructures": 0, "ownCreeps": 0, "ownStructures": 0},
+            },
+            "E5S1": {
+                "room": "E5S1",
+                "owned": False,
+                "controller": {"level": 0, "my": False},
+                "combat": {"hostileCreeps": 9, "hostileStructures": 0, "ownCreeps": 0, "ownStructures": 0},
+            },
+        }
+        tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        tick_log.append(copy.deepcopy(tick_log[0]))
+        tick_log[-1]["tick"] = 2
+        tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"] = 0
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+        far_only = {room: copy.deepcopy(summary) for room, summary in fixture_summaries.items() if room != "E2S1"}
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertIsNone(
+            harness.build_multi_tier_policy_activation_evidence(
+                tick_log,
+                strategy_variant,
+                far_only,
+                anchor_room="E1S1",
+            )
+        )
+
+    def test_multi_tier_policy_activation_rejects_fixture_generated_or_failed_runs(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}},
+            {"tick": 2, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        self.assertIsNone(
+            harness.build_multi_tier_policy_activation_evidence(
+                tick_log,
+                strategy_variant,
+                fixture_summaries,
+                anchor_room="E1S1",
+            )
+        )
+        observed_tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        observed_tick_log.append(copy.deepcopy(observed_tick_log[0]))
+        observed_tick_log[-1]["tick"] = 2
+        observed_tick_log[-1]["rooms"]["E2S1"]["combat"]["hostileCreeps"] = 1
+        self.assertIsNone(
+            harness.build_multi_tier_policy_activation_evidence(
+                observed_tick_log,
+                strategy_variant,
+                fixture_summaries,
+                anchor_room="E1S1",
+                run_errors=["cleanup failed"],
+            )
+        )
+        static_tick_log = [{"tick": 1, "rooms": copy.deepcopy(fixture_summaries)}]
+        static_tick_log.append(copy.deepcopy(static_tick_log[0]))
+        static_tick_log[-1]["tick"] = 2
+        self.assertIsNone(
+            harness.build_multi_tier_policy_activation_evidence(
+                static_tick_log,
+                strategy_variant,
+                fixture_summaries,
+                anchor_room="E1S1",
+            )
+        )
+
+    def test_multi_tier_policy_activation_uses_later_real_target_snapshots_after_fixture_fallback(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        fallback_tick = {
+            "tick": 1,
+            "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}},
+        }
+        harness._merge_fixture_room_summaries_into_tick(fallback_tick, fixture_summaries)
+        real_initial_tick = {"tick": 2, "rooms": copy.deepcopy(fixture_summaries)}
+        real_final_tick = copy.deepcopy(real_initial_tick)
+        real_final_tick["tick"] = 3
+        real_final_tick["rooms"]["E2S1"]["combat"]["hostileCreeps"] = 1
+        tick_log = [fallback_tick, real_initial_tick, real_final_tick]
+        strategy_variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["targetRoom"], "E2S1")
+        self.assertEqual(activation["observedEvidence"]["observedTickCount"], 2)
+        self.assertEqual(activation["observedEvidence"]["initialTick"], 2)
+        self.assertEqual(activation["observedEvidence"]["finalTick"], 3)
+        self.assertTrue(activation["observedEvidence"]["hostileCountReduced"])
+        self.assertFalse(activation["observedEvidence"]["fixtureGeneratedRoomState"])
+
+    def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        initial_tick = {"tick": 1, "rooms": {"E1S1": {"owned": True, "controller": {"level": 1, "my": True}}}}
+        harness._merge_fixture_room_summaries_into_tick(initial_tick, fixture_summaries)
+        final_tick = copy.deepcopy(initial_tick)
+        final_tick["tick"] = 2
+        tick_log = [initial_tick, final_tick]
+        strategy_variant = {
+            "id": "construction-priority.pg.resource-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 10,
+                "resourceSignalWeight": 18,
+                "killSignalWeight": 4,
+                "riskPenalty": 4,
+            },
+        }
+
+        activation = harness.build_multi_tier_policy_activation_evidence(
+            tick_log,
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNone(activation)
+        self.assertNotIn("rlPolicyActivation", tick_log[-1])
+        self.assertEqual(harness.build_variant_metrics(tick_log)["combat"]["hostileKills"], 0)
+
+    def test_inline_strategy_variant_config_overrides_registry_fallback(self) -> None:
+        config = harness.strategy_variant_config_by_id(
+            "construction-priority.pg.territory-seed.v1",
+            variant_configs={
+                "construction-priority.pg.territory-seed.v1": {
+                    "id": "construction-priority.pg.territory-seed.v1",
+                    "title": "Policy-gradient territory seed",
+                    "parameters": {
+                        "baseScoreWeight": 1,
+                        "territorySignalWeight": 22,
+                        "resourceSignalWeight": 3,
+                        "killSignalWeight": 5,
+                        "riskPenalty": 4,
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(config["label"], "Policy-gradient territory seed")
+        self.assertEqual(config["parameters"]["territorySignalWeight"], 22)
+        self.assertEqual(config["defaultValues"]["territorySignalWeight"], 22)
+        self.assertFalse(config["safety"]["liveEffect"])
+        self.assertFalse(config["safety"]["officialMmoWrites"])
 
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:
@@ -2160,6 +2520,20 @@ cli:
 
     def test_run_simulator_missing_steam_key_fails_closed_without_secret_leak(self) -> None:
         unrelated_secret = "unrelated-secret-token-123456"
+        variant_id = "construction-priority.pg.territory-seed.v1"
+        variant_configs = {
+            variant_id: {
+                "id": variant_id,
+                "title": "inline candidate that failed setup",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 31,
+                    "resourceSignalWeight": 2,
+                    "killSignalWeight": 5,
+                    "riskPenalty": 4,
+                },
+            }
+        }
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2173,17 +2547,22 @@ cli:
                         harness.run_simulator(
                             ticks=1,
                             workers=1,
-                            variants=["baseline"],
+                            variants=[variant_id],
                             out_dir=out_dir,
                             run_id="missing-steam-key",
                             code_path=root / "main.js",
                             map_source_file=root / "map.json",
+                            variant_configs=variant_configs,
                         )
                     failure_text = (out_dir / "missing-steam-key" / "setup_failure.json").read_text(encoding="utf-8")
+                    summary = read_json(out_dir / "missing-steam-key" / "run_summary.json")
 
         run_variants.assert_not_called()
         self.assertIn("STEAM_KEY environment variable is required", failure_text)
         self.assertNotIn(unrelated_secret, failure_text)
+        strategy_variant = summary["variants"][0]["strategyVariant"]
+        self.assertEqual(strategy_variant["label"], "inline candidate that failed setup")
+        self.assertEqual(strategy_variant["parameters"]["territorySignalWeight"], 31)
 
     def test_run_simulator_rejects_unsafe_run_id_before_writing_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2388,6 +2767,19 @@ cli:
             "reasons": [],
             "warnings": [],
         }
+        variant_configs = {
+            "baseline": {
+                "id": "baseline",
+                "title": "inline failure candidate",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 29,
+                    "resourceSignalWeight": 3,
+                    "killSignalWeight": 4,
+                    "riskPenalty": 2,
+                },
+            }
+        }
 
         cases = [
             ("required-env", "setup-failure", "setup_failure.json", harness.RUN_SETUP_FAILURE_TYPE),
@@ -2413,6 +2805,7 @@ cli:
                     error=f"{phase} failed",
                     resource_guard=resource_guard,
                     cleanup=cleanup,
+                    variant_configs=variant_configs,
                 )
                 failure_path = out_dir / run_id / filename
                 failure = read_json(failure_path)
@@ -2422,6 +2815,8 @@ cli:
                 self.assertEqual(failure["phase"], phase)
                 self.assertEqual(artifact["failureArtifactPath"], str(failure_path))
                 self.assertEqual(summary["failureArtifactPath"], str(failure_path))
+                self.assertEqual(summary["variants"][0]["strategyVariant"]["label"], "inline failure candidate")
+                self.assertEqual(summary["variants"][0]["strategyVariant"]["parameters"]["territorySignalWeight"], 29)
                 self.assertFalse((out_dir / run_id / "resource_guard_failure.json").exists())
 
     def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:

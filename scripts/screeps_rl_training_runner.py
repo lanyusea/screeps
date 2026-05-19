@@ -40,6 +40,7 @@ RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM = "rank_weighted_finite_difference_v1"
 TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM = "reinforce_v1"
 POLICY_UPDATE_ALGORITHM = RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM
 DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
+METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
@@ -784,6 +785,7 @@ def execute_simulator_runs(
     report_id: str,
 ) -> list[JsonObject]:
     variant_ids = [variant.id for variant in variants]
+    variant_configs = {variant.id: variant.to_json() for variant in variants}
     raw_run_id = text_or_none(card.get("run_id")) or text_or_none(card.get("runId")) or report_id
     base_run_id = normalize_simulator_run_id(raw_run_id)
     runs: list[JsonObject] = []
@@ -810,6 +812,7 @@ def execute_simulator_runs(
                 code_path=config.code_path,
                 map_source_file=config.map_source_file,
                 min_concurrent_environments=min_concurrent_environments,
+                variant_configs=variant_configs,
             )
         )
     return runs
@@ -1168,6 +1171,14 @@ def build_rank_weighted_finite_difference_policy_update(
     base = build_policy_update_base(algorithm=RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM, target_family=target_family)
     if not parameter_space:
         return {**base, "skippedReason": "missing_policy_parameter_space"}
+    if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
+        return {
+            **base,
+            "skippedReason": METADATA_ONLY_POLICY_UPDATE_SKIP_REASON,
+            "candidateCount": 0,
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+        }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
 
@@ -1299,6 +1310,14 @@ def build_reinforce_policy_update(
     base = build_policy_update_base(algorithm=TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM, target_family=target_family)
     if not parameter_space:
         return {**base, "skippedReason": "missing_policy_parameter_space"}
+    if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
+        return {
+            **base,
+            "skippedReason": METADATA_ONLY_POLICY_UPDATE_SKIP_REASON,
+            "candidateCount": 0,
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+        }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
 
@@ -1542,6 +1561,8 @@ def policy_update_candidate_rows(
     results: Sequence[JsonObject],
     parameter_space: dict[str, JsonObject],
 ) -> list[JsonObject]:
+    if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
+        return []
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
     if not isinstance(raw_candidates, list):
         return []
@@ -2974,7 +2995,77 @@ def policy_gradient_metadata_from_card(card: JsonObject) -> JsonObject | None:
     raw = card.get("policy_gradient", card.get("policyGradient"))
     if not isinstance(raw, dict):
         return None
-    return copy.deepcopy(raw)
+    return policy_gradient_metadata_with_runner_transport(copy.deepcopy(raw))
+
+
+def policy_gradient_metadata_with_runner_transport(policy_gradient: JsonObject) -> JsonObject:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
+    if support is None:
+        return policy_gradient
+    declared_inline_applied = first_present(
+        support,
+        ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"),
+    )
+    if declared_inline_applied is not None:
+        support["declaredInlineCandidatesAppliedToSimulator"] = declared_inline_applied
+    support["inline_candidates_applied_to_simulator"] = False
+    support["inline_candidates_runtime_injected"] = False
+    support["runtime_parameter_injection"] = False
+    support["simulator_variant_transport"] = "variant_ids_with_inline_metadata"
+    support["candidate_parameter_scope"] = "metadata_only"
+    support["policy_update_reward_use"] = "blocked_until_runtime_parameter_evidence"
+    support["limitation"] = (
+        "Inline policy-gradient parameter vectors are passed to the simulator harness as metadata only; "
+        "the runner does not rewrite uploaded bot code per variant."
+    )
+    return policy_gradient
+
+
+def policy_gradient_candidate_parameters_metadata_only(policy_gradient: JsonObject) -> bool:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
+    if support is None:
+        return False
+    scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
+    if scope == "metadata_only":
+        return True
+    transport = text_or_none(first_present(support, ("simulator_variant_transport", "simulatorVariantTransport")))
+    if transport == "variant_ids_with_inline_metadata":
+        return True
+    runtime_injection = first_present(
+        support,
+        (
+            "runtime_parameter_injection",
+            "runtimeParameterInjection",
+            "inline_candidates_runtime_injected",
+            "inlineCandidatesRuntimeInjected",
+        ),
+    )
+    if runtime_injection is False:
+        return True
+    inline_applied = first_present(
+        support,
+        ("inline_candidates_applied_to_simulator", "inlineCandidatesAppliedToSimulator"),
+    )
+    return inline_applied is False
+
+
+def policy_gradient_candidate_vector_count(policy_gradient: JsonObject) -> int:
+    candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(candidates, list):
+        return 0
+    return sum(1 for candidate in candidates if isinstance(candidate, dict))
+
+
+def policy_update_metadata_only_parameter_evidence() -> JsonObject:
+    return {
+        "candidateParameterScope": "metadata_only",
+        "runtimeParameterInjection": False,
+        "policyUpdateEligible": False,
+        "reason": (
+            "candidate rewards were produced by the shared uploaded bot artifact; inline parameter vectors "
+            "were not injected into simulator runtime behavior"
+        ),
+    }
 
 
 def safety_metadata() -> JsonObject:

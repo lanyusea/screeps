@@ -637,6 +637,7 @@ interface RuntimeConstructionPrioritySummary {
 interface RuntimeConstructionPriorityCandidateSummary {
   buildItem: string;
   room: string;
+  policyAction?: ConstructionPriorityScore['policyAction'];
   score: number;
   urgency: ConstructionPriorityScore['urgency'];
   preconditions: string[];
@@ -2715,6 +2716,7 @@ function toRuntimeConstructionPriorityCandidateSummary(
   return {
     buildItem: score.buildItem,
     room: score.room,
+    ...(score.policyAction !== 'build' ? { policyAction: score.policyAction } : {}),
     score: score.score,
     urgency: score.urgency,
     preconditions: score.preconditions,
