@@ -539,7 +539,7 @@ def compute_evidence_summary(payload: JsonObject) -> JsonObject:
     preflight_only = preflight_marker_present(payload) and not strong_signals
     weak_signals = [] if preflight_only else collect_weak_compute_evidence(payload)
     signals = strong_signals + weak_signals
-    if signals:
+    if strong_signals:
         classification = "COMPUTE_CONFIRMED"
         blocker = None
     elif preflight_only:
@@ -555,7 +555,7 @@ def compute_evidence_summary(payload: JsonObject) -> JsonObject:
             "or controller execution/provisioning beyond preflight."
         )
     return {
-        "hasCompute": bool(signals),
+        "hasCompute": bool(strong_signals),
         "classification": classification,
         "signals": signals[:12],
         "blocker": blocker,

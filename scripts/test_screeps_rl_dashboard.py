@@ -1380,6 +1380,13 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(training["cardSupply"]["classification"], "CARD_SUPPLY_BLOCKED")
         self.assertIn("No real compute evidence", training["cardSupply"]["reason"])
         self.assertNotEqual(training["cardSupply"].get("source"), "tencent_internal_experiment_card")
+        self.assertEqual(training["status"], "BLOCKED")
+        self.assertFalse(training["hasComputeEvidence"])
+        self.assertFalse(training["computeEvidence"]["hasCompute"])
+        self.assertEqual(training["computeEvidence"]["classification"], "MISSING_COMPUTE_EVIDENCE")
+        self.assertNotEqual(training["computeEvidence"]["classification"], "COMPUTE_CONFIRMED")
+        signal_fields = {item["field"] for item in training["computeEvidence"]["signals"]}
+        self.assertEqual(signal_fields, {"artifactCount", "episodesRun", "policyUpdateIterations"})
 
     def test_blank_executor_identity_does_not_unblock_policy_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
