@@ -24,6 +24,9 @@ import screeps_rl_experiment_card as card_helper
 
 
 CONTROLLER_IP = "43.128.104.34/32"
+READY_RUNTIME_SCORECARD_PATH = (
+    "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json"
+)
 
 
 def add_file(tar: tarfile.TarFile, name: str, content: bytes = b"ok") -> None:
@@ -83,6 +86,10 @@ def run_git(args: list[str], cwd: Path) -> None:
 def write_text(path: Path, text: str = "ok\n") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_ready_runtime_scorecard_artifact(root: Path) -> None:
+    write_text(root / "remote" / READY_RUNTIME_SCORECARD_PATH, "{}\n")
 
 
 def decode_remote_bash_lc(remote_command: str) -> str:
@@ -185,9 +192,7 @@ def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
             "officialMmoWritesAllowed": False,
         },
         "scorecardId": "rl-scorecard-run-test",
-        "scorecardArtifactPath": (
-            "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json"
-        ),
+        "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
         "candidateScorecard": {
             "status": "ready",
             "scorecardId": "rl-scorecard-run-test",
@@ -1082,7 +1087,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "officialMmoWritesAllowed": False,
                         },
                         "scorecardId": "rl-scorecard-run-test",
-                        "scorecardArtifactPath": "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json",
+                        "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
                         "candidateScorecard": {
                             "status": "ready",
                             "classification": "runtime_injected_candidate_scorecard_ready",
@@ -1110,6 +1115,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             write_text(root / "remote" / "runtime-artifacts" / "rl-training" / "policy-candidates" / "run-test-next-policy.json", "{}\n")
+            write_ready_runtime_scorecard_artifact(root)
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
             controller.verify_remote_training_report()
             controller.write_summary()
@@ -1151,6 +1157,50 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(summary["outputs"]["trainingReport"]["batchScale"]["batchClass"], "smoke")
             self.assertFalse(summary["outputs"]["trainingReport"]["batchScale"]["scaleFirstEligible"])
             self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
+
+    def test_verify_remote_training_report_rejects_orphaned_scorecard_evidence(self) -> None:
+        cases = (
+            (
+                {"scorecardId": "rl-scorecard-run-test"},
+                "scorecardId is present without candidateScorecard evidence",
+            ),
+            (
+                {"scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH},
+                "scorecardArtifactPath is present without candidateScorecard evidence",
+            ),
+        )
+        for patch, expected_error in cases:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = {
+                    "reportId": "run-test",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "artifactCount": 1,
+                    **patch,
+                }
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_ready_scorecard_without_collected_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(training_report_with_ready_runtime_scorecard()), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "candidate scorecard artifact was not collected",
+            ):
+                controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_rejects_malformed_runtime_parameter_injection_evidence(self) -> None:
         def injection_patch(

@@ -987,6 +987,7 @@ tar -czf remote-artifacts.tar.gz \
             runtime_parameter_injection=runtime_parameter_injection,
             scorecard_id=data.get("scorecardId"),
             scorecard_artifact_path=data.get("scorecardArtifactPath"),
+            artifact_dir=self.artifact_dir,
         )
         self.result["trainingReport"] = {
             "path": str(report),
@@ -2134,8 +2135,13 @@ def verified_remote_candidate_scorecard(
     runtime_parameter_injection: dict[str, Any] | None,
     scorecard_id: Any,
     scorecard_artifact_path: Any,
+    artifact_dir: Path,
 ) -> dict[str, Any] | None:
     if raw is None:
+        if scorecard_id is not None:
+            raise BatchRunError("remote scorecardId is present without candidateScorecard evidence")
+        if scorecard_artifact_path is not None:
+            raise BatchRunError("remote scorecardArtifactPath is present without candidateScorecard evidence")
         return None
     if not isinstance(raw, dict):
         raise BatchRunError("remote candidateScorecard must be an object when present")
@@ -2173,7 +2179,16 @@ def verified_remote_candidate_scorecard(
         top_level_scorecard_id = required_non_empty_text(scorecard_id, "scorecardId")
         if nested_scorecard_id != top_level_scorecard_id:
             raise BatchRunError("remote candidateScorecard.scorecardId disagrees with scorecardId")
-        safe_candidate_scorecard_artifact_path(scorecard_artifact_path)
+        rel_scorecard_artifact_path = safe_candidate_scorecard_artifact_path(scorecard_artifact_path)
+        local_scorecard_artifact_path = collected_remote_candidate_scorecard_artifact_path(
+            artifact_dir,
+            rel_scorecard_artifact_path,
+        )
+        if not local_scorecard_artifact_path.is_file():
+            raise BatchRunError(
+                f"remote candidate scorecard artifact was not collected: "
+                f"{rel_scorecard_artifact_path.as_posix()}"
+            )
     elif status == "blocked":
         classification = raw.get("classification")
         materialization_failed = classification == "candidate_scorecard_materialization_failed"
@@ -2243,6 +2258,16 @@ def safe_candidate_scorecard_artifact_path(raw: Any) -> Path:
     if path.suffix != ".json":
         raise BatchRunError(f"remote scorecardArtifactPath must be a JSON scorecard artifact: {raw!r}")
     return path
+
+
+def collected_remote_candidate_scorecard_artifact_path(artifact_dir: Path, rel_artifact_path: Path) -> Path:
+    remote_root = (artifact_dir / "remote").resolve()
+    local_path = (remote_root / rel_artifact_path).resolve()
+    try:
+        local_path.relative_to(remote_root)
+    except ValueError:
+        raise BatchRunError(f"remote scorecardArtifactPath escapes collected artifact dir: {rel_artifact_path}") from None
+    return local_path
 
 
 def policy_update_iterations(raw: Any, label: str) -> int:
