@@ -330,6 +330,29 @@ def test_loop_b_primary_metric_role_fallbacks_do_not_leak_to_submetrics() -> Non
             assert key not in metrics
 
 
+def test_loop_b_primary_metric_role_values_win_over_generic_score_and_value() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"score": 0.1, "value": 0.2, "candidateValue": 0.995, "baselineValue": 0.991},
+            "territory": {"score": 1, "value": 9, "candidateValue": 3, "baselineValue": 2},
+            "resources": {"score": 100, "value": 200, "candidateValue": 900, "baselineValue": 1000},
+            "kills": {"score": -1, "value": -2, "candidateValue": 2, "baselineValue": 0},
+        },
+    }
+
+    candidate_metrics = loop_b_metrics(payload, role="candidate")
+    baseline_metrics = loop_b_metrics(payload, role="baseline")
+
+    assert candidate_metrics["reliability_score"]["value"] == 0.995
+    assert baseline_metrics["reliability_score"]["value"] == 0.991
+    assert candidate_metrics["owned_room_count"]["value"] == 3
+    assert baseline_metrics["owned_room_count"]["value"] == 2
+    assert candidate_metrics["productive_energy"]["value"] == 900
+    assert baseline_metrics["productive_energy"]["value"] == 1000
+    assert candidate_metrics["combat_score"]["value"] == 2
+    assert baseline_metrics["combat_score"]["value"] == 0
+
+
 def test_loop_b_primary_metric_value_fallback_is_primary_only() -> None:
     payload = {
         "metricsByCategory": {

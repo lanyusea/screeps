@@ -1033,7 +1033,11 @@ def ingest_metrics_by_category(
     )
 
     def category_number(raw_block: JsonObject, keys: Sequence[str], *, primary: bool = False) -> float | None:
-        lookup_keys = (*keys, *role_value_keys) if primary else tuple(keys)
+        if primary:
+            preferred_role_keys = tuple(key for key in role_value_keys if key != "value")
+            lookup_keys = (*preferred_role_keys, *keys, "value")
+        else:
+            lookup_keys = tuple(keys)
         return first_number(raw_block, tuple((key,) for key in lookup_keys))
 
     def add(metric_key: str, raw_block: JsonObject, keys: Sequence[str], note: str, *, primary: bool = False) -> None:
