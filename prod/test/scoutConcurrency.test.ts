@@ -1,4 +1,7 @@
-import { isTerritoryScoutAssignmentAvailableForCreep } from '../src/territory/scoutConcurrency';
+import {
+  isTerritoryScoutAssignmentAvailableForCreep,
+  shouldSpawnTerritoryScoutForTarget
+} from '../src/territory/scoutConcurrency';
 
 describe('territory scout concurrency', () => {
   beforeEach(() => {
@@ -42,6 +45,54 @@ describe('territory scout concurrency', () => {
 
     expect(isTerritoryScoutAssignmentAvailableForCreep('E29N55', 'E29N53', 'ScoutC', 1000)).toBe(false);
     expect(scanCount).toBe(1);
+  });
+
+  it('blocks timed-out scout retries when active scouts are already at the cap', () => {
+    Memory.territory = {
+      scoutAttempts: {
+        'E29N55>E29N53': {
+          colony: 'E29N55',
+          roomName: 'E29N53',
+          status: 'requested',
+          requestedAt: 1000,
+          updatedAt: 1000,
+          attemptCount: 1
+        }
+      }
+    };
+
+    expect(
+      shouldSpawnTerritoryScoutForTarget(
+        'E29N55',
+        'E29N53',
+        { worker: 4, scout: 2, scoutsByTargetRoom: { E28N54: 1, E29N54: 1 } },
+        2501
+      )
+    ).toBe(false);
+  });
+
+  it('allows a timed-out scout retry while active scouts remain below the cap', () => {
+    Memory.territory = {
+      scoutAttempts: {
+        'E29N55>E29N53': {
+          colony: 'E29N55',
+          roomName: 'E29N53',
+          status: 'requested',
+          requestedAt: 1000,
+          updatedAt: 1000,
+          attemptCount: 1
+        }
+      }
+    };
+
+    expect(
+      shouldSpawnTerritoryScoutForTarget(
+        'E29N55',
+        'E29N53',
+        { worker: 4, scout: 1, scoutsByTargetRoom: { E29N53: 1 } },
+        2501
+      )
+    ).toBe(true);
   });
 });
 

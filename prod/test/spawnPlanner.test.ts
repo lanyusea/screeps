@@ -4956,8 +4956,8 @@ describe('planSpawn', () => {
             colony: 'E29N55',
             roomName: 'E29N53',
             status: 'requested',
-            requestedAt: 968_880,
-            updatedAt: 968_880,
+            requestedAt: 967_300,
+            updatedAt: 967_300,
             attemptCount: 1
           }
         }
@@ -4982,7 +4982,7 @@ describe('planSpawn', () => {
       968_900
     );
 
-    expect(spawnPlan?.memory.role).not.toBe('scout');
+    expect(spawnPlan).toBeNull();
   });
 
   it('keeps the E29N56 scout-only lane closed while planning another adjacent scout at RCL2 no-tower state', () => {

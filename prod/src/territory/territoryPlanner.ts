@@ -1461,7 +1461,7 @@ function selectTerritoryTarget(
 
   if (options.scoutOnly !== true) {
     const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
-      getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
+      getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony, gameTime)
     );
     if (
       bestReadyPrimaryCandidate &&
@@ -1519,7 +1519,8 @@ function selectTerritoryTarget(
           getReadyTerritoryCandidates(
             [...primaryCandidates, ...visibleAdjacentControllerProgressCandidates],
             roleCounts,
-            colony
+            colony,
+            gameTime
           )
         ) ?? bestReadyPrimaryCandidate,
         routeDistanceLookupContext
@@ -1569,24 +1570,25 @@ function selectTerritoryTarget(
   );
   if (options.scoutOnly === true) {
     return toSelectedTerritoryTarget(
-      selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony)) ??
-        selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony)) ??
+      selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony, gameTime)) ??
+        selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony, gameTime)) ??
         selectBestScoredTerritoryCandidate(candidates),
       routeDistanceLookupContext
     );
   }
 
   const bestReadyCandidate = selectBestScoredTerritoryCandidate(
-    getReadyTerritoryCandidates(candidates, roleCounts, colony)
+    getReadyTerritoryCandidates(candidates, roleCounts, colony, gameTime)
   );
   const bestActionableCandidate = selectBestScoredTerritoryCandidate(
-    getActionableTerritoryCandidates(candidates, roleCounts, colony)
+    getActionableTerritoryCandidates(candidates, roleCounts, colony, gameTime)
   );
   return toSelectedTerritoryTarget(
     shouldPreferCoveredActionableCandidateOverExpansionScout(
       bestReadyCandidate,
       bestActionableCandidate,
-      roleCounts
+      roleCounts,
+      gameTime
     )
       ? bestActionableCandidate
       : bestReadyCandidate ?? bestActionableCandidate ?? selectBestScoredTerritoryCandidate(candidates),
@@ -1597,13 +1599,14 @@ function selectTerritoryTarget(
 function shouldPreferCoveredActionableCandidateOverExpansionScout(
   readyCandidate: ScoredTerritoryTarget | null,
   actionableCandidate: ScoredTerritoryTarget | null,
-  roleCounts: RoleCounts
+  roleCounts: RoleCounts,
+  gameTime: number
 ): actionableCandidate is ScoredTerritoryTarget {
   return (
     readyCandidate?.source === 'configuredExpansionScout' &&
     actionableCandidate !== null &&
     actionableCandidate.source !== 'configuredExpansionScout' &&
-    !isTerritoryCandidateSpawnRequired(actionableCandidate, roleCounts) &&
+    !isTerritoryCandidateSpawnRequired(actionableCandidate, roleCounts, gameTime) &&
     compareTerritoryCandidates(actionableCandidate, readyCandidate) < 0
   );
 }
@@ -1730,12 +1733,13 @@ function isTerritoryHomeReadyForAdjacentControllerProgress(
 function getReadyTerritoryCandidates(
   candidates: ScoredTerritoryTarget[],
   roleCounts: RoleCounts,
-  colony: ColonySnapshot
+  colony: ColonySnapshot,
+  gameTime: number
 ): ScoredTerritoryTarget[] {
   return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
     (candidate) =>
       candidate.immediateControllerFollowUp === true ||
-      (isTerritoryCandidateSpawnRequired(candidate, roleCounts) &&
+      (isTerritoryCandidateSpawnRequired(candidate, roleCounts, gameTime) &&
         isTerritoryCandidateSpawnReady(candidate, colony))
   );
 }
@@ -1743,11 +1747,13 @@ function getReadyTerritoryCandidates(
 function getActionableTerritoryCandidates(
   candidates: ScoredTerritoryTarget[],
   roleCounts: RoleCounts,
-  colony: ColonySnapshot
+  colony: ColonySnapshot,
+  gameTime: number
 ): ScoredTerritoryTarget[] {
   return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
     (candidate) =>
-      !isTerritoryCandidateSpawnRequired(candidate, roleCounts) || isTerritoryCandidateSpawnReady(candidate, colony)
+      !isTerritoryCandidateSpawnRequired(candidate, roleCounts, gameTime) ||
+      isTerritoryCandidateSpawnReady(candidate, colony)
   );
 }
 
@@ -1785,10 +1791,14 @@ function isImmediateControllerFollowUpCandidate(
   );
 }
 
-function isTerritoryCandidateSpawnRequired(candidate: ScoredTerritoryTarget, roleCounts: RoleCounts): boolean {
+function isTerritoryCandidateSpawnRequired(
+  candidate: ScoredTerritoryTarget,
+  roleCounts: RoleCounts,
+  gameTime: number
+): boolean {
   if (
     candidate.intentAction === 'scout' &&
-    !shouldSpawnTerritoryScoutForTarget(candidate.target.colony, candidate.target.roomName, roleCounts)
+    !shouldSpawnTerritoryScoutForTarget(candidate.target.colony, candidate.target.roomName, roleCounts, gameTime)
   ) {
     return false;
   }

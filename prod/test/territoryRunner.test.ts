@@ -402,6 +402,9 @@ describe('runTerritoryControllerCreep', () => {
     expect(scouts.filter((scout) => scout.memory.territory === undefined)).toHaveLength(3);
     expect(scouts[0].moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E28N54' });
     expect(scouts[1].moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E29N53' });
+    for (const scout of scouts.slice(2)) {
+      expect(scout.moveTo).not.toHaveBeenCalled();
+    }
   });
 
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {

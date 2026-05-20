@@ -45,11 +45,16 @@ export function shouldSpawnTerritoryScoutForTarget(
 ): boolean {
   const targetTimedOut = isTerritoryScoutAttemptTimedOut(colony, targetRoom, gameTime);
   const targetScoutCount = getTerritoryScoutCountForTarget(roleCounts, targetRoom);
+  const activeScoutCount = getActiveTerritoryScoutCount(roleCounts);
+  if (activeScoutCount >= TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS) {
+    return false;
+  }
+
   if (targetScoutCount > 0) {
     return targetTimedOut && targetScoutCount < 2;
   }
 
-  return targetTimedOut || getActiveTerritoryScoutCount(roleCounts) < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
+  return true;
 }
 
 export function isTerritoryScoutAssignmentAvailableForCreep(
