@@ -457,6 +457,52 @@ def test_runtime_scorecard_missing_baseline_metric_is_inconclusive_not_pass(tmp_
     assert "combat" in report["overallGate"]["inconclusiveDimensions"]
 
 
+def test_missing_dimension_metrics_carry_stable_reason_codes(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    write_json(
+        candidate / "candidate-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "resources": {"score": 1500},
+            },
+        },
+    )
+    write_json(
+        baseline / "baseline-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {},
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:06:00Z",
+        run_id="scorecard-missing-reason-codes",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    productive = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert productive["candidate"] == 1500
+    assert productive["baseline"] is None
+    assert productive["reasonCodes"] == ["missing_baseline_metric"]
+    productive_detail = next(
+        detail for detail in resources["missingEvidenceDetails"] if detail["metric"] == "productive_energy"
+    )
+    assert productive_detail["reasonCodes"] == ["missing_baseline_metric"]
+    assert productive_detail["baselineMissing"] is True
+    assert productive_detail["candidateMissing"] is False
+    construction = report["dimensions"]["construction_infrastructure"]
+    assert "missing_candidate_metric" in construction["reasonCodes"]
+    assert "missing_baseline_metric" in construction["reasonCodes"]
+
+
 def test_metadata_only_policy_update_holds_even_with_complete_metric_advantage(tmp_path: Path) -> None:
     baseline = tmp_path / "baseline"
     candidate = tmp_path / "candidate"

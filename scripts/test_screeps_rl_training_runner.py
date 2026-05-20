@@ -1685,6 +1685,120 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(first_result["parameterEvidence"]["sourceStrategyId"], "construction-priority.incumbent.v1")
 
+    def test_policy_gradient_materializes_all_candidate_vs_incumbent_scorecards(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scorecard-set",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T01:25:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        card["simulation"]["scale_environments"] = 5
+        card["simulation"]["min_concurrent_environments"] = 5
+        expanded_variants = runner.expand_scale_environment_strategy_variants(
+            runner.load_strategy_variants(card),
+            5,
+        )
+        start = tick(1, [room("W1N1", energy=100), hostile_fixture_room()])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant in expanded_variants:
+            variant_id = variant.id
+            if "territory-seed" in variant_id:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100, hostile_kills=1)])],
+                )
+            elif "resource-seed" in variant_id:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000), hostile_fixture_room()])],
+                )
+            elif "risk-aware-seed" in variant_id:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=160), room("W1N2", energy=100, hostile_kills=1)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200), hostile_fixture_room()])],
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-scorecard-set",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+            scorecard_paths_exist = [
+                Path(item["scorecardArtifactPath"]).is_file()
+                for item in report["candidateScorecards"]["comparisons"]
+            ]
+
+        scorecard_set = report["candidateScorecards"]
+        incumbent_ids = set(report["incumbentStrategyIds"])
+        candidate_ids = {
+            item["variantId"]
+            for item in report["ranking"]
+            if item["variantId"] not in incumbent_ids
+        }
+        expected_pairs = {
+            (candidate_id, incumbent_id)
+            for candidate_id in candidate_ids
+            for incumbent_id in incumbent_ids
+        }
+        actual_pairs = {
+            (item["candidateStrategyId"], item["baselineStrategyId"])
+            for item in scorecard_set["comparisons"]
+        }
+
+        self.assertEqual(scorecard_set["type"], runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE)
+        self.assertEqual(scorecard_set["status"], "materialized")
+        self.assertEqual(scorecard_set["comparisonCount"], len(expected_pairs))
+        self.assertEqual(actual_pairs, expected_pairs)
+        self.assertEqual(scorecard_set["materializedScorecardCount"], len(expected_pairs))
+        self.assertTrue(scorecard_set["validationScaleComputeBlocked"])
+        self.assertIn("runtime_parameter_injection", scorecard_set["missingPrerequisites"])
+        self.assertEqual(report["candidateScorecard"]["status"], "materialized")
+        self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertEqual(report["candidateScorecard"]["overallGate"]["status"], "HOLD")
+        self.assertTrue(all(scorecard_paths_exist))
+        for comparison in scorecard_set["comparisons"]:
+            self.assertEqual(comparison["status"], "materialized")
+            self.assertEqual(comparison["overallGate"]["status"], "HOLD")
+
+    def test_policy_gradient_scorecard_noop_is_machine_readable_when_pair_missing(self) -> None:
+        report: JsonObject = {
+            "policyGradient": {"target_family": "construction-priority"},
+            "reportId": "scorecard-no-pair",
+            "ranking": [],
+            "incumbentStrategyIds": [],
+            "variantResults": [],
+            "warnings": [],
+            "runtimeParameterInjection": {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner.materialize_candidate_scorecard_artifact(report, Path(temp_dir), [])
+
+        self.assertEqual(report["candidateScorecards"]["status"], "blocked")
+        self.assertEqual(report["candidateScorecards"]["missingPrerequisite"], "candidate_baseline_ranking")
+        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(report["candidateScorecard"]["classification"], "candidate_baseline_pair_missing")
+        self.assertIsNone(report["scorecardId"])
+        self.assertIsNone(report["scorecardArtifactPath"])
+
     def test_policy_reward_tuple_aggregation_weights_by_sample_count(self) -> None:
         self.assertEqual(
             runner.aggregate_policy_reward_tuple(

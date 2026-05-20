@@ -46,6 +46,7 @@ METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
 RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON = "runtime_parameter_injection_missing_or_incomplete"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 CANDIDATE_SCORECARD_ARTIFACT_DIR = "candidate-scorecards"
+MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
 MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
@@ -2084,17 +2085,41 @@ def materialize_candidate_scorecard_artifact(
     out_dir: Path,
     secret_values: Sequence[str],
 ) -> None:
-    """Persist a #924 scorecard for completed policy-gradient rankings."""
+    """Persist #924 scorecards for every completed policy-gradient candidate/baseline pair."""
     if not isinstance(report.get("policyGradient"), dict):
         return
 
-    readiness = build_candidate_scorecard_readiness(report)
-    report["candidateScorecard"] = readiness
-    report["scorecardId"] = readiness.get("scorecardId")
-    report["scorecardArtifactPath"] = readiness.get("scorecardArtifactPath")
-    if readiness.get("status") not in {"ready", "materialized"}:
+    comparisons = build_candidate_scorecard_readiness_rows(report)
+    scorecard_set = build_candidate_scorecard_set_payload(report, comparisons)
+    report["candidateScorecards"] = scorecard_set
+    if not comparisons:
+        readiness = build_candidate_scorecard_readiness(report)
+        report["candidateScorecard"] = readiness
+        report["scorecardId"] = None
+        report["scorecardArtifactPath"] = None
         return
 
+    selected = comparisons[0]
+    report["candidateScorecard"] = selected
+    report["scorecardId"] = selected.get("scorecardId")
+    report["scorecardArtifactPath"] = selected.get("scorecardArtifactPath")
+
+    for readiness in comparisons:
+        if readiness.get("status") not in {"ready", "materialized"}:
+            continue
+        materialize_candidate_scorecard_comparison(report, out_dir, secret_values, readiness)
+
+    finalize_candidate_scorecard_set_payload(scorecard_set)
+    report["scorecardId"] = selected.get("scorecardId")
+    report["scorecardArtifactPath"] = selected.get("scorecardArtifactPath")
+
+
+def materialize_candidate_scorecard_comparison(
+    report: JsonObject,
+    out_dir: Path,
+    secret_values: Sequence[str],
+    readiness: JsonObject,
+) -> None:
     candidate_id = text_or_none(readiness.get("candidateStrategyId"))
     baseline_id = text_or_none(readiness.get("baselineStrategyId"))
     scorecard_id = text_or_none(readiness.get("scorecardId"))
@@ -2107,8 +2132,6 @@ def materialize_candidate_scorecard_artifact(
                 missing_prerequisite="candidate_baseline_pair",
             )
         )
-        report["scorecardId"] = None
-        report["scorecardArtifactPath"] = None
         return
 
     candidate_result = variant_result_by_id(report, candidate_id)
@@ -2122,12 +2145,11 @@ def materialize_candidate_scorecard_artifact(
                 missing_prerequisite="candidate_baseline_variant_results",
             )
         )
-        report["scorecardId"] = None
-        report["scorecardArtifactPath"] = None
         return
 
     safe_report_id = safe_artifact_stem(text_or_none(report.get("reportId")) or "rl-training")
-    scorecard_root = out_dir / CANDIDATE_SCORECARD_ARTIFACT_DIR / safe_report_id
+    pair_stem = safe_scorecard_pair_stem(candidate_id, baseline_id)
+    scorecard_root = out_dir / CANDIDATE_SCORECARD_ARTIFACT_DIR / safe_report_id / pair_stem
     candidate_dir = scorecard_root / "candidate"
     baseline_dir = scorecard_root / "baseline"
     candidate_projection = scorecard_projection_payload(
@@ -2179,7 +2201,6 @@ def materialize_candidate_scorecard_artifact(
         and isinstance(scorecard.get("overallGate", {}).get("monotonic"), dict)
         else None,
     }
-    report["scorecardArtifactPath"] = display
 
 
 def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: Exception) -> None:
@@ -2215,13 +2236,20 @@ def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: E
             payload["candidateRank"] = candidate_rank
             payload["baselineRank"] = baseline_rank
     report["candidateScorecard"] = payload
+    scorecard_set = report.get("candidateScorecards")
+    if isinstance(scorecard_set, dict):
+        scorecard_set["status"] = "blocked"
+        scorecard_set["classification"] = "candidate_scorecard_materialization_failed"
+        scorecard_set["scorecardUsable"] = False
+        scorecard_set["validationScaleComputeBlocked"] = True
+        scorecard_set["missingPrerequisite"] = "candidate_scorecard_artifact"
+        scorecard_set["reason"] = reason
     report["scorecardId"] = None
     report["scorecardArtifactPath"] = None
 
 
 def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
     pair = candidate_scorecard_pair(report)
-    report_runtime_parameter_injection = report.get("runtimeParameterInjection")
     if pair is None:
         return candidate_scorecard_blocked_payload(
             report,
@@ -2230,6 +2258,37 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
             missing_prerequisite="candidate_baseline_ranking",
         )
     candidate_id, baseline_id, candidate_rank, baseline_rank = pair
+    return build_candidate_scorecard_readiness_for_pair(
+        report,
+        candidate_id=candidate_id,
+        baseline_id=baseline_id,
+        candidate_rank=candidate_rank,
+        baseline_rank=baseline_rank,
+    )
+
+
+def build_candidate_scorecard_readiness_rows(report: JsonObject) -> list[JsonObject]:
+    return [
+        build_candidate_scorecard_readiness_for_pair(
+            report,
+            candidate_id=candidate_id,
+            baseline_id=baseline_id,
+            candidate_rank=candidate_rank,
+            baseline_rank=baseline_rank,
+        )
+        for candidate_id, baseline_id, candidate_rank, baseline_rank in candidate_scorecard_pairs(report)
+    ]
+
+
+def build_candidate_scorecard_readiness_for_pair(
+    report: JsonObject,
+    *,
+    candidate_id: str,
+    baseline_id: str,
+    candidate_rank: int | None,
+    baseline_rank: int | None,
+) -> JsonObject:
+    report_runtime_parameter_injection = report.get("runtimeParameterInjection")
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
     runtime_parameter_injection = candidate_scorecard_runtime_parameter_injection(report, candidate_id)
     runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
@@ -2263,6 +2322,7 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
         "baselineStrategyId": baseline_id,
         "candidateRank": candidate_rank,
         "baselineRank": baseline_rank,
+        "comparisonKey": f"{candidate_id}::vs::{baseline_id}",
         "runtimeParameterInjection": runtime_ready,
         "injectedVariantCount": injected_count,
         "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
@@ -2281,6 +2341,101 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
     if next_action is not None:
         payload["nextAction"] = next_action
     return payload
+
+
+def build_candidate_scorecard_set_payload(report: JsonObject, comparisons: Sequence[JsonObject]) -> JsonObject:
+    if not comparisons:
+        return {
+            "type": MULTI_CANDIDATE_SCORECARD_SET_TYPE,
+            "schemaVersion": SCHEMA_VERSION,
+            "status": "blocked",
+            "classification": "candidate_baseline_pair_missing",
+            "reportId": report.get("reportId"),
+            "comparisonCount": 0,
+            "candidateCount": 0,
+            "baselineCount": 0,
+            "materializedScorecardCount": 0,
+            "scorecardUsable": False,
+            "validationScaleComputeBlocked": True,
+            "missingPrerequisite": "candidate_baseline_ranking",
+            "reason": "ranking did not contain both a candidate and an incumbent baseline variant",
+            "comparisons": [],
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": safety_metadata(),
+        }
+    candidate_ids = sorted(
+        {item["candidateStrategyId"] for item in comparisons if isinstance(item.get("candidateStrategyId"), str)}
+    )
+    baseline_ids = sorted(
+        {item["baselineStrategyId"] for item in comparisons if isinstance(item.get("baselineStrategyId"), str)}
+    )
+    payload: JsonObject = {
+        "type": MULTI_CANDIDATE_SCORECARD_SET_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "planned",
+        "classification": "multi_candidate_scorecards_planned",
+        "reportId": report.get("reportId"),
+        "comparisonCount": len(comparisons),
+        "candidateCount": len(candidate_ids),
+        "baselineCount": len(baseline_ids),
+        "candidateStrategyIds": candidate_ids,
+        "baselineStrategyIds": baseline_ids,
+        "selectedScorecardId": comparisons[0].get("scorecardId"),
+        "comparisons": list(comparisons),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    finalize_candidate_scorecard_set_payload(payload)
+    return payload
+
+
+def finalize_candidate_scorecard_set_payload(payload: JsonObject) -> None:
+    comparisons = [item for item in payload.get("comparisons", []) if isinstance(item, dict)]
+    materialized_count = sum(1 for item in comparisons if text_or_none(item.get("scorecardArtifactPath")) is not None)
+    blocked_count = sum(1 for item in comparisons if item.get("status") == "blocked")
+    ready_count = sum(1 for item in comparisons if item.get("status") == "ready")
+    validation_blocked = any(item.get("validationScaleComputeBlocked") is True for item in comparisons)
+    usable = bool(comparisons) and all(item.get("scorecardUsable") is True for item in comparisons)
+    missing_prerequisites = sorted(
+        {
+            str(item["missingPrerequisite"])
+            for item in comparisons
+            if isinstance(item.get("missingPrerequisite"), str)
+        }
+    )
+    reason_codes = sorted(
+        {
+            str(item.get("classification"))
+            for item in comparisons
+            if isinstance(item.get("classification"), str)
+        }
+    )
+    payload["materializedScorecardCount"] = materialized_count
+    payload["blockedComparisonCount"] = blocked_count
+    payload["readyComparisonCount"] = ready_count
+    payload["validationScaleComputeBlocked"] = validation_blocked
+    payload["scorecardUsable"] = usable
+    payload["missingPrerequisites"] = missing_prerequisites
+    payload["reasonCodes"] = reason_codes
+    if not comparisons:
+        payload["status"] = "blocked"
+        payload["classification"] = "candidate_baseline_pair_missing"
+    elif blocked_count:
+        payload["status"] = "partial"
+        payload["classification"] = "multi_candidate_scorecards_partially_blocked"
+    elif ready_count == len(comparisons):
+        payload["status"] = "ready"
+        payload["classification"] = "runtime_injected_multi_candidate_scorecards_ready"
+    elif materialized_count == len(comparisons):
+        payload["status"] = "materialized"
+        payload["classification"] = "multi_candidate_scorecards_materialized"
+    else:
+        payload["status"] = "planned"
+        payload["classification"] = "multi_candidate_scorecards_planned"
 
 
 def candidate_scorecard_materialized_classification(value: Any) -> str:
@@ -2318,26 +2473,37 @@ def candidate_scorecard_blocked_payload(
 
 
 def candidate_scorecard_pair(report: JsonObject) -> tuple[str, str, int | None, int | None] | None:
+    pairs = candidate_scorecard_pairs(report)
+    return pairs[0] if pairs else None
+
+
+def candidate_scorecard_pairs(report: JsonObject) -> list[tuple[str, str, int | None, int | None]]:
     ranking = [item for item in report.get("ranking", []) if isinstance(item, dict)]
     if not ranking:
-        return None
+        return []
     incumbent_ids = {item for item in report.get("incumbentStrategyIds", []) if isinstance(item, str)}
     if not incumbent_ids:
-        return None
-    candidate_item = next((item for item in ranking if text_or_none(item.get("variantId")) not in incumbent_ids), None)
-    baseline_item = next((item for item in ranking if text_or_none(item.get("variantId")) in incumbent_ids), None)
-    if candidate_item is None or baseline_item is None:
-        return None
-    candidate_id = text_or_none(candidate_item.get("variantId"))
-    baseline_id = text_or_none(baseline_item.get("variantId"))
-    if candidate_id is None or baseline_id is None:
-        return None
-    return (
-        candidate_id,
-        baseline_id,
-        int_or_none(candidate_item.get("rank")),
-        int_or_none(baseline_item.get("rank")),
-    )
+        return []
+    candidate_items = [item for item in ranking if text_or_none(item.get("variantId")) not in incumbent_ids]
+    baseline_items = [item for item in ranking if text_or_none(item.get("variantId")) in incumbent_ids]
+    pairs: list[tuple[str, str, int | None, int | None]] = []
+    for candidate_item in candidate_items:
+        candidate_id = text_or_none(candidate_item.get("variantId"))
+        if candidate_id is None:
+            continue
+        for baseline_item in baseline_items:
+            baseline_id = text_or_none(baseline_item.get("variantId"))
+            if baseline_id is None:
+                continue
+            pairs.append(
+                (
+                    candidate_id,
+                    baseline_id,
+                    int_or_none(candidate_item.get("rank")),
+                    int_or_none(baseline_item.get("rank")),
+                )
+            )
+    return pairs
 
 
 def candidate_scorecard_runtime_parameter_injection(report: JsonObject, candidate_id: str) -> Any:
@@ -2419,6 +2585,13 @@ def safe_artifact_stem(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-") or "artifact"
 
 
+def safe_scorecard_pair_stem(candidate_id: str, baseline_id: str) -> str:
+    candidate_stem = safe_artifact_stem(candidate_id)[:96].strip(".-") or "candidate"
+    baseline_stem = safe_artifact_stem(baseline_id)[:96].strip(".-") or "baseline"
+    digest = canonical_hash({"candidateStrategyId": candidate_id, "baselineStrategyId": baseline_id})[:10]
+    return f"{candidate_stem}--vs--{baseline_stem}-{digest}"
+
+
 def variant_result_by_id(report: JsonObject, variant_id: str) -> JsonObject | None:
     for result in report.get("variantResults", []):
         if isinstance(result, dict) and text_or_none(result.get("variantId")) == variant_id:
@@ -2459,9 +2632,39 @@ def scorecard_projection_payload(
 
 def scorecard_metrics_by_category(result: JsonObject) -> JsonObject:
     reward_tuple = policy_reward_tuple_values(result) or []
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    reliability = metrics.get("reliability") if isinstance(metrics.get("reliability"), dict) else {}
+    territory = metrics.get("territory") if isinstance(metrics.get("territory"), dict) else {}
+    resources = metrics.get("resources") if isinstance(metrics.get("resources"), dict) else {}
+    kills = metrics.get("kills") if isinstance(metrics.get("kills"), dict) else {}
+    objective_signal = metrics.get("objectiveSignal") if isinstance(metrics.get("objectiveSignal"), dict) else {}
     return {
-        tier: {"value": reward_tuple[index] if index < len(reward_tuple) else 0}
-        for index, tier in enumerate(REWARD_TIERS)
+        "reliability": {
+            "value": reward_tuple[0] if len(reward_tuple) > 0 else 0,
+            "score": reliability.get("score"),
+        },
+        "territory": {
+            "value": reward_tuple[1] if len(reward_tuple) > 1 else 0,
+            "ownedRoomCount": territory.get("ownedRoomCount"),
+            "rclDelta": territory.get("rclDelta"),
+            "survivedEndRoomCount": len(territory.get("survivedEndRooms", []))
+            if isinstance(territory.get("survivedEndRooms"), list)
+            else None,
+        },
+        "resources": {
+            "value": reward_tuple[2] if len(reward_tuple) > 2 else 0,
+            "raw": resources.get("raw"),
+            "storedEnergyDelta": resources.get("storedEnergyDelta"),
+            "collectedEnergy": resources.get("collectedEnergy"),
+            "spawnUtilization": resources.get("spawnUtilization"),
+        },
+        "kills": {
+            "value": reward_tuple[3] if len(reward_tuple) > 3 else 0,
+            "delta": kills.get("delta"),
+            "hostileKills": kills.get("hostileKills"),
+            "ownLosses": kills.get("ownLosses"),
+            "finalHostileCreeps": objective_signal.get("finalHostileCreeps"),
+        },
     }
 
 
@@ -4462,6 +4665,7 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "scorecardId": report.get("scorecardId"),
         "scorecardArtifactPath": report.get("scorecardArtifactPath"),
         "candidateScorecard": copy.deepcopy(report.get("candidateScorecard")),
+        "candidateScorecards": copy.deepcopy(report.get("candidateScorecards")),
         "warnings": report["warnings"],
     }
     if "scaleValidation" in report:
