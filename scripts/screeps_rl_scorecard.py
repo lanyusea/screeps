@@ -53,8 +53,41 @@ STATUS_NEUTRAL = "neutral"
 STATUS_REGRESSED = "regressed"
 STATUS_INCONCLUSIVE = "inconclusive"
 GATE_PASS = "PASS"
-GATE_FAIL = "FAIL"
+GATE_HOLD = "HOLD"
+GATE_MIXED = "MIXED"
+GATE_ROLLBACK_REQUIRED = "ROLLBACK_REQUIRED"
 GATE_INCONCLUSIVE = "INCONCLUSIVE"
+SCORECARD_STATUS_VALUES = (
+    GATE_PASS,
+    GATE_HOLD,
+    GATE_MIXED,
+    GATE_ROLLBACK_REQUIRED,
+    GATE_INCONCLUSIVE,
+)
+RUNTIME_PARAMETER_INJECTION_TYPE = "screeps-rl-runtime-parameter-injection"
+RUNTIME_INJECTION_TRUE_KEYS = {
+    "runtimeparameterinjection",
+    "inlinecandidatesruntimeinjected",
+    "inlinecandidatesappliedtosimulator",
+}
+RUNTIME_INJECTION_SUCCESS_STATUSES = {"injected", "ok", "pass", "passed", "success"}
+RUNTIME_INJECTION_BLOCKED_STATUSES = {
+    "blocked",
+    "failed",
+    "metadataonly",
+    "metadata_only",
+    "missing",
+    "notinjected",
+    "not_injected",
+    "partial",
+}
+RUNTIME_INJECTION_METADATA_ONLY_SCOPES = {"metadataonly", "metadata_only"}
+LEXICOGRAPHIC_OBJECTIVES: tuple[tuple[str, str], ...] = (
+    ("reliability", "safety_reliability_floor"),
+    ("territory", "territory_expansion"),
+    ("resources", "resources_economy"),
+    ("kills", "combat"),
+)
 
 JsonObject = dict[str, Any]
 
@@ -104,6 +137,9 @@ METRIC_SPECS: dict[str, MetricSpec] = {
     "telemetry_silence_ticks": MetricSpec(
         "telemetry_silence_ticks", "lower", "telemetry silence", "ticks", "sum", True
     ),
+    "reliability_score": MetricSpec(
+        "reliability_score", "higher", "runtime reliability score", "0..1 score", "mean", True, minimum=0.98
+    ),
     "cpu_bucket_min": MetricSpec("cpu_bucket_min", "higher", "minimum CPU bucket", "bucket", "min", True, minimum=500),
     "cpu_used_avg": MetricSpec("cpu_used_avg", "lower", "average CPU used", "cpu", "mean", True),
     "owned_room_count": MetricSpec("owned_room_count", "higher", "owned room count", "rooms", "latest"),
@@ -142,6 +178,7 @@ DIMENSION_SPECS: dict[str, DimensionSpec] = {
             "room_dead_count",
             "spawn_collapse_count",
             "telemetry_silence_ticks",
+            "reliability_score",
             "cpu_bucket_min",
             "cpu_used_avg",
         ),
@@ -561,7 +598,14 @@ def artifact_kind(path: Path, payload: Any | None, runtime_summary_count: int = 
         return "runtime_summary"
     if "postdeploy-summary" in name or "postdeploy" in type_text:
         return "postdeploy_summary"
-    if "policy-advantage" in name or "policyadvantage" in normalized_key(type_text):
+    normalized_type = normalized_key(type_text)
+    if (
+        "policy-advantage" in name
+        or "policy-online-advantage" in name
+        or "policy-online-advantage" in type_text
+        or "policyadvantage" in normalized_type
+        or ("policy" in normalized_type and "advantage" in normalized_type)
+    ):
         return "policy_advantage"
     if "training-ledger" in name or "training" in name or "training" in type_text:
         return "training_ledger"
@@ -647,6 +691,7 @@ def collect_artifact_bundle(
     artifacts: list[JsonObject] = []
     identifiers: list[str] = []
     commits: list[str] = []
+    runtime_injection_evidence: list[JsonObject] = []
 
     while queue:
         path = queue.pop(0).resolve()
@@ -671,7 +716,8 @@ def collect_artifact_bundle(
                 if payload.get("type") == "runtime-summary" or isinstance(payload.get("rooms"), list):
                     runtime_summary_count = 1
                     ingest_runtime_summary(accumulator, payload, source)
-                ingest_json_artifact(accumulator, payload, path, source)
+                ingest_json_artifact(accumulator, payload, path, source, role=role)
+                runtime_injection_evidence.extend(extract_runtime_parameter_injection_evidence(payload, source))
                 identifiers.extend(extract_identifiers(payload, role))
                 commits.extend(extract_commits(payload, role))
                 for referenced in collect_referenced_paths(payload, path.parent, repo_root):
@@ -695,6 +741,7 @@ def collect_artifact_bundle(
         "commit": resolved_commit,
         "artifacts": artifacts,
         "metrics": metrics,
+        "runtimeParameterInjection": summarize_runtime_parameter_injection(runtime_injection_evidence),
     }
 
 
@@ -753,18 +800,174 @@ def extract_commits(payload: JsonObject, role: str) -> list[str]:
     return values
 
 
-def ingest_json_artifact(accumulator: MetricAccumulator, payload: JsonObject, path: Path, source: str) -> None:
+def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: str) -> list[JsonObject]:
+    rows: list[JsonObject] = []
+    for node in iter_json_objects(payload):
+        if not node_has_runtime_injection_evidence(node):
+            continue
+        row: JsonObject = {
+            "source": source,
+            "summaryLevel": runtime_injection_summary_level(node),
+            "status": text_value(node.get("status"))
+            or text_value(node.get("runtimeParameterInjectionStatus"))
+            or text_value(node.get("runtime_parameter_injection_status")),
+            "runtimeParameterInjection": runtime_injection_bool(node),
+            "candidateParameterScope": text_value(node.get("candidateParameterScope"))
+            or text_value(node.get("candidate_parameter_scope")),
+            "policyUpdateEligible": node.get("policyUpdateEligible")
+            if isinstance(node.get("policyUpdateEligible"), bool)
+            else None,
+            "variantCount": number_value(node.get("variantCount")),
+            "injectedVariantCount": number_value(node.get("injectedVariantCount")),
+            "reason": text_value(node.get("reason")) or text_value(node.get("skippedReason")),
+        }
+        rows.append(row)
+    return rows
+
+
+def node_has_runtime_injection_evidence(node: JsonObject) -> bool:
+    if node.get("type") == RUNTIME_PARAMETER_INJECTION_TYPE:
+        return True
+    for key in node:
+        if normalized_key(str(key)) in RUNTIME_INJECTION_TRUE_KEYS | {
+            "candidateparameterscope",
+            "policyupdateeligible",
+            "runtimeparameterinjectionstatus",
+        }:
+            return True
+    return False
+
+
+def runtime_injection_summary_level(node: JsonObject) -> str:
+    if node.get("type") == RUNTIME_PARAMETER_INJECTION_TYPE:
+        return "summary"
+    if any(key in node for key in ("variantCount", "injectedVariantCount", "policyUpdateEligible")):
+        return "summary"
+    return "variant"
+
+
+def runtime_injection_bool(node: JsonObject) -> bool | None:
+    for key, value in node.items():
+        if normalized_key(str(key)) in RUNTIME_INJECTION_TRUE_KEYS and isinstance(value, bool):
+            return value
+    return None
+
+
+def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObject:
+    if not rows:
+        return {
+            "status": "missing",
+            "runtimeParameterInjection": False,
+            "policyUpdateEligible": False,
+            "candidateParameterScope": "missing",
+            "reason": "missing runtime parameter injection evidence",
+            "evidence": [],
+        }
+
+    summary_rows = [row for row in rows if row.get("summaryLevel") == "summary"] or list(rows)
+    eligible_rows = [row for row in summary_rows if runtime_injection_row_is_eligible(row)]
+    false_rows = [row for row in summary_rows if row.get("runtimeParameterInjection") is False]
+    partial_rows = [
+        row for row in summary_rows if normalized_runtime_injection_status(row.get("status")) in {"partial"}
+    ]
+    evidence = [
+        {
+            "source": row.get("source"),
+            "status": row.get("status"),
+            "runtimeParameterInjection": row.get("runtimeParameterInjection"),
+            "candidateParameterScope": row.get("candidateParameterScope"),
+            "policyUpdateEligible": row.get("policyUpdateEligible"),
+            "reason": row.get("reason"),
+        }
+        for row in summary_rows[:8]
+    ]
+
+    if eligible_rows and not false_rows and not partial_rows:
+        status = "injected"
+        eligible = True
+        reason = None
+    elif eligible_rows:
+        status = "partial"
+        eligible = False
+        reason = "runtime parameter injection evidence is mixed across candidate rows"
+    else:
+        status = first_runtime_injection_status(summary_rows) or "not_injected"
+        eligible = False
+        reason = first_runtime_injection_reason(summary_rows) or "candidate parameters were not proven runtime-injected"
+
+    scope = first_text(
+        [text_value(row.get("candidateParameterScope")) for row in summary_rows if row.get("candidateParameterScope")]
+    )
+    payload: JsonObject = {
+        "status": status,
+        "runtimeParameterInjection": eligible,
+        "policyUpdateEligible": eligible,
+        "candidateParameterScope": scope or ("runtime_injected" if eligible else "missing"),
+        "evidence": evidence,
+    }
+    if reason:
+        payload["reason"] = reason
+    return payload
+
+
+def runtime_injection_row_is_eligible(row: JsonObject) -> bool:
+    if row.get("runtimeParameterInjection") is not True:
+        return False
+    if row.get("policyUpdateEligible") is False:
+        return False
+    scope = normalized_key(str(row.get("candidateParameterScope") or ""))
+    if scope in RUNTIME_INJECTION_METADATA_ONLY_SCOPES:
+        return False
+    status = normalized_runtime_injection_status(row.get("status"))
+    return not status or status in RUNTIME_INJECTION_SUCCESS_STATUSES
+
+
+def normalized_runtime_injection_status(value: Any) -> str:
+    return normalized_key(str(value)) if value not in (None, "") else ""
+
+
+def first_runtime_injection_status(rows: Sequence[JsonObject]) -> str | None:
+    for row in rows:
+        status = normalized_runtime_injection_status(row.get("status"))
+        if status in RUNTIME_INJECTION_BLOCKED_STATUSES:
+            raw = text_value(row.get("status"))
+            return raw or status
+    for row in rows:
+        raw = text_value(row.get("status"))
+        if raw:
+            return raw
+    return None
+
+
+def first_runtime_injection_reason(rows: Sequence[JsonObject]) -> str | None:
+    for row in rows:
+        reason = text_value(row.get("reason"))
+        if reason:
+            return reason
+    return None
+
+
+def ingest_json_artifact(
+    accumulator: MetricAccumulator,
+    payload: JsonObject,
+    path: Path,
+    source: str,
+    *,
+    role: str,
+) -> None:
     kind = artifact_kind(path, payload)
     if kind in {"evaluation_gate", "shadow_eval", "conclusion_registry"}:
         ingest_gate_or_shadow(accumulator, payload, source)
     if kind == "training_ledger":
-        ingest_training_or_advantage(accumulator, payload, source)
+        ingest_training_or_advantage(accumulator, payload, source, role=role)
     if kind == "policy_advantage":
-        ingest_training_or_advantage(accumulator, payload, source, require_compute=True)
+        ingest_training_or_advantage(accumulator, payload, source, require_compute=True, role=role)
     if kind == "postdeploy_summary":
         ingest_postdeploy(accumulator, payload, source)
     if payload.get("type") == "runtime-kpi-report":
         ingest_runtime_kpi_report(accumulator, payload, source)
+    if payload.get("type") == "screeps-rl-kpi-window":
+        ingest_kpi_window(accumulator, payload, source)
 
 
 def ingest_gate_or_shadow(accumulator: MetricAccumulator, payload: JsonObject, source: str) -> None:
@@ -807,15 +1010,63 @@ def normalized_status(payload: JsonObject) -> str | None:
     return None
 
 
+def ingest_metrics_by_category(
+    accumulator: MetricAccumulator,
+    payload: JsonObject,
+    source: str,
+    *,
+    role: str,
+) -> None:
+    metrics = payload.get("metricsByCategory")
+    if not isinstance(metrics, dict):
+        return
+    value_keys = (
+        ("candidateValue", "candidate", "postValue", "currentValue", "value")
+        if role == "candidate"
+        else ("baselineValue", "baseline", "preValue", "incumbentValue", "value")
+    )
+    for raw_category, raw_block in metrics.items():
+        if not isinstance(raw_block, dict):
+            continue
+        category = normalized_key(str(raw_category))
+        metric_key: str | None = None
+        note = ""
+        if category in {"reliability", "safetyreliability", "runtimereliability"}:
+            metric_key = "reliability_score"
+            note = "Loop B reliability metric"
+        elif category in {"territory", "territoryexpansion"}:
+            metric_key = "owned_room_count"
+            note = "Loop B territory metric"
+        elif category in {"resources", "resource", "resourceseconomy", "economy"}:
+            metric_key = "productive_energy"
+            note = "Loop B resource metric"
+        elif category in {"kills", "combat", "hostilekills"}:
+            metric_key = "combat_score"
+            note = "Loop B kill metric"
+        if metric_key is None:
+            continue
+        value = first_number(raw_block, tuple((key,) for key in value_keys))
+        relative_value = first_number(raw_block, (("delta",), ("advantage",)))
+        if value is None and relative_value is not None:
+            spec = METRIC_SPECS.get(metric_key)
+            if spec is not None and spec.safety_floor:
+                continue
+            value = relative_value if role == "candidate" else 0.0
+        accumulator.add(metric_key, value, source, note)
+
+
 def ingest_training_or_advantage(
     accumulator: MetricAccumulator,
     payload: JsonObject,
     source: str,
     *,
     require_compute: bool = False,
+    role: str = "candidate",
 ) -> None:
     if preflight_only_compute_payload(payload) or (require_compute and not real_compute_evidence_present(payload)):
         return
+
+    ingest_metrics_by_category(accumulator, payload, source, role=role)
 
     for result in as_list(payload.get("variantResults")):
         if not isinstance(result, dict):
@@ -858,6 +1109,61 @@ def ingest_training_or_advantage(
             accumulator.add("owned_room_count", best_tuple[1] - incumbent_tuple[1], source, "ranking territory advantage")
             accumulator.add("productive_energy", best_tuple[2] - incumbent_tuple[2], source, "ranking resource advantage")
             accumulator.add("combat_score", best_tuple[3] - incumbent_tuple[3], source, "ranking combat advantage")
+
+
+def ingest_kpi_window(accumulator: MetricAccumulator, payload: JsonObject, source: str) -> None:
+    accumulator.add(
+        "reliability_score",
+        first_number(
+            payload,
+            (
+                ("metrics", "reliability", "score"),
+                ("metrics", "reliability", "okRate"),
+                ("metrics", "reliability", "successRate"),
+            ),
+        ),
+        source,
+        "KPI window reliability score",
+    )
+    accumulator.add(
+        "owned_room_count",
+        first_number(
+            payload,
+            (
+                ("metrics", "territory", "ownedRooms"),
+                ("metrics", "territory", "ownedRoomCount"),
+                ("metrics", "territory", "score"),
+            ),
+        ),
+        source,
+        "KPI window territory score",
+    )
+    accumulator.add(
+        "productive_energy",
+        first_number(
+            payload,
+            (
+                ("metrics", "resources", "score"),
+                ("metrics", "resources", "resourceScore"),
+                ("metrics", "resources", "energy"),
+            ),
+        ),
+        source,
+        "KPI window resource score",
+    )
+    accumulator.add(
+        "combat_score",
+        first_number(
+            payload,
+            (
+                ("metrics", "kills", "score"),
+                ("metrics", "kills", "hostileKills"),
+                ("metrics", "kills", "kills"),
+            ),
+        ),
+        source,
+        "KPI window kill score",
+    )
 
 
 def reward_tuple_from_ranking_item(item: Any) -> list[float]:
@@ -906,6 +1212,19 @@ def ingest_postdeploy(accumulator: MetricAccumulator, payload: JsonObject, sourc
 
 
 def ingest_runtime_kpi_report(accumulator: MetricAccumulator, payload: JsonObject, source: str) -> None:
+    accumulator.add(
+        "reliability_score",
+        first_number(
+            payload,
+            (
+                ("metrics", "reliability", "score"),
+                ("metrics", "reliability", "okRate"),
+                ("metrics", "reliability", "successRate"),
+            ),
+        ),
+        source,
+        "runtime KPI reliability",
+    )
     accumulator.add(
         "owned_room_count",
         first_number(payload, (("territory", "ownedRooms", "latestCount"), ("metrics", "territory", "ownedRooms"))),
@@ -1235,38 +1554,96 @@ def combat_is_applicable(candidate: JsonObject, baseline: JsonObject) -> bool:
     return False
 
 
-def build_overall_gate(dimensions: JsonObject) -> JsonObject:
+def build_lexicographic_objectives(dimensions: JsonObject) -> JsonObject:
+    objectives: list[JsonObject] = []
+    first_blocking: str | None = None
+    first_advantage: str | None = None
+    first_regression: str | None = None
+    for objective, dimension_key in LEXICOGRAPHIC_OBJECTIVES:
+        dimension = dimensions.get(dimension_key, {})
+        status = dimension.get("status", STATUS_INCONCLUSIVE)
+        row = {
+            "objective": objective,
+            "dimension": dimension_key,
+            "status": status,
+            "missingEvidence": dimension.get("missingEvidence", []),
+            "safety": dimension.get("safety") is True,
+        }
+        objectives.append(row)
+        if status == STATUS_IMPROVED and first_advantage is None:
+            first_advantage = objective
+        if status == STATUS_REGRESSED and first_regression is None:
+            first_regression = objective
+        if status in {STATUS_REGRESSED, STATUS_INCONCLUSIVE} and first_blocking is None:
+            first_blocking = objective
+
+    if first_blocking is not None:
+        result = STATUS_REGRESSED if first_blocking == first_regression else STATUS_INCONCLUSIVE
+    elif first_advantage is not None:
+        result = STATUS_IMPROVED
+    else:
+        result = STATUS_NEUTRAL
+
+    return {
+        "order": [objective for objective, _dimension in LEXICOGRAPHIC_OBJECTIVES],
+        "objectives": objectives,
+        "result": result,
+        "firstAdvantageObjective": first_advantage,
+        "firstRegressionObjective": first_regression,
+        "firstBlockingObjective": first_blocking,
+    }
+
+
+def build_overall_gate(dimensions: JsonObject, candidate: JsonObject) -> JsonObject:
+    contract_dimension_keys = {dimension for _objective, dimension in LEXICOGRAPHIC_OBJECTIVES}
+    gate_dimensions = {
+        key: value for key, value in dimensions.items() if key in contract_dimension_keys
+    }
     safety_regressions = [
-        key for key, value in dimensions.items() if value["safety"] and value["status"] == STATUS_REGRESSED
+        key for key, value in gate_dimensions.items() if value["safety"] and value["status"] == STATUS_REGRESSED
     ]
     non_safety_regressions = [
-        key for key, value in dimensions.items() if not value["safety"] and value["status"] == STATUS_REGRESSED
+        key for key, value in gate_dimensions.items() if not value["safety"] and value["status"] == STATUS_REGRESSED
     ]
     inconclusive_dimensions = [
-        key for key, value in dimensions.items() if value["status"] == STATUS_INCONCLUSIVE
+        key for key, value in gate_dimensions.items() if value["status"] == STATUS_INCONCLUSIVE
     ]
     improved_non_safety = [
-        key for key, value in dimensions.items() if not value["safety"] and value["status"] == STATUS_IMPROVED
+        key for key, value in gate_dimensions.items() if not value["safety"] and value["status"] == STATUS_IMPROVED
     ]
+    runtime_candidate = as_dict(candidate.get("runtimeParameterInjection"))
+    runtime_candidate_ready = runtime_candidate.get("runtimeParameterInjection") is True
+    lexicographic = build_lexicographic_objectives(dimensions)
 
     required_actions: list[str] = []
     if safety_regressions:
-        required_actions.append("Reject candidate until safety/reliability regressions are fixed and re-evaluated.")
+        required_actions.append("Stop or roll back candidate influence until safety/reliability regressions are fixed.")
     if non_safety_regressions:
-        required_actions.append("Reject candidate under the monotonic gate until gameplay regressions are removed.")
+        required_actions.append("Hold candidate under the monotonic gate until gameplay regressions are removed.")
     if inconclusive_dimensions:
         required_actions.append("Collect missing evidence for inconclusive scorecard dimensions before promotion.")
+    if not runtime_candidate_ready:
+        required_actions.append("Provide runtime parameter injection evidence for the candidate before promotion.")
     if not improved_non_safety:
         required_actions.append("Provide at least one non-safety dimension improvement versus the named baseline.")
 
-    if safety_regressions or non_safety_regressions:
-        status = GATE_FAIL
-        rationale = "candidate regressed on at least one scorecard dimension"
+    if safety_regressions:
+        status = GATE_ROLLBACK_REQUIRED
+        rationale = "candidate regressed on a safety/reliability dimension"
     elif inconclusive_dimensions:
         status = GATE_INCONCLUSIVE
         rationale = "candidate lacks enough evidence for a complete monotonic comparison"
+    elif not runtime_candidate_ready:
+        status = GATE_HOLD
+        rationale = "candidate does not have runtime-injected parameter evidence"
+    elif non_safety_regressions and improved_non_safety:
+        status = GATE_MIXED
+        rationale = "candidate has improvement evidence but also regresses on at least one gameplay dimension"
+    elif non_safety_regressions:
+        status = GATE_HOLD
+        rationale = "candidate regressed on at least one gameplay dimension"
     elif not improved_non_safety:
-        status = GATE_FAIL
+        status = GATE_HOLD
         rationale = "candidate did not improve any non-safety dimension"
     else:
         status = GATE_PASS
@@ -1274,11 +1651,23 @@ def build_overall_gate(dimensions: JsonObject) -> JsonObject:
 
     return {
         "status": status,
+        "allowedStatusValues": list(SCORECARD_STATUS_VALUES),
         "rationale": rationale,
+        "scorecardContract": {
+            "sourceIssue": "#924",
+            "statusValues": list(SCORECARD_STATUS_VALUES),
+            "lexicographicOrder": lexicographic["order"],
+            "missingDataCanPass": False,
+            "metadataOnlyPolicyUpdateCanPass": False,
+            "mergeOrNarrativeCanPass": False,
+        },
+        "lexicographic": lexicographic,
+        "runtimeCandidateGate": runtime_candidate,
         "monotonic": {
             "noSafetyRegression": not safety_regressions,
             "noDimensionRegression": not safety_regressions and not non_safety_regressions,
             "improvedNonSafetyDimension": bool(improved_non_safety),
+            "runtimeParameterInjectionProven": runtime_candidate_ready,
         },
         "safetyRegressions": safety_regressions,
         "nonSafetyRegressions": non_safety_regressions,
@@ -1290,7 +1679,10 @@ def build_overall_gate(dimensions: JsonObject) -> JsonObject:
 
 def build_required_actions(dimensions: JsonObject, overall_gate: JsonObject) -> list[str]:
     actions = list(overall_gate.get("requiredActions", []))
+    contract_dimension_keys = {dimension for _objective, dimension in LEXICOGRAPHIC_OBJECTIVES}
     for key, dimension in dimensions.items():
+        if key not in contract_dimension_keys and dimension.get("status") != STATUS_REGRESSED:
+            continue
         missing = dimension.get("missingEvidence", [])
         if missing:
             actions.append(f"Add evidence for {key}: {', '.join(missing)}.")
@@ -1333,12 +1725,13 @@ def build_scorecard(
         key: compare_dimension(spec, candidate, baseline)
         for key, spec in DIMENSION_SPECS.items()
     }
-    overall_gate = build_overall_gate(dimensions)
+    overall_gate = build_overall_gate(dimensions, candidate)
     return {
         "type": REPORT_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "runId": resolved_run_id,
         "timestamp": created,
+        "scorecardContract": overall_gate["scorecardContract"],
         "candidate": public_bundle(candidate),
         "baseline": public_bundle(baseline),
         "dimensions": dimensions,
@@ -1352,6 +1745,7 @@ def public_bundle(bundle: JsonObject) -> JsonObject:
         "id": bundle.get("id"),
         "commit": bundle.get("commit"),
         "artifacts": bundle.get("artifacts", []),
+        "runtimeParameterInjection": bundle.get("runtimeParameterInjection"),
     }
 
 

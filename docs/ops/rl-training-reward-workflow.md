@@ -86,6 +86,30 @@ python3 scripts/screeps_rl_mmo_validator.py \
   runtime-artifacts/
 ```
 
+Generate the #924-compatible runtime candidate scorecard before any #1233 compute-improvement
+or #1239 canary/rollback claim:
+
+```bash
+python3 scripts/screeps_rl_scorecard.py \
+  --candidate runtime-artifacts/rl-training/<run-or-candidate-bundle>/ \
+  --baseline runtime-artifacts/rl-control-loop/baselines/<incumbent-bundle>/ \
+  --output runtime-artifacts/rl-control-loop/scorecards/<candidate-id>.json
+```
+
+The candidate bundle must include runtime-parameter-injection evidence from the training report,
+policy-candidate artifact, simulator run summary, or a sibling
+`screeps-rl-runtime-parameter-injection` JSON. Loop B policy-advantage ledgers can be included in
+the candidate and baseline bundles; when they expose `metricsByCategory` with `candidateValue` and
+`baselineValue`, the scorecard reads reliability, territory, resources, and kills in the #924
+lexicographic order. A metadata-only policy update, PR merge, or narrative artifact is not
+candidate improvement evidence.
+
+Scorecard status is exactly one of `PASS`, `HOLD`, `MIXED`, `ROLLBACK_REQUIRED`, or
+`INCONCLUSIVE`. Missing candidate or baseline metric data is never `PASS`: it yields
+`INCONCLUSIVE` when a required #924 objective cannot be compared, or `HOLD` when the metrics are
+complete but runtime-injected candidate evidence is absent. Treat `MIXED` and `HOLD` as evidence
+records, not rollout approval.
+
 The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex
 characters of `code_commit`. Regular generation without `--loop-a-local-fallback` prints the card to
 stdout unless `--output <path>` or `--output-dir <path>` is provided; `--output <path>` also
@@ -299,8 +323,9 @@ Candidate evidence must advance in this order:
 3. Shadow gate: incumbent-vs-candidate report with `liveEffect:false` and bounded ranking/KPI evidence.
 4. Simulator gate: resettable private-server evidence with determinism and throughput metadata.
 5. Historical gate: `scripts/screeps_rl_mmo_validator.py` validates the candidate against official-MMO historical runtime artifacts or artifact-bridge KPI reports, emits pass/fail per reliability/territory/resources/kills metric, and blocks degradation before KPI rollout review.
-6. Manual-review gate: at least one full 8h positive KPI shadow cycle and an explainable recommendation.
-7. Rollout gate: bounded high-level strategy rollout plan with rollback trigger and post-window ingestion through `scripts/screeps_rl_rollout_manager.py`.
+6. Scorecard gate: `scripts/screeps_rl_scorecard.py` emits a #924-compatible candidate-vs-baseline JSON under `runtime-artifacts/rl-control-loop/scorecards/`; no improvement claim advances from an `INCONCLUSIVE`, metadata-only, or safety-regressed scorecard.
+7. Manual-review gate: at least one full 8h positive KPI shadow cycle and an explainable recommendation.
+8. Rollout gate: bounded high-level strategy rollout plan with rollback trigger and post-window ingestion through `scripts/screeps_rl_rollout_manager.py`.
 
 This workflow cannot promote a candidate to live influence by itself.
 
@@ -337,10 +362,12 @@ Local checks:
 python3 -m py_compile scripts/screeps_rl_experiment_card.py
 python3 -m py_compile scripts/screeps_rl_act_loop_planner.py
 python3 -m py_compile scripts/screeps_rl_training_runner.py
+python3 -m py_compile scripts/screeps_rl_scorecard.py
 python3 scripts/screeps_rl_experiment_card.py self-test
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000 --output /tmp/test-card.json
 python3 scripts/screeps_rl_experiment_card.py --validate --input /tmp/test-card.json
 python3 -m unittest scripts/test_screeps_rl_act_loop_planner.py -v
+python3 -m pytest scripts/tests/test_rl_scorecard.py scripts/test_screeps_rl_scorecard.py
 python3 -m unittest scripts/test_screeps_rl_training_runner.py -v
 ```
