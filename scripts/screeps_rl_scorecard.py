@@ -1032,11 +1032,12 @@ def ingest_metrics_by_category(
         else ("baselineValue", "baseline", "preValue", "incumbentValue", "value")
     )
 
-    def category_number(raw_block: JsonObject, keys: Sequence[str]) -> float | None:
-        return first_number(raw_block, tuple((key,) for key in (*keys, *role_value_keys)))
+    def category_number(raw_block: JsonObject, keys: Sequence[str], *, primary: bool = False) -> float | None:
+        lookup_keys = (*keys, *role_value_keys) if primary else tuple(keys)
+        return first_number(raw_block, tuple((key,) for key in lookup_keys))
 
-    def add(metric_key: str, raw_block: JsonObject, keys: Sequence[str], note: str) -> None:
-        accumulator.add(metric_key, category_number(raw_block, keys), source, note)
+    def add(metric_key: str, raw_block: JsonObject, keys: Sequence[str], note: str, *, primary: bool = False) -> None:
+        accumulator.add(metric_key, category_number(raw_block, keys, primary=primary), source, note)
 
     for raw_category, raw_block in metrics.items():
         if not isinstance(raw_block, dict):
@@ -1044,7 +1045,13 @@ def ingest_metrics_by_category(
         category = normalized_key(str(raw_category))
         primary_metric_present = False
         if category in {"reliability", "safetyreliability", "runtimereliability"}:
-            add("reliability_score", raw_block, ("score", "reliabilityScore", "okRate", "successRate"), "Loop B reliability metric")
+            add(
+                "reliability_score",
+                raw_block,
+                ("score", "reliabilityScore", "okRate", "successRate"),
+                "Loop B reliability metric",
+                primary=True,
+            )
             accumulator.add(
                 "gate_pass",
                 first_number(raw_block, (("gatePass",), ("gate_pass",))),
@@ -1052,7 +1059,7 @@ def ingest_metrics_by_category(
                 "Loop B gate pass metric",
             )
         elif category in {"territory", "territoryexpansion"}:
-            owned_rooms = category_number(raw_block, ("ownedRoomCount", "ownedRooms", "score"))
+            owned_rooms = category_number(raw_block, ("ownedRoomCount", "ownedRooms", "score"), primary=True)
             primary_metric_present = owned_rooms is not None
             accumulator.add("owned_room_count", owned_rooms, source, "Loop B territory metric")
             add("controller_progress", raw_block, ("controllerProgress", "controller_progress"), "Loop B controller progress metric")
@@ -1067,7 +1074,7 @@ def ingest_metrics_by_category(
             add("harvested_energy", raw_block, ("collectedEnergy", "harvestedEnergy"), "Loop B harvested energy metric")
             add("stored_energy", raw_block, ("storedEnergyDelta", "storedEnergy"), "Loop B stored energy metric")
             add("energy_surplus", raw_block, ("raw", "energySurplus", "energy_surplus"), "Loop B energy surplus metric")
-            productive_energy = category_number(raw_block, ("score", "resourceScore", "raw"))
+            productive_energy = category_number(raw_block, ("score", "resourceScore", "raw"), primary=True)
             primary_metric_present = productive_energy is not None
             accumulator.add("productive_energy", productive_energy, source, "Loop B resource metric")
         elif category in {"construction", "constructioninfrastructure", "infrastructure"}:
@@ -1083,7 +1090,7 @@ def ingest_metrics_by_category(
             add("low_load_return_count", raw_block, ("lowLoadReturnCount", "avoidableLowLoadReturnCount"), "Loop B logistics metric")
             add("return_load_factor", raw_block, ("returnLoadFactor", "loadFactor"), "Loop B return load metric")
         elif category in {"kills", "combat", "hostilekills", "defensecombat"}:
-            value = category_number(raw_block, ("score", "combatScore"))
+            value = category_number(raw_block, ("score", "combatScore"), primary=True)
             if value is None:
                 hostile_kills = first_number(raw_block, (("hostileKills",), ("hostileCreepKills",)))
                 own_losses = first_number(raw_block, (("ownLosses",), ("ownCreepLosses",)))

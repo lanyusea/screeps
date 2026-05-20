@@ -25,6 +25,12 @@ def runtime_line(payload: JsonObject) -> str:
     return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
 
 
+def loop_b_metrics(payload: JsonObject, *, role: str = "candidate") -> dict[str, JsonObject]:
+    accumulator = scorecard.MetricAccumulator()
+    scorecard.ingest_metrics_by_category(accumulator, payload, "loop-b.json", role=role)
+    return accumulator.summarize()
+
+
 def runtime_payload(
     *,
     tick: int,
@@ -288,6 +294,68 @@ def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_pat
     assert report["dimensions"]["resources_economy"]["status"] == "regressed"
     assert report["dimensions"]["combat"]["status"] == "improved"
     assert report["candidate"]["runtimeParameterInjection"]["status"] == "injected"
+
+
+def test_loop_b_primary_metric_role_fallbacks_do_not_leak_to_submetrics() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"candidateValue": 0.995, "baselineValue": 0.991},
+            "territory": {"candidateValue": 3, "baselineValue": 2},
+            "resources": {"candidateValue": 900, "baselineValue": 1000},
+            "kills": {"candidateValue": 2, "baselineValue": 0},
+        },
+    }
+
+    candidate_metrics = loop_b_metrics(payload, role="candidate")
+    baseline_metrics = loop_b_metrics(payload, role="baseline")
+
+    assert candidate_metrics["reliability_score"]["value"] == 0.995
+    assert baseline_metrics["reliability_score"]["value"] == 0.991
+    assert candidate_metrics["owned_room_count"]["value"] == 3
+    assert baseline_metrics["owned_room_count"]["value"] == 2
+    assert candidate_metrics["productive_energy"]["value"] == 900
+    assert baseline_metrics["productive_energy"]["value"] == 1000
+    assert candidate_metrics["combat_score"]["value"] == 2
+    assert baseline_metrics["combat_score"]["value"] == 0
+    for metrics in (candidate_metrics, baseline_metrics):
+        for key in (
+            "controller_progress",
+            "controller_level_sum",
+            "expansion_survival_count",
+            "harvested_energy",
+            "stored_energy",
+            "energy_surplus",
+            "hostile_pressure",
+        ):
+            assert key not in metrics
+
+
+def test_loop_b_primary_metric_value_fallback_is_primary_only() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"value": 0.996},
+            "territory": {"value": 4},
+            "resources": {"value": 1250},
+            "combat": {"value": 7},
+        },
+    }
+
+    metrics = loop_b_metrics(payload)
+
+    assert metrics["reliability_score"]["value"] == 0.996
+    assert metrics["owned_room_count"]["value"] == 4
+    assert metrics["productive_energy"]["value"] == 1250
+    assert metrics["combat_score"]["value"] == 7
+    for key in (
+        "controller_progress",
+        "controller_level_sum",
+        "expansion_survival_count",
+        "harvested_energy",
+        "stored_energy",
+        "energy_surplus",
+        "hostile_pressure",
+    ):
+        assert key not in metrics
 
 
 def test_candidate_scorecard_readiness_uses_selected_candidate_runtime_evidence() -> None:
