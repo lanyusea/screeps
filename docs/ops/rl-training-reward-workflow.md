@@ -15,7 +15,9 @@ Primary artifacts:
 - `scripts/screeps_rl_simulator_harness.py`
 - `scripts/screeps_rl_mmo_validator.py`
 - `scripts/screeps_rl_rollout_manager.py`
+- `scripts/screeps_rl_act_loop_planner.py`
 - `docs/ops/rl-rollout-rollback.md`
+- `docs/ops/rl-act-loop-feedback.md`
 
 ## Purpose
 
@@ -330,6 +332,7 @@ This workflow cannot promote a candidate to live influence by itself.
 ## Rollout And Feedback
 
 The L6 rollout workflow is documented in `docs/ops/rl-rollout-rollback.md`.
+The Act-loop feedback planner is documented in `docs/ops/rl-act-loop-feedback.md`.
 
 Minimum rollout command set:
 
@@ -340,18 +343,31 @@ python3 scripts/screeps_rl_rollout_manager.py rollback-check --baseline <baselin
 python3 scripts/screeps_rl_rollout_manager.py compare --pre <pre-kpi.json> --post <post-kpi.json>
 ```
 
+Loop B, policy-advantage, and Gameplay Evolution findings must first become a structured Act-loop plan before a steward turns them into training work:
+
+```bash
+python3 scripts/screeps_rl_act_loop_planner.py \
+  runtime-artifacts/rl-control-loop/policy-advantage.json \
+  --source-artifact runtime-artifacts/rl-control-loop/policy-advantage.json \
+  --output runtime-artifacts/rl-control-loop/act-loop-plan.json
+```
+
+Stewards consume `nextRewardDecision`, `nextScenarioDelta`, `nextPolicyDelta`, `nextExperimentCardDelta`, and `feedbackIngestion` from that output. Reward changes route through the #907-style decision registry. Scenario and policy changes must become experiment-card deltas or construction issues, not prose-only recommendations.
+
 ## Verification
 
 Local checks:
 
 ```bash
 python3 -m py_compile scripts/screeps_rl_experiment_card.py
+python3 -m py_compile scripts/screeps_rl_act_loop_planner.py
 python3 -m py_compile scripts/screeps_rl_training_runner.py
 python3 -m py_compile scripts/screeps_rl_scorecard.py
 python3 scripts/screeps_rl_experiment_card.py self-test
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000 --output /tmp/test-card.json
 python3 scripts/screeps_rl_experiment_card.py --validate --input /tmp/test-card.json
+python3 -m unittest scripts/test_screeps_rl_act_loop_planner.py -v
 python3 -m pytest scripts/tests/test_rl_scorecard.py scripts/test_screeps_rl_scorecard.py
 python3 -m unittest scripts/test_screeps_rl_training_runner.py -v
 ```
