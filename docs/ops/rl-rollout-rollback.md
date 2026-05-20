@@ -16,6 +16,23 @@ The rollout manager is the live-safety boundary for RL flywheel candidates. It c
 
 Use it after a candidate has already passed the offline, simulator, historical, and manual-review gates. The default answer is reject unless every required KPI is observed and within contract.
 
+## Scorecard Gate Prerequisite
+
+Before a canary or rollback claim for a runtime-injected candidate, preserve the #924-compatible
+scorecard produced by `scripts/screeps_rl_scorecard.py`:
+
+```bash
+python3 scripts/screeps_rl_scorecard.py \
+  --candidate runtime-artifacts/rl-training/<run-or-candidate-bundle>/ \
+  --baseline runtime-artifacts/rl-control-loop/baselines/<incumbent-bundle>/ \
+  --output runtime-artifacts/rl-control-loop/scorecards/<candidate-id>.json
+```
+
+The rollout lane may continue only when the scorecard is not `INCONCLUSIVE`, has no
+`safetyRegressions`, and its `runtimeCandidateGate.runtimeParameterInjection` is `true`. `PASS` is
+the only positive promotion status. `HOLD` and `MIXED` remain offline evidence records, and
+`ROLLBACK_REQUIRED` means candidate influence must stop before any further rollout work.
+
 ## Safe Canary Contract
 
 Every contract, dry-run, rollback-check, and compare artifact now carries a `safeCanary` or `canaryContract` block. This block records the official-MMO safety state before any canary influence:
