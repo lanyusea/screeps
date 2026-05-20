@@ -63,6 +63,7 @@ def controller_args() -> argparse.Namespace:
         security_group_id="sg-test",
         scenario_id=runner.DEFAULT_SCENARIO_ID,
         require_multi_tier_scenario=False,
+        known_hosts_path="/tmp/known_hosts",
         ssh_key="/tmp/id_ed25519",
         tccli="/bin/tccli",
         ticks=1,
@@ -2125,6 +2126,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         clear_steps = [step for step in controller.steps if step.name == "clear_worker_known_host"]
         self.assertEqual(len(clear_steps), 1)
         self.assertFalse(clear_steps[0].ok)
+        self.assertNotIn("203.0.113.10", controller.known_hosts_cleaned_public_ips)
+        self.assertEqual(controller.result["knownHostsCleanupWarnings"][0]["returncode"], 255)
         self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
 
     def test_scale_up_known_host_cleanup_timeout_does_not_raise_or_mark_cleaned(self) -> None:
@@ -2169,6 +2172,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(clear_steps[0].returncode, 124)
         self.assertIn("TimeoutExpired", clear_steps[0].stderr_tail or "")
         self.assertNotIn("203.0.113.10", controller.known_hosts_cleaned_public_ips)
+        self.assertEqual(controller.result["knownHostsCleanupWarnings"][0]["returncode"], 124)
         self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
 
     def test_scale_up_retries_failed_known_host_cleanup_for_same_ip(self) -> None:
@@ -2244,16 +2248,20 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         run.assert_not_called()
         self.assertFalse([step for step in controller.steps if step.name == "clear_worker_known_host"])
 
-    def test_ssh_and_scp_commands_keep_accept_new_host_key_option(self) -> None:
+    def test_ssh_and_scp_commands_auto_cleanup_and_use_consistent_known_hosts_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             args = controller_args()
             args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            parsed = runner.parse_cli_args(["preflight", "--known-hosts-path", args.known_hosts_path])
+            self.assertEqual(parsed.known_hosts_path, args.known_hosts_path)
             controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
             controller.public_ip = "203.0.113.10"
+            events: list[tuple[str, list[str]]] = []
             cleanup_commands: list[list[str]] = []
             commands: list[list[str]] = []
 
             def capture_subprocess_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                events.append(("cleanup", cmd))
                 cleanup_commands.append(cmd)
                 return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -2267,6 +2275,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 input_text: str | None = None,
                 env: dict[str, str] | None = None,
             ) -> subprocess.CompletedProcess[str]:
+                events.append(("command", cmd))
                 commands.append(cmd)
                 return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -2274,17 +2283,48 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 mock.patch.object(runner.subprocess, "run", side_effect=capture_subprocess_run),
                 mock.patch.object(controller, "run_cp", side_effect=capture_run_cp),
             ):
-                controller.clear_worker_known_host()
                 controller.ssh_cmd("ssh_probe", "true")
                 controller.scp_to_worker("upload", Path(temp_dir) / "local.txt", "/remote/local.txt")
                 controller.scp_from_worker("download", "/remote/out.txt", Path(temp_dir) / "out" / "out.txt")
 
         self.assertEqual(cleanup_commands, [["ssh-keygen", "-R", "203.0.113.10", "-f", args.known_hosts_path]])
+        self.assertEqual([event[0] for event in events], ["cleanup", "command", "command", "command"])
         for cmd in commands:
             with self.subTest(command=cmd[0]):
                 self.assertIn("BatchMode=yes", cmd)
                 self.assertIn("StrictHostKeyChecking=accept-new", cmd)
                 self.assertIn(f"UserKnownHostsFile={args.known_hosts_path}", cmd)
+
+    def test_known_host_cleanup_warning_redacts_secret_and_host_key_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = controller_args()
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            controller.public_ip = "203.0.113.10"
+            stdout = "line=203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhostkey comment\nSTEAM_KEY=steam-secret\n"
+            stderr = "TOKEN=token-secret\necdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYhostkey\n"
+
+            with mock.patch.object(
+                runner.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess(["ssh-keygen"], 255, stdout, stderr),
+            ):
+                controller.clear_worker_known_host()
+
+            combined = json.dumps(
+                {
+                    "steps": [step.__dict__ for step in controller.steps],
+                    "result": controller.result,
+                },
+                sort_keys=True,
+            )
+
+        self.assertIn("[REDACTED_HOST_KEY]", combined)
+        self.assertIn("STEAM_KEY=[REDACTED]", combined)
+        self.assertIn("TOKEN=[REDACTED]", combined)
+        self.assertNotIn("AAAA", combined)
+        self.assertNotIn("steam-secret", combined)
+        self.assertNotIn("token-secret", combined)
 
     def test_safe_extract_tar_rejects_traversal_and_special_entries(self) -> None:
         cases = [

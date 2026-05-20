@@ -79,6 +79,15 @@ SSH_CONNECT_OPTIONS = (
     "-o", "ServerAliveCountMax=8",
     "-o", "StrictHostKeyChecking=accept-new",
 )
+KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS = 30
+HOST_KEY_ALGORITHM_RE = (
+    r"(?:ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp\d+|"
+    r"sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)"
+)
+HOST_KEY_BLOB_RE = re.compile(rf"\b{HOST_KEY_ALGORITHM_RE}\s+[A-Za-z0-9+/=]+")
+SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(?:STEAM_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|TENCENTCLOUD_SECRET_KEY|TENCENT_SECRET_KEY)=\S+"
+)
 BUNDLE_ALLOWLISTED_RUNTIME_FILES = ("maps/map-0b6758af.json",)
 BUNDLE_EXCLUDE_DIRS = {".git", "node_modules", "__pycache__", ".codex", ".codex-local-git", ".git-local"}
 BUNDLE_EXCLUDE_PREFIXES = (
@@ -192,7 +201,7 @@ class Controller:
 
     @property
     def known_hosts_path(self) -> Path:
-        return Path(getattr(self.args, "known_hosts_path", DEFAULT_KNOWN_HOSTS))
+        return Path(getattr(self.args, "known_hosts_path", DEFAULT_KNOWN_HOSTS)).expanduser()
 
     @property
     def ssh_target(self) -> str:
@@ -313,6 +322,7 @@ class Controller:
             raise BatchRunError(f"{name} returned non-JSON output: {error}") from error
 
     def ssh_cmd(self, name: str, remote_command: str, *, check: bool = True, timeout: int | None = 600) -> subprocess.CompletedProcess[str]:
+        self.clear_worker_known_host()
         cmd = [
             "ssh",
             "-i", self.args.ssh_key,
@@ -323,6 +333,7 @@ class Controller:
         return self.run_cp(name, cmd, check=check, timeout=timeout)
 
     def scp_to_worker(self, name: str, local_path: Path, remote_path: str, *, timeout: int = 300) -> None:
+        self.clear_worker_known_host()
         self.run_cp(
             name,
             [
@@ -336,6 +347,7 @@ class Controller:
         )
 
     def scp_from_worker(self, name: str, remote_path: str, local_path: Path, *, timeout: int = 900) -> None:
+        self.clear_worker_known_host()
         local_path.parent.mkdir(parents=True, exist_ok=True)
         self.run_cp(
             name,
@@ -349,20 +361,23 @@ class Controller:
             timeout=timeout,
         )
 
-    def clear_worker_known_host(self) -> None:
+    def clear_worker_known_host(self) -> bool:
         if not self.public_ip:
-            return
+            return True
         if self.public_ip in self.known_hosts_cleaned_public_ips:
-            return
-        cmd = ["ssh-keygen", "-R", self.public_ip, "-f", str(self.known_hosts_path)]
+            return True
+        known_hosts = self.known_hosts_path
+        cmd = ["ssh-keygen", "-R", self.public_ip, "-f", str(known_hosts)]
         started = time.time()
         try:
+            known_hosts.parent.mkdir(parents=True, exist_ok=True)
+            known_hosts.touch(exist_ok=True)
             cp = subprocess.run(
                 cmd,
                 text=True,
                 capture_output=True,
                 cwd=str(REPO_ROOT),
-                timeout=30,
+                timeout=KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS,
                 check=False,
             )
         except subprocess.TimeoutExpired as error:
@@ -373,9 +388,36 @@ class Controller:
         except OSError as error:
             cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
         ok = cp.returncode == 0
-        self.record_step("clear_worker_known_host", started, ok, cp, argv=redacted_argv(cmd))
+        record_cp = subprocess.CompletedProcess(
+            cp.args,
+            cp.returncode,
+            sanitize_known_hosts_cleanup_text(cp.stdout),
+            sanitize_known_hosts_cleanup_text(cp.stderr),
+        )
+        if not ok:
+            warnings = self.result.setdefault("knownHostsCleanupWarnings", [])
+            if isinstance(warnings, list):
+                warnings.append(
+                    {
+                        "publicIp": self.public_ip,
+                        "knownHostsFile": str(known_hosts),
+                        "returncode": cp.returncode,
+                        "stderrTail": tail_text(record_cp.stderr),
+                    }
+                )
+        self.record_step(
+            "clear_worker_known_host",
+            started,
+            ok,
+            record_cp,
+            argv=redacted_argv(cmd),
+            publicIp=self.public_ip,
+            knownHostsFile=str(known_hosts),
+            warning=not ok,
+        )
         if ok:
             self.known_hosts_cleaned_public_ips.add(self.public_ip)
+        return ok
 
     def experiment_card_path(self) -> Path:
         return self.artifact_dir / "experiment_card.json"
@@ -1024,6 +1066,20 @@ def tail_text(raw: str | None, limit: int = 3000) -> str:
         return ""
     text = raw.replace("\r", "")
     return text[-limit:]
+
+
+def sanitize_known_hosts_cleanup_text(raw: str | bytes | None) -> str:
+    if not raw:
+        return ""
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    text = text.replace("\r", "")
+    text = HOST_KEY_BLOB_RE.sub("[REDACTED_HOST_KEY]", text)
+
+    def redact_secret(match: re.Match[str]) -> str:
+        key, _value = match.group(0).split("=", 1)
+        return f"{key}=[REDACTED]"
+
+    return SECRET_ASSIGNMENT_RE.sub(redact_secret, text)
 
 
 def redacted_argv(argv: Sequence[str]) -> list[str]:
@@ -2506,6 +2562,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--billing-guard", default=str(DEFAULT_BILLING_GUARD))
     parser.add_argument("--secret-env", default=str(DEFAULT_SECRET_ENV))
     parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
+    parser.add_argument("--known-hosts-path", default=str(DEFAULT_KNOWN_HOSTS))
     parser.add_argument("--dataset-run-id", default="rl-3d29e8b9397d")
     parser.add_argument("--training-approach", default="bandit", choices=("bandit", "evolutionary", "policy_gradient"))
     parser.add_argument("--ticks", type=int, default=50, help="Simulator ticks; policy_gradient runs are floored to 500.")
