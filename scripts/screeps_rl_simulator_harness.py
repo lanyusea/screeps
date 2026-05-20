@@ -3306,11 +3306,24 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
         return projected
     if any(safety.get(field) is True for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")):
         return projected
-    evidence = activation.get("projectedEvidence")
-    if not isinstance(evidence, dict):
-        return projected
-    projected_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
-    if projected_kills <= 0:
+
+    evidence_source = "projectedEvidence"
+    evidence = activation.get(evidence_source)
+    if isinstance(evidence, dict):
+        activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
+    else:
+        evidence_source = "observedEvidence"
+        evidence = activation.get(evidence_source)
+        if not isinstance(evidence, dict):
+            return projected
+        initial_hostiles = _extract_int(evidence.get("initialHostileCount"))
+        final_hostiles = _extract_int(evidence.get("finalHostileCount"))
+        activation_kills = (
+            max(0, initial_hostiles - final_hostiles)
+            if initial_hostiles is not None and final_hostiles is not None
+            else 0
+        )
+    if activation_kills <= 0:
         return projected
 
     combat = projected.setdefault("combat", {})
@@ -3320,7 +3333,7 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     existing_hostile_kills = _extract_int(projected.get("hostileKills"))
     if existing_hostile_kills is None:
         existing_hostile_kills = _extract_int(combat.get("hostileKills")) or 0
-    hostile_kills = max(existing_hostile_kills, projected_kills)
+    hostile_kills = max(existing_hostile_kills, activation_kills)
     own_losses = _extract_int(projected.get("ownLosses"))
     if own_losses is None:
         own_losses = _extract_int(combat.get("ownLosses")) or 0
@@ -3333,23 +3346,29 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
 
     target_room = evidence.get("targetRoom")
     final_room_states = projected.get("finalRoomStates")
-    if isinstance(target_room, str) and isinstance(final_room_states, dict):
+    if evidence_source == "projectedEvidence" and isinstance(target_room, str) and isinstance(final_room_states, dict):
         final_summary = final_room_states.get(target_room)
         if isinstance(final_summary, dict):
             final_combat = final_summary.setdefault("combat", {})
             if isinstance(final_combat, dict):
                 hostile_creeps = _extract_int(final_combat.get("hostileCreeps")) or 0
                 if hostile_creeps > 0:
-                    final_combat["hostileCreeps"] = max(0, hostile_creeps - projected_kills)
-    projected["policyActivation"] = {
+                    final_combat["hostileCreeps"] = max(0, hostile_creeps - activation_kills)
+    policy_activation: JsonObject = {
         "type": activation.get("type"),
         "strategyVariantId": activation.get("strategyVariantId"),
         "executionAction": activation.get("executionAction"),
         "objectiveSignalSource": activation.get("objectiveSignalSource"),
         "targetRoom": activation.get("targetRoom"),
-        "projectedHostileKills": projected_kills,
+        "hostileKills": hostile_kills,
+        "hostileKillsSource": evidence_source,
         "safety": copy.deepcopy(safety),
     }
+    if evidence_source == "projectedEvidence":
+        policy_activation["projectedHostileKills"] = activation_kills
+    else:
+        policy_activation["observedHostileKills"] = activation_kills
+    projected["policyActivation"] = policy_activation
     return projected
 
 
