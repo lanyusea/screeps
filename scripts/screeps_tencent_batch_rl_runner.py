@@ -116,6 +116,12 @@ POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS = (
     "officialMmoWrites",
     "officialMmoWritesAllowed",
 )
+RUNTIME_PARAMETER_INJECTION_ALLOWED_STATUS_SCOPES = {
+    "injected": "runtime_injected",
+    "metadata_only": "metadata_only",
+    "not_injected": "runtime_injected",
+    "partial": "partial_runtime_injection",
+}
 ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "algorithm",
     "anchor",
@@ -2097,11 +2103,16 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
         required_bool(raw.get("inlineCandidatesRuntimeInjected"), "runtimeParameterInjection.inlineCandidatesRuntimeInjected")
     if "variantCount" in raw:
         required_non_negative_int(raw.get("variantCount"), "runtimeParameterInjection.variantCount")
+    expected_scope = RUNTIME_PARAMETER_INJECTION_ALLOWED_STATUS_SCOPES.get(status)
+    if expected_scope is None:
+        raise BatchRunError(f"remote runtimeParameterInjection.status invalid: {status!r}")
+    if scope != expected_scope:
+        raise BatchRunError(
+            f"remote runtimeParameterInjection {status} status requires {expected_scope} scope"
+        )
     if runtime_injected:
         if status != "injected":
             raise BatchRunError("remote runtimeParameterInjection status must be injected when runtime injection is proven")
-        if scope != "runtime_injected":
-            raise BatchRunError("remote runtimeParameterInjection candidateParameterScope must be runtime_injected")
         if not policy_update_eligible:
             raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible must be true when runtime injection is proven")
         if injected_count <= 0:
@@ -2110,10 +2121,10 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
         raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
     elif status == "injected":
         raise BatchRunError("remote runtimeParameterInjection status injected requires runtimeParameterInjection=true")
-    elif status == "metadata_only" and scope != "metadata_only":
-        raise BatchRunError("remote runtimeParameterInjection metadata_only status requires metadata_only scope")
-    elif status == "partial" and scope != "partial_runtime_injection":
-        raise BatchRunError("remote runtimeParameterInjection partial status requires partial_runtime_injection scope")
+    elif status in {"metadata_only", "not_injected"} and injected_count != 0:
+        raise BatchRunError(
+            f"remote runtimeParameterInjection {status} status requires injectedVariantCount=0"
+        )
     return copy.deepcopy(raw)
 
 
@@ -2164,8 +2175,18 @@ def verified_remote_candidate_scorecard(
             raise BatchRunError("remote candidateScorecard.scorecardId disagrees with scorecardId")
         safe_candidate_scorecard_artifact_path(scorecard_artifact_path)
     elif status == "blocked":
-        if runtime_injected:
+        classification = raw.get("classification")
+        materialization_failed = classification == "candidate_scorecard_materialization_failed"
+        if runtime_injected and not materialization_failed:
             raise BatchRunError("remote candidateScorecard blocked status requires runtimeParameterInjection=false")
+        if materialization_failed:
+            if (
+                runtime_parameter_injection is None
+                or runtime_parameter_injection.get("runtimeParameterInjection") is not True
+            ):
+                raise BatchRunError("remote candidateScorecard materialization failure requires runtimeParameterInjection proof")
+            if injected_count <= 0:
+                raise BatchRunError("remote candidateScorecard materialization failure requires positive injectedVariantCount")
         if not validation_blocked:
             raise BatchRunError("remote candidateScorecard blocked status requires validationScaleComputeBlocked=true")
         if scorecard_usable:

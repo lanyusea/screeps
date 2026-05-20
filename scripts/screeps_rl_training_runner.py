@@ -2190,12 +2190,31 @@ def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: E
         warnings.append(warning)
     else:
         report["warnings"] = [warning]
-    report["candidateScorecard"] = candidate_scorecard_blocked_payload(
+    previous_readiness = report.get("candidateScorecard")
+    runtime_parameter_injection = report.get("runtimeParameterInjection")
+    payload = candidate_scorecard_blocked_payload(
         report,
         classification="candidate_scorecard_materialization_failed",
         reason=reason,
         missing_prerequisite="candidate_scorecard_artifact",
     )
+    payload["nextAction"] = "inspect and repair candidate scorecard materialization before validation-scale compute"
+    payload["runtimeParameterInjection"] = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    payload["injectedVariantCount"] = runtime_injected_variant_count(runtime_parameter_injection)
+    payload["candidateParameterScope"] = runtime_parameter_scope(runtime_parameter_injection)
+    if isinstance(previous_readiness, dict):
+        for field in ("candidateStrategyId", "baselineStrategyId", "candidateRank", "baselineRank"):
+            if field in previous_readiness:
+                payload[field] = copy.deepcopy(previous_readiness[field])
+    else:
+        pair = candidate_scorecard_pair(report)
+        if pair is not None:
+            candidate_id, baseline_id, candidate_rank, baseline_rank = pair
+            payload["candidateStrategyId"] = candidate_id
+            payload["baselineStrategyId"] = baseline_id
+            payload["candidateRank"] = candidate_rank
+            payload["baselineRank"] = baseline_rank
+    report["candidateScorecard"] = payload
     report["scorecardId"] = None
     report["scorecardArtifactPath"] = None
 

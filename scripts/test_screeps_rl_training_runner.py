@@ -2242,6 +2242,15 @@ export const STRATEGY_REGISTRY = [
             report["candidateScorecard"]["classification"],
             "candidate_scorecard_materialization_failed",
         )
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
+        self.assertEqual(report["candidateScorecard"]["candidateParameterScope"], "runtime_injected")
+        self.assertIsNotNone(report["candidateScorecard"]["candidateStrategyId"])
+        self.assertIsNotNone(report["candidateScorecard"]["baselineStrategyId"])
+        self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])
+        self.assertIsNotNone(report["candidateScorecard"]["baselineRank"])
+        self.assertIn("materialization", report["candidateScorecard"]["nextAction"])
         self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
         self.assertIsNone(report["scorecardId"])
         self.assertIsNone(report["scorecardArtifactPath"])
@@ -2249,6 +2258,8 @@ export const STRATEGY_REGISTRY = [
             any("candidate scorecard artifact generation skipped" in warning for warning in report["warnings"])
         )
         self.assertEqual(persisted["candidateScorecard"]["status"], "blocked")
+        self.assertTrue(persisted["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertIn("materialization", persisted["candidateScorecard"]["nextAction"])
         self.assertIsNone(persisted["scorecardArtifactPath"])
 
     def test_runtime_injected_reinforce_requires_evaluated_parameters_from_successful_payloads(self) -> None:

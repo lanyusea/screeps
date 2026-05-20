@@ -1153,6 +1153,27 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
 
     def test_verify_remote_training_report_rejects_malformed_runtime_parameter_injection_evidence(self) -> None:
+        def injection_patch(
+            *,
+            status: str,
+            runtime_parameter_injection: bool,
+            policy_update_eligible: bool,
+            candidate_parameter_scope: str,
+            injected_variant_count: int,
+        ) -> dict[str, object]:
+            return {
+                "runtimeParameterInjection": {
+                    "status": status,
+                    "runtimeParameterInjection": runtime_parameter_injection,
+                    "policyUpdateEligible": policy_update_eligible,
+                    "candidateParameterScope": candidate_parameter_scope,
+                    "injectedVariantCount": injected_variant_count,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                }
+            }
+
         cases = (
             ("string evidence", {"runtimeParameterInjection": "false"}, "runtimeParameterInjection must be an object"),
             (
@@ -1186,6 +1207,50 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
                 "runtimeParameterInjection.runtimeParameterInjection must be a boolean",
             ),
+            (
+                "unknown false status",
+                injection_patch(
+                    status="garbage",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=0,
+                ),
+                "runtimeParameterInjection.status invalid",
+            ),
+            (
+                "metadata scope mismatch",
+                injection_patch(
+                    status="metadata_only",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="runtime_injected",
+                    injected_variant_count=0,
+                ),
+                "metadata_only status requires metadata_only scope",
+            ),
+            (
+                "not injected scope mismatch",
+                injection_patch(
+                    status="not_injected",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=0,
+                ),
+                "not_injected status requires runtime_injected scope",
+            ),
+            (
+                "metadata positive injected count",
+                injection_patch(
+                    status="metadata_only",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=1,
+                ),
+                "metadata_only status requires injectedVariantCount=0",
+            ),
         )
         for name, patch, expected_error in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
@@ -1199,6 +1264,40 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
                 with self.assertRaisesRegex(runner.BatchRunError, expected_error):
                     controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_accepts_materialization_failure_with_runtime_injection_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "candidate_scorecard_materialization_failed",
+                "scorecardId": None,
+                "runtimeParameterInjection": True,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "missingPrerequisite": "candidate_scorecard_artifact",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        verified = controller.result["trainingReport"]["candidateScorecard"]
+        self.assertEqual(verified["classification"], "candidate_scorecard_materialization_failed")
+        self.assertTrue(verified["runtimeParameterInjection"])
+        self.assertEqual(verified["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(verified["candidateStrategyId"], "candidate")
 
     def test_verify_remote_training_report_rejects_inconsistent_candidate_scorecard_evidence(self) -> None:
         cases = (
