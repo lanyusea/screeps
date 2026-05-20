@@ -121,6 +121,21 @@ def write_bundle(root: Path, *, candidate: bool, safety_regression: bool = False
             "advantageKills": 0,
         },
     )
+    if candidate:
+        write_json(
+            root / "runtime-parameter-injection.json",
+            {
+                "type": "screeps-rl-runtime-parameter-injection",
+                "status": "injected",
+                "runtimeParameterInjection": True,
+                "inlineCandidatesRuntimeInjected": True,
+                "candidateParameterScope": "runtime_injected",
+                "policyUpdateEligible": True,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        )
     write_json(
         root / "postdeploy-summary.json",
         {
@@ -142,6 +157,7 @@ def write_bundle(root: Path, *, candidate: bool, safety_regression: bool = False
                 "runtime.log",
                 "training-ledger.json",
                 "policy-advantage.json",
+                "runtime-parameter-injection.json",
                 "postdeploy-summary.json",
             ],
         },
@@ -162,6 +178,14 @@ def test_scorecard_passes_when_candidate_improves_without_regression(tmp_path: P
     )
 
     assert report["overallGate"]["status"] == "PASS"
+    assert report["scorecardContract"]["statusValues"] == [
+        "PASS",
+        "HOLD",
+        "MIXED",
+        "ROLLBACK_REQUIRED",
+        "INCONCLUSIVE",
+    ]
+    assert report["overallGate"]["runtimeCandidateGate"]["status"] == "injected"
     assert report["dimensions"]["safety_reliability_floor"]["status"] in {"neutral", "improved"}
     assert report["dimensions"]["territory_expansion"]["status"] == "improved"
     assert report["dimensions"]["resources_economy"]["status"] == "improved"
@@ -183,7 +207,7 @@ def test_scorecard_fails_safety_regression_even_with_gameplay_gain(tmp_path: Pat
         run_id="scorecard-fail",
     )
 
-    assert report["overallGate"]["status"] == "FAIL"
+    assert report["overallGate"]["status"] == "ROLLBACK_REQUIRED"
     assert report["dimensions"]["safety_reliability_floor"]["status"] == "regressed"
     assert "safety_reliability_floor" in report["overallGate"]["safetyRegressions"]
     assert any("safety" in action.lower() for action in report["requiredActions"])
@@ -213,6 +237,165 @@ def test_scorecard_is_inconclusive_when_gameplay_evidence_is_absent(tmp_path: Pa
     assert report["dimensions"]["territory_expansion"]["status"] == "inconclusive"
     assert report["dimensions"]["resources_economy"]["status"] == "inconclusive"
     assert report["dimensions"]["combat"]["status"] == "neutral"
+
+
+def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    loop_b_report = {
+        "type": "screeps-rl-policy-online-advantage-report",
+        "onlineUtilityStatus": "PROVEN",
+        "candidatePolicyId": "candidate-runtime-injected",
+        "baselinePolicyId": "incumbent-runtime-baseline",
+        "trainingReportIds": ["training-runtime-injected"],
+        "controllerSummary": {"finalStatus": "completed", "instanceId": "ins-runtime"},
+        "metricsByCategory": {
+            "reliability": {"candidateValue": 0.995, "baselineValue": 0.995, "delta": 0},
+            "territory": {"candidateValue": 3, "baselineValue": 2, "delta": 1},
+            "resources": {"candidateValue": 900, "baselineValue": 1000, "delta": -100},
+            "kills": {"candidateValue": 2, "baselineValue": 0, "delta": 2},
+        },
+    }
+    write_json(candidate / "policy-online-advantage.json", loop_b_report)
+    write_json(baseline / "policy-online-advantage.json", loop_b_report)
+    write_json(
+        candidate / "runtime-parameter-injection.json",
+        {
+            "type": "screeps-rl-runtime-parameter-injection",
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "inlineCandidatesRuntimeInjected": True,
+            "candidateParameterScope": "runtime_injected",
+            "policyUpdateEligible": True,
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:00:00Z",
+        run_id="scorecard-runtime-mixed",
+    )
+
+    assert report["overallGate"]["status"] == "MIXED"
+    assert report["overallGate"]["lexicographic"]["order"] == ["reliability", "territory", "resources", "kills"]
+    assert report["dimensions"]["safety_reliability_floor"]["status"] == "neutral"
+    assert report["dimensions"]["territory_expansion"]["status"] == "improved"
+    assert report["dimensions"]["resources_economy"]["status"] == "regressed"
+    assert report["dimensions"]["combat"]["status"] == "improved"
+    assert report["candidate"]["runtimeParameterInjection"]["status"] == "injected"
+
+
+def test_runtime_scorecard_missing_baseline_metric_is_inconclusive_not_pass(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    write_json(
+        candidate / "candidate-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "reliability": {"score": 0.996},
+                "territory": {"ownedRooms": 2},
+                "resources": {"score": 1500},
+                "kills": {"score": 1},
+            },
+        },
+    )
+    write_json(
+        baseline / "baseline-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "reliability": {"score": 0.996},
+                "territory": {"ownedRooms": 2},
+            },
+        },
+    )
+    write_json(
+        candidate / "runtime-parameter-injection.json",
+        {
+            "type": "screeps-rl-runtime-parameter-injection",
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "inlineCandidatesRuntimeInjected": True,
+            "candidateParameterScope": "runtime_injected",
+            "policyUpdateEligible": True,
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:05:00Z",
+        run_id="scorecard-runtime-missing-baseline",
+    )
+
+    assert report["overallGate"]["status"] == "INCONCLUSIVE"
+    assert report["overallGate"]["status"] != "PASS"
+    assert "resources_economy" in report["overallGate"]["inconclusiveDimensions"]
+    assert "combat" in report["overallGate"]["inconclusiveDimensions"]
+
+
+def test_metadata_only_policy_update_holds_even_with_complete_metric_advantage(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    write_json(
+        baseline / "baseline-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "reliability": {"score": 0.996},
+                "territory": {"ownedRooms": 2},
+                "resources": {"score": 1000},
+                "kills": {"score": 0},
+            },
+        },
+    )
+    write_json(
+        candidate / "candidate-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "reliability": {"score": 0.996},
+                "territory": {"ownedRooms": 3},
+                "resources": {"score": 1200},
+                "kills": {"score": 1},
+            },
+        },
+    )
+    write_json(
+        candidate / "metadata-only-training.json",
+        {
+            "type": "screeps-rl-training-report",
+            "policyGradient": {
+                "runner_support": {
+                    "runtime_parameter_injection": False,
+                    "candidate_parameter_scope": "metadata_only",
+                }
+            },
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:10:00Z",
+        run_id="scorecard-metadata-only-hold",
+    )
+
+    assert report["overallGate"]["status"] == "HOLD"
+    assert report["overallGate"]["status"] != "PASS"
+    assert report["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"] is False
+    assert report["overallGate"]["monotonic"]["improvedNonSafetyDimension"] is True
 
 
 def test_value_has_reference_parses_numeric_strings() -> None:
