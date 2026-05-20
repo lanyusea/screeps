@@ -1,0 +1,55 @@
+{
+  "type": "screeps-rl-policy-online-advantage-report",
+  "reportId": "loop-b-mixed-unproven-construction-priority",
+  "title": "Loop B construction-priority advantage is mixed on a single-room scenario",
+  "onlineUtilityStatus": "MIXED",
+  "candidateId": "construction-priority.pg.territory-seed.v1",
+  "incumbentId": "construction-priority.incumbent.v1",
+  "datasetRunId": "rl-loop-b-sample-000001",
+  "evidenceWindow": "2026-05-19T12:00:00Z..2026-05-19T20:00:00Z",
+  "scenarioEvidence": {
+    "scenarioId": "e1s1-single-room-no-hostile",
+    "missingCapabilities": [
+      "multi_room_capable",
+      "adjacent_room_territory_signal",
+      "hostile_combat_signal"
+    ]
+  },
+  "parameterSurface": {
+    "name": "construction-priority",
+    "bounds": [
+      {
+        "name": "territorySignalWeight",
+        "min": 12,
+        "max": 30,
+        "step": 1,
+        "reason": "Loop B cannot prove the territory-seed candidate until a multi-room scenario measures expansion survival."
+      },
+      {
+        "name": "riskPenalty",
+        "min": 4,
+        "max": 18,
+        "step": 1,
+        "reason": "Keep hostile-pressure and construction-risk behavior bounded while the scenario delta is shadow-only."
+      }
+    ]
+  },
+  "hypothesis": "The candidate is mixed because the current card is single-room and cannot distinguish territory retention, remote expansion, or hostile-combat pressure.",
+  "metricsByCategory": {
+    "territory": {
+      "status": "MIXED",
+      "advantageTerritory": 0,
+      "reason": "No adjacent-room survival signal exists in the source card."
+    },
+    "resources": {
+      "status": "UNPROVEN",
+      "advantageResources": 0
+    },
+    "kills": {
+      "status": "UNPROVEN",
+      "advantageKills": 0
+    }
+  },
+  "trainingReportId": "training-loop-b-sample-000001",
+  "scorecardId": "scorecard-loop-b-sample-000001"
+}
