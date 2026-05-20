@@ -551,6 +551,15 @@ export function isTerritoryScoutIntelFresh(
   return gameTime - intel.updatedAt <= maxAge;
 }
 
+export function isTerritoryScoutAttemptTimedOut(
+  colony: string,
+  targetRoom: string,
+  gameTime = getGameTime()
+): boolean {
+  const attempt = getTerritoryScoutAttempt(colony, targetRoom);
+  return attempt?.status === 'timedOut' || isScoutAttemptTimedOut(attempt, gameTime);
+}
+
 function getTerritoryScoutAttempt(colony: string, targetRoom: string): TerritoryScoutAttemptMemory | null {
   const rawAttempt = getTerritoryMemoryRecord()?.scoutAttempts?.[getTerritoryScoutMemoryKey(colony, targetRoom)];
   return normalizeTerritoryScoutAttempt(rawAttempt);

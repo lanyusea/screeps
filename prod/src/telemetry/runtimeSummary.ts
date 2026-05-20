@@ -34,7 +34,11 @@ import {
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
-import { getTerritoryScoutSummary } from '../territory/scoutIntel';
+import {
+  TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS,
+  getTerritoryScoutSummary
+} from '../territory/scoutIntel';
+import { summarizeTerritoryScoutConcurrency } from '../territory/scoutConcurrency';
 import { getTerritoryExpansionScoutTargets } from '../territory/expansionConfig';
 import { isPassiveScoutGateOpen } from '../territory/passiveScoutGate';
 import {
@@ -292,6 +296,18 @@ interface RuntimeTerritoryScoutSummary {
   attempts?: TerritoryScoutAttemptMemory[];
   intel?: TerritoryScoutIntelMemory[];
   scoutOnlyTargets?: RuntimeTerritoryScoutOnlyTargetSummary[];
+  concurrency?: RuntimeTerritoryScoutConcurrencySummary;
+}
+
+interface RuntimeTerritoryScoutConcurrencySummary {
+  activeScoutCount: number;
+  cap: number;
+  assignedTargetCount?: number;
+  scoutsByTargetRoom?: Record<string, number>;
+  requestedTargetRooms?: string[];
+  staleTargetRooms?: string[];
+  duplicateTargetScoutCount?: number;
+  surplusScoutCount?: number;
 }
 
 type RuntimeTerritoryScoutOnlyTargetStatus = TerritoryScoutAttemptStatus | 'pending' | 'blocked';
@@ -906,7 +922,7 @@ function summarizeRoom(
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
-    ...buildTerritoryScoutSummary(colony),
+    ...buildTerritoryScoutSummary(colony, roleCounts),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -983,11 +999,15 @@ function buildTerritoryExecutionHintSummary(
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
 }
 
-function buildTerritoryScoutSummary(colony: ColonySnapshot): { territoryScout?: RuntimeTerritoryScoutSummary } {
+function buildTerritoryScoutSummary(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts
+): { territoryScout?: RuntimeTerritoryScoutSummary } {
   const colonyName = colony.room.name;
   const summary = getTerritoryScoutSummary(colonyName);
   const scoutOnlyTargets = buildScoutOnlyTargetSummaries(colony, summary);
-  if (!summary && scoutOnlyTargets.length === 0) {
+  const concurrency = buildTerritoryScoutConcurrencySummary(summary, roleCounts, getGameTime());
+  if (!summary && scoutOnlyTargets.length === 0 && !concurrency) {
     return {};
   }
 
@@ -995,9 +1015,67 @@ function buildTerritoryScoutSummary(colony: ColonySnapshot): { territoryScout?: 
     territoryScout: {
       ...(summary && summary.attempts.length > 0 ? { attempts: summary.attempts } : {}),
       ...(summary && summary.intel.length > 0 ? { intel: summary.intel } : {}),
-      ...(scoutOnlyTargets.length > 0 ? { scoutOnlyTargets } : {})
+      ...(scoutOnlyTargets.length > 0 ? { scoutOnlyTargets } : {}),
+      ...(concurrency ? { concurrency } : {})
     }
   };
+}
+
+function buildTerritoryScoutConcurrencySummary(
+  summary: ReturnType<typeof getTerritoryScoutSummary>,
+  roleCounts: RoleCounts,
+  gameTime: number
+): RuntimeTerritoryScoutConcurrencySummary | undefined {
+  const requestedTargetRooms = getRequestedScoutTargetRooms(summary);
+  const staleTargetRooms = getStaleScoutIntelTargetRooms(summary, gameTime);
+  const concurrency = summarizeTerritoryScoutConcurrency(
+    roleCounts,
+    new Set([...requestedTargetRooms, ...staleTargetRooms]).size
+  );
+  if (!concurrency) {
+    return undefined;
+  }
+
+  const hasScoutsByTargetRoom = Object.keys(concurrency.scoutsByTargetRoom).length > 0;
+  return {
+    activeScoutCount: concurrency.activeScoutCount,
+    cap: concurrency.cap,
+    ...(concurrency.assignedTargetCount > 0 ? { assignedTargetCount: concurrency.assignedTargetCount } : {}),
+    ...(hasScoutsByTargetRoom ? { scoutsByTargetRoom: concurrency.scoutsByTargetRoom } : {}),
+    ...(requestedTargetRooms.length > 0 ? { requestedTargetRooms } : {}),
+    ...(staleTargetRooms.length > 0 ? { staleTargetRooms } : {}),
+    ...(concurrency.duplicateTargetScoutCount > 0
+      ? { duplicateTargetScoutCount: concurrency.duplicateTargetScoutCount }
+      : {}),
+    ...(concurrency.surplusScoutCount > 0 ? { surplusScoutCount: concurrency.surplusScoutCount } : {})
+  };
+}
+
+function getRequestedScoutTargetRooms(summary: ReturnType<typeof getTerritoryScoutSummary>): string[] {
+  return getUniqueSortedRoomNames(
+    (summary?.attempts ?? [])
+      .filter((attempt) => attempt.status === 'requested')
+      .map((attempt) => attempt.roomName)
+  );
+}
+
+function getStaleScoutIntelTargetRooms(
+  summary: ReturnType<typeof getTerritoryScoutSummary>,
+  gameTime: number
+): string[] {
+  return getUniqueSortedRoomNames(
+    (summary?.intel ?? [])
+      .filter(
+        (intel) =>
+          gameTime >= intel.updatedAt &&
+          gameTime - intel.updatedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS
+      )
+      .map((intel) => intel.roomName)
+  );
+}
+
+function getUniqueSortedRoomNames(roomNames: string[]): string[] {
+  return [...new Set(roomNames.filter(isNonEmptyString))].sort();
 }
 
 function buildScoutOnlyTargetSummaries(

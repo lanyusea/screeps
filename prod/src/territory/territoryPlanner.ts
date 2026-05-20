@@ -35,6 +35,7 @@ import {
   findSourceContainerConstructionSite
 } from '../economy/sourceContainers';
 import { getTerritoryScoutIntel } from './scoutIntel';
+import { shouldSpawnTerritoryScoutForTarget } from './scoutConcurrency';
 import { refreshExpansionPlannerIntent } from './expansionPlanner';
 import { recordExpansionPipelineClaimState } from './expansionTrigger';
 import { getConfiguredExpansionRoomScoutingTargets } from './roomScouting';
@@ -363,6 +364,13 @@ export function shouldSpawnTerritoryControllerCreep(
   }
 
   if (!isTerritoryIntentPlanSpawnCapable(plan)) {
+    return false;
+  }
+
+  if (
+    plan.action === 'scout' &&
+    !shouldSpawnTerritoryScoutForTarget(plan.colony, plan.targetRoom, roleCounts, gameTime)
+  ) {
     return false;
   }
 
@@ -1439,9 +1447,13 @@ function selectTerritoryTarget(
   const primaryCandidates = filterAutonomousTerritoryControlCandidatesForColony(
     colony,
     getSpawnCapableTerritoryCandidates(
-      filterTerritoryCandidatesForPlanningOptions(
-        [...persistedIntentCandidates, ...configuredCandidates],
-        options
+      filterScoutCandidatesForConcurrency(
+        filterTerritoryCandidatesForPlanningOptions(
+          [...persistedIntentCandidates, ...configuredCandidates],
+          options
+        ),
+        roleCounts,
+        gameTime
       ),
       colony
     )
@@ -1550,7 +1562,10 @@ function selectTerritoryTarget(
   );
   const candidates = filterAutonomousTerritoryControlCandidatesForColony(
     colony,
-    getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony)
+    getSpawnCapableTerritoryCandidates(
+      filterScoutCandidatesForConcurrency([...primaryCandidates, ...adjacentCandidates], roleCounts, gameTime),
+      colony
+    )
   );
   if (options.scoutOnly === true) {
     return toSelectedTerritoryTarget(
@@ -1622,6 +1637,18 @@ function filterTerritoryCandidatesForPlanningOptions(
   }
 
   return candidates;
+}
+
+function filterScoutCandidatesForConcurrency(
+  candidates: ScoredTerritoryTarget[],
+  roleCounts: RoleCounts,
+  gameTime: number
+): ScoredTerritoryTarget[] {
+  return candidates.filter(
+    (candidate) =>
+      candidate.intentAction !== 'scout' ||
+      shouldSpawnTerritoryScoutForTarget(candidate.target.colony, candidate.target.roomName, roleCounts, gameTime)
+  );
 }
 
 function isControllerPressureCandidate(candidate: ScoredTerritoryTarget): boolean {
@@ -1759,6 +1786,13 @@ function isImmediateControllerFollowUpCandidate(
 }
 
 function isTerritoryCandidateSpawnRequired(candidate: ScoredTerritoryTarget, roleCounts: RoleCounts): boolean {
+  if (
+    candidate.intentAction === 'scout' &&
+    !shouldSpawnTerritoryScoutForTarget(candidate.target.colony, candidate.target.roomName, roleCounts)
+  ) {
+    return false;
+  }
+
   const activeCoverageCount = getTerritoryCreepCountForTarget(
     roleCounts,
     candidate.target.roomName,

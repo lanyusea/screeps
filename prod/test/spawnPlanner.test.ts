@@ -4917,6 +4917,74 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('does not spawn another E29N55 scout while active scouts exceed the concurrency cap', () => {
+    const { colony } = makeColony({
+      roomName: 'E29N55',
+      sourceCount: 2,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800,
+      controller: { my: true, level: 5, ticksToDowngrade: 20_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E29N55',
+            targetRoom: 'E28N54',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          },
+          {
+            colony: 'E29N55',
+            targetRoom: 'E29N53',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          }
+        ],
+        scoutAttempts: {
+          'E29N55>E28N54': {
+            colony: 'E29N55',
+            roomName: 'E28N54',
+            status: 'requested',
+            requestedAt: 968_880,
+            updatedAt: 968_880,
+            attemptCount: 1
+          },
+          'E29N55>E29N53': {
+            colony: 'E29N55',
+            roomName: 'E29N53',
+            status: 'requested',
+            requestedAt: 968_880,
+            updatedAt: 968_880,
+            attemptCount: 1
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { E29N55: colony.room }
+    };
+
+    const spawnPlan = planSpawn(
+      colony,
+      {
+        worker: 4,
+        sourceHarvester: 3,
+        upgrader: 1,
+        defender: 1,
+        scout: 5,
+        scoutsByTargetRoom: { E28N54: 5 },
+        claimer: 0,
+        claimersByTargetRoom: {}
+      },
+      968_900
+    );
+
+    expect(spawnPlan?.memory.role).not.toBe('scout');
+  });
+
   it('keeps the E29N56 scout-only lane closed while planning another adjacent scout at RCL2 no-tower state', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E29N55',
