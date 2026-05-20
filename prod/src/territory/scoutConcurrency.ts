@@ -29,6 +29,14 @@ interface ActiveScoutAssignment {
   targetRoom: string;
 }
 
+interface ScoutCreepCache {
+  gameTime: number;
+  creeps: Game['creeps'];
+  scouts: Creep[];
+}
+
+let scoutCreepCache: ScoutCreepCache | null = null;
+
 export function shouldSpawnTerritoryScoutForTarget(
   colony: string,
   targetRoom: string,
@@ -157,12 +165,7 @@ function getActiveScoutAssignments(
   gameTime: number,
   includeTimedOutAssignments = false
 ): ActiveScoutAssignment[] {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  if (!creeps) {
-    return [];
-  }
-
-  return Object.values(creeps).flatMap((creep) => {
+  return getCachedScoutCreeps(gameTime).flatMap((creep) => {
     const assignment = creep.memory.territory;
     if (
       creep.name === excludedCreepName ||
@@ -178,6 +181,21 @@ function getActiveScoutAssignments(
 
     return [{ name: creep.name, targetRoom: assignment.targetRoom }];
   });
+}
+
+function getCachedScoutCreeps(gameTime: number): Creep[] {
+  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  if (!creeps) {
+    return [];
+  }
+
+  if (scoutCreepCache?.gameTime === gameTime && scoutCreepCache.creeps === creeps) {
+    return scoutCreepCache.scouts;
+  }
+
+  const scouts = Object.values(creeps).filter(isScoutCreep);
+  scoutCreepCache = { gameTime, creeps, scouts };
+  return scouts;
 }
 
 function getAssignedScoutTargetRooms(assignments: ActiveScoutAssignment[]): Set<string> {
@@ -204,6 +222,10 @@ function compareActiveScoutAssignments(left: ActiveScoutAssignment, right: Activ
 
 function isHealthyScout(creep: Creep): boolean {
   return creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+
+function isScoutCreep(creep: Creep): boolean {
+  return creep.memory.role === 'scout';
 }
 
 function normalizeNonNegativeInteger(value: unknown): number {

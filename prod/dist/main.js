@@ -14325,6 +14325,7 @@ function getOkCode6() {
 // src/territory/scoutConcurrency.ts
 var GLOBAL_TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS = globalThis.TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
 var TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS = typeof GLOBAL_TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS === "number" && Number.isFinite(GLOBAL_TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS) && GLOBAL_TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS > 0 ? Math.floor(GLOBAL_TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS) : 2;
+var scoutCreepCache = null;
 function shouldSpawnTerritoryScoutForTarget(colony, targetRoom, roleCounts, gameTime = getGameTime20()) {
   const targetTimedOut = isTerritoryScoutAttemptTimedOut(colony, targetRoom, gameTime);
   const targetScoutCount = getTerritoryScoutCountForTarget(roleCounts, targetRoom);
@@ -14409,18 +14410,26 @@ function getTerritoryScoutCountsByTarget(roleCounts) {
   return counts;
 }
 function getActiveScoutAssignments(colony, excludedCreepName, gameTime, includeTimedOutAssignments = false) {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  if (!creeps) {
-    return [];
-  }
-  return Object.values(creeps).flatMap((creep) => {
+  return getCachedScoutCreeps(gameTime).flatMap((creep) => {
     const assignment = creep.memory.territory;
     if (creep.name === excludedCreepName || creep.memory.role !== "scout" || creep.memory.colony !== colony || (assignment == null ? void 0 : assignment.action) !== "scout" || !isNonEmptyString15(assignment.targetRoom) || !isHealthyScout(creep) || !includeTimedOutAssignments && isTerritoryScoutAttemptTimedOut(colony, assignment.targetRoom, gameTime)) {
       return [];
     }
     return [{ name: creep.name, targetRoom: assignment.targetRoom }];
   });
+}
+function getCachedScoutCreeps(gameTime) {
+  var _a;
+  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  if (!creeps) {
+    return [];
+  }
+  if ((scoutCreepCache == null ? void 0 : scoutCreepCache.gameTime) === gameTime && scoutCreepCache.creeps === creeps) {
+    return scoutCreepCache.scouts;
+  }
+  const scouts = Object.values(creeps).filter(isScoutCreep);
+  scoutCreepCache = { gameTime, creeps, scouts };
+  return scouts;
 }
 function getAssignedScoutTargetRooms(assignments) {
   return new Set(assignments.map((assignment) => assignment.targetRoom));
@@ -14439,6 +14448,9 @@ function compareActiveScoutAssignments(left, right) {
 }
 function isHealthyScout(creep) {
   return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+function isScoutCreep(creep) {
+  return creep.memory.role === "scout";
 }
 function normalizeNonNegativeInteger7(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
