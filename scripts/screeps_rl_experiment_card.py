@@ -1238,6 +1238,8 @@ def is_loop_a_card_available_for_training(card: JsonObject, consumed_card_ids: s
         validate_card(card)
     except CardValidationError:
         return False
+    if loop_a_card_source_gate_rank(card) < 0:
+        return False
     supply = first_present(card, ("card_supply", "cardSupply"))
     if not isinstance(supply, dict):
         return False
@@ -1284,9 +1286,41 @@ def is_loop_a_card_supply_metadata(raw: Any) -> bool:
     )
 
 
+def loop_a_card_source_gate_rank(card: JsonObject) -> int:
+    source_gate = first_present(card, ("source_gate", "sourceGate"))
+    if source_gate is None:
+        return 0
+    if not isinstance(source_gate, dict):
+        return -1
+    acceptance_rate = source_gate_acceptance_rate(source_gate)
+    if acceptance_rate is None:
+        return 0
+    if math.isclose(acceptance_rate, 1.0, rel_tol=0.0, abs_tol=E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL):
+        return 2
+    if acceptance_rate >= DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE:
+        return 1
+    return -1
+
+
+def source_gate_acceptance_rate(source_gate: JsonObject) -> float | None:
+    for key in ("quality_acceptance_rate", "qualityAcceptanceRate", "acceptance_rate", "acceptanceRate"):
+        value = source_gate.get(key)
+        if is_finite_number(value):
+            return float(value)
+    return None
+
+
+def loop_a_card_source_gate_created_at(card: JsonObject) -> str:
+    source_gate = first_present(card, ("source_gate", "sourceGate"))
+    if not isinstance(source_gate, dict):
+        return ""
+    created_at = first_present(source_gate, ("created_at", "createdAt", "gateCreatedAt"))
+    return created_at if isinstance(created_at, str) and ISO_TIMESTAMP_RE.fullmatch(created_at) else ""
+
+
 def select_loop_a_card_supply(card_dir: Path, training_report_root: Path) -> JsonObject | None:
     consumed_card_ids = consumed_card_ids_from_training_reports(training_report_root)
-    candidates: list[tuple[str, str, Path, JsonObject]] = []
+    candidates: list[tuple[int, str, str, str, Path, JsonObject]] = []
     if not card_dir.exists():
         return None
     for path in sorted(card_dir.rglob("*.json")):
@@ -1298,18 +1332,20 @@ def select_loop_a_card_supply(card_dir: Path, training_report_root: Path) -> Jso
             continue
         if not is_loop_a_card_available_for_training(card, consumed_card_ids):
             continue
+        source_gate_rank = loop_a_card_source_gate_rank(card)
+        source_gate_created_at = loop_a_card_source_gate_created_at(card)
         created_at = str(card.get("created_at") or "")
         card_id = str(card.get("card_id") or "")
-        candidates.append((created_at, card_id, path, card))
+        candidates.append((source_gate_rank, source_gate_created_at, created_at, card_id, path, card))
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (item[0], item[1], str(item[2])), reverse=True)
-    _, _, path, card = candidates[0]
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], str(item[4])), reverse=True)
+    _, _, _, _, path, card = candidates[0]
     return loop_a_selection_summary(path, card, consumed_card_ids)
 
 
 def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: set[str]) -> JsonObject:
-    return {
+    summary = {
         "ok": True,
         "card_path": str(path),
         "card_id": card.get("card_id"),
@@ -1320,12 +1356,16 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
         "scenario": first_present(card, ("scenario", "trainingScenario")),
         "consumed_card_count": len(consumed_card_ids),
     }
+    source_gate = first_present(card, ("source_gate", "sourceGate"))
+    if isinstance(source_gate, dict):
+        summary["source_gate"] = source_gate
+    return summary
 
 
 def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str | None = None) -> JsonObject:
     if gate_id is not None:
         validate_gate_id(gate_id)
-    candidates: list[tuple[str, float, str, str, Path, JsonObject]] = []
+    candidates: list[tuple[int, str, float, str, str, Path, JsonObject]] = []
     roots = dataset_gate_roots(gate_root)
     existing_roots = [root for root in roots if root.exists()]
     if not existing_roots:
@@ -1347,11 +1387,13 @@ def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str 
             if run_id is None:
                 continue
             created_at = accepted_dataset_created_at(payload)
+            quality_rank = dataset_gate_quality_rank(payload, path)
             mtime = path.stat().st_mtime
         except (CardValidationError, OSError):
             continue
         candidates.append(
             (
+                quality_rank,
                 created_at or "",
                 mtime,
                 selected_gate_id,
@@ -1379,8 +1421,8 @@ def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str 
             "no accepted dataset gate with datasetRunId found under "
             + ", ".join(str(root) for root in roots)
         )
-    candidates.sort(key=lambda item: (item[0], item[1], item[2], str(item[4])), reverse=True)
-    return candidates[0][5]
+    candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], str(item[5])), reverse=True)
+    return candidates[0][6]
 
 
 def dataset_gate_roots(gate_root: Path | Sequence[Path]) -> list[Path]:
@@ -1448,6 +1490,16 @@ def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) ->
             return True
         return is_degraded_e1_gate_acceptable(payload, path)
     return False
+
+
+def dataset_gate_quality_rank(payload: JsonObject, path: Path | None = None) -> int:
+    if is_fully_accepted_e1_current_gate(payload):
+        return 2
+    if is_e1_postmerge_dataset_gate_report(payload, path) and payload.get("ok") is True:
+        return 2
+    if is_degraded_e1_gate_acceptable(payload, path):
+        return 1
+    return 0
 
 
 def is_fully_accepted_e1_current_gate(payload: JsonObject) -> bool:
