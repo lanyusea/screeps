@@ -88,6 +88,47 @@ describe('territory scout concurrency', () => {
     expect(isTerritoryScoutAssignmentAvailableForCreep('E29N55', 'E29N53', 'ScoutB', 2501)).toBe(true);
   });
 
+  it('blocks fresh scout assignment when timed-out assignments are already at the cap', () => {
+    Memory.territory = {
+      scoutAttempts: {
+        'E29N55>E28N54': {
+          colony: 'E29N55',
+          roomName: 'E28N54',
+          status: 'requested',
+          requestedAt: 1000,
+          updatedAt: 1000,
+          attemptCount: 1
+        }
+      }
+    };
+    (Game as Partial<Game>).creeps = {
+      ScoutA: makeScout('ScoutA', { targetRoom: 'E28N54', action: 'scout' }),
+      ScoutB: makeScout('ScoutB', { targetRoom: 'E28N54', action: 'scout' })
+    };
+
+    expect(isTerritoryScoutAssignmentAvailableForCreep('E29N55', 'E29N53', 'ScoutC', 2501)).toBe(false);
+  });
+
+  it('allows fresh scout assignment when timed-out assignments remain below the cap', () => {
+    Memory.territory = {
+      scoutAttempts: {
+        'E29N55>E28N54': {
+          colony: 'E29N55',
+          roomName: 'E28N54',
+          status: 'requested',
+          requestedAt: 1000,
+          updatedAt: 1000,
+          attemptCount: 1
+        }
+      }
+    };
+    (Game as Partial<Game>).creeps = {
+      ScoutA: makeScout('ScoutA', { targetRoom: 'E28N54', action: 'scout' })
+    };
+
+    expect(isTerritoryScoutAssignmentAvailableForCreep('E29N55', 'E29N53', 'ScoutB', 2501)).toBe(true);
+  });
+
   it('blocks timed-out scout retries when active scouts are already at the cap', () => {
     Memory.territory = {
       scoutAttempts: {

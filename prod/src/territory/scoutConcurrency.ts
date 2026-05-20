@@ -27,6 +27,7 @@ export interface TerritoryScoutConcurrencySummary {
 interface ActiveScoutAssignment {
   name: string;
   targetRoom: string;
+  timedOut: boolean;
 }
 
 interface ScoutCreepCache {
@@ -64,7 +65,7 @@ export function isTerritoryScoutAssignmentAvailableForCreep(
   gameTime = getGameTime()
 ): boolean {
   const targetTimedOut = isTerritoryScoutAttemptTimedOut(colony, targetRoom, gameTime);
-  const assignments = getActiveScoutAssignments(colony, currentCreepName, gameTime, targetTimedOut);
+  const assignments = getActiveScoutAssignments(colony, currentCreepName, gameTime, true);
   const targetAssignmentCount = assignments.filter((assignment) => assignment.targetRoom === targetRoom).length;
   if (targetAssignmentCount > 0) {
     return (
@@ -78,7 +79,7 @@ export function isTerritoryScoutAssignmentAvailableForCreep(
     return assignments.length < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
   }
 
-  return getAssignedScoutTargetRooms(assignments).size < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
+  return getActiveScoutAssignmentCapacityUsage(assignments) < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
 }
 
 export function shouldRecycleSurplusTerritoryScout(creep: Creep, gameTime = getGameTime()): boolean {
@@ -186,13 +187,17 @@ function getActiveScoutAssignments(
       creep.memory.colony !== colony ||
       assignment?.action !== 'scout' ||
       !isNonEmptyString(assignment.targetRoom) ||
-      !isHealthyScout(creep) ||
-      (!includeTimedOutAssignments && isTerritoryScoutAttemptTimedOut(colony, assignment.targetRoom, gameTime))
+      !isHealthyScout(creep)
     ) {
       return [];
     }
 
-    return [{ name: creep.name, targetRoom: assignment.targetRoom }];
+    const timedOut = isTerritoryScoutAttemptTimedOut(colony, assignment.targetRoom, gameTime);
+    if (!includeTimedOutAssignments && timedOut) {
+      return [];
+    }
+
+    return [{ name: creep.name, targetRoom: assignment.targetRoom, timedOut }];
   });
 }
 
@@ -211,8 +216,18 @@ function getCachedScoutCreeps(gameTime: number): Creep[] {
   return scouts;
 }
 
-function getAssignedScoutTargetRooms(assignments: ActiveScoutAssignment[]): Set<string> {
-  return new Set(assignments.map((assignment) => assignment.targetRoom));
+function getActiveScoutAssignmentCapacityUsage(assignments: ActiveScoutAssignment[]): number {
+  const activeTargetRooms = new Set<string>();
+  let timedOutAssignmentCount = 0;
+  for (const assignment of assignments) {
+    if (assignment.timedOut) {
+      timedOutAssignmentCount += 1;
+    } else {
+      activeTargetRooms.add(assignment.targetRoom);
+    }
+  }
+
+  return timedOutAssignmentCount + activeTargetRooms.size;
 }
 
 function getPreferredAssignedScoutTargetRooms(assignments: ActiveScoutAssignment[]): string[] {
