@@ -46,7 +46,7 @@
         "datasetGateStatus": "pass",
         "datasetRunId": "rl-a9648db451b1",
         "gateId": "gate-20260520T065800Z",
-        "latestLedgerRead": "/root/screeps/runtime-artifacts/rl-control-loop/20260520T081456Z-training-ledger.json",
+        "latestLedgerRead": "runtime-artifacts/rl-control-loop/20260520T081456Z-training-ledger.json",
         "sampleCount": 200,
         "shadowEvaluationStatus": "pass"
       },
