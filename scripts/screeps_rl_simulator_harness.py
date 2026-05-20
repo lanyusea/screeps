@@ -3307,15 +3307,10 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     if any(safety.get(field) is True for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")):
         return projected
 
-    evidence_source = "projectedEvidence"
+    evidence_source = "observedEvidence"
     evidence = activation.get(evidence_source)
+    activation_kills = 0
     if isinstance(evidence, dict):
-        activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
-    else:
-        evidence_source = "observedEvidence"
-        evidence = activation.get(evidence_source)
-        if not isinstance(evidence, dict):
-            return projected
         initial_hostiles = _extract_int(evidence.get("initialHostileCount"))
         final_hostiles = _extract_int(evidence.get("finalHostileCount"))
         activation_kills = (
@@ -3323,6 +3318,12 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
             if initial_hostiles is not None and final_hostiles is not None
             else 0
         )
+    if activation_kills <= 0:
+        evidence_source = "projectedEvidence"
+        evidence = activation.get(evidence_source)
+        if not isinstance(evidence, dict):
+            return projected
+        activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
     if activation_kills <= 0:
         return projected
 
@@ -3346,14 +3347,19 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
 
     target_room = evidence.get("targetRoom")
     final_room_states = projected.get("finalRoomStates")
-    if evidence_source == "projectedEvidence" and isinstance(target_room, str) and isinstance(final_room_states, dict):
+    if isinstance(target_room, str) and isinstance(final_room_states, dict):
         final_summary = final_room_states.get(target_room)
         if isinstance(final_summary, dict):
             final_combat = final_summary.setdefault("combat", {})
             if isinstance(final_combat, dict):
-                hostile_creeps = _extract_int(final_combat.get("hostileCreeps")) or 0
-                if hostile_creeps > 0:
-                    final_combat["hostileCreeps"] = max(0, hostile_creeps - activation_kills)
+                final_hostile_count = _extract_int(evidence.get("finalHostileCount"))
+                if final_hostile_count is not None:
+                    hostile_structures = _extract_int(final_combat.get("hostileStructures")) or 0
+                    final_combat["hostileCreeps"] = max(0, final_hostile_count - hostile_structures)
+                elif evidence_source == "projectedEvidence":
+                    hostile_creeps = _extract_int(final_combat.get("hostileCreeps")) or 0
+                    if hostile_creeps > 0:
+                        final_combat["hostileCreeps"] = max(0, hostile_creeps - activation_kills)
     policy_activation: JsonObject = {
         "type": activation.get("type"),
         "strategyVariantId": activation.get("strategyVariantId"),

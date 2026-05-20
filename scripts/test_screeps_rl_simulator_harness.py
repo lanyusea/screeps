@@ -1312,6 +1312,7 @@ cli:
         self.assertEqual(projected_metrics["combat"]["hostileKills"], 1)
         self.assertEqual(projected_metrics["combatDelta"], 1)
         self.assertEqual(projected_metrics["policyActivation"]["targetRoom"], "E2S1")
+        self.assertEqual(projected_metrics["policyActivation"]["hostileKillsSource"], "projectedEvidence")
         self.assertEqual(tick_log, before_tick_log)
         self.assertEqual(base_metrics["hostileKills"], 0)
         self.assertFalse(activation["safety"]["liveEffect"])
@@ -1365,6 +1366,13 @@ cli:
                 "finalHostileCount": 2,
                 "hostileCountReduced": True,
             },
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "initialHostileCount": 3,
+                "finalHostileCount": 3,
+                "projectedHostileKills": 0,
+                "hostileCountReduced": False,
+            },
             "safety": {
                 "liveEffect": False,
                 "officialMmoWrites": False,
@@ -1381,7 +1389,7 @@ cli:
             "finalRoomStates": {
                 "E2S1": {
                     "combat": {
-                        "hostileCreeps": 2,
+                        "hostileCreeps": 99,
                     },
                 },
             },

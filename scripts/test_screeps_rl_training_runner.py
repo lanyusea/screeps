@@ -646,6 +646,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         trace = territory_result["multiTierActivationTraces"][0]
         self.assertEqual(trace["metricsSource"], "simulator_policy_activation")
         self.assertEqual(trace["policyActivation"]["objectiveSignalSource"], "tick_log")
+        self.assertEqual(trace["policyActivation"]["hostileKillsSource"], "observedEvidence")
         self.assertTrue(trace["observedEvidence"]["hostileCountReduced"])
 
     def test_multi_tier_activation_proof_passes_with_offline_policy_activation_projection(self) -> None:
@@ -697,6 +698,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         territory_trace = territory_result["multiTierActivationTraces"][0]
         self.assertEqual(territory_trace["metricsSource"], "simulator_policy_activation")
         self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertEqual(territory_trace["policyActivation"]["hostileKillsSource"], "projectedEvidence")
         self.assertEqual(territory_trace["projectedEvidence"]["projectedHostileKills"], 1)
         self.assertEqual(
             proof["variants"][1]["activationTraces"][0]["policyActivation"]["targetRoom"],
