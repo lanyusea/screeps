@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -99,6 +100,54 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
         self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
 
+    def test_blocked_classification_with_signal_noise_still_blocks_all_deltas(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Telemetry missing with scenario and reward hints",
+                "classification": "data_quality",
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "onlineUtilityStatus": "BLOCKED_NO_COMPUTE",
+            }
+        )
+
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertIsNone(plan["nextRewardDecision"])
+        self.assertIsNone(plan["nextScenarioDelta"])
+        self.assertIsNone(plan["nextPolicyDelta"])
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
+        self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
+
+    def test_feedback_ingestion_links_first_usable_list_form_report_id(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Training report already exists",
+                "classification": "data_quality",
+                "trainingReportIds": ["", "training-loop-b-sample-000002"],
+                "scorecardIds": [{"id": "scorecard-loop-b-sample-000002"}],
+            }
+        )
+
+        self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "linked")
+        self.assertEqual(plan["feedbackIngestion"]["training"]["id"], "training-loop-b-sample-000002")
+        self.assertEqual(plan["feedbackIngestion"]["scorecard"]["state"], "linked")
+        self.assertEqual(plan["feedbackIngestion"]["scorecard"]["id"], "scorecard-loop-b-sample-000002")
+
+    def test_unbounded_policy_only_finding_stays_route_required(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Expansion policy needs a new parameter surface",
+                "classification": "policy_parameterization_gap",
+                "parameterSurface": "expansion-risk-window",
+            }
+        )
+
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
+
     def test_cli_writes_deterministic_plan_without_github_or_mmo_actions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="act-loop-plan-") as temp_dir:
             output = Path(temp_dir) / "plan.json"
@@ -127,6 +176,56 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
             rendered = json.dumps(second, sort_keys=True)
             self.assertIn('"officialMmoWrites": false', rendered)
             self.assertNotIn("gh issue create", rendered)
+
+    def test_cli_reports_malformed_json_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="act-loop-plan-") as temp_dir:
+            bad_input = Path(temp_dir) / "bad.json"
+            bad_input.write_text("{", encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            exit_code = planner.main([str(bad_input)], stdout=stdout, stderr=stderr)
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("invalid JSON", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_reports_input_io_failures_without_traceback(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with mock.patch.object(planner, "load_json", side_effect=PermissionError("permission denied")):
+            exit_code = planner.main([str(FIXTURE_PATH)], stdout=stdout, stderr=stderr)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("I/O failure", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_reports_output_write_failures_without_traceback(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with mock.patch.object(planner, "write_text_atomic", side_effect=OSError("permission denied")):
+            exit_code = planner.main([str(FIXTURE_PATH), "--output", "plan.json"], stdout=stdout, stderr=stderr)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("I/O failure", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_reports_serialization_failures_without_traceback(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with mock.patch.object(planner, "build_plans", return_value={"bad": object()}):
+            exit_code = planner.main([str(FIXTURE_PATH)], stdout=stdout, stderr=stderr)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("failed to serialize plan JSON", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ CLASSIFICATIONS = (
     "runtime_bug",
     "rollout_regression",
 )
+BLOCKING_DELTA_CLASSIFICATIONS = {"data_quality", "runtime_bug"}
 REWARD_DECISION_REGISTRY = "docs/ops/rl-reward-decision-registry.md"
 REWARD_DECISION_TEMPLATE = "docs/ops/templates/rl-reward-decision.template.json"
 EXPERIMENT_CARD_HELPER = "scripts/screeps_rl_experiment_card.py"
@@ -236,6 +237,42 @@ def lookup(raw: JsonObject, aliases: Sequence[str]) -> Any:
 
 def first_text(raw: JsonObject, aliases: Sequence[str]) -> str | None:
     return text_value(lookup(raw, aliases))
+
+
+def identifier_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return first_text(
+            value,
+            (
+                "id",
+                "artifactId",
+                "reportId",
+                "decisionId",
+                "componentDecisionId",
+                "experimentCardId",
+                "cardId",
+                "trainingRunId",
+                "trainingReportId",
+                "scorecardId",
+                "scorecardArtifact",
+                "rolloutId",
+                "path",
+            ),
+        )
+    if isinstance(value, (str, int, float)):
+        return format_value(value)
+    return None
+
+
+def first_identifier(raw: JsonObject, aliases: Sequence[str]) -> str | None:
+    value = lookup(raw, aliases)
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            identifier = identifier_text(item)
+            if identifier:
+                return identifier
+        return None
+    return identifier_text(value)
 
 
 def nested_lookup(raw: JsonObject, paths: Sequence[Sequence[str]]) -> Any:
@@ -582,16 +619,26 @@ def build_finding_summary(
     return finding
 
 
+def has_delta_blocker(classification: str, secondary: Sequence[str]) -> bool:
+    return classification in BLOCKING_DELTA_CLASSIFICATIONS or any(
+        item in BLOCKING_DELTA_CLASSIFICATIONS for item in secondary
+    )
+
+
 def needs_reward_decision(classification: str, secondary: Sequence[str]) -> bool:
+    if has_delta_blocker(classification, secondary):
+        return False
     return classification == "reward_gap" or "reward_gap" in secondary
 
 
 def needs_scenario_delta(classification: str, secondary: Sequence[str], raw: JsonObject) -> bool:
+    if has_delta_blocker(classification, secondary):
+        return False
     return classification == "scenario_gap" or "scenario_gap" in secondary or bool(infer_missing_capabilities(raw))
 
 
 def needs_policy_delta(classification: str, secondary: Sequence[str], raw: JsonObject) -> bool:
-    if classification in {"data_quality", "runtime_bug"}:
+    if has_delta_blocker(classification, secondary):
         return False
     status = status_key(first_text(raw, ("onlineUtilityStatus", "status", "rawStatus")))
     return (
@@ -752,14 +799,31 @@ def build_feedback_state(
     reward_decision: JsonObject | None,
     card_delta: JsonObject | None,
 ) -> JsonObject:
-    reward_decision_id = first_text(
+    reward_decision_id = first_identifier(
         raw,
-        ("rewardDecisionId", "reward_decision_id", "decisionId", "decision_id", "componentDecisionId"),
+        (
+            "rewardDecisionId",
+            "reward_decision_id",
+            "rewardDecisionIds",
+            "decisionId",
+            "decision_id",
+            "decisionIds",
+            "componentDecisionId",
+        ),
     )
-    experiment_card_id = first_text(raw, ("experimentCardId", "experiment_card_id", "cardId", "card_id"))
-    training_run_id = first_text(raw, ("trainingRunId", "training_run_id", "trainingReportId", "trainingReportIds"))
-    scorecard_id = first_text(raw, ("scorecardId", "scorecard_id", "scorecardArtifact", "scorecard"))
-    rollout_id = first_text(raw, ("rolloutId", "rollout_id"))
+    experiment_card_id = first_identifier(
+        raw,
+        ("experimentCardId", "experiment_card_id", "experimentCardIds", "cardId", "card_id", "cardIds"),
+    )
+    training_run_id = first_identifier(
+        raw,
+        ("trainingRunId", "training_run_id", "trainingReportId", "trainingReportIds", "trainingRunIds"),
+    )
+    scorecard_id = first_identifier(
+        raw,
+        ("scorecardId", "scorecard_id", "scorecardArtifact", "scorecard", "scorecardIds", "scorecards"),
+    )
+    rollout_id = first_identifier(raw, ("rolloutId", "rollout_id", "rolloutIds"))
 
     planned_decision_id = text_value(as_dict(reward_decision).get("componentId")) or f"act-decision:{finding['id']}"
     decision_state = feedback_link_state(
@@ -846,12 +910,17 @@ def build_plan(raw: JsonObject, *, source_artifact: str | None = None) -> JsonOb
         if needs_policy_delta(classification, secondary, raw)
         else None
     )
+    card_policy_delta = (
+        policy_delta
+        if policy_delta is not None and as_list(policy_delta.get("bounds"))
+        else None
+    )
     card_delta = build_experiment_card_delta(
         raw,
         finding=finding,
         reward_decision=reward_decision,
         scenario_delta=scenario_delta,
-        policy_delta=policy_delta,
+        policy_delta=card_policy_delta,
     )
     blocking_reasons = plan_blocking_reasons(
         classification=classification,
@@ -943,13 +1012,17 @@ def build_plans(document: Any, *, source_artifact: str | None = None) -> JsonObj
 
 
 def write_json_atomic(path: Path, payload: Any) -> None:
+    write_text_atomic(path, canonical_json(payload))
+
+
+def write_text_atomic(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     temp_path = Path(temp_name)
     try:
         with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
             temp_fd = -1
-            handle.write(canonical_json(payload))
+            handle.write(content)
         os.replace(temp_path, path)
     finally:
         if temp_fd != -1:
@@ -977,13 +1050,27 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO = sys.stdout, stde
     args = parse_args(argv if argv is not None else sys.argv[1:])
     try:
         plan = build_plans(load_json(args.input_json), source_artifact=args.source_artifact)
-        if args.output:
-            write_json_atomic(args.output, plan)
-        else:
-            stdout.write(canonical_json(plan))
-        return 0
     except PlannerInputError as error:
         print(f"error: {error}", file=stderr)
+        return 1
+    except OSError as error:
+        print(f"error: I/O failure: {error}", file=stderr)
+        return 1
+
+    try:
+        rendered = canonical_json(plan)
+    except (TypeError, ValueError) as error:
+        print(f"error: failed to serialize plan JSON: {error}", file=stderr)
+        return 1
+
+    try:
+        if args.output:
+            write_text_atomic(args.output, rendered)
+        else:
+            stdout.write(rendered)
+        return 0
+    except OSError as error:
+        print(f"error: I/O failure: {error}", file=stderr)
         return 1
 
 
