@@ -571,6 +571,50 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             )
 
+    def test_verified_remote_policy_update_accepts_metadata_only_zero_iteration_noop_update(self) -> None:
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = {
+            "type": "screeps-rl-policy-update",
+            "schemaVersion": 1,
+            "iterations": 0,
+            "algorithm": "true_gradient_reinforce_v1",
+            "targetFamily": "multi-tier-territory-combat",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+            "skippedReason": "candidate_parameters_metadata_only",
+            "candidateCount": 0,
+            "metadataCandidateCount": 5,
+            "parameterEvidence": {
+                "candidateParameterScope": "metadata_only",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "reason": "candidate vectors were metadata only",
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertEqual(
+                runner.verified_remote_policy_update_fields(
+                    {"policyUpdateIterations": 0, "policyUpdate": policy_update},
+                    top_level_safety,
+                    Path(temp_dir),
+                ),
+                {
+                    "policyUpdateIterations": 0,
+                    "policyUpdateArtifactPath": None,
+                    "policyUpdate": policy_update,
+                },
+            )
+
     def test_verified_remote_policy_update_rejects_non_empty_zero_iteration_update(self) -> None:
         top_level_safety = {
             "liveEffect": False,
@@ -622,6 +666,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "policyUpdate": {
                         "iterations": 0,
                         "skippedReason": "no_nonzero_reward_advantage",
+                        "metadataCandidateCount": 5,
+                        "parameterEvidence": {
+                            "candidateParameterScope": "metadata_only",
+                            "runtimeParameterInjection": False,
+                            "policyUpdateEligible": False,
+                        },
                         "unexpectedField": True,
                     },
                 },
@@ -1073,6 +1123,136 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(batch_scale["scaleFirstEligible"])
         self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
         self.assertEqual(summary["batchScale"]["basis"], "training_report")
+
+    def test_controller_run_accepts_metadata_only_zero_iteration_update_and_preserves_completed_evidence(self) -> None:
+        policy_update = {
+            "type": "screeps-rl-policy-update",
+            "schemaVersion": 1,
+            "iterations": 0,
+            "algorithm": "true_gradient_reinforce_v1",
+            "targetFamily": "multi-tier-territory-combat",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+            "skippedReason": "candidate_parameters_metadata_only",
+            "candidateCount": 0,
+            "metadataCandidateCount": 5,
+            "parameterEvidence": {
+                "candidateParameterScope": "metadata_only",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "reason": "candidate vectors were metadata only",
+            },
+        }
+
+        class FakeController(runner.Controller):
+            def check_pre_launch_guard(self) -> bool:
+                return False
+
+            def ensure_map_present(self) -> None:
+                pass
+
+            def ensure_dist_present(self) -> None:
+                pass
+
+            def run_billing_guard(self) -> None:
+                pass
+
+            def verify_security_group(self) -> None:
+                pass
+
+            def generate_experiment_card(self) -> None:
+                pass
+
+            def scale_up_and_wait(self) -> None:
+                self.scaled_up = True
+                self.instance_id = "ins-test"
+
+            def verify_worker_security(self) -> None:
+                pass
+
+            def bootstrap_worker(self) -> None:
+                pass
+
+            def transfer_repo_bundle(self) -> None:
+                pass
+
+            def transfer_secret_env(self) -> None:
+                pass
+
+            def run_remote_training(self) -> None:
+                self.record_step("remote_training", 100.0, True, reportId=self.run_id)
+
+            def collect_remote_artifacts(self) -> None:
+                report = runner.remote_training_report_path(self.artifact_dir, self.run_id)
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(
+                    json.dumps(
+                        {
+                            "reportId": self.run_id,
+                            "generatedAt": "2026-05-20T03:51:09Z",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "artifactCount": 25,
+                            "simulation": {"ticks": 500},
+                            "scaleValidation": {
+                                "ok": True,
+                                "targetEnvironments": 5,
+                                "minimumSuccessfulEnvironments": 20,
+                                "totalEnvironments": 25,
+                                "successfulEnvironments": 25,
+                                "repetitions": 5,
+                            },
+                            "policyUpdateIterations": 0,
+                            "policyUpdate": policy_update,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            def scale_down(self) -> None:
+                self.record_step("scale_down", 101.0, True, desiredCapacity=0)
+
+        args = controller_args()
+        args.training_approach = "policy_gradient"
+        args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
+        args.ticks = 500
+        args.workers = 5
+        args.repetitions = 5
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args.artifact_root = artifact_root
+            controller = FakeController(
+                args=args,
+                run_id="tencent-pg-metadata-only",
+                artifact_dir=artifact_root / "tencent-pg-metadata-only",
+            )
+            with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+                controller.run()
+            summary = json.loads(
+                (artifact_root / "tencent-pg-metadata-only" / "controller-summary.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+        training_report = summary["outputs"]["trainingReport"]
+        self.assertEqual(summary["finalStatus"], "completed")
+        self.assertEqual(summary["execution"]["artifactCount"], 25)
+        self.assertEqual(summary["execution"]["environmentsRun"], 25)
+        self.assertEqual(summary["batchScale"]["environmentRows"], 25)
+        self.assertEqual(summary["batchScale"]["simulatorTicks"], 12500)
+        self.assertEqual(training_report["artifactCount"], 25)
+        self.assertEqual(training_report["policyUpdateIterations"], 0)
+        self.assertIsNone(training_report["policyUpdateArtifactPath"])
+        self.assertEqual(training_report["policyUpdate"]["metadataCandidateCount"], 5)
+        self.assertFalse(training_report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
+        self.assertNotIn("nextCandidatePolicy", training_report["policyUpdate"])
 
     def test_e1s1_repeat_launch_guard_blocks_after_three_dead_tier_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
