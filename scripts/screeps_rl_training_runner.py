@@ -2238,12 +2238,39 @@ def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: E
     report["candidateScorecard"] = payload
     scorecard_set = report.get("candidateScorecards")
     if isinstance(scorecard_set, dict):
+        comparison_count = 0
+        comparisons = scorecard_set.get("comparisons")
+        if isinstance(comparisons, list):
+            for comparison in comparisons:
+                if not isinstance(comparison, dict):
+                    continue
+                comparison_count += 1
+                preserved = {
+                    field: copy.deepcopy(comparison[field])
+                    for field in (
+                        "candidateStrategyId",
+                        "baselineStrategyId",
+                        "candidateRank",
+                        "baselineRank",
+                        "comparisonKey",
+                    )
+                    if field in comparison
+                }
+                comparison.clear()
+                comparison.update(copy.deepcopy(payload))
+                comparison.update(preserved)
         scorecard_set["status"] = "blocked"
         scorecard_set["classification"] = "candidate_scorecard_materialization_failed"
         scorecard_set["scorecardUsable"] = False
         scorecard_set["validationScaleComputeBlocked"] = True
         scorecard_set["missingPrerequisite"] = "candidate_scorecard_artifact"
+        scorecard_set["missingPrerequisites"] = ["candidate_scorecard_artifact"]
         scorecard_set["reason"] = reason
+        scorecard_set["reasonCodes"] = ["candidate_scorecard_materialization_failed"]
+        scorecard_set["selectedScorecardId"] = None
+        scorecard_set["materializedScorecardCount"] = 0
+        scorecard_set["blockedComparisonCount"] = comparison_count
+        scorecard_set["readyComparisonCount"] = 0
     report["scorecardId"] = None
     report["scorecardArtifactPath"] = None
 

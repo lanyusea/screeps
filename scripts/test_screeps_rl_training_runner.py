@@ -2390,6 +2390,21 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(
             any("candidate scorecard artifact generation skipped" in warning for warning in report["warnings"])
         )
+        self.assertEqual(report["candidateScorecards"]["status"], "blocked")
+        self.assertEqual(
+            report["candidateScorecards"]["classification"],
+            "candidate_scorecard_materialization_failed",
+        )
+        self.assertEqual(
+            report["candidateScorecards"]["blockedComparisonCount"],
+            len(report["candidateScorecards"]["comparisons"]),
+        )
+        self.assertTrue(
+            all(item["status"] == "blocked" for item in report["candidateScorecards"]["comparisons"])
+        )
+        self.assertTrue(
+            all(item["scorecardArtifactPath"] is None for item in report["candidateScorecards"]["comparisons"])
+        )
         self.assertEqual(persisted["candidateScorecard"]["status"], "blocked")
         self.assertTrue(persisted["candidateScorecard"]["runtimeParameterInjection"])
         self.assertIn("materialization", persisted["candidateScorecard"]["nextAction"])

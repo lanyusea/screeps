@@ -204,6 +204,57 @@ def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
     }
 
 
+def ready_runtime_candidate_scorecard_set() -> dict[str, object]:
+    return {
+        "type": runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE,
+        "schemaVersion": 1,
+        "status": "ready",
+        "classification": "runtime_injected_multi_candidate_scorecards_ready",
+        "reportId": "run-test",
+        "comparisonCount": 1,
+        "candidateCount": 1,
+        "baselineCount": 1,
+        "candidateStrategyIds": ["candidate"],
+        "baselineStrategyIds": ["baseline"],
+        "selectedScorecardId": "rl-scorecard-run-test",
+        "materializedScorecardCount": 1,
+        "blockedComparisonCount": 0,
+        "readyComparisonCount": 1,
+        "validationScaleComputeBlocked": False,
+        "scorecardUsable": True,
+        "missingPrerequisites": [],
+        "reasonCodes": ["runtime_injected_candidate_scorecard_ready"],
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "comparisons": [
+            {
+                "type": "screeps-rl-candidate-vs-baseline-scorecard-readiness",
+                "schemaVersion": 1,
+                "status": "ready",
+                "classification": "runtime_injected_candidate_scorecard_ready",
+                "scorecardId": "rl-scorecard-run-test",
+                "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "comparisonKey": "candidate::vs::baseline",
+                "runtimeParameterInjection": True,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "reportRuntimeParameterInjection": True,
+                "reportInjectedVariantCount": 1,
+                "validationScaleComputeBlocked": False,
+                "scorecardUsable": True,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+        ],
+    }
+
+
 def write_tencent_guard_summary(
     artifact_root: Path,
     run_id: str,
@@ -1248,6 +1299,65 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(training_report["candidateScorecard"]["status"], "ready")
         self.assertTrue(training_report["candidateScorecard"]["runtimeParameterInjection"])
         self.assertFalse(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+
+    def test_verify_remote_training_report_accepts_valid_candidate_scorecard_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["candidateScorecards"] = ready_runtime_candidate_scorecard_set()
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        scorecard_set = controller.result["trainingReport"]["candidateScorecards"]
+        self.assertEqual(scorecard_set["type"], runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE)
+        self.assertEqual(scorecard_set["status"], "ready")
+        self.assertEqual(scorecard_set["comparisonCount"], 1)
+        self.assertEqual(scorecard_set["comparisons"][0]["scorecardId"], "rl-scorecard-run-test")
+
+    def test_verify_remote_training_report_rejects_malformed_candidate_scorecard_set(self) -> None:
+        cases = (
+            (
+                "non-object set",
+                ["not-a-scorecard-set"],
+                "candidateScorecards must be an object",
+            ),
+            (
+                "non-list comparisons",
+                {**ready_runtime_candidate_scorecard_set(), "comparisons": {"bad": True}},
+                "candidateScorecards.comparisons must be a list",
+            ),
+            (
+                "malformed comparison",
+                {
+                    **ready_runtime_candidate_scorecard_set(),
+                    "comparisons": ["not-a-scorecard"],
+                },
+                "candidateScorecards.comparisons\\[0\\] must be an object",
+            ),
+            (
+                "comparison count mismatch",
+                {**ready_runtime_candidate_scorecard_set(), "comparisonCount": 2},
+                "candidateScorecards.comparisonCount disagrees with comparisons",
+            ),
+        )
+        for name, scorecard_set, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data["candidateScorecards"] = scorecard_set
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                write_ready_runtime_scorecard_artifact(root)
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_accepts_materialized_metadata_only_scorecard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
