@@ -26,6 +26,7 @@ import screeps_rl_dataset_export as dataset_export
 import screeps_secret_env
 import screeps_rl_simulator_harness as simulator_harness
 import screeps_rl_scale_gates as scale_gates
+import screeps_rl_scorecard as scorecard_helper
 
 
 SCHEMA_VERSION = 1
@@ -44,6 +45,7 @@ DEFAULT_POLICY_UPDATE_ALGORITHM = TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM
 METADATA_ONLY_POLICY_UPDATE_SKIP_REASON = "candidate_parameters_metadata_only"
 RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON = "runtime_parameter_injection_missing_or_incomplete"
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
+CANDIDATE_SCORECARD_ARTIFACT_DIR = "candidate-scorecards"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
 MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
@@ -772,9 +774,13 @@ def run_training_experiment(
     policy_artifacts = materialize_policy_update_artifacts(report, report_path.parent)
     for _artifact_path, artifact_payload in policy_artifacts:
         assert_no_secret_leak(artifact_payload, report_secret_values)
-    assert_no_secret_leak(report, report_secret_values)
     for artifact_path, artifact_payload in policy_artifacts:
         write_json_atomic(artifact_path, artifact_payload)
+    try:
+        materialize_candidate_scorecard_artifact(report, report_path.parent, report_secret_values)
+    except scorecard_helper.ScorecardError as error:
+        mark_candidate_scorecard_materialization_failed(report, error)
+    assert_no_secret_leak(report, report_secret_values)
     write_json_atomic(report_path, report)
     report["reportPath"] = dataset_export.display_path(report_path)
     if stdout is not None:
@@ -2071,6 +2077,367 @@ def materialize_policy_update_artifacts(report: JsonObject, out_dir: Path) -> li
     update["artifactPath"] = display_path
     report["policyUpdateArtifactPath"] = display_path
     return [(artifact_path, artifact)]
+
+
+def materialize_candidate_scorecard_artifact(
+    report: JsonObject,
+    out_dir: Path,
+    secret_values: Sequence[str],
+) -> None:
+    """Persist a #924 scorecard for runtime-injected policy-gradient rankings."""
+    if not isinstance(report.get("policyGradient"), dict):
+        return
+
+    readiness = build_candidate_scorecard_readiness(report)
+    report["candidateScorecard"] = readiness
+    report["scorecardId"] = readiness.get("scorecardId")
+    report["scorecardArtifactPath"] = readiness.get("scorecardArtifactPath")
+    if readiness.get("status") != "ready":
+        return
+
+    candidate_id = text_or_none(readiness.get("candidateStrategyId"))
+    baseline_id = text_or_none(readiness.get("baselineStrategyId"))
+    scorecard_id = text_or_none(readiness.get("scorecardId"))
+    if candidate_id is None or baseline_id is None or scorecard_id is None:
+        readiness.update(
+            candidate_scorecard_blocked_payload(
+                report,
+                classification="scorecard_pair_incomplete",
+                reason="candidate-vs-baseline scorecard pair was incomplete after readiness planning",
+                missing_prerequisite="candidate_baseline_pair",
+            )
+        )
+        report["scorecardId"] = None
+        report["scorecardArtifactPath"] = None
+        return
+
+    candidate_result = variant_result_by_id(report, candidate_id)
+    baseline_result = variant_result_by_id(report, baseline_id)
+    if candidate_result is None or baseline_result is None:
+        readiness.update(
+            candidate_scorecard_blocked_payload(
+                report,
+                classification="scorecard_variant_result_missing",
+                reason="candidate-vs-baseline scorecard source variant result was missing",
+                missing_prerequisite="candidate_baseline_variant_results",
+            )
+        )
+        report["scorecardId"] = None
+        report["scorecardArtifactPath"] = None
+        return
+
+    safe_report_id = safe_artifact_stem(text_or_none(report.get("reportId")) or "rl-training")
+    scorecard_root = out_dir / CANDIDATE_SCORECARD_ARTIFACT_DIR / safe_report_id
+    candidate_dir = scorecard_root / "candidate"
+    baseline_dir = scorecard_root / "baseline"
+    candidate_projection = scorecard_projection_payload(
+        report,
+        result=candidate_result,
+        role="candidate",
+        peer_variant_id=baseline_id,
+        runtime_parameter_injection=report.get("runtimeParameterInjection"),
+    )
+    baseline_projection = scorecard_projection_payload(
+        report,
+        result=baseline_result,
+        role="baseline",
+        peer_variant_id=candidate_id,
+        runtime_parameter_injection=None,
+    )
+    for payload in (candidate_projection, baseline_projection):
+        assert_no_secret_leak(payload, secret_values)
+
+    candidate_input = candidate_dir / "training-ledger.json"
+    baseline_input = baseline_dir / "training-ledger.json"
+    write_json_atomic(candidate_input, candidate_projection)
+    write_json_atomic(baseline_input, baseline_projection)
+
+    scorecard = scorecard_helper.build_scorecard(
+        candidate_path=candidate_dir,
+        baseline_path=baseline_dir,
+        repo_root=REPO_ROOT,
+        run_id=scorecard_id,
+        timestamp=text_or_none(report.get("generatedAt")),
+        candidate_id=candidate_id,
+        baseline_id=baseline_id,
+    )
+    assert_no_secret_leak(scorecard, secret_values)
+    scorecard_path = scorecard_root / f"{safe_artifact_stem(scorecard_id)}.json"
+    write_json_atomic(scorecard_path, scorecard)
+
+    display = dataset_export.display_path(scorecard_path)
+    readiness["scorecardArtifactPath"] = display
+    readiness["overallGate"] = {
+        "status": scorecard.get("overallGate", {}).get("status") if isinstance(scorecard.get("overallGate"), dict) else None,
+        "rationale": scorecard.get("overallGate", {}).get("rationale")
+        if isinstance(scorecard.get("overallGate"), dict)
+        else None,
+        "runtimeParameterInjectionProven": scorecard.get("overallGate", {})
+        .get("monotonic", {})
+        .get("runtimeParameterInjectionProven")
+        if isinstance(scorecard.get("overallGate"), dict)
+        and isinstance(scorecard.get("overallGate", {}).get("monotonic"), dict)
+        else None,
+    }
+    report["scorecardArtifactPath"] = display
+
+
+def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: Exception) -> None:
+    reason = f"candidate scorecard artifact generation failed: {error}"
+    warning = f"candidate scorecard artifact generation skipped: {error}"
+    warnings = report.get("warnings")
+    if isinstance(warnings, list):
+        warnings.append(warning)
+    else:
+        report["warnings"] = [warning]
+    previous_readiness = report.get("candidateScorecard")
+    runtime_parameter_injection = report.get("runtimeParameterInjection")
+    payload = candidate_scorecard_blocked_payload(
+        report,
+        classification="candidate_scorecard_materialization_failed",
+        reason=reason,
+        missing_prerequisite="candidate_scorecard_artifact",
+    )
+    payload["nextAction"] = "inspect and repair candidate scorecard materialization before validation-scale compute"
+    payload["runtimeParameterInjection"] = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    payload["injectedVariantCount"] = runtime_injected_variant_count(runtime_parameter_injection)
+    payload["candidateParameterScope"] = runtime_parameter_scope(runtime_parameter_injection)
+    if isinstance(previous_readiness, dict):
+        for field in ("candidateStrategyId", "baselineStrategyId", "candidateRank", "baselineRank"):
+            if field in previous_readiness:
+                payload[field] = copy.deepcopy(previous_readiness[field])
+    else:
+        pair = candidate_scorecard_pair(report)
+        if pair is not None:
+            candidate_id, baseline_id, candidate_rank, baseline_rank = pair
+            payload["candidateStrategyId"] = candidate_id
+            payload["baselineStrategyId"] = baseline_id
+            payload["candidateRank"] = candidate_rank
+            payload["baselineRank"] = baseline_rank
+    report["candidateScorecard"] = payload
+    report["scorecardId"] = None
+    report["scorecardArtifactPath"] = None
+
+
+def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
+    pair = candidate_scorecard_pair(report)
+    runtime_parameter_injection = report.get("runtimeParameterInjection")
+    runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    if pair is None:
+        return candidate_scorecard_blocked_payload(
+            report,
+            classification="candidate_baseline_pair_missing",
+            reason="ranking did not contain both a candidate and an incumbent baseline variant",
+            missing_prerequisite="candidate_baseline_ranking",
+        )
+    candidate_id, baseline_id, candidate_rank, baseline_rank = pair
+    if not runtime_ready:
+        classification = candidate_scorecard_runtime_blocker(runtime_parameter_injection)
+        return {
+            **candidate_scorecard_blocked_payload(
+                report,
+                classification=classification,
+                reason=candidate_scorecard_runtime_blocker_reason(runtime_parameter_injection),
+                missing_prerequisite="runtime_parameter_injection",
+            ),
+            "candidateStrategyId": candidate_id,
+            "baselineStrategyId": baseline_id,
+            "candidateRank": candidate_rank,
+            "baselineRank": baseline_rank,
+        }
+
+    scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
+    injected_count = runtime_injected_variant_count(runtime_parameter_injection)
+    return {
+        "type": "screeps-rl-candidate-vs-baseline-scorecard-readiness",
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "ready",
+        "classification": "runtime_injected_candidate_scorecard_ready",
+        "scorecardId": scorecard_id,
+        "scorecardArtifactPath": None,
+        "candidateStrategyId": candidate_id,
+        "baselineStrategyId": baseline_id,
+        "candidateRank": candidate_rank,
+        "baselineRank": baseline_rank,
+        "runtimeParameterInjection": True,
+        "injectedVariantCount": injected_count,
+        "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
+        "scorecardUsable": True,
+        "validationScaleComputeBlocked": False,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def candidate_scorecard_blocked_payload(
+    report: JsonObject,
+    *,
+    classification: str,
+    reason: str,
+    missing_prerequisite: str,
+) -> JsonObject:
+    runtime_parameter_injection = report.get("runtimeParameterInjection")
+    return {
+        "type": "screeps-rl-candidate-vs-baseline-scorecard-readiness",
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "blocked",
+        "classification": classification,
+        "scorecardId": None,
+        "scorecardArtifactPath": None,
+        "runtimeParameterInjection": False,
+        "injectedVariantCount": runtime_injected_variant_count(runtime_parameter_injection),
+        "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
+        "scorecardUsable": False,
+        "validationScaleComputeBlocked": True,
+        "missingPrerequisite": missing_prerequisite,
+        "reason": reason,
+        "nextAction": "inject candidate parameters into private-simulator runtime inputs before validation-scale compute",
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def candidate_scorecard_pair(report: JsonObject) -> tuple[str, str, int | None, int | None] | None:
+    ranking = [item for item in report.get("ranking", []) if isinstance(item, dict)]
+    if not ranking:
+        return None
+    incumbent_ids = {item for item in report.get("incumbentStrategyIds", []) if isinstance(item, str)}
+    if not incumbent_ids:
+        return None
+    candidate_item = next((item for item in ranking if text_or_none(item.get("variantId")) not in incumbent_ids), None)
+    baseline_item = next((item for item in ranking if text_or_none(item.get("variantId")) in incumbent_ids), None)
+    if candidate_item is None or baseline_item is None:
+        return None
+    candidate_id = text_or_none(candidate_item.get("variantId"))
+    baseline_id = text_or_none(baseline_item.get("variantId"))
+    if candidate_id is None or baseline_id is None:
+        return None
+    return (
+        candidate_id,
+        baseline_id,
+        int_or_none(candidate_item.get("rank")),
+        int_or_none(baseline_item.get("rank")),
+    )
+
+
+def scorecard_runtime_injection_ready(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return value.get("runtimeParameterInjection") is True and runtime_injected_variant_count(value) > 0
+
+
+def runtime_injected_variant_count(value: Any) -> int:
+    if not isinstance(value, dict):
+        return 0
+    count = int_or_none(value.get("injectedVariantCount"))
+    if count is not None and count >= 0:
+        return count
+    variants = value.get("variants")
+    if isinstance(variants, list):
+        return sum(
+            1
+            for row in variants
+            if isinstance(row, dict) and row.get("runtimeParameterInjection") is True
+        )
+    return 1 if value.get("runtimeParameterInjection") is True else 0
+
+
+def runtime_parameter_scope(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return text_or_none(value.get("candidateParameterScope"))
+
+
+def candidate_scorecard_runtime_blocker(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "runtime_parameter_injection_missing"
+    status = text_or_none(value.get("status"))
+    scope = runtime_parameter_scope(value)
+    if status == "metadata_only" or scope == "metadata_only":
+        return "runtime_parameter_injection_metadata_only"
+    if status == "partial" or scope == "partial_runtime_injection":
+        return "runtime_parameter_injection_partial"
+    return "runtime_parameter_injection_missing_or_incomplete"
+
+
+def candidate_scorecard_runtime_blocker_reason(value: Any) -> str:
+    if isinstance(value, dict):
+        reason = text_or_none(value.get("reason"))
+        if reason is not None:
+            return reason
+        status = text_or_none(value.get("status"))
+        scope = runtime_parameter_scope(value)
+        if status == "metadata_only" or scope == "metadata_only":
+            return "candidate parameters were metadata-only and were not injected into simulator runtime inputs"
+    return "candidate-vs-baseline scorecard requires runtime parameter injection evidence with injectedVariantCount > 0"
+
+
+def candidate_scorecard_id(report: JsonObject, candidate_id: str, baseline_id: str) -> str:
+    report_id = text_or_none(report.get("reportId")) or "rl-training"
+    digest = canonical_hash(
+        {
+            "baselineStrategyId": baseline_id,
+            "candidateStrategyId": candidate_id,
+            "reportId": report_id,
+            "runtimeParameterInjection": report.get("runtimeParameterInjection"),
+            "schemaVersion": SCHEMA_VERSION,
+        }
+    )[:12]
+    return f"rl-scorecard-{safe_artifact_stem(report_id)}-{digest}"
+
+
+def safe_artifact_stem(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-") or "artifact"
+
+
+def variant_result_by_id(report: JsonObject, variant_id: str) -> JsonObject | None:
+    for result in report.get("variantResults", []):
+        if isinstance(result, dict) and text_or_none(result.get("variantId")) == variant_id:
+            return result
+    return None
+
+
+def scorecard_projection_payload(
+    report: JsonObject,
+    *,
+    result: JsonObject,
+    role: str,
+    peer_variant_id: str,
+    runtime_parameter_injection: Any,
+) -> JsonObject:
+    variant_id = text_or_none(result.get("variantId")) or "unknown"
+    payload: JsonObject = {
+        "type": REPORT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "reportId": f"{text_or_none(report.get('reportId')) or 'rl-training'}-{role}-{variant_id}",
+        "sourceTrainingReportId": report.get("reportId"),
+        "role": role,
+        "candidateId": variant_id if role == "candidate" else peer_variant_id,
+        "baselineId": variant_id if role == "baseline" else peer_variant_id,
+        "strategyVariantId": variant_id,
+        "peerStrategyVariantId": peer_variant_id,
+        "artifactCount": result.get("sampleCount", 1),
+        "metricsByCategory": scorecard_metrics_by_category(result),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if role == "candidate" and isinstance(runtime_parameter_injection, dict):
+        payload["runtimeParameterInjection"] = copy.deepcopy(runtime_parameter_injection)
+    return payload
+
+
+def scorecard_metrics_by_category(result: JsonObject) -> JsonObject:
+    reward_tuple = policy_reward_tuple_values(result) or []
+    return {
+        tier: {"value": reward_tuple[index] if index < len(reward_tuple) else 0}
+        for index, tier in enumerate(REWARD_TIERS)
+    }
 
 
 def collect_variant_runs(
@@ -4066,6 +4433,10 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "policyUpdateCandidatePolicyId": report.get("policyUpdateCandidatePolicyId"),
         "policyUpdateArtifactPath": report.get("policyUpdateArtifactPath"),
         "trueGradient": report.get("trueGradient", False),
+        "runtimeParameterInjection": copy.deepcopy(report.get("runtimeParameterInjection")),
+        "scorecardId": report.get("scorecardId"),
+        "scorecardArtifactPath": report.get("scorecardArtifactPath"),
+        "candidateScorecard": copy.deepcopy(report.get("candidateScorecard")),
         "warnings": report["warnings"],
     }
     if "scaleValidation" in report:

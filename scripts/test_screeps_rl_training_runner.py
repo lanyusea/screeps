@@ -1622,6 +1622,15 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["trueGradient"])
         self.assertEqual(report["runtimeParameterInjection"]["status"], "metadata_only")
         self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertIsNone(report["scorecardId"])
+        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "runtime_parameter_injection_metadata_only",
+        )
+        self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_injection")
+        self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "metadata_only")
@@ -2141,9 +2150,23 @@ export const STRATEGY_REGISTRY = [
             persisted = read_json(out_dir / "policy-gradient-injected.json")
             artifact_dir_exists = (out_dir / "policy-candidates").exists()
             artifact_path_exists = Path(report["policyUpdateArtifactPath"]).exists()
+            scorecard_path = Path(report["scorecardArtifactPath"])
+            scorecard_path_exists = scorecard_path.exists()
+            scorecard_payload = read_json(scorecard_path)
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertIsNotNone(report["scorecardId"])
+        self.assertEqual(report["candidateScorecard"]["status"], "ready")
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
+        self.assertFalse(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
+        self.assertTrue(scorecard_path_exists)
+        self.assertEqual(scorecard_payload["runId"], report["scorecardId"])
+        self.assertTrue(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
+        )
         self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
         self.assertEqual(report["policyUpdateIterations"], 1)
@@ -2164,6 +2187,80 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
+
+    def test_scorecard_materialization_error_blocks_scorecard_without_crashing(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scorecard-error",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T06:30:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(simulator_results, inject_runtime_parameters=True)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            with mock.patch.object(
+                runner.scorecard_helper,
+                "build_scorecard",
+                side_effect=runner.scorecard_helper.ScorecardError("fixture scorecard failure"),
+            ):
+                report = runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="policy-gradient-scorecard-error",
+                    generated_at="2026-05-17T06:30:00Z",
+                    simulator_runner=simulator,
+                )
+            persisted = read_json(out_dir / "policy-gradient-scorecard-error.json")
+
+        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "candidate_scorecard_materialization_failed",
+        )
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
+        self.assertEqual(report["candidateScorecard"]["candidateParameterScope"], "runtime_injected")
+        self.assertIsNotNone(report["candidateScorecard"]["candidateStrategyId"])
+        self.assertIsNotNone(report["candidateScorecard"]["baselineStrategyId"])
+        self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])
+        self.assertIsNotNone(report["candidateScorecard"]["baselineRank"])
+        self.assertIn("materialization", report["candidateScorecard"]["nextAction"])
+        self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
+        self.assertIsNone(report["scorecardId"])
+        self.assertIsNone(report["scorecardArtifactPath"])
+        self.assertTrue(
+            any("candidate scorecard artifact generation skipped" in warning for warning in report["warnings"])
+        )
+        self.assertEqual(persisted["candidateScorecard"]["status"], "blocked")
+        self.assertTrue(persisted["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertIn("materialization", persisted["candidateScorecard"]["nextAction"])
+        self.assertIsNone(persisted["scorecardArtifactPath"])
 
     def test_runtime_injected_reinforce_requires_evaluated_parameters_from_successful_payloads(self) -> None:
         card = card_helper.build_card(

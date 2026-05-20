@@ -24,6 +24,9 @@ import screeps_rl_experiment_card as card_helper
 
 
 CONTROLLER_IP = "43.128.104.34/32"
+READY_RUNTIME_SCORECARD_PATH = (
+    "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json"
+)
 
 
 def add_file(tar: tarfile.TarFile, name: str, content: bytes = b"ok") -> None:
@@ -83,6 +86,10 @@ def run_git(args: list[str], cwd: Path) -> None:
 def write_text(path: Path, text: str = "ok\n") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_ready_runtime_scorecard_artifact(root: Path) -> None:
+    write_text(root / "remote" / READY_RUNTIME_SCORECARD_PATH, "{}\n")
 
 
 def decode_remote_bash_lc(remote_command: str) -> str:
@@ -164,6 +171,36 @@ def generated_experiment_card() -> dict[str, object]:
             },
         },
         "strategy_variants": ["construction-priority.incumbent.v1"],
+    }
+
+
+def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
+    return {
+        "reportId": "run-test",
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "artifactCount": 1,
+        "runtimeParameterInjection": {
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "policyUpdateEligible": True,
+            "candidateParameterScope": "runtime_injected",
+            "injectedVariantCount": 1,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+        "scorecardId": "rl-scorecard-run-test",
+        "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
+        "candidateScorecard": {
+            "status": "ready",
+            "scorecardId": "rl-scorecard-run-test",
+            "runtimeParameterInjection": True,
+            "injectedVariantCount": 1,
+            "validationScaleComputeBlocked": False,
+            "scorecardUsable": True,
+        },
     }
 
 
@@ -1038,6 +1075,28 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
                         "artifactCount": 1,
+                        "runtimeParameterInjection": {
+                            "type": "screeps-rl-runtime-parameter-injection",
+                            "status": "injected",
+                            "runtimeParameterInjection": True,
+                            "policyUpdateEligible": True,
+                            "candidateParameterScope": "runtime_injected",
+                            "injectedVariantCount": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                        "scorecardId": "rl-scorecard-run-test",
+                        "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
+                        "candidateScorecard": {
+                            "status": "ready",
+                            "classification": "runtime_injected_candidate_scorecard_ready",
+                            "scorecardId": "rl-scorecard-run-test",
+                            "runtimeParameterInjection": True,
+                            "injectedVariantCount": 1,
+                            "validationScaleComputeBlocked": False,
+                            "scorecardUsable": True,
+                        },
                         "policyUpdateIterations": 1,
                         "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
                         "policyUpdate": {
@@ -1056,6 +1115,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             write_text(root / "remote" / "runtime-artifacts" / "rl-training" / "policy-candidates" / "run-test-next-policy.json", "{}\n")
+            write_ready_runtime_scorecard_artifact(root)
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
             controller.verify_remote_training_report()
             controller.write_summary()
@@ -1080,6 +1140,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 summary["outputs"]["trainingReport"]["activationProof"]["audit"]["comparisonKey"],
                 "activation-key",
             )
+            self.assertTrue(
+                summary["outputs"]["trainingReport"]["runtimeParameterInjection"]["runtimeParameterInjection"]
+            )
+            self.assertEqual(summary["outputs"]["trainingReport"]["runtimeParameterInjection"]["injectedVariantCount"], 1)
+            self.assertEqual(summary["outputs"]["trainingReport"]["scorecardId"], "rl-scorecard-run-test")
+            self.assertEqual(summary["outputs"]["trainingReport"]["candidateScorecard"]["status"], "ready")
+            self.assertFalse(
+                summary["outputs"]["trainingReport"]["candidateScorecard"]["validationScaleComputeBlocked"]
+            )
             self.assertEqual(
                 summary["outputs"]["trainingReport"]["policyUpdateArtifactPath"],
                 "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
@@ -1088,6 +1157,378 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(summary["outputs"]["trainingReport"]["batchScale"]["batchClass"], "smoke")
             self.assertFalse(summary["outputs"]["trainingReport"]["batchScale"]["scaleFirstEligible"])
             self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
+
+    def test_verify_remote_training_report_rejects_orphaned_scorecard_evidence(self) -> None:
+        cases = (
+            (
+                {"scorecardId": "rl-scorecard-run-test"},
+                "scorecardId is present without candidateScorecard evidence",
+            ),
+            (
+                {"scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH},
+                "scorecardArtifactPath is present without candidateScorecard evidence",
+            ),
+        )
+        for patch, expected_error in cases:
+            with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = {
+                    "reportId": "run-test",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "artifactCount": 1,
+                    **patch,
+                }
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_ready_scorecard_without_collected_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(training_report_with_ready_runtime_scorecard()), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "candidate scorecard artifact was not collected",
+            ):
+                controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_malformed_runtime_parameter_injection_evidence(self) -> None:
+        def injection_patch(
+            *,
+            status: str,
+            runtime_parameter_injection: bool,
+            policy_update_eligible: bool,
+            candidate_parameter_scope: str,
+            injected_variant_count: int,
+        ) -> dict[str, object]:
+            return {
+                "runtimeParameterInjection": {
+                    "status": status,
+                    "runtimeParameterInjection": runtime_parameter_injection,
+                    "policyUpdateEligible": policy_update_eligible,
+                    "candidateParameterScope": candidate_parameter_scope,
+                    "injectedVariantCount": injected_variant_count,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                }
+            }
+
+        cases = (
+            ("string evidence", {"runtimeParameterInjection": "false"}, "runtimeParameterInjection must be an object"),
+            (
+                "missing eligibility",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "injectedVariantCount": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
+                "policyUpdateEligible",
+            ),
+            (
+                "string boolean",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": "true",
+                        "policyUpdateEligible": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "injectedVariantCount": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
+                "runtimeParameterInjection.runtimeParameterInjection must be a boolean",
+            ),
+            (
+                "unknown false status",
+                injection_patch(
+                    status="garbage",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=0,
+                ),
+                "runtimeParameterInjection.status invalid",
+            ),
+            (
+                "metadata scope mismatch",
+                injection_patch(
+                    status="metadata_only",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="runtime_injected",
+                    injected_variant_count=0,
+                ),
+                "metadata_only status requires metadata_only scope",
+            ),
+            (
+                "not injected scope mismatch",
+                injection_patch(
+                    status="not_injected",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=0,
+                ),
+                "not_injected status requires runtime_injected scope",
+            ),
+            (
+                "metadata positive injected count",
+                injection_patch(
+                    status="metadata_only",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="metadata_only",
+                    injected_variant_count=1,
+                ),
+                "metadata_only status requires injectedVariantCount=0",
+            ),
+            (
+                "partial zero injected count",
+                injection_patch(
+                    status="partial",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="partial_runtime_injection",
+                    injected_variant_count=0,
+                ),
+                "partial status requires positive injectedVariantCount",
+            ),
+        )
+        for name, patch, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data.update(patch)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_accepts_materialization_failure_with_runtime_injection_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "candidate_scorecard_materialization_failed",
+                "scorecardId": None,
+                "runtimeParameterInjection": True,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "missingPrerequisite": "candidate_scorecard_artifact",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        verified = controller.result["trainingReport"]["candidateScorecard"]
+        self.assertEqual(verified["classification"], "candidate_scorecard_materialization_failed")
+        self.assertTrue(verified["runtimeParameterInjection"])
+        self.assertEqual(verified["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(verified["candidateStrategyId"], "candidate")
+
+    def test_verify_remote_training_report_rejects_materialization_failure_without_nested_injection_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "candidate_scorecard_materialization_failed",
+                "scorecardId": None,
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "missingPrerequisite": "candidate_scorecard_artifact",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "materialization failure requires runtimeParameterInjection proof",
+            ):
+                controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_accepts_blocked_partial_runtime_injection_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "partial",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "partial_runtime_injection",
+                "injectedVariantCount": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "runtime_parameter_injection_validation_blocked",
+                "scorecardId": None,
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 1,
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        training_report = controller.result["trainingReport"]
+        self.assertEqual(training_report["runtimeParameterInjection"]["status"], "partial")
+        self.assertEqual(training_report["runtimeParameterInjection"]["injectedVariantCount"], 1)
+        self.assertEqual(training_report["candidateScorecard"]["status"], "blocked")
+        self.assertFalse(training_report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertEqual(training_report["candidateScorecard"]["injectedVariantCount"], 1)
+        self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(training_report["candidateScorecard"]["scorecardUsable"])
+        self.assertIsNone(training_report["scorecardId"])
+        self.assertIsNone(training_report["scorecardArtifactPath"])
+
+    def test_verify_remote_training_report_rejects_inconsistent_candidate_scorecard_evidence(self) -> None:
+        cases = (
+            (
+                "string evidence",
+                {"candidateScorecard": "ready"},
+                "candidateScorecard must be an object",
+            ),
+            (
+                "ready blocked",
+                {
+                    "candidateScorecard": {
+                        "status": "ready",
+                        "scorecardId": "rl-scorecard-run-test",
+                        "runtimeParameterInjection": True,
+                        "injectedVariantCount": 1,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": True,
+                    }
+                },
+                "ready status cannot be validation-scale blocked",
+            ),
+            (
+                "ready without runtime proof",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "metadata_only",
+                        "runtimeParameterInjection": False,
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "metadata_only",
+                        "injectedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    },
+                },
+                "ready without runtimeParameterInjection proof",
+            ),
+            (
+                "blocked contradicts top-level runtime proof",
+                {
+                    "scorecardId": None,
+                    "scorecardArtifactPath": None,
+                    "candidateScorecard": {
+                        "status": "blocked",
+                        "classification": "runtime_parameter_injection_validation_blocked",
+                        "scorecardId": None,
+                        "runtimeParameterInjection": False,
+                        "injectedVariantCount": 0,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": False,
+                    },
+                },
+                "blocked status contradicts top-level runtimeParameterInjection proof",
+            ),
+            (
+                "blocked without materialization failure has injected count",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "metadata_only",
+                        "runtimeParameterInjection": False,
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "metadata_only",
+                        "injectedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    },
+                    "scorecardId": None,
+                    "scorecardArtifactPath": None,
+                    "candidateScorecard": {
+                        "status": "blocked",
+                        "classification": "runtime_parameter_injection_metadata_only",
+                        "scorecardId": None,
+                        "runtimeParameterInjection": False,
+                        "injectedVariantCount": 1,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": False,
+                    },
+                },
+                "blocked status requires injectedVariantCount=0",
+            ),
+        )
+        for name, patch, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data.update(patch)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_records_smoke_batch_scale_from_simulator_ticks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1210,6 +1651,30 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                                 "successfulEnvironments": 25,
                                 "repetitions": 5,
                             },
+                            "runtimeParameterInjection": {
+                                "type": "screeps-rl-runtime-parameter-injection",
+                                "status": "metadata_only",
+                                "runtimeParameterInjection": False,
+                                "policyUpdateEligible": False,
+                                "candidateParameterScope": "metadata_only",
+                                "injectedVariantCount": 0,
+                                "reason": "candidate vectors were metadata only",
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
+                            "scorecardId": None,
+                            "scorecardArtifactPath": None,
+                            "candidateScorecard": {
+                                "status": "blocked",
+                                "classification": "runtime_parameter_injection_metadata_only",
+                                "scorecardId": None,
+                                "runtimeParameterInjection": False,
+                                "injectedVariantCount": 0,
+                                "missingPrerequisite": "runtime_parameter_injection",
+                                "validationScaleComputeBlocked": True,
+                                "scorecardUsable": False,
+                            },
                             "policyUpdateIterations": 0,
                             "policyUpdate": policy_update,
                         }
@@ -1251,6 +1716,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(training_report["artifactCount"], 25)
         self.assertEqual(training_report["policyUpdateIterations"], 0)
         self.assertIsNone(training_report["policyUpdateArtifactPath"])
+        self.assertFalse(training_report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(training_report["runtimeParameterInjection"]["injectedVariantCount"], 0)
+        self.assertIsNone(training_report["scorecardId"])
+        self.assertEqual(training_report["candidateScorecard"]["status"], "blocked")
+        self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(training_report["candidateScorecard"]["scorecardUsable"])
         self.assertEqual(training_report["policyUpdate"]["metadataCandidateCount"], 5)
         self.assertFalse(training_report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
         self.assertNotIn("nextCandidatePolicy", training_report["policyUpdate"])
