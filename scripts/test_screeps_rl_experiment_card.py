@@ -1320,6 +1320,87 @@ class RlExperimentCardTest(unittest.TestCase):
         assert selected is not None
         self.assertEqual(selected["card_id"], available["card_id"])
 
+    def test_select_loop_a_card_prefers_fresh_full_gate_over_newer_stale_degraded_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            stale_gate = card_helper.source_gate_block(
+                gate_id="rl-gate-db16ca9c3de7",
+                dataset_run_id="rl-stale-db16ca9c3de7",
+                gate_report_path=root / "runtime-artifacts" / "rl-dataset-gates" / "rl-gate-db16ca9c3de7" / "gate_report.json",
+                created_at="2026-05-11T14:23:09Z",
+                gate_report_ok=False,
+                acceptance_rate=0.63,
+                dataset_gate_status="pass",
+            )
+            stale_card = card_helper.build_card(
+                dataset_run_id="rl-stale-db16ca9c3de7",
+                code_commit="3" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-20T05:00:00Z",
+                source_gate=stale_gate,
+                loop_a_card_supply=True,
+            )
+            fresh_gate = card_helper.source_gate_block(
+                gate_id="gate-20260519T074023Z",
+                dataset_run_id="rl-eae3fd9655bf",
+                gate_report_path=root / "runtime-artifacts" / "rl-control-loop" / "gate-data" / "rl-eae3fd9655bf" / "gate_report.json",
+                created_at="2026-05-19T07:40:23Z",
+                gate_report_ok=True,
+                acceptance_rate=1.0,
+                dataset_gate_status="pass",
+                shadow_evaluation_status="pass",
+            )
+            fresh_card = card_helper.build_card(
+                dataset_run_id="rl-eae3fd9655bf",
+                code_commit="4" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-19T08:20:00Z",
+                source_gate=fresh_gate,
+                loop_a_card_supply=True,
+            )
+            (card_dir / "stale-card.json").write_text(json.dumps(stale_card), encoding="utf-8")
+            (card_dir / "fresh-card.json").write_text(json.dumps(fresh_card), encoding="utf-8")
+
+            selected = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["dataset_run_id"], "rl-eae3fd9655bf")
+        self.assertEqual(selected["source_gate"]["gate_id"], "gate-20260519T074023Z")
+        self.assertEqual(selected["source_gate"]["quality_acceptance_rate"], 1.0)
+
+    def test_select_loop_a_card_blocks_stale_degraded_source_gate_without_valid_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            stale_gate = card_helper.source_gate_block(
+                gate_id="rl-gate-db16ca9c3de7",
+                dataset_run_id="rl-stale-db16ca9c3de7",
+                gate_report_path=root / "runtime-artifacts" / "rl-dataset-gates" / "rl-gate-db16ca9c3de7" / "gate_report.json",
+                created_at="2026-05-11T14:23:09Z",
+                gate_report_ok=False,
+                acceptance_rate=0.63,
+                dataset_gate_status="pass",
+            )
+            stale_card = card_helper.build_card(
+                dataset_run_id="rl-stale-db16ca9c3de7",
+                code_commit="5" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-20T05:00:00Z",
+                source_gate=stale_gate,
+                loop_a_card_supply=True,
+            )
+            (card_dir / "stale-card.json").write_text(json.dumps(stale_card), encoding="utf-8")
+
+            selected = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertIsNone(selected)
+
     def test_policy_gradient_missing_registry_uses_fallback_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             card = card_helper.build_card(
