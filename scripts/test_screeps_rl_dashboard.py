@@ -13,6 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_rl_dashboard as dashboard
+import screeps_rl_experiment_card as card_helper
 
 
 JsonObject = dict[str, Any]
@@ -189,6 +190,117 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertTrue(str(gate["sourcePath"]).endswith(f"rl-control-loop/gate-data/{gate_id}/gate_report.json"))
         e1_lane = next(item for item in summary["lanes"] if item["lane"] == "E1")
         self.assertEqual(e1_lane["status"], "OK")
+
+    def test_standalone_fallback_card_clears_no_card_blocker_without_tencent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            card = card_helper.build_card(
+                dataset_run_id="rl-current-standalone",
+                code_commit="2" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-20T18:04:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                require_multi_tier_scenario=True,
+                loop_a_card_supply=True,
+            )
+            write_json(artifact_root / "rl-experiment-cards" / "experiment_card.json", card)
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "NOT_RUN",
+                    "trainingDidRun": False,
+                    "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    "createdAt": "2026-05-20T18:05:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "UNPROVEN",
+                    "candidatePolicyId": "NO_STABLE_CANDIDATE",
+                    "baselinePolicyId": "incumbent",
+                    "evidenceWindows": {"loopACardPathStalledCycles": 17},
+                    "createdAt": "2026-05-20T18:06:00Z",
+                },
+            )
+
+            summary = dashboard.build_dashboard(
+                repo_root=root,
+                artifact_root=artifact_root,
+                generated_at="2026-05-20T18:07:00Z",
+            )
+
+        card_supply = summary["training"]["cardSupply"]
+        self.assertEqual(card_supply["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(card_supply["classification"], "STANDALONE_POLICY_GRADIENT_FALLBACK_AVAILABLE")
+        self.assertEqual(card_supply["source"], "standalone_experiment_card")
+        self.assertEqual(card_supply["severity"], "OK")
+        self.assertEqual(card_supply["fallbackStatus"], "AVAILABLE")
+        self.assertIsNone(summary["training"]["blocker"])
+        self.assertIsNone(summary["policy"]["cardSupplyFinding"])
+
+    def test_not_run_prefers_tencent_supply_over_newer_standalone_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            standalone_card = card_helper.build_card(
+                dataset_run_id="rl-current-standalone",
+                code_commit="2" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-20T18:04:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                require_multi_tier_scenario=True,
+                loop_a_card_supply=True,
+            )
+            write_json(root / "rl-experiment-cards" / "experiment_card.json", standalone_card)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-older-primary"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-older-primary",
+                    "outputs": {"experimentCard": {"cardId": "rl-exp-rl-accepted-123456789abc"}},
+                },
+            )
+            write_json(
+                run_dir / "experiment_card.json",
+                policy_gradient_card(created_at="2026-05-18T10:35:11Z"),
+            )
+
+            standalone_candidates = dashboard.discover_standalone_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            tencent_candidates = dashboard.discover_tencent_internal_card_supply_candidates(
+                root,
+                warnings=[],
+                repo_root=root,
+            )
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "NOT_RUN",
+                        "trainingDidRun": False,
+                        "trainingBlocker": "NO_UNCONSUMED_EXPERIMENT_CARD",
+                    },
+                ),
+                standalone_card_supply=standalone_candidates[0],
+                standalone_card_supply_candidates=standalone_candidates,
+                tencent_internal_card_supply=tencent_candidates[0],
+                tencent_internal_card_supply_candidates=tencent_candidates,
+            )
+
+        card_supply = training["cardSupply"]
+        self.assertEqual(card_supply["status"], "PRIMARY_SATISFIED")
+        self.assertEqual(card_supply["source"], "tencent_internal_experiment_card")
+        self.assertEqual(card_supply["runId"], "tencent-pg-older-primary")
+        self.assertEqual(card_supply["fallbackStatus"], "DEGRADED")
+        self.assertIsNone(training["blocker"])
 
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
