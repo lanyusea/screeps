@@ -607,6 +607,44 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertIn("Loop A policy-gradient proof requires", stderr.getvalue())
 
+    def test_loop_a_local_fallback_card_is_discoverable_from_card_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+            card = card_helper.build_card(
+                dataset_run_id="rl-ebf33fae619f",
+                code_commit="7" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-18T03:12:00Z",
+                scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+                require_multi_tier_scenario=True,
+                loop_a_card_supply=True,
+            )
+            card_path.parent.mkdir(parents=True)
+            card_path.write_text(json.dumps(card, sort_keys=True), encoding="utf-8")
+
+            card_helper.validate_card(card)
+            self.assertTrue(card_helper.is_loop_a_card_available_for_training(card))
+            self.assertEqual(card["training_approach"], "policy_gradient")
+            self.assertEqual(card["status"], "shadow")
+            self.assertFalse(card["liveEffect"])
+            self.assertFalse(card["officialMmoWrites"])
+            self.assertFalse(card["officialMmoWritesAllowed"])
+            self.assertTrue(card["conservative_actions_only"])
+            self.assertTrue(card["ood_rejection"])
+            self.assertEqual(card["reward_model"]["component_order"], ["reliability", "territory", "resources", "kills"])
+            self.assertFalse(card["reward_model"]["scalar_weighted_sum_authorized"])
+
+            selected = card_helper.select_loop_a_card_supply(
+                card_path.parent,
+                root / "runtime-artifacts" / "rl-training",
+            )
+
+            self.assertIsNotNone(selected)
+            assert selected is not None
+            self.assertEqual(selected["card_path"], str(card_path))
+            self.assertEqual(selected["card_supply"]["state"], "available")
+
     def test_source_gate_block_uses_stable_provenance_path(self) -> None:
         gate_id = "rl-gate-93bf1aa18b62"
         dataset_run_id = "rl-ebf33fae619f"
