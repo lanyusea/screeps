@@ -1600,21 +1600,34 @@ export const STRATEGY_REGISTRY = [
         )
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
-        simulator = MockSimulator({
-            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
-            for variant_id in variant_ids
-        })
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(simulator_results)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             card_path = root / "card.json"
+            out_dir = root / "reports"
             write_json(card_path, card)
             report = runner.run_training_experiment(
                 card_path,
-                root / "reports",
+                out_dir,
                 report_id="policy-gradient-evidence",
                 simulator_runner=simulator,
             )
+            scorecard_path = Path(report["scorecardArtifactPath"])
+            scorecard_path_exists = scorecard_path.exists()
+            scorecard_payload = read_json(scorecard_path)
 
         self.assertEqual(report["experimentCard"]["trainingApproach"], "policy_gradient")
         self.assertEqual(report["policyGradient"]["target_family"], "construction-priority")
@@ -1622,15 +1635,21 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["trueGradient"])
         self.assertEqual(report["runtimeParameterInjection"]["status"], "metadata_only")
         self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
-        self.assertIsNone(report["scorecardId"])
-        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertIsNotNone(report["scorecardId"])
+        self.assertEqual(report["candidateScorecard"]["status"], "materialized")
         self.assertEqual(
             report["candidateScorecard"]["classification"],
-            "runtime_parameter_injection_metadata_only",
+            "runtime_parameter_injection_metadata_only_scorecard_materialized",
         )
         self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_injection")
         self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
-        self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
+        self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
+        self.assertTrue(scorecard_path_exists)
+        self.assertEqual(scorecard_payload["runId"], report["scorecardId"])
+        self.assertFalse(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
+        )
+        self.assertFalse(report["candidateScorecard"]["overallGate"]["runtimeParameterInjectionProven"])
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "metadata_only")
