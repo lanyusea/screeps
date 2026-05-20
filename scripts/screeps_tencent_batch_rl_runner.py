@@ -2175,8 +2175,14 @@ def verified_remote_candidate_scorecard(
         if isinstance(runtime_parameter_injection, dict)
         else None
     )
+    top_level_injected_count = (
+        runtime_parameter_injection.get("injectedVariantCount", 0)
+        if isinstance(runtime_parameter_injection, dict)
+        else 0
+    )
+    top_level_runtime_partially_injected = top_level_status == "partial" and top_level_injected_count > 0
     if status == "ready":
-        if not top_level_runtime_injected:
+        if not top_level_runtime_injected and not top_level_runtime_partially_injected:
             raise BatchRunError("remote candidateScorecard is ready without runtimeParameterInjection proof")
         if not runtime_injected:
             raise BatchRunError("remote candidateScorecard ready status requires runtimeParameterInjection=true")
@@ -2186,6 +2192,10 @@ def verified_remote_candidate_scorecard(
             raise BatchRunError("remote candidateScorecard ready status requires scorecardUsable=true")
         if injected_count <= 0:
             raise BatchRunError("remote candidateScorecard ready status requires positive injectedVariantCount")
+        if top_level_runtime_partially_injected and injected_count > top_level_injected_count:
+            raise BatchRunError(
+                "remote candidateScorecard ready status exceeds top-level runtimeParameterInjection injectedVariantCount"
+            )
         nested_scorecard_id = required_non_empty_text(raw.get("scorecardId"), "candidateScorecard.scorecardId")
         top_level_scorecard_id = required_non_empty_text(scorecard_id, "scorecardId")
         if nested_scorecard_id != top_level_scorecard_id:
@@ -2204,6 +2214,10 @@ def verified_remote_candidate_scorecard(
         if top_level_runtime_injected or runtime_injected:
             raise BatchRunError(
                 "remote candidateScorecard materialized status requires incomplete runtimeParameterInjection proof"
+            )
+        if injected_count != 0:
+            raise BatchRunError(
+                "remote candidateScorecard materialized status requires injectedVariantCount=0"
             )
         if not validation_blocked:
             raise BatchRunError("remote candidateScorecard materialized status requires validation-scale blocked")
