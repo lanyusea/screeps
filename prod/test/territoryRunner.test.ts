@@ -332,6 +332,126 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E17S60' });
   });
 
+  it('spreads surplus scouts across distinct requested rooms and recycles the rest', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 968_900,
+      rooms: {
+        E29N55: { name: 'E29N55' } as Room
+      },
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E29N55',
+            targetRoom: 'E28N54',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          },
+          {
+            colony: 'E29N55',
+            targetRoom: 'E29N53',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          }
+        ],
+        scoutAttempts: {
+          'E29N55>E28N54': {
+            colony: 'E29N55',
+            roomName: 'E28N54',
+            status: 'requested',
+            requestedAt: 968_880,
+            updatedAt: 968_880,
+            attemptCount: 1
+          },
+          'E29N55>E29N53': {
+            colony: 'E29N55',
+            roomName: 'E29N53',
+            status: 'requested',
+            requestedAt: 968_880,
+            updatedAt: 968_880,
+            attemptCount: 1
+          }
+        }
+      }
+    };
+    const scouts = ['ScoutA', 'ScoutB', 'ScoutC', 'ScoutD', 'ScoutE'].map(
+      (name) =>
+        ({
+          name,
+          ticksToLive: 1_000,
+          memory: { role: 'scout', colony: 'E29N55', territory: { targetRoom: 'E28N54', action: 'scout' } },
+          room: { name: 'E29N55' } as Room,
+          moveTo: jest.fn()
+        }) as unknown as Creep
+    );
+    (Game as Partial<Game>).creeps = Object.fromEntries(scouts.map((creep) => [creep.name, creep]));
+
+    for (const scout of scouts) {
+      runTerritoryControllerCreep(scout);
+    }
+
+    expect(scouts.flatMap((scout) => scout.memory.territory?.targetRoom ?? []).sort()).toEqual([
+      'E28N54',
+      'E29N53'
+    ]);
+    expect(scouts.filter((scout) => scout.memory.territory === undefined)).toHaveLength(3);
+    expect(scouts[0].moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E28N54' });
+    expect(scouts[1].moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E29N53' });
+    for (const scout of scouts.slice(2)) {
+      expect(scout.moveTo).not.toHaveBeenCalled();
+    }
+  });
+
+  it('recycles a surplus scout instead of reassigning it to a timed-out target while active assignments are capped', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2501,
+      rooms: {
+        E29N55: { name: 'E29N55' } as Room
+      },
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutAttempts: {
+          'E29N55>E29N53': {
+            colony: 'E29N55',
+            roomName: 'E29N53',
+            status: 'requested',
+            requestedAt: 1000,
+            updatedAt: 1000,
+            attemptCount: 1
+          }
+        }
+      }
+    };
+    const scouts = [
+      { name: 'ScoutA', targetRoom: 'E28N54' },
+      { name: 'ScoutB', targetRoom: 'E29N54' },
+      { name: 'ScoutC', targetRoom: 'E28N54' }
+    ].map(
+      ({ name, targetRoom }) =>
+        ({
+          name,
+          ticksToLive: 1_000,
+          memory: { role: 'scout', colony: 'E29N55', territory: { targetRoom, action: 'scout' } },
+          room: { name: 'E29N55' } as Room,
+          moveTo: jest.fn()
+        }) as unknown as Creep
+    );
+    (Game as Partial<Game>).creeps = Object.fromEntries(scouts.map((creep) => [creep.name, creep]));
+
+    runTerritoryControllerCreep(scouts[2]);
+
+    expect(scouts[2].memory.territory).toBeUndefined();
+    expect(scouts[2].moveTo).not.toHaveBeenCalled();
+  });
+
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {
     recordColonyStageAssessment(
       'W1N1',

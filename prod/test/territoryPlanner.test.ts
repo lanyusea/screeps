@@ -639,6 +639,78 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('suppresses duplicate scout spawns for targets already covered by a healthy scout', () => {
+    const roleCounts = { worker: 4, scout: 1, scoutsByTargetRoom: { E28N54: 1 } };
+
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'E29N55', targetRoom: 'E28N54', action: 'scout' },
+        roleCounts,
+        968_900
+      )
+    ).toBe(false);
+  });
+
+  it('spreads scout planning to uncovered requested targets until the active scout cap is full', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 20_000 } as StructureController,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E29N55',
+            targetRoom: 'E28N54',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          },
+          {
+            colony: 'E29N55',
+            targetRoom: 'E29N53',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          },
+          {
+            colony: 'E29N55',
+            targetRoom: 'E30N56',
+            action: 'scout',
+            status: 'planned',
+            updatedAt: 968_899
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 4, scout: 1, scoutsByTargetRoom: { E28N54: 1 } },
+        4,
+        968_900,
+        { scoutOnly: true }
+      )
+    ).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N53',
+      action: 'scout'
+    });
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 4, scout: 2, scoutsByTargetRoom: { E28N54: 1, E29N53: 1 } },
+        4,
+        968_901,
+        { scoutOnly: true }
+      )
+    ).toBeNull();
+  });
+
   it('uses persisted scout intel to promote a high-value unseen adjacent room into a reserve target', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));

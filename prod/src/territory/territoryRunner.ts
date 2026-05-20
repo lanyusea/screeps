@@ -24,6 +24,10 @@ import {
   isTerritoryScoutIntelFresh,
   recordVisibleRoomScoutIntel
 } from './scoutIntel';
+import {
+  isTerritoryScoutAssignmentAvailableForCreep,
+  shouldRecycleSurplusTerritoryScout
+} from './scoutConcurrency';
 import { selectBestClaimTarget } from './claimScoring';
 import { getRecordedColonyStageAssessment, suppressesTerritoryWork } from '../colony/colonyStage';
 import { getConfiguredExpansionRoomScoutingTargets } from './roomScouting';
@@ -98,6 +102,17 @@ export function runTerritoryControllerCreep(
     }
 
     suppressTerritoryAssignment(creep, assignment);
+    return;
+  }
+
+  if (assignment.action === 'scout' && shouldRecycleSurplusTerritoryScout(creep)) {
+    if (assignNextScoutTarget(creep, assignment.targetRoom)) {
+      moveTowardTargetRoom(creep, creep.memory.territory as CreepTerritoryMemory);
+      return;
+    }
+
+    completeTerritoryAssignment(creep);
+    recycleIdleTerritoryScout(creep);
     return;
   }
 
@@ -248,7 +263,7 @@ function runIdleTerritoryScout(creep: Creep): void {
 }
 
 function assignNextScoutTarget(creep: Creep, excludedTargetRoom?: string): boolean {
-  const assignment = selectNextScoutAssignment(creep.memory.colony, excludedTargetRoom);
+  const assignment = selectNextScoutAssignment(creep.memory.colony, excludedTargetRoom, creep.name);
   if (!assignment) {
     return false;
   }
@@ -259,7 +274,8 @@ function assignNextScoutTarget(creep: Creep, excludedTargetRoom?: string): boole
 
 function selectNextScoutAssignment(
   colony: string | undefined,
-  excludedTargetRoom?: string
+  excludedTargetRoom?: string,
+  currentCreepName?: string
 ): CreepTerritoryMemory | null {
   if (!isNonEmptyString(colony)) {
     return null;
@@ -267,15 +283,16 @@ function selectNextScoutAssignment(
 
   const gameTime = getGameTime();
   return (
-    selectNextScoutIntentAssignment(colony, excludedTargetRoom, gameTime) ??
-    selectNextScoutAttemptAssignment(colony, excludedTargetRoom, gameTime) ??
-    selectNextConfiguredScoutAssignment(colony, excludedTargetRoom, gameTime)
+    selectNextScoutIntentAssignment(colony, excludedTargetRoom, currentCreepName, gameTime) ??
+    selectNextScoutAttemptAssignment(colony, excludedTargetRoom, currentCreepName, gameTime) ??
+    selectNextConfiguredScoutAssignment(colony, excludedTargetRoom, currentCreepName, gameTime)
   );
 }
 
 function selectNextScoutIntentAssignment(
   colony: string,
   excludedTargetRoom: string | undefined,
+  currentCreepName: string | undefined,
   gameTime: number
 ): CreepTerritoryMemory | null {
   const intents = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.intents;
@@ -292,7 +309,7 @@ function selectNextScoutIntentAssignment(
       intent.colony === colony &&
       intent.action === 'scout' &&
       (intent.status === 'planned' || intent.status === 'active') &&
-      isPendingScoutTarget(colony, intent.targetRoom, excludedTargetRoom, gameTime)
+      isPendingScoutTarget(colony, intent.targetRoom, excludedTargetRoom, currentCreepName, gameTime)
     ) {
       return {
         targetRoom: intent.targetRoom,
@@ -308,6 +325,7 @@ function selectNextScoutIntentAssignment(
 function selectNextScoutAttemptAssignment(
   colony: string,
   excludedTargetRoom: string | undefined,
+  currentCreepName: string | undefined,
   gameTime: number
 ): CreepTerritoryMemory | null {
   const attempts = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutAttempts;
@@ -323,7 +341,7 @@ function selectNextScoutAttemptAssignment(
     if (
       attempt.colony === colony &&
       attempt.status === 'requested' &&
-      isPendingScoutTarget(colony, attempt.roomName, excludedTargetRoom, gameTime)
+      isPendingScoutTarget(colony, attempt.roomName, excludedTargetRoom, currentCreepName, gameTime)
     ) {
       return {
         targetRoom: attempt.roomName,
@@ -339,10 +357,11 @@ function selectNextScoutAttemptAssignment(
 function selectNextConfiguredScoutAssignment(
   colony: string,
   excludedTargetRoom: string | undefined,
+  currentCreepName: string | undefined,
   gameTime: number
 ): CreepTerritoryMemory | null {
   for (const target of getConfiguredExpansionRoomScoutingTargets(colony, gameTime)) {
-    if (isPendingScoutTarget(colony, target.roomName, excludedTargetRoom, gameTime)) {
+    if (isPendingScoutTarget(colony, target.roomName, excludedTargetRoom, currentCreepName, gameTime)) {
       return {
         targetRoom: target.roomName,
         action: 'scout',
@@ -358,13 +377,15 @@ function isPendingScoutTarget(
   colony: string,
   targetRoom: string | undefined,
   excludedTargetRoom: string | undefined,
+  currentCreepName: string | undefined,
   gameTime: number
 ): targetRoom is string {
   return (
     isNonEmptyString(targetRoom) &&
     targetRoom !== excludedTargetRoom &&
     !isVisibleRoomKnown(targetRoom) &&
-    !isTerritoryScoutIntelFresh(colony, targetRoom, gameTime)
+    !isTerritoryScoutIntelFresh(colony, targetRoom, gameTime) &&
+    isTerritoryScoutAssignmentAvailableForCreep(colony, targetRoom, currentCreepName, gameTime)
   );
 }
 

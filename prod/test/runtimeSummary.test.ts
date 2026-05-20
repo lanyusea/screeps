@@ -2367,6 +2367,75 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('emits scout concurrency evidence when active scouts exceed useful requested targets', () => {
+    const scouts = ['ScoutA', 'ScoutB', 'ScoutC', 'ScoutD', 'ScoutE'].map((name) =>
+      makeWorker(
+        {
+          role: 'scout',
+          colony: 'E29N55',
+          territory: { targetRoom: 'E28N54', action: 'scout' }
+        },
+        0,
+        name
+      )
+    );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      roomName: 'E29N55',
+      creeps: scouts
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      ...Memory,
+      territory: {
+        scoutAttempts: {
+          'E29N55>E28N54': {
+            colony: 'E29N55',
+            roomName: 'E28N54',
+            status: 'requested',
+            requestedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+            attemptCount: 1
+          },
+          'E29N55>E29N53': {
+            colony: 'E29N55',
+            roomName: 'E29N53',
+            status: 'requested',
+            requestedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+            attemptCount: 1
+          }
+        },
+        scoutIntel: {
+          'E29N55>E28N54': {
+            colony: 'E29N55',
+            roomName: 'E28N54',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1_600,
+            sourceIds: [],
+            sourceCount: 0,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    emitRuntimeSummary([colony], scouts, [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.territoryScout as Record<string, unknown>).concurrency).toEqual({
+      activeScoutCount: 5,
+      cap: 2,
+      assignedTargetCount: 1,
+      scoutsByTargetRoom: { E28N54: 5 },
+      requestedTargetRooms: ['E28N54', 'E29N53'],
+      staleTargetRooms: ['E28N54'],
+      duplicateTargetScoutCount: 4,
+      surplusScoutCount: 3
+    });
+  });
+
   it('emits healthy E29N55 E29N56 scout-only gate proof without reserve or claim targets', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
     const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
