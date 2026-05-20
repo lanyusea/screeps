@@ -696,7 +696,7 @@ declare global {
     | 'reservationLost'
     | 'targetHostile'
     | 'sourcesMissing'
-    | 'rcl6Gate';
+    | 'controllerLevelGate';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'

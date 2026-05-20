@@ -1179,7 +1179,7 @@ function isExpansionAbortReason(reason: unknown): reason is TerritoryExpansionAb
     reason === 'reservationLost' ||
     reason === 'targetHostile' ||
     reason === 'sourcesMissing' ||
-    reason === 'rcl6Gate'
+    reason === 'controllerLevelGate'
   );
 }
 

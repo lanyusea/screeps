@@ -193,7 +193,7 @@ describe('colony bootstrap stage', () => {
     }
   );
 
-  it('marks an RCL6 stable room as territory-ready', () => {
+  it('marks an RCL5 stable room as territory-ready', () => {
     expect(
       assessColonyStage({
         roomName: 'E29N55',
@@ -203,7 +203,7 @@ describe('colony bootstrap stage', () => {
         energyAvailable: 1300,
         energyCapacityAvailable: 1300,
         defenseFloorReady: true,
-        controller: { my: true, level: 6, ticksToDowngrade: 10_000 }
+        controller: { my: true, level: 5, ticksToDowngrade: 10_000 }
       })
     ).toMatchObject({
       mode: 'TERRITORY_READY',

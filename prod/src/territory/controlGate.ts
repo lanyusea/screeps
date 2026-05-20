@@ -1,9 +1,9 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 
-export const AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 6;
+export const AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 5;
 export const AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON: TerritoryIntentSuppressionReason =
   'controllerLevel';
-export const AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON: TerritoryExpansionAbortReason = 'rcl6Gate';
+export const AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON: TerritoryExpansionAbortReason = 'controllerLevelGate';
 
 export function isAutonomousTerritoryControlAllowedForColony(colony: ColonySnapshot): boolean {
   return isAutonomousTerritoryControlAllowedForController(colony.room.controller);

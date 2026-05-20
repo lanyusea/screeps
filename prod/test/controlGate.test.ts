@@ -17,16 +17,16 @@ describe('autonomous territory control gate', () => {
     expect(isAutonomousTerritoryControlAllowedForColonyName('W1N1')).toBe(false);
   });
 
-  it('allows only visible owned colonies at or above RCL6', () => {
+  it('allows only visible owned colonies at or above RCL5', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: {
           name: 'W1N1',
-          controller: { my: true, level: 6 } as StructureController
+          controller: { my: true, level: 5 } as StructureController
         } as Room,
         W2N1: {
           name: 'W2N1',
-          controller: { my: true, level: 5 } as StructureController
+          controller: { my: true, level: 4 } as StructureController
         } as Room,
         W3N1: {
           name: 'W3N1',

@@ -94,13 +94,13 @@ describe('E18S59 claim pipeline', () => {
     ]);
   });
 
-  it('does not trigger an E18S59 claim before RCL6 even when GCL capacity and claim energy are ready', () => {
-    (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL = 5;
-    const threshold = getExpansionTriggerRequiredEnergy(6);
+  it('does not trigger an E18S59 claim before RCL5 even when GCL capacity and claim energy are ready', () => {
+    (globalThis as { TERRITORY_EXPANSION_TRIGGER_MIN_RCL?: number }).TERRITORY_EXPANSION_TRIGGER_MIN_RCL = 4;
+    const threshold = getExpansionTriggerRequiredEnergy(5);
     const colony = makeColony({
-      controllerLevel: 5,
+      controllerLevel: 4,
       energyAvailable: threshold,
-      energyCapacityAvailable: 2_300
+      energyCapacityAvailable: 1_800
     });
     setGame(colony, 827, { includeE17S58: true, gclLevel: 3 });
     setSafeHomeThreat('E17S59', 827);
@@ -126,12 +126,12 @@ describe('E18S59 claim pipeline', () => {
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
-  it('skips the E18S59 trigger when current energy is below RCL6 expansion readiness', () => {
-    const threshold = getExpansionTriggerRequiredEnergy(6);
+  it('skips the E18S59 trigger when current energy is below RCL5 expansion readiness', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(5);
     const colony = makeColony({
-      controllerLevel: 6,
+      controllerLevel: 5,
       energyAvailable: threshold - 1,
-      energyCapacityAvailable: 2_300
+      energyCapacityAvailable: 1_800
     });
     setGame(colony, 828, { includeE17S58: true, gclLevel: 3 });
     setSafeHomeThreat('E17S59', 828);

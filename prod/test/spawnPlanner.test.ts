@@ -1925,11 +1925,11 @@ describe('planSpawn', () => {
     });
   });
 
-  it('uses the home spawn for post-claim room defense even before RCL6 expansion control', () => {
+  it('uses the home spawn for post-claim room defense even before RCL5 expansion control', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: { my: true, level: 5, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3053,12 +3053,12 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('suppresses stale controller-control intents before RCL6 without spawning a claimer', () => {
+  it('suppresses stale controller-control intents before RCL5 without spawning a claimer', () => {
     const { colony } = makeColony({
       sourceCount: 0,
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300,
-      controller: { my: true, level: 5, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {

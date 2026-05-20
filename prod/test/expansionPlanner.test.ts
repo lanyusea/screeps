@@ -419,7 +419,7 @@ describe('expansion planner', () => {
   });
 
   it('creates expansion targets and intents through territory planning', () => {
-    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    const { colony } = makeColony({ controllerLevel: 5, energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
     installGame(colony, {
       gclLevel: 2,
       exits: { W1N1: { '3': 'W2N1' } },
@@ -464,9 +464,9 @@ describe('expansion planner', () => {
     ]);
   });
 
-  it('does not create expansion planner control intents before RCL6', () => {
+  it('does not create expansion planner control intents before RCL5', () => {
     const { colony } = makeColony({
-      controllerLevel: 5,
+      controllerLevel: 4,
       energyAvailable: 1_300,
       energyCapacityAvailable: 1_300
     });

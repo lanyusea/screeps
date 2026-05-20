@@ -123,14 +123,14 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
-  it('suppresses stale controller-control assignments before RCL6 without moving or acting', () => {
+  it('suppresses stale controller-control assignments before RCL5 without moving or acting', () => {
     const controller = { id: 'controller1', my: false } as StructureController;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 502,
       rooms: {
         W1N1: {
           name: 'W1N1',
-          controller: { my: true, level: 5, ticksToDowngrade: 10_000 } as StructureController
+          controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
         } as Room,
         W1N2: {
           name: 'W1N2',
