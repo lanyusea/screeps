@@ -1301,6 +1301,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 ),
                 "metadata_only status requires injectedVariantCount=0",
             ),
+            (
+                "partial zero injected count",
+                injection_patch(
+                    status="partial",
+                    runtime_parameter_injection=False,
+                    policy_update_eligible=False,
+                    candidate_parameter_scope="partial_runtime_injection",
+                    injected_variant_count=0,
+                ),
+                "partial status requires positive injectedVariantCount",
+            ),
         )
         for name, patch, expected_error in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:

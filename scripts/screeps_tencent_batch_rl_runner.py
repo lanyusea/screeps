@@ -2122,6 +2122,8 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
         raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
     elif status == "injected":
         raise BatchRunError("remote runtimeParameterInjection status injected requires runtimeParameterInjection=true")
+    elif status == "partial" and injected_count == 0:
+        raise BatchRunError("remote runtimeParameterInjection partial status requires positive injectedVariantCount")
     elif status in {"metadata_only", "not_injected"} and injected_count != 0:
         raise BatchRunError(
             f"remote runtimeParameterInjection {status} status requires injectedVariantCount=0"
