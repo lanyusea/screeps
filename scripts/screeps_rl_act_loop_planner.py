@@ -34,6 +34,7 @@ DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
 MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
 UNPROVEN_ONLINE_STATUSES = {"MIXED", "UNPROVEN", "INCONCLUSIVE", "BLOCKED", "BLOCKED_NO_COMPUTE"}
 BLOCKING_ONLINE_EVIDENCE_STATUSES = {"BLOCKED", "BLOCKED_NO_COMPUTE"}
+ONLINE_STATUS_ALIASES = ("onlineUtilityStatus", "onlineStatus", "status", "rawStatus")
 POLICY_SURFACE_NAME_ALIASES = (
     "name",
     "id",
@@ -56,44 +57,6 @@ SAFETY_BLOCK: JsonObject = {
     "officialMmoWritesAllowed": False,
     "ood_rejection": True,
 }
-
-CONSTRUCTION_PRIORITY_BOUNDS: tuple[JsonObject, ...] = (
-    {
-        "name": "baseScoreWeight",
-        "min": 0,
-        "max": 3,
-        "step": 0.1,
-        "reason": "Preserve incumbent score influence without allowing it to dominate territory-first signals.",
-    },
-    {
-        "name": "territorySignalWeight",
-        "min": 0,
-        "max": 30,
-        "step": 1,
-        "reason": "Bound the first gameplay objective for territory expansion and retention.",
-    },
-    {
-        "name": "resourceSignalWeight",
-        "min": 0,
-        "max": 30,
-        "step": 1,
-        "reason": "Bound the second gameplay objective after territory is not worse.",
-    },
-    {
-        "name": "killSignalWeight",
-        "min": 0,
-        "max": 30,
-        "step": 1,
-        "reason": "Bound the third gameplay objective for hostile pressure response.",
-    },
-    {
-        "name": "riskPenalty",
-        "min": 0,
-        "max": 30,
-        "step": 1,
-        "reason": "Keep safety/risk penalties explicit for rollback and scorecard checks.",
-    },
-)
 
 CLASSIFICATION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -309,10 +272,16 @@ def named_text(value: Any, aliases: Sequence[str]) -> str | None:
     text = text_value(value)
     if text:
         return text
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = named_text(item, aliases)
+            if text:
+                return text
+        return None
     if not isinstance(value, dict):
         return None
     for alias in aliases:
-        text = text_value(lookup(value, (alias,)))
+        text = named_text(lookup(value, (alias,)), aliases)
         if text:
             return text
     return None
@@ -353,12 +322,7 @@ def status_key(raw: Any) -> str | None:
 def has_blocking_evidence_gap(raw: JsonObject) -> bool:
     statuses = {
         status_key(lookup(raw, aliases))
-        for aliases in (
-            ("onlineUtilityStatus",),
-            ("onlineStatus",),
-            ("status",),
-            ("rawStatus",),
-        )
+        for aliases in ((alias,) for alias in ONLINE_STATUS_ALIASES)
     }
     if statuses & BLOCKING_ONLINE_EVIDENCE_STATUSES:
         return True
@@ -378,7 +342,9 @@ def text_blob(raw: JsonObject) -> str:
         "hypothesis",
         "classification",
         "onlineUtilityStatus",
+        "onlineStatus",
         "status",
+        "rawStatus",
         "kpiDeltaObserved",
         "targetArea",
         "expectedKpiMovement",
@@ -415,7 +381,7 @@ def infer_classification(raw: JsonObject) -> str:
         if any(keyword in blob for keyword in keywords):
             return classification
 
-    if status_key(first_text(raw, ("onlineUtilityStatus", "onlineStatus", "status"))) in UNPROVEN_ONLINE_STATUSES:
+    if status_key(first_text(raw, ONLINE_STATUS_ALIASES)) in UNPROVEN_ONLINE_STATUSES:
         return "policy_parameterization_gap"
     return "data_quality"
 
@@ -424,11 +390,7 @@ def secondary_classifications(raw: JsonObject, primary: str) -> list[str]:
     blob = text_blob(raw)
     statuses = {
         status_key(lookup(raw, aliases))
-        for aliases in (
-            ("onlineUtilityStatus",),
-            ("status",),
-            ("rawStatus",),
-        )
+        for aliases in ((alias,) for alias in ONLINE_STATUS_ALIASES)
     }
     inferred: list[str] = []
     if primary != "policy_parameterization_gap" and (
@@ -475,7 +437,7 @@ def infer_finding_id(raw: JsonObject) -> str:
     stable = {
         "title": first_text(raw, ("title", "summary")),
         "window": first_text(raw, ("evidenceWindow", "window", "observedWindow")),
-        "status": first_text(raw, ("onlineUtilityStatus", "status")),
+        "status": first_text(raw, ONLINE_STATUS_ALIASES),
         "candidate": first_text(raw, ("candidateId", "candidate_id")),
         "incumbent": first_text(raw, ("incumbentId", "incumbent_id", "baselineId")),
     }
@@ -536,7 +498,8 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
     if explicit:
         return explicit
     missing = infer_missing_capabilities(raw)
-    if missing or (infer_source_scenario_id(raw) == DEFAULT_SCENARIO_ID and status_key(raw.get("onlineUtilityStatus")) in UNPROVEN_ONLINE_STATUSES):
+    online_status = status_key(first_text(raw, ONLINE_STATUS_ALIASES))
+    if missing or (infer_source_scenario_id(raw) == DEFAULT_SCENARIO_ID and online_status in UNPROVEN_ONLINE_STATUSES):
         return MULTI_TIER_SCENARIO_ID
     return infer_source_scenario_id(raw) or DEFAULT_SCENARIO_ID
 
@@ -563,6 +526,9 @@ def infer_policy_surface(raw: JsonObject) -> str:
             ("policyDelta", "parameterSurface"),
             ("policyDelta", "policySurface"),
             ("policyDelta", "strategyFamily"),
+            ("policyDelta", "family"),
+            ("policyDelta", "targetFamily"),
+            ("policyDelta", "target_family"),
             ("parameterSurface",),
             ("policy", "target_family"),
         ),
@@ -587,16 +553,45 @@ def infer_policy_bounds(raw: JsonObject, surface: str) -> list[JsonObject]:
         nested_lookup(raw, (("policyDelta", "parameterSurface", "bounds"),)),
         nested_lookup(raw, (("policyDelta", "parameterSurface", "parameters"),)),
         nested_lookup(raw, (("policyDelta", "parameterSurface"),)),
+        nested_lookup(raw, (("policyDelta", "family"),)),
+        nested_lookup(raw, (("policyDelta", "targetFamily"),)),
+        nested_lookup(raw, (("policyDelta", "target_family"),)),
         nested_lookup(raw, (("parameterSurface", "bounds"),)),
         nested_lookup(raw, (("parameterSurface", "parameters"),)),
         nested_lookup(raw, (("policy", "learnable_parameters"),)),
     ):
-        bounds = normalize_bounds(raw_bounds)
-        if bounds:
-            return bounds
-    if surface == "construction-priority":
-        return [dict(item) for item in CONSTRUCTION_PRIORITY_BOUNDS]
+        for candidate in policy_bound_candidates(raw_bounds):
+            bounds = normalize_bounds(candidate)
+            if bounds:
+                return bounds
     return []
+
+
+def policy_bound_candidates(value: Any) -> list[Any]:
+    candidates = [value]
+    if isinstance(value, dict):
+        for alias in (
+            "bounds",
+            "parameters",
+            "parameterBounds",
+            "policyBounds",
+            "learnable_parameters",
+            "parameterSurface",
+            "policySurface",
+            "policy_surface",
+            "strategyFamily",
+            "family",
+            "targetFamily",
+            "target_family",
+        ):
+            nested = lookup(value, (alias,))
+            if nested is not None:
+                candidates.extend(policy_bound_candidates(nested))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, (dict, list, tuple)):
+                candidates.extend(policy_bound_candidates(item))
+    return candidates
 
 
 def normalize_bounds(raw_bounds: Any) -> list[JsonObject]:
@@ -674,7 +669,7 @@ def build_finding_summary(
     for output_key, aliases in (
         ("sourceArtifact", ("sourceArtifact", "source_artifact", "sourceReviewArtifact", "reviewArtifact", "artifact")),
         ("evidenceWindow", ("evidenceWindow", "evidence_window", "window", "observedWindow")),
-        ("onlineUtilityStatus", ("onlineUtilityStatus", "onlineStatus", "status", "rawStatus")),
+        ("onlineUtilityStatus", ONLINE_STATUS_ALIASES),
         ("candidateId", ("candidateId", "candidate_id")),
         ("incumbentId", ("incumbentId", "incumbent_id", "baselineId", "baseline_id")),
         ("hypothesis", ("hypothesis",)),
@@ -714,7 +709,7 @@ def needs_scenario_delta(classification: str, secondary: Sequence[str], raw: Jso
 def needs_policy_delta(classification: str, secondary: Sequence[str], raw: JsonObject) -> bool:
     if has_delta_blocker(classification, secondary):
         return False
-    status = status_key(first_text(raw, ("onlineUtilityStatus", "status", "rawStatus")))
+    status = status_key(first_text(raw, ONLINE_STATUS_ALIASES))
     return (
         classification == "policy_parameterization_gap"
         or "policy_parameterization_gap" in secondary
@@ -795,6 +790,10 @@ def build_policy_delta(raw: JsonObject, *, finding: JsonObject) -> JsonObject | 
     if candidate_id:
         delta["candidatePolicyId"] = candidate_id
     return delta
+
+
+def has_missing_policy_bounds(policy_delta: JsonObject | None) -> bool:
+    return policy_delta is not None and not as_list(policy_delta.get("bounds"))
 
 
 def build_experiment_card_delta(
@@ -984,17 +983,16 @@ def build_plan(raw: JsonObject, *, source_artifact: str | None = None) -> JsonOb
         if needs_policy_delta(classification, secondary, raw)
         else None
     )
-    card_policy_delta = (
-        policy_delta
-        if policy_delta is not None and as_list(policy_delta.get("bounds"))
-        else None
-    )
-    card_delta = build_experiment_card_delta(
-        raw,
-        finding=finding,
-        reward_decision=reward_decision,
-        scenario_delta=scenario_delta,
-        policy_delta=card_policy_delta,
+    card_delta = (
+        None
+        if has_missing_policy_bounds(policy_delta)
+        else build_experiment_card_delta(
+            raw,
+            finding=finding,
+            reward_decision=reward_decision,
+            scenario_delta=scenario_delta,
+            policy_delta=policy_delta,
+        )
     )
     blocking_reasons = plan_blocking_reasons(
         classification=classification,

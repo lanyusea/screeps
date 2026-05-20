@@ -117,6 +117,14 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
                 "componentId": "construction-neglect-penalty",
                 "parameterSurface": "construction-priority",
             },
+            {
+                "title": "Aliased online status still blocks scenario gaps without compute evidence",
+                "classification": "scenario_gap",
+                "onlineStatus": "BLOCKED_NO_COMPUTE",
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "parameterSurface": "construction-priority",
+            },
         )
 
         for raw in cases:
@@ -152,6 +160,33 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertIsNone(plan["nextExperimentCardDelta"])
         self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
         self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
+
+    def test_online_status_alias_selects_multi_tier_target_for_single_room_gap(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Single-room scenario still has unproven online utility",
+                "classification": "scenario_gap",
+                "scenarioId": planner.DEFAULT_SCENARIO_ID,
+                "onlineStatus": "UNPROVEN",
+                "parameterSurface": {
+                    "name": "expansion-risk-window",
+                    "bounds": [
+                        {
+                            "name": "remoteRiskLimit",
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.05,
+                            "reason": "Keep unproven expansion routing bounded.",
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(plan["nextScenarioDelta"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(plan["nextPolicyDelta"]["parameterSurface"], "expansion-risk-window")
+        self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "present")
+        self.assertEqual(plan["nextExperimentCardDelta"]["scenarioId"], planner.MULTI_TIER_SCENARIO_ID)
 
     def test_rollout_regression_with_signal_noise_still_blocks_all_deltas(self) -> None:
         plan = planner.build_plan(
@@ -206,6 +241,71 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
             ["remoteRiskLimit"],
         )
 
+    def test_nested_policy_target_family_surface_and_bounds_are_honored(self) -> None:
+        cases = (
+            (
+                {
+                    "title": "Nested parameter surface family carries the explicit policy surface",
+                    "policyDelta": {
+                        "parameterSurface": {
+                            "targetFamily": {
+                                "name": "expansion-risk-window",
+                                "parameters": [
+                                    {
+                                        "name": "remoteRiskLimit",
+                                        "min": 0,
+                                        "max": 1,
+                                        "step": 0.05,
+                                        "reason": "Bound remote risk before expansion changes.",
+                                    }
+                                ],
+                            }
+                        }
+                    },
+                },
+                "expansion-risk-window",
+                "remoteRiskLimit",
+            ),
+            (
+                {
+                    "title": "Direct target family wrapper carries the explicit policy surface",
+                    "policyDelta": {
+                        "targetFamily": {
+                            "name": "spawn-energy-window",
+                            "parameters": [
+                                {
+                                    "name": "reservedSpawnEnergy",
+                                    "min": 0,
+                                    "max": 300,
+                                    "step": 50,
+                                    "reason": "Keep spawn recovery energy reserved.",
+                                }
+                            ],
+                        }
+                    },
+                },
+                "spawn-energy-window",
+                "reservedSpawnEnergy",
+            ),
+        )
+
+        for raw, expected_surface, expected_bound in cases:
+            with self.subTest(title=raw["title"]):
+                raw["classification"] = "policy_parameterization_gap"
+                raw["onlineUtilityStatus"] = "UNPROVEN"
+
+                plan = planner.build_plan(raw)
+
+                policy_delta = plan["nextPolicyDelta"]
+                self.assertEqual(plan["status"], "ACT_DELTA_READY")
+                self.assertEqual(policy_delta["parameterSurface"], expected_surface)
+                self.assertEqual(policy_delta["boundsStatus"], "present")
+                self.assertEqual(policy_delta["bounds"][0]["name"], expected_bound)
+                self.assertEqual(
+                    plan["nextExperimentCardDelta"]["deltas"]["policy"]["parameterSurface"],
+                    expected_surface,
+                )
+
     def test_nested_policy_surface_without_bounds_stays_route_required(self) -> None:
         plan = planner.build_plan(
             {
@@ -253,6 +353,26 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         )
 
         self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
+
+    def test_unbounded_construction_priority_policy_blocks_scenario_card_delta(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Construction-priority scenario gap has no bounded parameters",
+                "classification": "scenario_gap",
+                "onlineStatus": "UNPROVEN",
+                "scenarioId": planner.DEFAULT_SCENARIO_ID,
+                "missingCapabilities": ["multi_room_capable"],
+                "parameterSurface": "construction-priority",
+            }
+        )
+
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertEqual(plan["nextScenarioDelta"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(plan["nextPolicyDelta"]["parameterSurface"], "construction-priority")
+        self.assertEqual(plan["nextPolicyDelta"]["bounds"], [])
         self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
         self.assertIsNone(plan["nextExperimentCardDelta"])
         self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
