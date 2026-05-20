@@ -2183,6 +2183,7 @@ def verified_remote_candidate_scorecard(
             if (
                 runtime_parameter_injection is None
                 or runtime_parameter_injection.get("runtimeParameterInjection") is not True
+                or not runtime_injected
             ):
                 raise BatchRunError("remote candidateScorecard materialization failure requires runtimeParameterInjection proof")
             if injected_count <= 0:

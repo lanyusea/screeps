@@ -1299,6 +1299,38 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(verified["candidateParameterScope"], "runtime_injected")
         self.assertEqual(verified["candidateStrategyId"], "candidate")
 
+    def test_verify_remote_training_report_rejects_materialization_failure_without_nested_injection_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "candidate_scorecard_materialization_failed",
+                "scorecardId": None,
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "missingPrerequisite": "candidate_scorecard_artifact",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "materialization failure requires runtimeParameterInjection proof",
+            ):
+                controller.verify_remote_training_report()
+
     def test_verify_remote_training_report_rejects_inconsistent_candidate_scorecard_evidence(self) -> None:
         cases = (
             (
