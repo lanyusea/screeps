@@ -2025,11 +2025,6 @@ def bounded_policy_parameter_value(value: float, spec: JsonObject) -> float | in
     minimum = float(spec["min"])
     maximum = float(spec["max"])
     bounded = max(minimum, min(maximum, value))
-    step = number_or_none(spec.get("step"))
-    if step is not None and float(step) > 0:
-        step_float = float(step)
-        bounded = minimum + (round((bounded - minimum) / step_float) * step_float)
-        bounded = max(minimum, min(maximum, bounded))
     return round_policy_number(bounded)
 
 
