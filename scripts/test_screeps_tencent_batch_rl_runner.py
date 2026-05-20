@@ -1392,6 +1392,49 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             ):
                 controller.verify_remote_training_report()
 
+    def test_verify_remote_training_report_accepts_blocked_partial_runtime_injection_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "partial",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "partial_runtime_injection",
+                "injectedVariantCount": 1,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["scorecardId"] = None
+            data["scorecardArtifactPath"] = None
+            data["candidateScorecard"] = {
+                "status": "blocked",
+                "classification": "runtime_parameter_injection_validation_blocked",
+                "scorecardId": None,
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 1,
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": False,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        training_report = controller.result["trainingReport"]
+        self.assertEqual(training_report["runtimeParameterInjection"]["status"], "partial")
+        self.assertEqual(training_report["runtimeParameterInjection"]["injectedVariantCount"], 1)
+        self.assertEqual(training_report["candidateScorecard"]["status"], "blocked")
+        self.assertFalse(training_report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertEqual(training_report["candidateScorecard"]["injectedVariantCount"], 1)
+        self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(training_report["candidateScorecard"]["scorecardUsable"])
+        self.assertIsNone(training_report["scorecardId"])
+        self.assertIsNone(training_report["scorecardArtifactPath"])
+
     def test_verify_remote_training_report_rejects_inconsistent_candidate_scorecard_evidence(self) -> None:
         cases = (
             (

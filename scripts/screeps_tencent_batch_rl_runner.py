@@ -2198,6 +2198,11 @@ def verified_remote_candidate_scorecard(
             runtime_parameter_injection is not None
             and runtime_parameter_injection.get("runtimeParameterInjection") is True
         )
+        top_level_status = (
+            runtime_parameter_injection.get("status")
+            if isinstance(runtime_parameter_injection, dict)
+            else None
+        )
         if runtime_injected and not materialization_failed:
             raise BatchRunError("remote candidateScorecard blocked status requires runtimeParameterInjection=false")
         if top_level_runtime_injected and not materialization_failed:
@@ -2213,6 +2218,11 @@ def verified_remote_candidate_scorecard(
                 raise BatchRunError("remote candidateScorecard materialization failure requires runtimeParameterInjection proof")
             if injected_count <= 0:
                 raise BatchRunError("remote candidateScorecard materialization failure requires positive injectedVariantCount")
+        elif top_level_status == "partial":
+            if injected_count <= 0:
+                raise BatchRunError(
+                    "remote candidateScorecard blocked partial injection requires positive injectedVariantCount"
+                )
         elif injected_count != 0:
             raise BatchRunError("remote candidateScorecard blocked status requires injectedVariantCount=0")
         if not validation_blocked:
