@@ -14343,9 +14343,12 @@ function isTerritoryScoutAssignmentAvailableForCreep(colony, targetRoom, current
   const assignments = getActiveScoutAssignments(colony, currentCreepName, gameTime, targetTimedOut);
   const targetAssignmentCount = assignments.filter((assignment) => assignment.targetRoom === targetRoom).length;
   if (targetAssignmentCount > 0) {
-    return targetTimedOut && targetAssignmentCount < 2;
+    return targetTimedOut && targetAssignmentCount < 2 && assignments.length < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
   }
-  return targetTimedOut || getAssignedScoutTargetRooms(assignments).size < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
+  if (targetTimedOut) {
+    return assignments.length < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
+  }
+  return getAssignedScoutTargetRooms(assignments).size < TERRITORY_SCOUT_MAX_ACTIVE_ASSIGNMENTS;
 }
 function shouldRecycleSurplusTerritoryScout(creep, gameTime = getGameTime20()) {
   var _a;

@@ -407,6 +407,51 @@ describe('runTerritoryControllerCreep', () => {
     }
   });
 
+  it('recycles a surplus scout instead of reassigning it to a timed-out target while active assignments are capped', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2501,
+      rooms: {
+        E29N55: { name: 'E29N55' } as Room
+      },
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutAttempts: {
+          'E29N55>E29N53': {
+            colony: 'E29N55',
+            roomName: 'E29N53',
+            status: 'requested',
+            requestedAt: 1000,
+            updatedAt: 1000,
+            attemptCount: 1
+          }
+        }
+      }
+    };
+    const scouts = [
+      { name: 'ScoutA', targetRoom: 'E28N54' },
+      { name: 'ScoutB', targetRoom: 'E29N54' },
+      { name: 'ScoutC', targetRoom: 'E28N54' }
+    ].map(
+      ({ name, targetRoom }) =>
+        ({
+          name,
+          ticksToLive: 1_000,
+          memory: { role: 'scout', colony: 'E29N55', territory: { targetRoom, action: 'scout' } },
+          room: { name: 'E29N55' } as Room,
+          moveTo: jest.fn()
+        }) as unknown as Creep
+    );
+    (Game as Partial<Game>).creeps = Object.fromEntries(scouts.map((creep) => [creep.name, creep]));
+
+    runTerritoryControllerCreep(scouts[2]);
+
+    expect(scouts[2].memory.territory).toBeUndefined();
+    expect(scouts[2].moveTo).not.toHaveBeenCalled();
+  });
+
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {
     recordColonyStageAssessment(
       'W1N1',
