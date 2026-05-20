@@ -2448,6 +2448,7 @@ def finalize_candidate_scorecard_set_payload(payload: JsonObject) -> None:
     payload["scorecardUsable"] = usable
     payload["missingPrerequisites"] = missing_prerequisites
     payload["reasonCodes"] = reason_codes
+    payload["selectedScorecardId"] = comparisons[0].get("scorecardId") if comparisons else None
     if not comparisons:
         payload["status"] = "blocked"
         payload["classification"] = "candidate_baseline_pair_missing"

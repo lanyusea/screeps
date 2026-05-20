@@ -2315,6 +2315,7 @@ def verified_remote_candidate_scorecards(
         )
 
     verified_comparisons: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
     for index, item in enumerate(comparisons):
         if not isinstance(item, dict):
             raise BatchRunError(f"remote candidateScorecards.comparisons[{index}] must be an object")
@@ -2343,6 +2344,12 @@ def verified_remote_candidate_scorecards(
             raise BatchRunError(
                 f"remote candidateScorecards.comparisons[{index}].comparisonKey disagrees with strategy ids"
             )
+        pair = (candidate_id, baseline_id)
+        if pair in seen_pairs:
+            raise BatchRunError(
+                f"remote candidateScorecards.comparisons[{index}] duplicates comparison {comparison_key!r}"
+            )
+        seen_pairs.add(pair)
         try:
             verified = verified_remote_candidate_scorecard(
                 item,
@@ -2370,6 +2377,14 @@ def verified_remote_candidate_scorecards(
         raise BatchRunError(
             f"remote candidateScorecards.baselineCount disagrees with comparisons: "
             f"{baseline_count} != {len(baseline_ids)}"
+        )
+    expected_pairs = {(candidate_id, baseline_id) for candidate_id in candidate_ids for baseline_id in baseline_ids}
+    missing_pairs = sorted(expected_pairs - seen_pairs)
+    if missing_pairs:
+        missing = ", ".join(f"{candidate_id}::vs::{baseline_id}" for candidate_id, baseline_id in missing_pairs)
+        raise BatchRunError(
+            "remote candidateScorecards.comparisons does not cover the full candidate/baseline matrix: "
+            f"missing {missing}"
         )
     if "candidateStrategyIds" in raw and required_text_list(
         raw.get("candidateStrategyIds"),

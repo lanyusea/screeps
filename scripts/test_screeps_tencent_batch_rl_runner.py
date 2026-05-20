@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import io
 import json
 import os
@@ -252,6 +253,41 @@ def ready_runtime_candidate_scorecard_set() -> dict[str, object]:
                 "officialMmoWritesAllowed": False,
             }
         ],
+    }
+
+
+def ready_runtime_candidate_scorecard_matrix() -> dict[str, object]:
+    candidate_ids = ["candidate-a", "candidate-b"]
+    baseline_ids = ["baseline-a", "baseline-b"]
+    base = ready_runtime_candidate_scorecard_set()
+    template = base["comparisons"][0]
+    comparisons: list[dict[str, object]] = []
+    for candidate_index, candidate_id in enumerate(candidate_ids, start=1):
+        for baseline_index, baseline_id in enumerate(baseline_ids, start=1):
+            comparison = copy.deepcopy(template)
+            scorecard_id = f"rl-scorecard-run-test-{candidate_id}-vs-{baseline_id}"
+            comparison.update(
+                {
+                    "scorecardId": scorecard_id,
+                    "candidateStrategyId": candidate_id,
+                    "baselineStrategyId": baseline_id,
+                    "candidateRank": candidate_index,
+                    "baselineRank": len(candidate_ids) + baseline_index,
+                    "comparisonKey": f"{candidate_id}::vs::{baseline_id}",
+                }
+            )
+            comparisons.append(comparison)
+    return {
+        **base,
+        "comparisonCount": len(comparisons),
+        "candidateCount": len(candidate_ids),
+        "baselineCount": len(baseline_ids),
+        "candidateStrategyIds": candidate_ids,
+        "baselineStrategyIds": baseline_ids,
+        "selectedScorecardId": comparisons[0]["scorecardId"],
+        "materializedScorecardCount": len(comparisons),
+        "readyComparisonCount": len(comparisons),
+        "comparisons": comparisons,
     }
 
 
@@ -1319,7 +1355,42 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(scorecard_set["comparisonCount"], 1)
         self.assertEqual(scorecard_set["comparisons"][0]["scorecardId"], "rl-scorecard-run-test")
 
+    def test_verify_remote_training_report_accepts_complete_candidate_scorecard_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["candidateScorecards"] = ready_runtime_candidate_scorecard_matrix()
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        scorecard_set = controller.result["trainingReport"]["candidateScorecards"]
+        self.assertEqual(scorecard_set["comparisonCount"], 4)
+        self.assertEqual(
+            {
+                (item["candidateStrategyId"], item["baselineStrategyId"])
+                for item in scorecard_set["comparisons"]
+            },
+            {
+                ("candidate-a", "baseline-a"),
+                ("candidate-a", "baseline-b"),
+                ("candidate-b", "baseline-a"),
+                ("candidate-b", "baseline-b"),
+            },
+        )
+
     def test_verify_remote_training_report_rejects_malformed_candidate_scorecard_set(self) -> None:
+        duplicate_matrix = ready_runtime_candidate_scorecard_matrix()
+        duplicate_matrix["comparisons"][-1] = copy.deepcopy(duplicate_matrix["comparisons"][0])
+        missing_matrix = ready_runtime_candidate_scorecard_matrix()
+        missing_matrix["comparisons"] = missing_matrix["comparisons"][:-1]
+        missing_matrix["comparisonCount"] = len(missing_matrix["comparisons"])
+        missing_matrix["materializedScorecardCount"] = len(missing_matrix["comparisons"])
+        missing_matrix["readyComparisonCount"] = len(missing_matrix["comparisons"])
         cases = (
             (
                 "non-object set",
@@ -1343,6 +1414,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "comparison count mismatch",
                 {**ready_runtime_candidate_scorecard_set(), "comparisonCount": 2},
                 "candidateScorecards.comparisonCount disagrees with comparisons",
+            ),
+            (
+                "duplicate comparison pair",
+                duplicate_matrix,
+                "candidateScorecards.comparisons\\[3\\] duplicates comparison",
+            ),
+            (
+                "missing comparison pair",
+                missing_matrix,
+                "candidateScorecards.comparisons does not cover the full candidate/baseline matrix",
             ),
         )
         for name, scorecard_set, expected_error in cases:

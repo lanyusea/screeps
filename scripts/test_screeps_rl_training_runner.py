@@ -1799,6 +1799,43 @@ export const STRATEGY_REGISTRY = [
         self.assertIsNone(report["scorecardId"])
         self.assertIsNone(report["scorecardArtifactPath"])
 
+    def test_policy_gradient_blocked_first_comparison_clears_selected_scorecard_id(self) -> None:
+        report: JsonObject = {
+            "policyGradient": {"target_family": "construction-priority"},
+            "reportId": "scorecard-blocked-first",
+            "generatedAt": "2026-05-17T07:00:00Z",
+            "ranking": [
+                {"variantId": "candidate-a", "rank": 1},
+                {"variantId": "candidate-b", "rank": 2},
+                {"variantId": "baseline", "rank": 3},
+            ],
+            "incumbentStrategyIds": ["baseline"],
+            "variantResults": [],
+            "warnings": [],
+            "runtimeParameterInjection": {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner.materialize_candidate_scorecard_artifact(report, Path(temp_dir), [])
+
+        scorecard_set = report["candidateScorecards"]
+        self.assertEqual(scorecard_set["comparisonCount"], 2)
+        self.assertEqual(scorecard_set["comparisons"][0]["candidateStrategyId"], "candidate-a")
+        self.assertEqual(scorecard_set["comparisons"][0]["status"], "blocked")
+        self.assertEqual(
+            scorecard_set["comparisons"][0]["classification"],
+            "scorecard_variant_result_missing",
+        )
+        self.assertIsNone(scorecard_set["comparisons"][0]["scorecardId"])
+        self.assertIsNone(scorecard_set["selectedScorecardId"])
+        self.assertIsNone(report["scorecardId"])
+        self.assertIsNone(report["scorecardArtifactPath"])
+
     def test_policy_reward_tuple_aggregation_weights_by_sample_count(self) -> None:
         self.assertEqual(
             runner.aggregate_policy_reward_tuple(
