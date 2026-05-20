@@ -1029,19 +1029,30 @@ def ingest_metrics_by_category(
         if not isinstance(raw_block, dict):
             continue
         category = normalized_key(str(raw_category))
-        value = first_number(raw_block, tuple((key,) for key in value_keys))
-        if value is None and role == "candidate":
-            value = first_number(raw_block, (("delta",), ("advantage",)))
-        elif value is None and role == "baseline":
-            value = 0.0 if first_number(raw_block, (("delta",), ("advantage",))) is not None else None
+        metric_key: str | None = None
+        note = ""
         if category in {"reliability", "safetyreliability", "runtimereliability"}:
-            accumulator.add("reliability_score", value, source, "Loop B reliability metric")
+            metric_key = "reliability_score"
+            note = "Loop B reliability metric"
         elif category in {"territory", "territoryexpansion"}:
-            accumulator.add("owned_room_count", value, source, "Loop B territory metric")
+            metric_key = "owned_room_count"
+            note = "Loop B territory metric"
         elif category in {"resources", "resource", "resourceseconomy", "economy"}:
-            accumulator.add("productive_energy", value, source, "Loop B resource metric")
+            metric_key = "productive_energy"
+            note = "Loop B resource metric"
         elif category in {"kills", "combat", "hostilekills"}:
-            accumulator.add("combat_score", value, source, "Loop B kill metric")
+            metric_key = "combat_score"
+            note = "Loop B kill metric"
+        if metric_key is None:
+            continue
+        value = first_number(raw_block, tuple((key,) for key in value_keys))
+        relative_value = first_number(raw_block, (("delta",), ("advantage",)))
+        if value is None and relative_value is not None:
+            spec = METRIC_SPECS.get(metric_key)
+            if spec is not None and spec.safety_floor:
+                continue
+            value = relative_value if role == "candidate" else 0.0
+        accumulator.add(metric_key, value, source, note)
 
 
 def ingest_training_or_advantage(
@@ -1567,7 +1578,7 @@ def build_lexicographic_objectives(dimensions: JsonObject) -> JsonObject:
             first_blocking = objective
 
     if first_blocking is not None:
-        result = STATUS_INCONCLUSIVE if any(row["status"] == STATUS_INCONCLUSIVE for row in objectives) else STATUS_REGRESSED
+        result = STATUS_REGRESSED if first_blocking == first_regression else STATUS_INCONCLUSIVE
     elif first_advantage is not None:
         result = STATUS_IMPROVED
     else:

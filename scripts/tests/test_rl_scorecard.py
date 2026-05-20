@@ -289,6 +289,66 @@ def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_pat
     assert report["candidate"]["runtimeParameterInjection"]["status"] == "injected"
 
 
+def test_delta_only_safety_floor_metric_does_not_create_false_rollback(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    loop_b_report = {
+        "type": "screeps-rl-policy-online-advantage-report",
+        "onlineUtilityStatus": "PROVEN",
+        "candidatePolicyId": "candidate-runtime-injected",
+        "baselinePolicyId": "incumbent-runtime-baseline",
+        "trainingReportIds": ["training-runtime-delta-only"],
+        "controllerSummary": {"finalStatus": "completed", "workerUser": "batch-worker"},
+        "metricsByCategory": {
+            "reliability": {"delta": 0.01},
+            "territory": {"candidateValue": 3, "baselineValue": 2, "delta": 1},
+            "resources": {"candidateValue": 1200, "baselineValue": 1000, "delta": 200},
+            "kills": {"candidateValue": 0, "baselineValue": 0, "delta": 0},
+        },
+    }
+    for root, role in ((baseline, "baseline"), (candidate, "candidate")):
+        write_json(root / "policy-online-advantage.json", loop_b_report)
+        write_json(
+            root / "gate.json",
+            {
+                "type": "screeps-rl-dataset-evaluation-gate",
+                "gateId": f"{role}-gate",
+                "status": "pass",
+                "ok": True,
+            },
+        )
+    write_json(
+        candidate / "runtime-parameter-injection.json",
+        {
+            "type": "screeps-rl-runtime-parameter-injection",
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "inlineCandidatesRuntimeInjected": True,
+            "candidateParameterScope": "runtime_injected",
+            "policyUpdateEligible": True,
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:03:00Z",
+        run_id="scorecard-runtime-delta-only-safety",
+    )
+
+    safety = report["dimensions"]["safety_reliability_floor"]
+    reliability = next(metric for metric in safety["metrics"] if metric["metric"] == "reliability_score")
+    assert report["overallGate"]["status"] == "PASS"
+    assert report["overallGate"]["safetyRegressions"] == []
+    assert safety["status"] == "neutral"
+    assert reliability["candidate"] is None
+    assert reliability["baseline"] is None
+    assert "reliability_score" in safety["missingEvidence"]
+
+
 def test_runtime_scorecard_missing_baseline_metric_is_inconclusive_not_pass(tmp_path: Path) -> None:
     baseline = tmp_path / "baseline"
     candidate = tmp_path / "candidate"
@@ -396,6 +456,44 @@ def test_metadata_only_policy_update_holds_even_with_complete_metric_advantage(t
     assert report["overallGate"]["status"] != "PASS"
     assert report["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"] is False
     assert report["overallGate"]["monotonic"]["improvedNonSafetyDimension"] is True
+
+
+def test_lexicographic_result_regresses_on_first_blocking_regression() -> None:
+    result = scorecard.build_lexicographic_objectives(
+        {
+            "safety_reliability_floor": {"status": scorecard.STATUS_NEUTRAL, "missingEvidence": [], "safety": True},
+            "territory_expansion": {"status": scorecard.STATUS_REGRESSED, "missingEvidence": [], "safety": False},
+            "resources_economy": {
+                "status": scorecard.STATUS_INCONCLUSIVE,
+                "missingEvidence": ["productive_energy"],
+                "safety": False,
+            },
+            "combat": {"status": scorecard.STATUS_NEUTRAL, "missingEvidence": [], "safety": False},
+        }
+    )
+
+    assert result["result"] == scorecard.STATUS_REGRESSED
+    assert result["firstBlockingObjective"] == "territory"
+    assert result["firstRegressionObjective"] == "territory"
+
+
+def test_lexicographic_result_stays_inconclusive_when_first_blocking_is_missing() -> None:
+    result = scorecard.build_lexicographic_objectives(
+        {
+            "safety_reliability_floor": {"status": scorecard.STATUS_NEUTRAL, "missingEvidence": [], "safety": True},
+            "territory_expansion": {
+                "status": scorecard.STATUS_INCONCLUSIVE,
+                "missingEvidence": ["owned_room_count"],
+                "safety": False,
+            },
+            "resources_economy": {"status": scorecard.STATUS_REGRESSED, "missingEvidence": [], "safety": False},
+            "combat": {"status": scorecard.STATUS_NEUTRAL, "missingEvidence": [], "safety": False},
+        }
+    )
+
+    assert result["result"] == scorecard.STATUS_INCONCLUSIVE
+    assert result["firstBlockingObjective"] == "territory"
+    assert result["firstRegressionObjective"] == "resources"
 
 
 def test_value_has_reference_parses_numeric_strings() -> None:
