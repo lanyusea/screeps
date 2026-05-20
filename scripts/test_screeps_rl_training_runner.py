@@ -1960,6 +1960,75 @@ export const STRATEGY_REGISTRY = [
         self.assertNotIn("updatedParameters", update)
         self.assertNotIn("parameterDelta", update)
 
+    def test_reinforce_small_gradient_preserves_nonzero_continuous_candidate_delta(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 0.25,
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 6.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 7.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 6.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1.02, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 7.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-small-gradient",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["learningRate"], 0.25)
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.0085})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.06375})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.06375})
+        self.assertEqual(
+            update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
+            {"territorySignalWeight": 0.06375},
+        )
+        self.assertEqual(update["nextCandidatePolicy"]["parameters"], {"territorySignalWeight": 6.06375})
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertFalse(update["nextCandidatePolicy"]["liveEffect"])
+        self.assertFalse(update["nextCandidatePolicy"]["officialMmoWrites"])
+        self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
+
+    def test_policy_update_bounds_preserve_continuous_values_without_step_quantizing(self) -> None:
+        spec = {"min": 0, "max": 30, "step": 1}
+
+        self.assertEqual(runner.bounded_policy_parameter_value(6.06375, spec), 6.06375)
+        self.assertEqual(runner.bounded_policy_parameter_value(-0.25, spec), 0)
+        self.assertEqual(runner.bounded_policy_parameter_value(30.25, spec), 30)
+
     def test_reinforce_metadata_only_parameters_skip_candidate_update_artifact(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-reinforce",
