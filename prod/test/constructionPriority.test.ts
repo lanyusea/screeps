@@ -2,6 +2,7 @@ import {
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   buildConstructionSiteImpactPriorityContext,
   buildRuntimeConstructionPriorityReport,
+  constructionPriorityStrategyParametersFromEntry,
   isPostClaimConstructionRoom,
   planTowerConstruction,
   selectImpactWeightedConstructionSite,
@@ -11,6 +12,7 @@ import {
   type ConstructionPriorityRoomState
 } from '../src/construction/constructionPriority';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { DEFAULT_STRATEGY_REGISTRY, type StrategyRegistryEntry } from '../src/strategy/strategyRegistry';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -108,6 +110,77 @@ describe('construction priority scoring', () => {
     expect(scoreFor(report.candidates, 'build tower defense')).toBeGreaterThan(
       scoreFor(report.candidates, 'build extension capacity')
     );
+  });
+
+  it('applies runtime strategy parameters to construction priority scoring', () => {
+    const state = makeRoomState({
+      rcl: 4,
+      workerCount: 5,
+      energyCapacity: 1_300
+    });
+    const candidates = [
+      {
+        buildItem: 'build remote logistics',
+        buildType: 'remote-logistics',
+        expectedKpiMovement: ['turns territory intent into sustainable income'],
+        signals: {},
+        vision: { territory: 1, resources: 0 }
+      },
+      {
+        buildItem: 'build storage logistics',
+        buildType: 'storage',
+        expectedKpiMovement: ['raises stored-energy capacity'],
+        signals: { energyBottleneck: 1, spawnUtilization: 1, rclAcceleration: 1, storageLogistics: 1 },
+        vision: { resources: 1, territory: 0 }
+      }
+    ] satisfies ConstructionBuildCandidate[];
+
+    const baseline = scoreConstructionPriorities(state, candidates);
+    const report = scoreConstructionPriorities(state, candidates, {
+      strategyParameters: {
+        baseScoreWeight: 0,
+        territorySignalWeight: 30,
+        resourceSignalWeight: 0,
+        killSignalWeight: 0,
+        riskPenalty: 0
+      }
+    });
+
+    expect(baseline.nextPrimary?.buildItem).toBe('build storage logistics');
+    expect(scoreFor(baseline.candidates, 'build storage logistics')).toBeGreaterThan(
+      scoreFor(baseline.candidates, 'build remote logistics')
+    );
+    expect(report.nextPrimary?.buildItem).toBe('build remote logistics');
+    expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
+      scoreFor(report.candidates, 'build storage logistics')
+    );
+    expect(scoreFor(report.candidates, 'build remote logistics')).toBeGreaterThan(
+      scoreFor(baseline.candidates, 'build remote logistics')
+    );
+  });
+
+  it('preserves legacy construction scoring for registry entries without explicit parameters', () => {
+    const incumbent = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+    expect(incumbent).toBeDefined();
+    const plainEntry: StrategyRegistryEntry = {
+      ...incumbent!,
+      defaultValues: {}
+    };
+
+    expect(constructionPriorityStrategyParametersFromEntry(plainEntry)).toBeUndefined();
+  });
+
+  it('extracts construction priority scoring parameters when registry defaults are explicit', () => {
+    const incumbent = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+
+    expect(incumbent).toBeDefined();
+    expect(constructionPriorityStrategyParametersFromEntry(incumbent)).toMatchObject({
+      baseScoreWeight: 1,
+      territorySignalWeight: 6,
+      resourceSignalWeight: 4,
+      killSignalWeight: 6,
+      riskPenalty: 4
+    });
   });
 
   it('weights expansion prerequisites ahead of lower-chain resource storage when home state is safe', () => {
@@ -649,6 +722,32 @@ describe('runtime construction priority report', () => {
     ]);
 
     expect(scoreByName(report.candidates, 'build extension capacity').blocked).toBe(false);
+  });
+
+  it('counts room-local worker names when legacy worker memory lacks colony', () => {
+    const { colony, room } = makeRuntimeColony({
+      controllerLevel: 4,
+      energyCapacityAvailable: 1_300,
+      ownedStructures: [
+        makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+        ...Array.from({ length: 20 }, (_, index) =>
+          makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 22 + index, 20)
+        )
+      ]
+    });
+    const workers = Array.from(
+      { length: 3 },
+      (_unused, index) =>
+        ({
+          name: `worker-W1N1-${index}`,
+          room,
+          memory: { role: 'worker' }
+        }) as Creep
+    );
+
+    const report = buildRuntimeConstructionPriorityReport(colony, workers);
+
+    expect(scoreByName(report.candidates, 'build storage logistics').blocked).toBe(false);
   });
 
   it('skips malformed territory intent entries while counting runtime intent pressure', () => {

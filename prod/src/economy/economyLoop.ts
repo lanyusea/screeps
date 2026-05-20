@@ -28,6 +28,7 @@ import {
   type RuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../telemetry/runtimeSummary';
+import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getRuntimeFeatureGates, type RuntimeFeatureGates } from '../runtime/featureGates';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
@@ -140,7 +141,16 @@ interface CoordinatedSpawnPlan {
   availableEnergy: number;
 }
 
-export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
+export interface EconomyRuntimeOptions {
+  strategyRegistry?: StrategyRegistryEntry[];
+  runtimeStrategyConstructionEnabled?: boolean;
+  onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
+}
+
+export function runEconomy(
+  preludeTelemetryEvents: RuntimeTelemetryEvent[] = [],
+  options: EconomyRuntimeOptions = {}
+): RuntimeSummary | undefined {
   const featureGates = getRuntimeFeatureGates();
   const creeps = Object.values(Game.creeps);
   balanceStorage();
@@ -195,7 +205,13 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     if (postClaimBootstrapRefresh.deferred !== true) {
-      planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
+      planClaimedRoomConstruction(colony, {
+        respectRoomEnergyBuffer: true,
+        creeps,
+        strategyRegistry: options.strategyRegistry,
+        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+      });
     }
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -327,7 +343,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
   }
 
-  return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+  return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
+    persistOccupationRecommendations: false,
+    strategyRegistry: options.strategyRegistry
+  });
 }
 
 function ensureLocalWorkerColonyMemory(colonies: ColonySnapshot[], creeps: Creep[]): void {

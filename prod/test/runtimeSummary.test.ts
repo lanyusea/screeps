@@ -9,6 +9,7 @@ import {
 import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
+import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 
 const TEST_GLOBALS = {
   FIND_STRUCTURES: 101,
@@ -2457,6 +2458,18 @@ describe('runtime telemetry summaries', () => {
         }
       ])
     ).toBe(true);
+  });
+
+  it('does not report construction-priority runtime use from summary-only scoring', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const onStrategyRegistryRuntimeUse = jest.fn();
+
+    emitRuntimeSummary([colony], [], [], {
+      strategyRegistry: DEFAULT_STRATEGY_REGISTRY,
+      onStrategyRegistryRuntimeUse
+    });
+
+    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
   function parseLoggedSummary(): Record<string, unknown> {

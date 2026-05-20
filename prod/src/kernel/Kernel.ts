@@ -3,6 +3,7 @@ import { runDefense } from '../defense/defenseLoop';
 import { runEconomy } from '../economy/economyLoop';
 import { RUNTIME_SUMMARY_INTERVAL, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import type { RuntimeSummary } from '../telemetry/runtimeSummary';
+import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 
 const MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
 const DEFENSE_EVENT_FORWARDING_TTL_TICKS = RUNTIME_SUMMARY_INTERVAL;
@@ -11,7 +12,16 @@ export interface KernelDependencies {
   initializeMemory: () => void;
   cleanupDeadCreepMemory: () => void;
   runDefense: () => RuntimeTelemetryEvent[];
-  runEconomy: (telemetryEvents?: RuntimeTelemetryEvent[]) => RuntimeSummary | undefined;
+  runEconomy: (
+    telemetryEvents?: RuntimeTelemetryEvent[],
+    options?: KernelRunOptions
+  ) => RuntimeSummary | undefined;
+}
+
+export interface KernelRunOptions {
+  strategyRegistry?: StrategyRegistryEntry[];
+  runtimeStrategyConstructionEnabled?: boolean;
+  onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
 
 export class Kernel {
@@ -26,14 +36,23 @@ export class Kernel {
     }
   ) {}
 
-  public run(): RuntimeSummary | undefined {
+  public run(options: KernelRunOptions = {}): RuntimeSummary | undefined {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime())
-    );
+    const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime());
+    return hasKernelRunOptions(options)
+      ? this.dependencies.runEconomy(forwardedEvents, options)
+      : this.dependencies.runEconomy(forwardedEvents);
   }
+}
+
+function hasKernelRunOptions(options: KernelRunOptions): boolean {
+  return (
+    options.strategyRegistry !== undefined ||
+    options.runtimeStrategyConstructionEnabled !== undefined ||
+    options.onStrategyRegistryRuntimeUse !== undefined
+  );
 }
 
 function selectForwardedDefenseEvents(

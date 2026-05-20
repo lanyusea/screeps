@@ -9310,6 +9310,298 @@ function matchesStructureType5(actual, globalName, fallback) {
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
+// src/strategy/strategyRegistry.ts
+var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
+var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
+var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
+var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
+  shards: [...ACTIVE_OFFICIAL_SHARDS],
+  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
+};
+var DEFAULT_STRATEGY_REGISTRY = [
+  {
+    id: "construction-priority.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Current construction priority scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 6,
+      resourceSignalWeight: 4,
+      killSignalWeight: 6,
+      riskPenalty: 4
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "RL/self-evolving strategy paper", source: "docs", path: RL_RESEARCH_PATH }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "construction-priority.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Territory-first construction priority shadow candidate",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Current expansion and remote candidate scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 8,
+      resourceSignalWeight: 5,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Gameplay evolution roadmap", source: "docs", path: "docs/ops/gameplay-evolution-roadmap.md" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Territory-first expansion and remote candidate shadow model",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 26,
+      resourceSignalWeight: 4,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "defense-repair.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "defense-posture-repair-threshold",
+    title: "Current defense posture and repair threshold shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
+      minRcl: 1,
+      notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to observed hostile and damage pressure.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for controller survival and held-room protection.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for storage and productive-structure protection.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile presence and tower/rampart readiness.", 0, 40, 1),
+      numberKnob("riskPenalty", "Penalty for unavailable or insufficient observations.", 0, 30, 1),
+      numberKnob("repairCriticalHitsRatio", "Critical repair hit ratio threshold.", 0.01, 1, 0.01)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 12,
+      resourceSignalWeight: 6,
+      killSignalWeight: 18,
+      riskPenalty: 4,
+      repairCriticalHitsRatio: 0.5
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Runtime room monitor runbook", source: "docs", path: "docs/ops/runtime-room-monitor.md" }
+    ],
+    rollback: passiveRollback("defense-repair.incumbent.v1")
+  }
+];
+function validateStrategyRegistryEntry(entry) {
+  const issues = [];
+  if (entry.schemaVersion !== STRATEGY_REGISTRY_SCHEMA_VERSION) {
+    issues.push(`unsupported schemaVersion ${entry.schemaVersion}`);
+  }
+  if (!entry.id) {
+    issues.push("missing strategy id");
+  }
+  if (!entry.version) {
+    issues.push("missing strategy version");
+  }
+  if (!entry.owner.issue || entry.owner.issue <= 0) {
+    issues.push("missing owning issue");
+  }
+  if (entry.supportedContext.artifactTypes.length === 0) {
+    issues.push("supported context must name at least one artifact type");
+  }
+  if (entry.knobBounds.length === 0) {
+    issues.push("strategy must declare bounded knobs");
+  }
+  const declaredKnobs = /* @__PURE__ */ new Set();
+  for (const knob of entry.knobBounds) {
+    if (declaredKnobs.has(knob.name)) {
+      issues.push(`duplicate knob ${knob.name}`);
+    }
+    declaredKnobs.add(knob.name);
+    if (!(knob.name in entry.defaultValues)) {
+      issues.push(`missing default for knob ${knob.name}`);
+      continue;
+    }
+    const defaultValue = entry.defaultValues[knob.name];
+    if (!isKnobDefaultWithinBounds(defaultValue, knob.bounds)) {
+      issues.push(`default for knob ${knob.name} is outside declared bounds`);
+    }
+  }
+  for (const defaultName of Object.keys(entry.defaultValues)) {
+    if (!declaredKnobs.has(defaultName)) {
+      issues.push(`default declared without knob bounds: ${defaultName}`);
+    }
+  }
+  if (entry.evidenceLinks.length === 0) {
+    issues.push("missing evidence links");
+  }
+  if (!entry.rollback.disableFlag) {
+    issues.push("missing rollback disable flag");
+  }
+  if (entry.rollback.stopConditions.length === 0) {
+    issues.push("missing rollback stop conditions");
+  }
+  return { valid: issues.length === 0, issues };
+}
+function validateStrategyRegistry(entries) {
+  const issues = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (ids.has(entry.id)) {
+      issues.push(`duplicate strategy id ${entry.id}`);
+    }
+    ids.add(entry.id);
+    const entryResult = validateStrategyRegistryEntry(entry);
+    issues.push(...entryResult.issues.map((issue) => `${entry.id}: ${issue}`));
+  }
+  return { valid: issues.length === 0, issues };
+}
+function getStrategyNumberDefault(entry, knobName, fallback = 0) {
+  const value = entry.defaultValues[knobName];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function numberKnob(name, description, min, max, step) {
+  return {
+    name,
+    description,
+    bounds: {
+      kind: "number",
+      min,
+      max,
+      ...step !== void 0 ? { step } : {}
+    }
+  };
+}
+function passiveRollback(rollbackToStrategyId) {
+  return {
+    disabledByDefault: true,
+    disableFlag: "strategyShadowEvaluator.enabled=false",
+    rollbackToStrategyId,
+    stopConditions: [
+      "shadow report is noisy or expensive",
+      "artifact parsing cannot be proven deterministic",
+      "any candidate output is accidentally wired into live Screeps actions"
+    ],
+    notes: "The first slice is pure offline/shadow evaluation; disabling the evaluator leaves live behavior unchanged."
+  };
+}
+function isKnobDefaultWithinBounds(value, bounds) {
+  switch (bounds.kind) {
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max;
+    case "boolean":
+      return typeof value === "boolean";
+    case "enum":
+      return typeof value === "string" && bounds.values.includes(value);
+    default:
+      return false;
+  }
+}
+
 // src/construction/extensionPlanner.ts
 var EXTENSION_LIMITS_BY_RCL = {
   2: 5,
@@ -9759,6 +10051,13 @@ function getOkCode2() {
 }
 
 // src/construction/constructionPriority.ts
+var CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES = [
+  "baseScoreWeight",
+  "territorySignalWeight",
+  "resourceSignalWeight",
+  "killSignalWeight",
+  "riskPenalty"
+];
 var CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5e3;
 var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
 var EARLY_ENERGY_CAPACITY_TARGET = 550;
@@ -9863,14 +10162,14 @@ var OBSERVATION_LABELS = {
   "territory-intents": "missing observation: territory intent state",
   "remote-paths": "missing observation: remote path/logistics exposure"
 };
-function scoreConstructionPriorities(roomState, candidates) {
-  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate)).sort(compareConstructionPriorityScores);
+function scoreConstructionPriorities(roomState, candidates, options = {}) {
+  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate, options)).sort(compareConstructionPriorityScores);
   return {
     candidates: scoredCandidates,
     nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
   };
 }
-function scoreConstructionCandidate(roomState, candidate) {
+function scoreConstructionCandidate(roomState, candidate, options = {}) {
   var _a, _b, _c, _d, _e, _f, _g;
   const missingObservations = getMissingObservations(roomState, candidate);
   const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
@@ -9883,6 +10182,7 @@ function scoreConstructionCandidate(roomState, candidate) {
   if (blocked) {
     return {
       buildItem: candidate.buildItem,
+      buildType: candidate.buildType,
       room: (_b = candidate.roomName) != null ? _b : roomState.roomName,
       policyAction: (_c = candidate.policyAction) != null ? _c : "build",
       score: 0,
@@ -9913,12 +10213,13 @@ function scoreConstructionCandidate(roomState, candidate) {
     visionWeight: scoreVisionWeight(candidate),
     riskCost: scoreRiskCost(roomState, candidate)
   };
-  const rawScore = factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
+  const rawScore = scoreConstructionCandidateRawScore(candidate, factors, options.strategyParameters);
   const survivalGatedScore = applySurvivalGate(roomState, candidate, rawScore);
   const gatedScore = applySourceLogisticsEnergyStarvationPriority(roomState, candidate, survivalGatedScore);
   const score = clampScore(Math.round(gatedScore));
   return {
     buildItem: candidate.buildItem,
+    buildType: candidate.buildType,
     room: (_e = candidate.roomName) != null ? _e : roomState.roomName,
     policyAction: (_f = candidate.policyAction) != null ? _f : "build",
     score,
@@ -10012,9 +10313,33 @@ function getPostClaimConstructionSiteImpactPriority(site, context) {
   }
   return POST_CLAIM_CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
 }
-function buildRuntimeConstructionPriorityReport(colony, creeps) {
+function buildRuntimeConstructionPriorityReport(colony, creeps, options = {}) {
   const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state));
+  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state), options);
+}
+function selectConstructionPriorityStrategyRegistryEntry(registry) {
+  var _a;
+  return (_a = registry == null ? void 0 : registry.find(
+    (candidate) => candidate.family === "construction-priority" && candidate.rolloutStatus === "incumbent"
+  )) != null ? _a : registry == null ? void 0 : registry.find((candidate) => candidate.family === "construction-priority");
+}
+function constructionPriorityStrategyParametersFromEntry(entry) {
+  if (!entry) {
+    return void 0;
+  }
+  const hasExplicitParameter = CONSTRUCTION_PRIORITY_STRATEGY_PARAMETER_NAMES.some(
+    (name) => Object.prototype.hasOwnProperty.call(entry.defaultValues, name)
+  );
+  if (!hasExplicitParameter) {
+    return void 0;
+  }
+  return {
+    baseScoreWeight: getStrategyNumberDefault(entry, "baseScoreWeight", 1),
+    territorySignalWeight: getStrategyNumberDefault(entry, "territorySignalWeight", 0),
+    resourceSignalWeight: getStrategyNumberDefault(entry, "resourceSignalWeight", 0),
+    killSignalWeight: getStrategyNumberDefault(entry, "killSignalWeight", 0),
+    riskPenalty: getStrategyNumberDefault(entry, "riskPenalty", 0)
+  };
 }
 function planTowerConstruction(colony) {
   const limit = getTowerLimitForRcl(getOwnedRoomRcl2(colony.room));
@@ -10658,6 +10983,17 @@ function scoreVisionWeight(candidate) {
   const score = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * 13 + normalizeSignal(vision.resources) * 9 + normalizeSignal(vision.enemyKills) * 5;
   return Math.min(MAX_VISION_POINTS, Math.round(score));
 }
+function scoreConstructionCandidateRawScore(candidate, factors, strategyParameters) {
+  var _a;
+  if (!strategyParameters) {
+    return factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
+  }
+  const baseScore = factors.urgency + factors.roomState + factors.extensionBootstrapWeight + factors.expansionPrerequisites + factors.economicBenefit;
+  const vision = (_a = candidate.vision) != null ? _a : {};
+  const weightedVision = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * strategyParameters.territorySignalWeight + normalizeSignal(vision.resources) * strategyParameters.resourceSignalWeight + normalizeSignal(vision.enemyKills) * strategyParameters.killSignalWeight;
+  const riskMultiplier = Math.max(0, strategyParameters.riskPenalty) / 4;
+  return baseScore * Math.max(0, strategyParameters.baseScoreWeight) + weightedVision - factors.riskCost * riskMultiplier;
+}
 function scoreRiskCost(roomState, candidate) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
   const energyCost = (_b = (_a = candidate.estimatedEnergyCost) != null ? _a : STRUCTURE_BUILD_COSTS[candidate.buildType]) != null ? _b : 0;
@@ -10886,10 +11222,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const hostileCreeps = findRoomObjects13(room, "FIND_HOSTILE_CREEPS");
   const hostileStructures = findRoomObjects13(room, "FIND_HOSTILE_STRUCTURES");
   const sources = findRoomObjects13(room, "FIND_SOURCES");
-  const colonyWorkers = creeps.filter((creep) => {
-    var _a2, _b2;
-    return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
-  });
+  const colonyWorkers = creeps.filter((creep) => isRuntimeConstructionWorkerForRoom(creep, room.name));
   const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
   return {
@@ -10928,6 +11261,17 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
     ownedStructures,
     visibleStructures
   };
+}
+function isRuntimeConstructionWorkerForRoom(creep, roomName) {
+  var _a, _b;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
+    return false;
+  }
+  const colonyName = creep.memory.colony;
+  if (typeof colonyName === "string" && colonyName.length > 0) {
+    return colonyName === roomName;
+  }
+  return ((_b = creep.room) == null ? void 0 : _b.name) === roomName && typeof creep.name === "string" && creep.name.startsWith(`worker-${roomName}-`);
 }
 function summarizeRuntimeStoredEnergy(colony, ownedStructures, visibleStructures) {
   var _a, _b;
@@ -11865,6 +12209,14 @@ var FALLBACK_CONTROLLER_STRUCTURES = {
   STRUCTURE_TOWER: [0, 0, 0, 1, 1, 2, 2, 3, 6],
   STRUCTURE_STORAGE: [0, 0, 0, 0, 1, 1, 1, 1, 1]
 };
+var DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES = [
+  "extension",
+  "container",
+  "road",
+  "rampart",
+  "tower",
+  "storage"
+];
 var PRIORITY_STRUCTURE_TYPES = {
   spawn: "STRUCTURE_SPAWN",
   extension: "STRUCTURE_EXTENSION",
@@ -11963,6 +12315,17 @@ function planConstructionForColony(colony, options = {}) {
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
+  }
+  if (planRuntimeStrategyPrioritizedConstruction(
+    colony,
+    result,
+    budgetState,
+    options,
+    priorityTowerDefenseSiteState,
+    sourceLogisticsStarved,
+    rcl
+  )) {
+    return result;
   }
   planExtensions(colony, result, budgetState, options);
   if (hasBlockingPlacementFailure(result)) {
@@ -12100,6 +12463,156 @@ function planStorage(colony, result, budgetState, options) {
   const storageResult = planStorageConstruction(colony);
   if (storageResult !== null) {
     recordPlacement(result, budgetState, "storage", storageResult, options);
+  }
+}
+function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState, options, priorityTowerDefenseSiteState, sourceLogisticsStarved, rcl) {
+  if (options.runtimeStrategyConstructionEnabled !== true) {
+    return false;
+  }
+  const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(options.strategyRegistry);
+  const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
+  if (!strategyEntry || !strategyParameters) {
+    return false;
+  }
+  if (!options.creeps) {
+    return false;
+  }
+  const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
+  const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
+  if (priorities.length === 0) {
+    return false;
+  }
+  recordStrategyRegistryRuntimeUse(options, strategyEntry);
+  let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
+  for (const priority of priorities) {
+    activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
+      priority,
+      colony,
+      result,
+      budgetState,
+      options,
+      activePriorityTowerDefenseSiteState,
+      rcl
+    );
+    if (hasBlockingPlacementFailure(result)) {
+      return true;
+    }
+  }
+  return true;
+}
+function recordStrategyRegistryRuntimeUse(options, strategyEntry) {
+  if (!options.onStrategyRegistryRuntimeUse) {
+    return;
+  }
+  try {
+    options.onStrategyRegistryRuntimeUse(strategyEntry);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`[construction] strategy registry runtime-use hook failed: ${message}`);
+  }
+}
+function runtimeConstructionPlannerPriorityOrder(report, options = {}) {
+  const priorities = [];
+  for (const score of report.candidates) {
+    if (score.blocked || score.policyAction !== "build") {
+      continue;
+    }
+    for (const priority of constructionPriorityScorePlannerPriorities(score)) {
+      if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
+        priorities.push(priority);
+      }
+    }
+  }
+  for (const priority of DEFAULT_ROUTINE_CONSTRUCTION_PRIORITIES) {
+    if (!shouldSkipRuntimeConstructionPriority(priority, options) && !priorities.includes(priority)) {
+      priorities.push(priority);
+    }
+  }
+  return priorities;
+}
+function shouldSkipRuntimeConstructionPriority(priority, options) {
+  return options.sourceLogisticsStarved === true && (priority === "container" || priority === "road");
+}
+function constructionPriorityScorePlannerPriorities(score) {
+  switch (score.buildType) {
+    case "spawn":
+      return ["spawn"];
+    case "extension":
+      return ["extension"];
+    case "tower":
+      return ["tower"];
+    case "rampart":
+      return ["rampart"];
+    case "road":
+      return ["road"];
+    case "container":
+      return ["container"];
+    case "storage":
+      return ["storage"];
+    case "remote-logistics":
+      return ["container", "road"];
+    case "observation":
+      return [];
+  }
+}
+function planRuntimeConstructionPlannerPriority(priority, colony, result, budgetState, options, priorityTowerDefenseSiteState, rcl) {
+  switch (priority) {
+    case "spawn":
+      return priorityTowerDefenseSiteState;
+    case "extension":
+      planExtensions(colony, result, budgetState, options);
+      return priorityTowerDefenseSiteState;
+    case "container":
+      planContainers(colony, result, budgetState, options);
+      return priorityTowerDefenseSiteState;
+    case "road":
+      planRoads(colony, result, budgetState, options);
+      return priorityTowerDefenseSiteState;
+    case "tower":
+      if (priorityTowerDefenseSiteState !== "notNeeded") {
+        return priorityTowerDefenseSiteState;
+      }
+      priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+        colony,
+        result,
+        budgetState,
+        options,
+        rcl
+      );
+      if (hasBlockingPlacementFailure(result)) {
+        return priorityTowerDefenseSiteState;
+      }
+      if (priorityTowerDefenseSiteState === "notNeeded") {
+        planTowers(colony, result, budgetState, options);
+      }
+      return priorityTowerDefenseSiteState;
+    case "rampart":
+    case "wall":
+      if (priorityTowerDefenseSiteState === "notNeeded") {
+        priorityTowerDefenseSiteState = planPriorityTowerDefenseSiteIfNeeded(
+          colony,
+          result,
+          budgetState,
+          options,
+          rcl
+        );
+        if (hasBlockingPlacementFailure(result)) {
+          return priorityTowerDefenseSiteState;
+        }
+      }
+      if (priorityTowerDefenseSiteState !== "blocked") {
+        planBootstrapDefenseFloor(colony, result, budgetState, options);
+        if (hasBlockingPlacementFailure(result)) {
+          return priorityTowerDefenseSiteState;
+        }
+      }
+      if (options.includePostClaimRamparts === true) {
+        planRamparts(colony, result, budgetState, options);
+      }
+      return priorityTowerDefenseSiteState;
+    case "storage":
+      planStorage(colony, result, budgetState, options);
+      return priorityTowerDefenseSiteState;
   }
 }
 function buildSourceLogisticsStarvationRoadOptions(colony, options) {
@@ -34900,7 +35413,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
         persistOccupationRecommendations,
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
-        shouldBuildStructureSnapshot(tick)
+        shouldBuildStructureSnapshot(tick),
+        options.strategyRegistry
       );
     }
   );
@@ -34973,7 +35487,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry) {
   const tick = getGameTime31();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -35013,7 +35527,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
@@ -36186,8 +36700,11 @@ function summarizeCombat(room, events) {
     ...events ? { events } : {}
   };
 }
-function summarizeConstructionPriority(colony, colonyWorkers) {
-  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers);
+function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry) {
+  const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
+  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
+    strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
+  });
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
@@ -44222,7 +44739,7 @@ var ERR_NO_PATH_CODE8 = -2;
 var OK_CODE20 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
-function runEconomy(preludeTelemetryEvents = []) {
+function runEconomy(preludeTelemetryEvents = [], options = {}) {
   var _a, _b, _c, _d;
   const featureGates = getRuntimeFeatureGates();
   const creeps = Object.values(Game.creeps);
@@ -44274,7 +44791,13 @@ function runEconomy(preludeTelemetryEvents = []) {
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     if (postClaimBootstrapRefresh.deferred !== true) {
-      planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
+      planClaimedRoomConstruction(colony, {
+        respectRoomEnergyBuffer: true,
+        creeps,
+        strategyRegistry: options.strategyRegistry,
+        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+      });
     }
     if (survivalAssessment.mode === "TERRITORY_READY") {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
@@ -44392,7 +44915,10 @@ function runEconomy(preludeTelemetryEvents = []) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }
   }
-  return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+  return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
+    persistOccupationRecommendations: false,
+    strategyRegistry: options.strategyRegistry
+  });
 }
 function ensureLocalWorkerColonyMemory(colonies, creeps) {
   var _a;
@@ -45155,15 +45681,17 @@ var Kernel = class {
     this.dependencies = dependencies;
     this.lastForwardedDefenseEventTick = /* @__PURE__ */ new Map();
   }
-  run() {
+  run(options = {}) {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime44())
-    );
+    const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime44());
+    return hasKernelRunOptions(options) ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
   }
 };
+function hasKernelRunOptions(options) {
+  return options.strategyRegistry !== void 0 || options.runtimeStrategyConstructionEnabled !== void 0 || options.onStrategyRegistryRuntimeUse !== void 0;
+}
 function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
   const forwardedEvents = [];
   pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
@@ -45236,296 +45764,262 @@ function getGameTime44() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
-// src/strategy/strategyRegistry.ts
-var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
-var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
-var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
-var DEFAULT_SUPPORTED_OFFICIAL_CONTEXT = {
-  shards: [...ACTIVE_OFFICIAL_SHARDS],
-  rooms: [...ACTIVE_OFFICIAL_ROOM_NAMES]
-};
-var DEFAULT_STRATEGY_REGISTRY = [
-  {
-    id: "construction-priority.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "construction-priority",
-    title: "Current construction priority scoring shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      maxRcl: 4,
-      notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 6,
-      resourceSignalWeight: 4,
-      killSignalWeight: 6,
-      riskPenalty: 4
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "RL/self-evolving strategy paper", source: "docs", path: RL_RESEARCH_PATH }
-    ],
-    rollback: passiveRollback("construction-priority.incumbent.v1")
-  },
-  {
-    id: "construction-priority.territory-shadow.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "construction-priority",
-    title: "Territory-first construction priority shadow candidate",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      maxRcl: 4,
-      notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 22,
-      resourceSignalWeight: 3,
-      killSignalWeight: 5,
-      riskPenalty: 4
-    },
-    rolloutStatus: "shadow",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
-    ],
-    rollback: passiveRollback("construction-priority.incumbent.v1")
-  },
-  {
-    id: "expansion-remote.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "expansion-remote-candidate",
-    title: "Current expansion and remote candidate scoring shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
-      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 8,
-      resourceSignalWeight: 5,
-      killSignalWeight: 2,
-      riskPenalty: 10
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Gameplay evolution roadmap", source: "docs", path: "docs/ops/gameplay-evolution-roadmap.md" }
-    ],
-    rollback: passiveRollback("expansion-remote.incumbent.v1")
-  },
-  {
-    id: "expansion-remote.territory-shadow.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "expansion-remote-candidate",
-    title: "Territory-first expansion and remote candidate shadow model",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
-      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
-      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 26,
-      resourceSignalWeight: 4,
-      killSignalWeight: 2,
-      riskPenalty: 10
-    },
-    rolloutStatus: "shadow",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
-    ],
-    rollback: passiveRollback("expansion-remote.incumbent.v1")
-  },
-  {
-    id: "defense-repair.incumbent.v1",
-    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
-    version: "1.0.0",
-    family: "defense-posture-repair-threshold",
-    title: "Current defense posture and repair threshold shadow baseline",
-    owner: { issue: 265 },
-    supportedContext: {
-      artifactTypes: ["runtime-summary", "room-snapshot"],
-      ...DEFAULT_SUPPORTED_OFFICIAL_CONTEXT,
-      minRcl: 1,
-      notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
-    },
-    knobBounds: [
-      numberKnob("baseScoreWeight", "Weight applied to observed hostile and damage pressure.", 0, 3, 0.1),
-      numberKnob("territorySignalWeight", "Weight for controller survival and held-room protection.", 0, 30, 1),
-      numberKnob("resourceSignalWeight", "Weight for storage and productive-structure protection.", 0, 30, 1),
-      numberKnob("killSignalWeight", "Weight for hostile presence and tower/rampart readiness.", 0, 40, 1),
-      numberKnob("riskPenalty", "Penalty for unavailable or insufficient observations.", 0, 30, 1),
-      numberKnob("repairCriticalHitsRatio", "Critical repair hit ratio threshold.", 0.01, 1, 0.01)
-    ],
-    defaultValues: {
-      baseScoreWeight: 1,
-      territorySignalWeight: 12,
-      resourceSignalWeight: 6,
-      killSignalWeight: 18,
-      riskPenalty: 4,
-      repairCriticalHitsRatio: 0.5
-    },
-    rolloutStatus: "incumbent",
-    evidenceLinks: [
-      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
-      { label: "Runtime room monitor runbook", source: "docs", path: "docs/ops/runtime-room-monitor.md" }
-    ],
-    rollback: passiveRollback("defense-repair.incumbent.v1")
+// src/strategy/runtimePolicyParameters.ts
+var RUNTIME_POLICY_PARAMETERS_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__";
+var RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__";
+var RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1";
+function applyRuntimePolicyParametersToRegistry(registry) {
+  var _a;
+  const clonedRegistry = registry.map(cloneStrategyRegistryEntry);
+  const payload = readRuntimePolicyParameterPayload();
+  if (!payload) {
+    const evidence2 = buildConsumptionEvidence({ consumed: false, appliedStrategyIds: [] });
+    publishRuntimePolicyParameterConsumptionEvidence(evidence2);
+    return { registry: clonedRegistry, evidence: evidence2 };
   }
-];
-function validateStrategyRegistryEntry(entry) {
-  const issues = [];
-  if (entry.schemaVersion !== STRATEGY_REGISTRY_SCHEMA_VERSION) {
-    issues.push(`unsupported schemaVersion ${entry.schemaVersion}`);
+  const parameters = normalizeRuntimePolicyParameters(payload.parameters);
+  if (!parameters) {
+    const evidence2 = buildConsumptionEvidence({
+      payload,
+      consumed: false,
+      appliedStrategyIds: [],
+      reason: "runtime policy parameter payload did not include a non-empty parameters object"
+    });
+    publishRuntimePolicyParameterConsumptionEvidence(evidence2);
+    return { registry: clonedRegistry, evidence: evidence2 };
   }
-  if (!entry.id) {
-    issues.push("missing strategy id");
-  }
-  if (!entry.version) {
-    issues.push("missing strategy version");
-  }
-  if (!entry.owner.issue || entry.owner.issue <= 0) {
-    issues.push("missing owning issue");
-  }
-  if (entry.supportedContext.artifactTypes.length === 0) {
-    issues.push("supported context must name at least one artifact type");
-  }
-  if (entry.knobBounds.length === 0) {
-    issues.push("strategy must declare bounded knobs");
-  }
-  const declaredKnobs = /* @__PURE__ */ new Set();
-  for (const knob of entry.knobBounds) {
-    if (declaredKnobs.has(knob.name)) {
-      issues.push(`duplicate knob ${knob.name}`);
+  const appliedStrategyIds = [];
+  const targetedStrategyIds = new Set(
+    clonedRegistry.filter((entry) => runtimePolicyPayloadTargetsEntry(payload, entry)).map((entry) => entry.id)
+  );
+  const activatesSingleExplicitTarget = targetedStrategyIds.size === 1 && runtimePolicyPayloadExplicitIds(payload).length > 0;
+  const activatedFamily = activatesSingleExplicitTarget ? (_a = clonedRegistry.find((entry) => targetedStrategyIds.has(entry.id))) == null ? void 0 : _a.family : void 0;
+  const patchedRegistry = clonedRegistry.map((entry) => {
+    if (!targetedStrategyIds.has(entry.id)) {
+      if (activatedFamily !== void 0 && entry.family === activatedFamily && entry.rolloutStatus === "incumbent") {
+        return {
+          ...entry,
+          rolloutStatus: "shadow"
+        };
+      }
+      return entry;
     }
-    declaredKnobs.add(knob.name);
-    if (!(knob.name in entry.defaultValues)) {
-      issues.push(`missing default for knob ${knob.name}`);
-      continue;
-    }
-    const defaultValue = entry.defaultValues[knob.name];
-    if (!isKnobDefaultWithinBounds(defaultValue, knob.bounds)) {
-      issues.push(`default for knob ${knob.name} is outside declared bounds`);
-    }
-  }
-  for (const defaultName of Object.keys(entry.defaultValues)) {
-    if (!declaredKnobs.has(defaultName)) {
-      issues.push(`default declared without knob bounds: ${defaultName}`);
-    }
-  }
-  if (entry.evidenceLinks.length === 0) {
-    issues.push("missing evidence links");
-  }
-  if (!entry.rollback.disableFlag) {
-    issues.push("missing rollback disable flag");
-  }
-  if (entry.rollback.stopConditions.length === 0) {
-    issues.push("missing rollback stop conditions");
-  }
-  return { valid: issues.length === 0, issues };
+    appliedStrategyIds.push(entry.id);
+    return {
+      ...entry,
+      ...activatesSingleExplicitTarget ? { rolloutStatus: "incumbent" } : {},
+      defaultValues: {
+        ...entry.defaultValues,
+        ...parameters
+      }
+    };
+  });
+  const matched = appliedStrategyIds.length > 0;
+  const evidence = buildConsumptionEvidence({
+    payload,
+    consumed: false,
+    parameters,
+    appliedStrategyIds,
+    reason: matched ? "runtime policy parameter payload matched registry entries; awaiting tick runtime strategy evaluation" : "runtime policy parameter payload did not match any strategy registry entry"
+  });
+  publishRuntimePolicyParameterConsumptionEvidence(evidence);
+  return { registry: patchedRegistry, evidence };
 }
-function validateStrategyRegistry(entries) {
-  const issues = [];
-  const ids = /* @__PURE__ */ new Set();
-  for (const entry of entries) {
-    if (ids.has(entry.id)) {
-      issues.push(`duplicate strategy id ${entry.id}`);
-    }
-    ids.add(entry.id);
-    const entryResult = validateStrategyRegistryEntry(entry);
-    issues.push(...entryResult.issues.map((issue) => `${entry.id}: ${issue}`));
-  }
-  return { valid: issues.length === 0, issues };
-}
-function getStrategyNumberDefault(entry, knobName, fallback = 0) {
-  const value = entry.defaultValues[knobName];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-function numberKnob(name, description, min, max, step) {
+function createRuntimePolicyParameterConsumptionRecorder() {
+  const payload = readRuntimePolicyParameterPayload();
+  const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
+  const appliedStrategyIds = /* @__PURE__ */ new Set();
   return {
-    name,
-    description,
-    bounds: {
-      kind: "number",
-      min,
-      max,
-      ...step !== void 0 ? { step } : {}
+    recordStrategyRuntimeUse(entry) {
+      if (!payload || !parameters) {
+        return;
+      }
+      if (!runtimePolicyPayloadTargetsEntry(payload, entry)) {
+        return;
+      }
+      if (!strategyEntryUsesRuntimeParameters(entry, parameters)) {
+        return;
+      }
+      appliedStrategyIds.add(entry.id);
+    },
+    buildEvidence() {
+      if (!payload) {
+        return buildConsumptionEvidence({ consumed: false, appliedStrategyIds: [] });
+      }
+      if (!parameters) {
+        return buildConsumptionEvidence({
+          payload,
+          consumed: false,
+          appliedStrategyIds: [],
+          reason: "runtime policy parameter payload did not include a non-empty parameters object"
+        });
+      }
+      const observedStrategyIds = [...appliedStrategyIds].sort();
+      const consumed = observedStrategyIds.length > 0;
+      return buildConsumptionEvidence({
+        payload,
+        consumed,
+        parameters,
+        appliedStrategyIds: observedStrategyIds,
+        reason: consumed ? void 0 : "runtime policy parameter payload was not used by tick runtime strategy evaluation"
+      });
     }
   };
 }
-function passiveRollback(rollbackToStrategyId) {
-  return {
-    disabledByDefault: true,
-    disableFlag: "strategyShadowEvaluator.enabled=false",
-    rollbackToStrategyId,
-    stopConditions: [
-      "shadow report is noisy or expensive",
-      "artifact parsing cannot be proven deterministic",
-      "any candidate output is accidentally wired into live Screeps actions"
-    ],
-    notes: "The first slice is pure offline/shadow evaluation; disabling the evaluator leaves live behavior unchanged."
+function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
+  const root = globalThis;
+  if (!root.Memory) {
+    root.Memory = {};
+  }
+  const persistedEvidence = stickyRuntimePolicyParameterConsumptionEvidence(
+    evidence,
+    root.Memory.rlRuntimePolicyParameters
+  );
+  root.Memory.rlRuntimePolicyParameters = {
+    ...persistedEvidence,
+    tick: runtimeTick()
   };
+  publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
-function isKnobDefaultWithinBounds(value, bounds) {
-  switch (bounds.kind) {
-    case "number":
-      return typeof value === "number" && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
-    case "integer":
-      return typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max;
-    case "boolean":
-      return typeof value === "boolean";
-    case "enum":
-      return typeof value === "string" && bounds.values.includes(value);
-    default:
+function readRuntimePolicyParameterPayload() {
+  const root = globalThis;
+  const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
+  if (!isRecord41(raw)) {
+    return null;
+  }
+  if (raw.runtimeParameterInjection !== true || raw.candidateParameterScope !== "runtime_injected") {
+    return null;
+  }
+  return raw;
+}
+function normalizeRuntimePolicyParameters(raw) {
+  if (!isRecord41(raw)) {
+    return null;
+  }
+  const parameters = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) {
+        parameters[key] = value;
+      }
+    } else if (typeof value === "string" || typeof value === "boolean") {
+      parameters[key] = value;
+    }
+  }
+  return Object.keys(parameters).length > 0 ? parameters : null;
+}
+function runtimePolicyPayloadTargetsEntry(payload, entry) {
+  const explicitIds = runtimePolicyPayloadExplicitIds(payload);
+  const family = textOrUndefined(payload.family);
+  if (explicitIds.length > 0) {
+    return explicitIds.includes(entry.id);
+  }
+  return family !== void 0 && entry.family === family;
+}
+function runtimePolicyPayloadExplicitIds(payload) {
+  return [
+    textOrUndefined(payload.strategyVariantId),
+    textOrUndefined(payload.candidatePolicyId),
+    textOrUndefined(payload.sourceStrategyId)
+  ].filter((id) => id !== void 0);
+}
+function strategyEntryUsesRuntimeParameters(entry, parameters) {
+  for (const [key, value] of Object.entries(parameters)) {
+    if (entry.defaultValues[key] !== value) {
       return false;
+    }
   }
+  return true;
+}
+function buildConsumptionEvidence(options) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  const runtimeParameterInjection = ((_a = options.payload) == null ? void 0 : _a.runtimeParameterInjection) === true && ((_b = options.payload) == null ? void 0 : _b.candidateParameterScope) === "runtime_injected";
+  return {
+    type: "screeps-rl-runtime-policy-parameter-consumption",
+    consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
+    runtimeParameterInjection,
+    consumed: options.consumed,
+    ...textOrUndefined((_c = options.payload) == null ? void 0 : _c.strategyVariantId) ? { strategyVariantId: textOrUndefined((_d = options.payload) == null ? void 0 : _d.strategyVariantId) } : {},
+    ...textOrUndefined((_e = options.payload) == null ? void 0 : _e.candidatePolicyId) ? { candidatePolicyId: textOrUndefined((_f = options.payload) == null ? void 0 : _f.candidatePolicyId) } : {},
+    ...textOrUndefined((_g = options.payload) == null ? void 0 : _g.family) ? { family: textOrUndefined((_h = options.payload) == null ? void 0 : _h.family) } : {},
+    ...options.parameters ? { parameters: options.parameters } : {},
+    ...textOrUndefined((_i = options.payload) == null ? void 0 : _i.parametersSha256) ? { parametersSha256: textOrUndefined((_j = options.payload) == null ? void 0 : _j.parametersSha256) } : {},
+    appliedStrategyIds: [...options.appliedStrategyIds].sort(),
+    ...options.reason ? { reason: options.reason } : {},
+    liveEffect: false,
+    officialMmoWrites: false,
+    officialMmoWritesAllowed: false
+  };
+}
+function publishRuntimePolicyParameterConsumptionEvidence(evidence) {
+  const root = globalThis;
+  root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+function stickyRuntimePolicyParameterConsumptionEvidence(evidence, previous) {
+  if (evidence.consumed || !shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous)) {
+    return cloneRuntimePolicyParameterConsumptionEvidence(evidence);
+  }
+  return cloneRuntimePolicyParameterConsumptionEvidence(previous);
+}
+function shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous) {
+  if (!previous || previous.consumed !== true) {
+    return false;
+  }
+  if (evidence.runtimeParameterInjection !== true || previous.runtimeParameterInjection !== true) {
+    return false;
+  }
+  if (!evidence.parameters || !previous.parameters) {
+    return false;
+  }
+  if (evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER || previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER) {
+    return false;
+  }
+  const currentHash = textOrUndefined(evidence.parametersSha256);
+  const previousHash = textOrUndefined(previous.parametersSha256);
+  if (!currentHash || currentHash !== previousHash) {
+    return false;
+  }
+  return sameOptionalText(evidence.strategyVariantId, previous.strategyVariantId) && sameOptionalText(evidence.candidatePolicyId, previous.candidatePolicyId) && sameOptionalText(evidence.family, previous.family);
+}
+function cloneRuntimePolicyParameterConsumptionEvidence(evidence) {
+  const cloned = { ...evidence };
+  delete cloned.tick;
+  return {
+    ...cloned,
+    ...evidence.parameters ? { parameters: { ...evidence.parameters } } : {},
+    appliedStrategyIds: [...evidence.appliedStrategyIds]
+  };
+}
+function sameOptionalText(left, right) {
+  return textOrUndefined(left) === textOrUndefined(right);
+}
+function cloneStrategyRegistryEntry(entry) {
+  return {
+    ...entry,
+    defaultValues: { ...entry.defaultValues },
+    evidenceLinks: entry.evidenceLinks.map((link) => ({ ...link })),
+    rollback: {
+      ...entry.rollback,
+      stopConditions: [...entry.rollback.stopConditions]
+    },
+    supportedContext: {
+      ...entry.supportedContext,
+      artifactTypes: [...entry.supportedContext.artifactTypes],
+      ...entry.supportedContext.shards ? { shards: [...entry.supportedContext.shards] } : {},
+      ...entry.supportedContext.rooms ? { rooms: [...entry.supportedContext.rooms] } : {}
+    },
+    knobBounds: entry.knobBounds.map((knob) => ({ ...knob, bounds: { ...knob.bounds } }))
+  };
+}
+function textOrUndefined(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function runtimeTick() {
+  var _a, _b;
+  return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
+}
+function isRecord41(value) {
+  return typeof value === "object" && value !== null;
 }
 
 // src/strategy/shadowEvaluator.ts
@@ -46068,10 +46562,10 @@ function getLatestFiniteScore(scores) {
   return void 0;
 }
 function normalizeHistoricalReplay(rawReplay) {
-  if (!isRecord41(rawReplay)) {
+  if (!isRecord42(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString41(rawReplay.replayId) || !isNonEmptyString41(rawReplay.room) || !isFiniteNumber13(rawReplay.startTick) || !isFiniteNumber13(rawReplay.endTick) || !isFiniteNumber13(rawReplay.finalScore) || !isRecord41(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString41(rawReplay.replayId) || !isNonEmptyString41(rawReplay.room) || !isFiniteNumber13(rawReplay.startTick) || !isFiniteNumber13(rawReplay.endTick) || !isFiniteNumber13(rawReplay.finalScore) || !isRecord42(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -46096,7 +46590,7 @@ function normalizeHistoricalReplay(rawReplay) {
 function formatCorrelation(correlation) {
   return correlation.toFixed(3);
 }
-function isRecord41(value) {
+function isRecord42(value) {
   return typeof value === "object" && value !== null;
 }
 function isNonEmptyString41(value) {
@@ -46144,13 +46638,23 @@ function buildRolloutDetails(strategyId, historicalReplay, failedPrerequisites) 
 var kernel = new Kernel();
 var strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 var kpiWindowMaxLength = 120;
+var runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+var runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
 var strategyRegistryState = {
-  entries: DEFAULT_STRATEGY_REGISTRY.map((entry) => ({ ...entry }))
+  entries: runtimePolicyParameters.registry
 };
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
-  const summary = kernel.run();
+  const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
+  const summary = kernel.run({
+    strategyRegistry: strategyRegistryState.entries,
+    ...runtimePolicyParameterPlanningEnabled ? {
+      runtimeStrategyConstructionEnabled: true,
+      onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+    } : {}
+  });
+  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 function runStrategyRolloutMonitoring(summary, registry) {
@@ -46176,7 +46680,7 @@ function runStrategyRolloutMonitoring(summary, registry) {
             disabledId: rollbackResult.disabledId,
             rollbackToId: rollbackResult.rollbackToId,
             reason: rollbackResult.reason,
-            timestamp: runtimeTick()
+            timestamp: runtimeTick2()
           })}`
         );
       }
@@ -46256,7 +46760,7 @@ function persistBaseline(family, windows) {
   memory.kpiBaseline = {
     ...(_a = memory.kpiBaseline) != null ? _a : {},
     [family]: {
-      timestamp: (_c = (_b = windows[windows.length - 1]) == null ? void 0 : _b.timestamp) != null ? _c : runtimeTick(),
+      timestamp: (_c = (_b = windows[windows.length - 1]) == null ? void 0 : _b.timestamp) != null ? _c : runtimeTick2(),
       metrics: averages
     }
   };
@@ -46280,7 +46784,7 @@ function getOrCreateMemory2() {
   }
   return globalThis.Memory;
 }
-function runtimeTick() {
+function runtimeTick2() {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }

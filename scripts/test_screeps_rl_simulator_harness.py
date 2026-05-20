@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import io
 import json
 import math
@@ -1405,6 +1406,397 @@ cli:
         self.assertFalse(config["safety"]["liveEffect"])
         self.assertFalse(config["safety"]["officialMmoWrites"])
 
+    def test_runtime_parameter_injection_changes_private_runtime_code_input(self) -> None:
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "function consumeRuntimePolicyParameters() {\n"
+            f"  return globalThis[{json.dumps(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL)}].parameters;\n"
+            "}\n"
+            "module.exports.loop = function loop() { return consumeRuntimePolicyParameters(); };\n"
+        )
+        base_variant = {
+            "id": "construction-priority.pg.incumbent-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.incumbent-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 6,
+                "resourceSignalWeight": 4,
+                "killSignalWeight": 6,
+                "riskPenalty": 4,
+            },
+        }
+        territory_variant = {
+            **base_variant,
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                **base_variant["parameters"],
+                "territorySignalWeight": 22,
+            },
+        }
+
+        base_injection = harness.runtime_parameter_injection_for_variant(base_variant["id"], base_variant)
+        territory_injection = harness.runtime_parameter_injection_for_variant(territory_variant["id"], territory_variant)
+        base_upload = harness.apply_runtime_parameter_injection_to_code(base_code, base_injection)
+        territory_upload = harness.apply_runtime_parameter_injection_to_code(base_code, territory_injection)
+        base_injection = harness.mark_runtime_parameter_injection_uploaded(base_injection, code_text=base_upload)
+        territory_injection = harness.mark_runtime_parameter_injection_uploaded(
+            territory_injection,
+            code_text=territory_upload,
+        )
+
+        self.assertNotEqual(base_upload, territory_upload)
+        self.assertTrue(base_upload.startswith('"use strict";\n'))
+        self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, base_upload)
+        self.assertIn('"territorySignalWeight":6', base_upload)
+        self.assertNotIn('"territorySignalWeight":22', base_upload)
+        self.assertIn('"territorySignalWeight":22', territory_upload)
+        self.assertFalse(base_injection["liveEffect"])
+        self.assertFalse(base_injection["officialMmoWrites"])
+        self.assertFalse(base_injection["officialMmoWritesAllowed"])
+        self.assertTrue(base_injection["runtimeParameterInjection"])
+        self.assertTrue(territory_injection["runtimeParameterInjection"])
+        self.assertNotIn("STEAM_KEY", base_upload)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text(base_code, encoding="utf-8")
+            map_path.write_text("{}", encoding="utf-8")
+            base_scenario = harness.build_scenario_config(
+                "run",
+                base_variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=base_upload,
+                runtime_parameter_injection=base_injection,
+            )
+            territory_scenario = harness.build_scenario_config(
+                "run",
+                territory_variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=territory_upload,
+                runtime_parameter_injection=territory_injection,
+            )
+
+        self.assertNotEqual(
+            base_scenario["codeArtifact"]["sha256"],
+            territory_scenario["codeArtifact"]["sha256"],
+        )
+        self.assertEqual(
+            territory_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"],
+            22,
+        )
+        self.assertEqual(base_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"], 6)
+        self.assertNotEqual(base_scenario["runtimeParameterInjection"]["parameters"]["territorySignalWeight"], 22)
+        self.assertEqual(
+            base_scenario["codeArtifact"]["sha256"],
+            hashlib.sha256(base_upload.encode("utf-8")).hexdigest(),
+        )
+        self.assertFalse(territory_scenario["runtimeParameterInjection"]["safety"]["officialMmoWritesAllowed"])
+
+    def test_runtime_parameter_injection_preserves_strict_directive_after_bundle_prefixes(self) -> None:
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        code_cases = [
+            (
+                "\ufeff// generated bundle\n"
+                "'use strict'\n"
+                f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() { return 1; };\n"
+            ),
+            (
+                "/* generated bundle */\n"
+                '  "use strict"\n'
+                f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() { return 1; };\n"
+            ),
+        ]
+
+        for code_text in code_cases:
+            with self.subTest(code_text=code_text[:24]):
+                upload = harness.apply_runtime_parameter_injection_to_code(code_text, injection)
+
+                self.assertLess(upload.index("use strict"), upload.index("private-simulator"))
+                self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, upload)
+
+    def test_runtime_parameter_injection_upload_requires_runtime_consumer(self) -> None:
+        base_code = '"use strict";\nmodule.exports.loop = function loop() { return 1; };\n'
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        uploaded = harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+
+        self.assertEqual(uploaded["status"], "failed")
+        self.assertFalse(uploaded["runtimeParameterInjection"])
+        self.assertFalse(uploaded["inlineCandidatesRuntimeInjected"])
+        self.assertFalse(uploaded["runtimeParameterConsumerObserved"])
+        self.assertIn("consumer marker", uploaded["reason"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text(base_code, encoding="utf-8")
+            map_path.write_text("{}", encoding="utf-8")
+            scenario = harness.build_scenario_config(
+                "run",
+                variant["id"],
+                room="E1S1",
+                shard="shardX",
+                branch="$activeWorld",
+                ticks=2,
+                code_path=code_path,
+                map_source_file=map_path,
+                code_payload_text=harness.runtime_parameter_injection_uploaded_code_text(upload, uploaded),
+                runtime_parameter_injection=uploaded,
+            )
+
+        self.assertIsNone(harness.runtime_parameter_injection_uploaded_code_text(upload, uploaded))
+        self.assertNotIn("payloadSource", scenario["codeArtifact"])
+        self.assertEqual(scenario["codeArtifact"]["sha256"], hashlib.sha256(base_code.encode("utf-8")).hexdigest())
+
+    def test_runtime_parameter_consumption_required_for_evaluated_parameters(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        consumption = harness.runtime_parameter_consumption_check(injection, None)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertFalse(updated["runtimeParameterConsumption"])
+        self.assertEqual(updated["runtimeParameterConsumptionStatus"], "missing")
+        self.assertIn("did not expose", consumption["reason"])
+
+    def test_runtime_parameter_consumption_accepts_matching_memory_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+        self.assertEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+        self.assertTrue(updated["runtimeParameterConsumption"])
+        self.assertEqual(updated["runtimeParameterConsumptionStatus"], "consumed")
+
+    def test_runtime_parameter_consumption_rejects_parameter_drift(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["parameters"] = {
+            **evidence["parameters"],
+            "territorySignalWeight": evidence["parameters"]["territorySignalWeight"] + 1,
+        }
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("disagreed", consumption["reason"])
+        self.assertNotEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+
+    def test_runtime_parameter_consumption_extracts_memory_payload(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        payload = {
+            "ok": 1,
+            "data": json.dumps({
+                "rlRuntimePolicyParameters": evidence,
+            }, sort_keys=True),
+        }
+
+        extracted = harness.find_runtime_parameter_consumption_evidence(payload)
+
+        self.assertEqual(extracted, evidence)
+
+    def test_runtime_parameter_consumption_prefers_matching_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["strategyVariantId"] = "stale-variant"
+        stale["candidatePolicyId"] = "stale-policy"
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        payload = {
+            "ok": True,
+            "candidates": [
+                {"source": "users.memory.rlRuntimePolicyParameters", "value": stale},
+                {"source": "memory.rlRuntimePolicyParameters", "value": matching},
+            ],
+        }
+
+        extracted = harness.find_runtime_parameter_consumption_evidence(payload, injection=injection)
+
+        self.assertEqual(extracted, matching)
+
+    def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "candidates": [{"source": "users.memory.rlRuntimePolicyParameters", "value": evidence}],
+                    }),
+                }
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_mongo_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-1] if smoke.command is not None else ""
+        self.assertNotIn("pushCandidate('users.memory', user.memory)", eval_script)
+        self.assertNotIn("pushCandidate(collectionName, record)", eval_script)
+        self.assertIn("rlRuntimePolicyParameters", eval_script)
+
+    def test_runtime_parameter_summary_separates_upload_from_consumption(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        consumption = harness.runtime_parameter_consumption_check(injection, None)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v1",
+                "runtimeParameterInjection": updated,
+            }
+        ])
+
+        self.assertEqual(summary["status"], "injected")
+        self.assertTrue(summary["runtimeParameterInjection"])
+        self.assertFalse(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "missing")
+        self.assertEqual(summary["injectedVariantCount"], 1)
+        self.assertEqual(summary["consumedVariantCount"], 0)
+        self.assertFalse(summary["variants"][0]["runtimeParameterConsumption"])
+
+    def test_runtime_parameter_summary_consumption_boolean_is_existential(self) -> None:
+        consumed_injection = self.uploaded_runtime_parameter_injection()
+        missing_injection = self.uploaded_runtime_parameter_injection()
+        consumed = harness.apply_runtime_parameter_consumption_to_injection(
+            consumed_injection,
+            harness.runtime_parameter_consumption_check(
+                consumed_injection,
+                self.runtime_parameter_consumption_evidence(consumed_injection),
+            ),
+        )
+        missing = harness.apply_runtime_parameter_consumption_to_injection(
+            missing_injection,
+            harness.runtime_parameter_consumption_check(missing_injection, None),
+        )
+
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v1",
+                "runtimeParameterInjection": consumed,
+            },
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v2",
+                "runtimeParameterInjection": missing,
+            },
+        ])
+
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "partial")
+        self.assertEqual(summary["consumedVariantCount"], 1)
+        self.assertEqual(summary["variantCount"], 2)
+
+    def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() { return 1; };\n"
+        )
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        return harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+
+    def runtime_parameter_consumption_evidence(self, injection: harness.JsonObject) -> harness.JsonObject:
+        return {
+            "type": harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+            "consumerMarker": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+            "runtimeParameterInjection": True,
+            "consumed": True,
+            "strategyVariantId": injection["strategyVariantId"],
+            "candidatePolicyId": injection["candidatePolicyId"],
+            "family": injection["family"],
+            "parameters": copy.deepcopy(injection["parameters"]),
+            "parametersSha256": injection["parametersSha256"],
+            "appliedStrategyIds": [injection["strategyVariantId"]],
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
     def test_fetch_room_overviews_rotates_token_when_optional_room_fetch_raises(self) -> None:
         class Result:
             def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:
@@ -2695,6 +3087,20 @@ cli:
             "errors": [],
         }
         variants = [f"scale-env-{index}" for index in range(5)]
+        variant_configs = {
+            variant_id: {
+                "id": variant_id,
+                "title": f"{variant_id} guarded candidate",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 24,
+                    "resourceSignalWeight": 3,
+                    "killSignalWeight": 4,
+                    "riskPenalty": 2,
+                },
+            }
+            for variant_id in variants
+        }
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2715,6 +3121,7 @@ cli:
                                     run_id="guard-reject",
                                     code_path=root / "main.js",
                                     map_source_file=root / "map.json",
+                                    variant_configs=variant_configs,
                                 )
                             failure_texts.append(failure_path.read_text(encoding="utf-8"))
                             summary_text = (out_dir / "guard-reject" / "run_summary.json").read_text(encoding="utf-8")
@@ -2735,6 +3142,16 @@ cli:
         self.assertEqual(failure["resourceGuard"]["guardedWorkerEstimate"], 5)
         self.assertIn("requires", failure["resourceGuard"]["reasons"][0])
         self.assertEqual(failure["cleanup"]["matchedContainers"], [])
+        self.assertEqual(summary["runtimeParameterInjection"]["status"], "not_injected")
+        self.assertEqual(summary["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(summary["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "not_attempted")
+        first_variant_injection = summary["variants"][0]["runtimeParameterInjection"]
+        self.assertEqual(first_variant_injection["status"], "not_attempted")
+        self.assertFalse(first_variant_injection["runtimeParameterInjection"])
+        self.assertFalse(first_variant_injection["runtimeParameterConsumption"])
+        self.assertEqual(first_variant_injection["runtimeParameterConsumptionStatus"], "not_attempted")
+        self.assertEqual(first_variant_injection["candidateParameterScope"], "runtime_injected")
+        self.assertIsInstance(first_variant_injection["parametersSha256"], str)
         two_variant_decision = harness.build_resource_guard_decision(
             run_id="guard-reject-two-variants",
             workers=5,
@@ -2896,6 +3313,17 @@ cli:
                 self.assertEqual(summary["failureArtifactPath"], str(failure_path))
                 self.assertEqual(summary["variants"][0]["strategyVariant"]["label"], "inline failure candidate")
                 self.assertEqual(summary["variants"][0]["strategyVariant"]["parameters"]["territorySignalWeight"], 29)
+                runtime_summary = summary["runtimeParameterInjection"]
+                self.assertEqual(runtime_summary["status"], "not_injected")
+                self.assertEqual(runtime_summary["candidateParameterScope"], "runtime_injected")
+                self.assertEqual(runtime_summary["runtimeParameterConsumptionStatus"], "not_attempted")
+                variant_injection = summary["variants"][0]["runtimeParameterInjection"]
+                self.assertEqual(variant_injection["status"], "not_attempted")
+                self.assertFalse(variant_injection["runtimeParameterInjection"])
+                self.assertFalse(variant_injection["runtimeParameterConsumption"])
+                self.assertEqual(variant_injection["runtimeParameterConsumptionStatus"], "not_attempted")
+                self.assertEqual(variant_injection["candidateParameterScope"], "runtime_injected")
+                self.assertIsInstance(variant_injection["parametersSha256"], str)
                 self.assertFalse((out_dir / run_id / "resource_guard_failure.json").exists())
 
     def test_resource_guard_override_allows_unsafe_scale_with_env(self) -> None:
