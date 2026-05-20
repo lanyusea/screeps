@@ -2084,7 +2084,7 @@ def materialize_candidate_scorecard_artifact(
     out_dir: Path,
     secret_values: Sequence[str],
 ) -> None:
-    """Persist a #924 scorecard for runtime-injected policy-gradient rankings."""
+    """Persist a #924 scorecard for completed policy-gradient rankings."""
     if not isinstance(report.get("policyGradient"), dict):
         return
 
@@ -2092,7 +2092,7 @@ def materialize_candidate_scorecard_artifact(
     report["candidateScorecard"] = readiness
     report["scorecardId"] = readiness.get("scorecardId")
     report["scorecardArtifactPath"] = readiness.get("scorecardArtifactPath")
-    if readiness.get("status") != "ready":
+    if readiness.get("status") not in {"ready", "materialized"}:
         return
 
     candidate_id = text_or_none(readiness.get("candidateStrategyId"))
@@ -2231,44 +2231,56 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
             missing_prerequisite="candidate_baseline_ranking",
         )
     candidate_id, baseline_id, candidate_rank, baseline_rank = pair
-    if not runtime_ready:
-        classification = candidate_scorecard_runtime_blocker(runtime_parameter_injection)
-        return {
-            **candidate_scorecard_blocked_payload(
-                report,
-                classification=classification,
-                reason=candidate_scorecard_runtime_blocker_reason(runtime_parameter_injection),
-                missing_prerequisite="runtime_parameter_injection",
-            ),
-            "candidateStrategyId": candidate_id,
-            "baselineStrategyId": baseline_id,
-            "candidateRank": candidate_rank,
-            "baselineRank": baseline_rank,
-        }
-
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
     injected_count = runtime_injected_variant_count(runtime_parameter_injection)
-    return {
+    if runtime_ready:
+        status = "ready"
+        classification = "runtime_injected_candidate_scorecard_ready"
+        reason = None
+        next_action = None
+    else:
+        status = "materialized"
+        classification = candidate_scorecard_materialized_classification(runtime_parameter_injection)
+        reason = (
+            f"{candidate_scorecard_runtime_blocker_reason(runtime_parameter_injection)}; "
+            "candidate-vs-baseline scorecard will be materialized from completed offline ranking/KPI "
+            "evidence but cannot pass the runtime candidate gate"
+        )
+        next_action = (
+            "inject candidate parameters into private-simulator runtime inputs before promotion; "
+            "retain this scorecard as offline/private evidence"
+        )
+    payload: JsonObject = {
         "type": "screeps-rl-candidate-vs-baseline-scorecard-readiness",
         "schemaVersion": SCHEMA_VERSION,
-        "status": "ready",
-        "classification": "runtime_injected_candidate_scorecard_ready",
+        "status": status,
+        "classification": classification,
         "scorecardId": scorecard_id,
         "scorecardArtifactPath": None,
         "candidateStrategyId": candidate_id,
         "baselineStrategyId": baseline_id,
         "candidateRank": candidate_rank,
         "baselineRank": baseline_rank,
-        "runtimeParameterInjection": True,
+        "runtimeParameterInjection": runtime_ready,
         "injectedVariantCount": injected_count,
         "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
         "scorecardUsable": True,
-        "validationScaleComputeBlocked": False,
+        "validationScaleComputeBlocked": not runtime_ready,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+    if reason is not None:
+        payload["missingPrerequisite"] = "runtime_parameter_injection"
+        payload["reason"] = reason
+    if next_action is not None:
+        payload["nextAction"] = next_action
+    return payload
+
+
+def candidate_scorecard_materialized_classification(value: Any) -> str:
+    return f"{candidate_scorecard_runtime_blocker(value)}_scorecard_materialized"
 
 
 def candidate_scorecard_blocked_payload(

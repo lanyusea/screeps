@@ -1202,6 +1202,46 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             ):
                 controller.verify_remote_training_report()
 
+    def test_verify_remote_training_report_accepts_materialized_metadata_only_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["candidateScorecard"] = {
+                "status": "materialized",
+                "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
+                "scorecardId": "rl-scorecard-run-test",
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 0,
+                "candidateParameterScope": "metadata_only",
+                "missingPrerequisite": "runtime_parameter_injection",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        training_report = controller.result["trainingReport"]
+        self.assertEqual(training_report["scorecardId"], "rl-scorecard-run-test")
+        self.assertEqual(training_report["candidateScorecard"]["status"], "materialized")
+        self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertTrue(training_report["candidateScorecard"]["scorecardUsable"])
+        self.assertFalse(training_report["candidateScorecard"]["runtimeParameterInjection"])
+
     def test_verify_remote_training_report_rejects_malformed_runtime_parameter_injection_evidence(self) -> None:
         def injection_patch(
             *,
@@ -1360,10 +1400,20 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(verified["candidateParameterScope"], "runtime_injected")
         self.assertEqual(verified["candidateStrategyId"], "candidate")
 
-    def test_verify_remote_training_report_rejects_materialization_failure_without_nested_injection_proof(self) -> None:
+    def test_verify_remote_training_report_accepts_materialization_failure_without_runtime_injection_proof(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
             data["scorecardId"] = None
             data["scorecardArtifactPath"] = None
             data["candidateScorecard"] = {
@@ -1371,8 +1421,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "classification": "candidate_scorecard_materialization_failed",
                 "scorecardId": None,
                 "runtimeParameterInjection": False,
-                "injectedVariantCount": 1,
-                "candidateParameterScope": "runtime_injected",
+                "injectedVariantCount": 0,
+                "candidateParameterScope": "metadata_only",
                 "candidateStrategyId": "candidate",
                 "baselineStrategyId": "baseline",
                 "candidateRank": 1,
@@ -1386,11 +1436,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             report.write_text(json.dumps(data), encoding="utf-8")
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
 
-            with self.assertRaisesRegex(
-                runner.BatchRunError,
-                "materialization failure requires runtimeParameterInjection proof",
-            ):
-                controller.verify_remote_training_report()
+            controller.verify_remote_training_report()
+
+        verified = controller.result["trainingReport"]["candidateScorecard"]
+        self.assertEqual(verified["classification"], "candidate_scorecard_materialization_failed")
+        self.assertFalse(verified["runtimeParameterInjection"])
+        self.assertEqual(verified["candidateParameterScope"], "metadata_only")
 
     def test_verify_remote_training_report_accepts_blocked_partial_runtime_injection_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1663,17 +1714,18 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                                 "officialMmoWrites": False,
                                 "officialMmoWritesAllowed": False,
                             },
-                            "scorecardId": None,
-                            "scorecardArtifactPath": None,
+                            "scorecardId": "rl-scorecard-run-test",
+                            "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
                             "candidateScorecard": {
-                                "status": "blocked",
-                                "classification": "runtime_parameter_injection_metadata_only",
-                                "scorecardId": None,
+                                "status": "materialized",
+                                "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
+                                "scorecardId": "rl-scorecard-run-test",
                                 "runtimeParameterInjection": False,
                                 "injectedVariantCount": 0,
+                                "candidateParameterScope": "metadata_only",
                                 "missingPrerequisite": "runtime_parameter_injection",
                                 "validationScaleComputeBlocked": True,
-                                "scorecardUsable": False,
+                                "scorecardUsable": True,
                             },
                             "policyUpdateIterations": 0,
                             "policyUpdate": policy_update,
@@ -1681,6 +1733,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
+                write_ready_runtime_scorecard_artifact(self.artifact_dir)
 
             def scale_down(self) -> None:
                 self.record_step("scale_down", 101.0, True, desiredCapacity=0)
@@ -1718,10 +1771,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIsNone(training_report["policyUpdateArtifactPath"])
         self.assertFalse(training_report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertEqual(training_report["runtimeParameterInjection"]["injectedVariantCount"], 0)
-        self.assertIsNone(training_report["scorecardId"])
-        self.assertEqual(training_report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(training_report["scorecardId"], "rl-scorecard-run-test")
+        self.assertEqual(training_report["candidateScorecard"]["status"], "materialized")
         self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
-        self.assertFalse(training_report["candidateScorecard"]["scorecardUsable"])
+        self.assertTrue(training_report["candidateScorecard"]["scorecardUsable"])
         self.assertEqual(training_report["policyUpdate"]["metadataCandidateCount"], 5)
         self.assertFalse(training_report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
         self.assertNotIn("nextCandidatePolicy", training_report["policyUpdate"])

@@ -2166,8 +2166,17 @@ def verified_remote_candidate_scorecard(
     )
     scorecard_usable = required_bool(raw.get("scorecardUsable"), "candidateScorecard.scorecardUsable")
     injected_count = required_non_negative_int(raw.get("injectedVariantCount"), "candidateScorecard.injectedVariantCount")
+    top_level_runtime_injected = (
+        runtime_parameter_injection is not None
+        and runtime_parameter_injection.get("runtimeParameterInjection") is True
+    )
+    top_level_status = (
+        runtime_parameter_injection.get("status")
+        if isinstance(runtime_parameter_injection, dict)
+        else None
+    )
     if status == "ready":
-        if runtime_parameter_injection is None or runtime_parameter_injection.get("runtimeParameterInjection") is not True:
+        if not top_level_runtime_injected:
             raise BatchRunError("remote candidateScorecard is ready without runtimeParameterInjection proof")
         if not runtime_injected:
             raise BatchRunError("remote candidateScorecard ready status requires runtimeParameterInjection=true")
@@ -2191,39 +2200,44 @@ def verified_remote_candidate_scorecard(
                 f"remote candidate scorecard artifact was not collected: "
                 f"{rel_scorecard_artifact_path.as_posix()}"
             )
+    elif status == "materialized":
+        if top_level_runtime_injected or runtime_injected:
+            raise BatchRunError(
+                "remote candidateScorecard materialized status requires incomplete runtimeParameterInjection proof"
+            )
+        if not validation_blocked:
+            raise BatchRunError("remote candidateScorecard materialized status requires validation-scale blocked")
+        if not scorecard_usable:
+            raise BatchRunError("remote candidateScorecard materialized status requires scorecardUsable=true")
+        nested_scorecard_id = required_non_empty_text(raw.get("scorecardId"), "candidateScorecard.scorecardId")
+        top_level_scorecard_id = required_non_empty_text(scorecard_id, "scorecardId")
+        if nested_scorecard_id != top_level_scorecard_id:
+            raise BatchRunError("remote candidateScorecard.scorecardId disagrees with scorecardId")
+        rel_scorecard_artifact_path = safe_candidate_scorecard_artifact_path(scorecard_artifact_path)
+        local_scorecard_artifact_path = collected_remote_candidate_scorecard_artifact_path(
+            artifact_dir,
+            rel_scorecard_artifact_path,
+        )
+        if not local_scorecard_artifact_path.is_file():
+            raise BatchRunError(
+                f"remote candidate scorecard artifact was not collected: "
+                f"{rel_scorecard_artifact_path.as_posix()}"
+            )
     elif status == "blocked":
         classification = raw.get("classification")
         materialization_failed = classification == "candidate_scorecard_materialization_failed"
-        top_level_runtime_injected = (
-            runtime_parameter_injection is not None
-            and runtime_parameter_injection.get("runtimeParameterInjection") is True
-        )
-        top_level_status = (
-            runtime_parameter_injection.get("status")
-            if isinstance(runtime_parameter_injection, dict)
-            else None
-        )
         if runtime_injected and not materialization_failed:
             raise BatchRunError("remote candidateScorecard blocked status requires runtimeParameterInjection=false")
         if top_level_runtime_injected and not materialization_failed:
             raise BatchRunError(
                 "remote candidateScorecard blocked status contradicts top-level runtimeParameterInjection proof"
             )
-        if materialization_failed:
-            if (
-                runtime_parameter_injection is None
-                or runtime_parameter_injection.get("runtimeParameterInjection") is not True
-                or not runtime_injected
-            ):
-                raise BatchRunError("remote candidateScorecard materialization failure requires runtimeParameterInjection proof")
-            if injected_count <= 0:
-                raise BatchRunError("remote candidateScorecard materialization failure requires positive injectedVariantCount")
-        elif top_level_status == "partial":
+        if top_level_status == "partial" and not materialization_failed:
             if injected_count <= 0:
                 raise BatchRunError(
                     "remote candidateScorecard blocked partial injection requires positive injectedVariantCount"
                 )
-        elif injected_count != 0:
+        elif not materialization_failed and injected_count != 0:
             raise BatchRunError("remote candidateScorecard blocked status requires injectedVariantCount=0")
         if not validation_blocked:
             raise BatchRunError("remote candidateScorecard blocked status requires validationScaleComputeBlocked=true")
