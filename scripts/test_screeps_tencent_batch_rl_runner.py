@@ -1429,6 +1429,50 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
                 "ready without runtimeParameterInjection proof",
             ),
+            (
+                "blocked contradicts top-level runtime proof",
+                {
+                    "scorecardId": None,
+                    "scorecardArtifactPath": None,
+                    "candidateScorecard": {
+                        "status": "blocked",
+                        "classification": "runtime_parameter_injection_validation_blocked",
+                        "scorecardId": None,
+                        "runtimeParameterInjection": False,
+                        "injectedVariantCount": 0,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": False,
+                    },
+                },
+                "blocked status contradicts top-level runtimeParameterInjection proof",
+            ),
+            (
+                "blocked without materialization failure has injected count",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "metadata_only",
+                        "runtimeParameterInjection": False,
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "metadata_only",
+                        "injectedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    },
+                    "scorecardId": None,
+                    "scorecardArtifactPath": None,
+                    "candidateScorecard": {
+                        "status": "blocked",
+                        "classification": "runtime_parameter_injection_metadata_only",
+                        "scorecardId": None,
+                        "runtimeParameterInjection": False,
+                        "injectedVariantCount": 1,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": False,
+                    },
+                },
+                "blocked status requires injectedVariantCount=0",
+            ),
         )
         for name, patch, expected_error in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:

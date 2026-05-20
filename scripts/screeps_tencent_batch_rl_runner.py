@@ -2194,8 +2194,16 @@ def verified_remote_candidate_scorecard(
     elif status == "blocked":
         classification = raw.get("classification")
         materialization_failed = classification == "candidate_scorecard_materialization_failed"
+        top_level_runtime_injected = (
+            runtime_parameter_injection is not None
+            and runtime_parameter_injection.get("runtimeParameterInjection") is True
+        )
         if runtime_injected and not materialization_failed:
             raise BatchRunError("remote candidateScorecard blocked status requires runtimeParameterInjection=false")
+        if top_level_runtime_injected and not materialization_failed:
+            raise BatchRunError(
+                "remote candidateScorecard blocked status contradicts top-level runtimeParameterInjection proof"
+            )
         if materialization_failed:
             if (
                 runtime_parameter_injection is None
@@ -2205,6 +2213,8 @@ def verified_remote_candidate_scorecard(
                 raise BatchRunError("remote candidateScorecard materialization failure requires runtimeParameterInjection proof")
             if injected_count <= 0:
                 raise BatchRunError("remote candidateScorecard materialization failure requires positive injectedVariantCount")
+        elif injected_count != 0:
+            raise BatchRunError("remote candidateScorecard blocked status requires injectedVariantCount=0")
         if not validation_blocked:
             raise BatchRunError("remote candidateScorecard blocked status requires validationScaleComputeBlocked=true")
         if scorecard_usable:
