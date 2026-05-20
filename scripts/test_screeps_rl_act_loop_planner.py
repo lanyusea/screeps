@@ -119,6 +119,25 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
         self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
 
+    def test_rollout_regression_with_signal_noise_still_blocks_all_deltas(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Rollout regression with scenario, reward, and policy hints",
+                "classification": "rollout_regression",
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "onlineUtilityStatus": "MIXED",
+                "parameterSurface": "construction-priority",
+            }
+        )
+
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertIsNone(plan["nextRewardDecision"])
+        self.assertIsNone(plan["nextScenarioDelta"])
+        self.assertIsNone(plan["nextPolicyDelta"])
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertTrue(any("rollout regression" in reason for reason in plan["blockingReasons"]))
+
     def test_feedback_ingestion_links_first_usable_list_form_report_id(self) -> None:
         plan = planner.build_plan(
             {

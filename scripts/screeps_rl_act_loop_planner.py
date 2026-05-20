@@ -25,7 +25,7 @@ CLASSIFICATIONS = (
     "runtime_bug",
     "rollout_regression",
 )
-BLOCKING_DELTA_CLASSIFICATIONS = {"data_quality", "runtime_bug"}
+BLOCKING_DELTA_CLASSIFICATIONS = {"data_quality", "runtime_bug", "rollout_regression"}
 REWARD_DECISION_REGISTRY = "docs/ops/rl-reward-decision-registry.md"
 REWARD_DECISION_TEMPLATE = "docs/ops/templates/rl-reward-decision.template.json"
 EXPERIMENT_CARD_HELPER = "scripts/screeps_rl_experiment_card.py"
