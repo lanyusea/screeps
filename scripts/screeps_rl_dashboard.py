@@ -1812,16 +1812,17 @@ def reconcile_card_supply_for_training(
         tencent_internal_card_supply,
         tencent_internal_card_supply_candidates,
     )
-    available_candidates = combined_card_supply_candidates(
-        standalone_card_supply,
-        standalone_card_supply_candidates,
-        tencent_internal_card_supply,
-        tencent_internal_card_supply_candidates,
-    )
     if not training_did_run:
         if training_claims_compute:
             return blocked_card_supply_summary(text_value(compute_evidence.get("blocker")))
-        available_supply = best_available_card_supply(available_candidates)
+        available_supply = best_available_tencent_card_supply(tencent_candidates)
+        if available_supply is None:
+            available_supply = best_available_card_supply(
+                combined_card_supply_candidates(
+                    standalone_card_supply,
+                    standalone_card_supply_candidates,
+                )
+            )
         if available_supply is not None:
             return dict(available_supply)
     else:
