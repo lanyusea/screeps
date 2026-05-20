@@ -1312,6 +1312,7 @@ cli:
         self.assertEqual(projected_metrics["combat"]["hostileKills"], 1)
         self.assertEqual(projected_metrics["combatDelta"], 1)
         self.assertEqual(projected_metrics["policyActivation"]["targetRoom"], "E2S1")
+        self.assertEqual(projected_metrics["policyActivation"]["hostileKillsSource"], "projectedEvidence")
         self.assertEqual(tick_log, before_tick_log)
         self.assertEqual(base_metrics["hostileKills"], 0)
         self.assertFalse(activation["safety"]["liveEffect"])
@@ -1351,6 +1352,57 @@ cli:
         self.assertEqual(projected["combat"]["hostileKills"], 1)
         self.assertEqual(projected["combat"]["ownLosses"], 0)
         self.assertEqual(projected["combatDelta"], 1)
+
+    def test_multi_tier_policy_activation_observed_reduction_overrides_explicit_zero_metrics(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "engage-hostiles",
+            "objectiveSignalSource": "tick_log",
+            "targetRoom": "E2S1",
+            "observedEvidence": {
+                "targetRoom": "E2S1",
+                "initialHostileCount": 3,
+                "finalHostileCount": 2,
+                "hostileCountReduced": True,
+            },
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "initialHostileCount": 3,
+                "finalHostileCount": 3,
+                "projectedHostileKills": 0,
+                "hostileCountReduced": False,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combat": {
+                "hostileKills": 0,
+                "ownLosses": 0,
+            },
+            "finalRoomStates": {
+                "E2S1": {
+                    "combat": {
+                        "hostileCreeps": 99,
+                    },
+                },
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["hostileKills"], 1)
+        self.assertEqual(projected["combat"]["hostileKills"], 1)
+        self.assertEqual(projected["combatDelta"], 1)
+        self.assertEqual(projected["policyActivation"]["observedHostileKills"], 1)
+        self.assertEqual(projected["policyActivation"]["hostileKillsSource"], "observedEvidence")
+        self.assertEqual(projected["finalRoomStates"]["E2S1"]["combat"]["hostileCreeps"], 2)
 
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")

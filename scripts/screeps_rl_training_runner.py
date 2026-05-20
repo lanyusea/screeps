@@ -2338,7 +2338,7 @@ def multi_tier_activation_sample_trace(
         },
     }
     if policy_activation is not None:
-        trace["policyActivation"] = {
+        trace_policy_activation = {
             "type": policy_activation.get("type"),
             "policyAction": policy_activation.get("policyAction"),
             "executionAction": policy_activation.get("executionAction"),
@@ -2349,6 +2349,11 @@ def multi_tier_activation_sample_trace(
             "threshold": policy_activation.get("threshold"),
             "reason": policy_activation.get("reason"),
         }
+        activation_metrics = projected_activation if projected_activation is not None else policy_activation
+        for field in ("hostileKills", "hostileKillsSource", "projectedHostileKills", "observedHostileKills"):
+            if field in activation_metrics:
+                trace_policy_activation[field] = activation_metrics.get(field)
+        trace["policyActivation"] = trace_policy_activation
     if projected_evidence is not None:
         trace["projectedEvidence"] = {
             "mode": projected_evidence.get("mode"),

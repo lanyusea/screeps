@@ -564,9 +564,15 @@ class RlTrainingRunnerTest(unittest.TestCase):
         )
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("E1S1", energy=100), hostile_fixture_room()])
-        finish = tick(2, [room("E1S1", energy=150), hostile_fixture_room(hostile_creeps=1)])
         simulator_results: dict[str, JsonObject] = {}
         for index, variant_id in enumerate(variant_ids):
+            finish = tick(
+                2,
+                [
+                    room("E1S1", energy=150),
+                    hostile_fixture_room(hostile_creeps=1 if index == 0 else 2),
+                ],
+            )
             result = variant_result(variant_id, [start, finish])
             result["metrics"] = {"territoryDelta": 2, "hostileKills": 1 if index == 0 else 0}
             simulator_results[variant_id] = result
@@ -587,6 +593,61 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertTrue(proof["ok"])
         self.assertEqual(proof["passingVariants"], [variant_ids[0]])
         self.assertNotIn("blocker", proof)
+
+    def test_multi_tier_activation_proof_derives_kills_from_observed_hostile_reduction(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-observed-reduction",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:25:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        simulator_results: dict[str, JsonObject] = {}
+        for variant in card["strategy_variants"]:
+            variant_id = variant["id"]
+            reduced_hostiles = variant_id == "construction-priority.pg.territory-seed.v1"
+            tick_log = [
+                tick(1, [room("E1S1", energy=100), hostile_fixture_room()]),
+                tick(
+                    2,
+                    [
+                        room("E1S1", energy=150),
+                        hostile_fixture_room(hostile_creeps=1 if reduced_hostiles else 2),
+                    ],
+                ),
+            ]
+            result = variant_result(variant_id, tick_log)
+            result["metrics"] = {"territoryDelta": 2, "hostileKills": 0, "ownLosses": 0}
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-observed-reduction",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        self.assertEqual(proof["passingVariants"], ["construction-priority.pg.territory-seed.v1"])
+        territory_result = next(
+            result
+            for result in report["variantResults"]
+            if result["variantId"] == "construction-priority.pg.territory-seed.v1"
+        )
+        self.assertEqual(territory_result["metrics"]["kills"]["hostileKills"], 1)
+        self.assertEqual(territory_result["multiTierActivationSamples"][0]["hostileKills"], 1)
+        self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        trace = territory_result["multiTierActivationTraces"][0]
+        self.assertEqual(trace["metricsSource"], "simulator_policy_activation")
+        self.assertEqual(trace["policyActivation"]["objectiveSignalSource"], "tick_log")
+        self.assertEqual(trace["policyActivation"]["hostileKillsSource"], "observedEvidence")
+        self.assertTrue(trace["observedEvidence"]["hostileCountReduced"])
 
     def test_multi_tier_activation_proof_passes_with_offline_policy_activation_projection(self) -> None:
         card = card_helper.build_card(
@@ -637,6 +698,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         territory_trace = territory_result["multiTierActivationTraces"][0]
         self.assertEqual(territory_trace["metricsSource"], "simulator_policy_activation")
         self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertEqual(territory_trace["policyActivation"]["hostileKillsSource"], "projectedEvidence")
         self.assertEqual(territory_trace["projectedEvidence"]["projectedHostileKills"], 1)
         self.assertEqual(
             proof["variants"][1]["activationTraces"][0]["policyActivation"]["targetRoom"],
