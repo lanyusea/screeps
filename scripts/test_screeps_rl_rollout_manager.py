@@ -121,6 +121,66 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(decision["comparison"]["metrics"]["territory"]["status"], "pass")
         self.assertEqual(decision["feedbackIngestion"]["status"], "ready")
 
+    def test_valid_canary_contract_generation_records_safety_status(self) -> None:
+        decision = manager.build_dry_run_decision(
+            kpi_window(),
+            kpi_window(resources=9900, kills=3, reliability=0.995),
+            candidate_id="candidate-canary",
+            deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            rollback_ref="rollback-ref",
+            live_influence_state="canary",
+            live_influence_surface="bounded_high_level_strategy_knobs",
+            created_at="2026-05-03T00:00:00Z",
+        )
+
+        canary = decision["canaryContract"]
+        self.assertTrue(decision["passed"])
+        self.assertEqual(canary["validation"]["status"], "pass")
+        self.assertEqual(canary["candidate"]["id"], "candidate-canary")
+        self.assertEqual(canary["candidate"]["deployRef"], "candidate-ref")
+        self.assertEqual(canary["incumbentBaseline"]["ref"], "incumbent-ref")
+        self.assertEqual(canary["rollback"]["ref"], "rollback-ref")
+        self.assertEqual(canary["liveInfluence"]["state"], "canary")
+        self.assertEqual(canary["liveInfluence"]["allowedSurface"], "bounded_high_level_strategy_knobs")
+        self.assertEqual(canary["sampleRequirements"]["preWindow"]["minimumSamples"], 8)
+        self.assertEqual(canary["rollbackThresholds"]["territory"]["maxDegradationAbsolute"], 0)
+        self.assertIn("constructionPriority.extensionWeight", canary["strategyKnobLimits"])
+        self.assertTrue(canary["validators"]["deterministicVetoRequired"])
+
+    def test_canary_contract_rejects_forbidden_surface_and_missing_rollback_ref(self) -> None:
+        forbidden = manager.build_dry_run_decision(
+            kpi_window(),
+            kpi_window(),
+            candidate_id="candidate-unsafe",
+            deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            rollback_ref="rollback-ref",
+            live_influence_state="canary",
+            live_influence_surface="raw_creep_intents",
+            created_at="2026-05-03T00:00:00Z",
+        )
+        missing_rollback = manager.build_dry_run_decision(
+            kpi_window(),
+            kpi_window(),
+            candidate_id="candidate-no-rollback",
+            deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            live_influence_state="canary",
+            live_influence_surface="bounded_high_level_strategy_knobs",
+            created_at="2026-05-03T00:00:00Z",
+        )
+
+        self.assertFalse(forbidden["passed"])
+        self.assertEqual(forbidden["canaryContract"]["validation"]["status"], "fail")
+        self.assertTrue(
+            any(reason.get("reason") == "forbidden_live_influence_surface" for reason in forbidden["blockingReasons"])
+        )
+        self.assertFalse(missing_rollback["passed"])
+        self.assertTrue(
+            any(reason.get("reason") == "missing_rollback_ref" for reason in missing_rollback["blockingReasons"])
+        )
+
     def test_dry_run_fails_when_a_priority_kpi_degrades(self) -> None:
         decision = manager.build_dry_run_decision(
             kpi_window(),
@@ -175,6 +235,9 @@ class RlRolloutManagerTest(unittest.TestCase):
             kpi_window(),
             kpi_window(territory=1, resources=10000, kills=3, reliability=0.995, hours=2, samples=2),
             candidate_id="candidate-regressed",
+            current_deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            previous_deploy_ref="rollback-ref",
             created_at="2026-05-03T00:00:00Z",
         )
 
@@ -182,16 +245,72 @@ class RlRolloutManagerTest(unittest.TestCase):
         self.assertEqual(check["decision"], "auto_revert")
         self.assertEqual(check["metricTriggers"][0]["metric"], "territory")
 
+    def test_rollback_trigger_fires_on_reliability_regression(self) -> None:
+        check = manager.build_rollback_check(
+            kpi_window(reliability=0.995),
+            kpi_window(reliability=0.94, hours=2, samples=2),
+            candidate_id="candidate-unreliable",
+            current_deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            previous_deploy_ref="rollback-ref",
+            created_at="2026-05-03T00:00:00Z",
+        )
+
+        self.assertTrue(check["rollbackTriggered"])
+        self.assertEqual(check["decision"], "auto_revert")
+        self.assertEqual(check["metricTriggers"][0]["metric"], "reliability")
+
+    def test_rollback_check_fails_safe_when_refs_or_sample_windows_are_missing(self) -> None:
+        baseline = kpi_window()
+        current = kpi_window(resources=9900, hours=2, samples=2)
+        del baseline["window"]["sampleCount"]
+
+        check = manager.build_rollback_check(
+            baseline,
+            current,
+            current_deploy_ref="candidate-ref",
+            previous_deploy_ref="rollback-ref",
+            created_at="2026-05-03T00:00:00Z",
+        )
+
+        self.assertTrue(check["rollbackTriggered"])
+        self.assertEqual(check["decision"], "auto_revert")
+        self.assertTrue(any(reason.get("reason") == "missing_candidate_id" for reason in check["failSafeReasons"]))
+        self.assertTrue(any(reason.get("reason") == "missing_incumbent_baseline_ref" for reason in check["failSafeReasons"]))
+        self.assertTrue(any(reason.get("reason") == "missing_sample_count" for reason in check["failSafeReasons"]))
+
     def test_rollback_trigger_does_not_fire_on_normal_variance(self) -> None:
         check = manager.build_rollback_check(
             kpi_window(),
             kpi_window(resources=9850, kills=2, reliability=0.99, hours=2, samples=2),
+            candidate_id="candidate-stable",
+            current_deploy_ref="candidate-ref",
+            incumbent_baseline_ref="incumbent-ref",
+            previous_deploy_ref="rollback-ref",
             created_at="2026-05-03T00:00:00Z",
         )
 
         self.assertFalse(check["rollbackTriggered"])
         self.assertEqual(check["decision"], "continue_observation")
         self.assertEqual(check["metricTriggers"], [])
+
+    def test_contract_and_compare_artifacts_report_live_influence_state(self) -> None:
+        contract = manager.build_gate_contract()
+        comparison = manager.build_kpi_comparison(
+            kpi_window(),
+            kpi_window(resources=10100),
+            candidate_id="candidate-shadow",
+            deploy_ref="candidate-ref",
+            live_influence_state="shadow",
+            live_influence_surface="recommendation_only",
+            created_at="2026-05-03T00:00:00Z",
+        )
+
+        self.assertEqual(contract["safeCanary"]["liveInfluence"]["state"], "none")
+        self.assertEqual(contract["safeCanary"]["liveInfluence"]["allowedSurface"], "none")
+        self.assertEqual(comparison["canaryContract"]["liveInfluence"]["state"], "shadow")
+        self.assertEqual(comparison["canaryContract"]["liveInfluence"]["allowedSurface"], "recommendation_only")
+        self.assertEqual(comparison["canaryContract"]["validation"]["status"], "pass")
 
     def test_fixture_based_dry_run_integration_accepts_reducer_style_kpi_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -14,9 +14,12 @@ from pathlib import Path
 from typing import Any, TextIO
 
 
+JsonObject = dict[str, Any]
+
 SCHEMA_VERSION = 1
 CONTRACT_VERSION = 1
 CONTRACT_TYPE = "screeps-rl-rollout-gate-contract"
+CANARY_CONTRACT_TYPE = "screeps-rl-safe-canary-contract"
 COMPARISON_TYPE = "screeps-rl-post-rollout-kpi-comparison"
 DECISION_TYPE = "screeps-rl-rollout-decision"
 ROLLBACK_TYPE = "screeps-rl-rollback-check"
@@ -24,9 +27,46 @@ DEFAULT_OBSERVATION_WINDOW_HOURS = 8.0
 DEFAULT_MIN_OBSERVATION_SAMPLES = 8
 DEFAULT_SECONDS_PER_TICK = 3.0
 METRIC_ORDER = ("reliability", "territory", "resources", "kills")
+LIVE_INFLUENCE_STATES = ("none", "shadow", "canary", "active", "rolled_back")
+DEFAULT_LIVE_INFLUENCE_STATE = "none"
+DEFAULT_LIVE_INFLUENCE_SURFACE = "none"
+LIVE_INFLUENCE_STATES_REQUIRING_REFS = ("canary", "active", "rolled_back")
+ALLOWED_LIVE_INFLUENCE_SURFACES: dict[str, JsonObject] = {
+    "none": {
+        "description": "no learned/tuned candidate influence reaches official MMO behavior",
+        "liveEffect": False,
+    },
+    "recommendation_only": {
+        "description": "candidate emits recommendations only; production behavior remains incumbent-controlled",
+        "liveEffect": False,
+    },
+    "bounded_high_level_strategy_knobs": {
+        "description": "candidate may affect only bounded high-level strategy knobs after validator veto",
+        "liveEffect": True,
+    },
+}
+FORBIDDEN_LIVE_INFLUENCE_SURFACES = (
+    "raw_creep_intents",
+    "spawn_intents",
+    "construction_intents",
+    "memory_writes",
+    "raw_memory_writes",
+    "market_orders",
+    "official_mmo_writes",
+)
 EPSILON = 1e-9
 
-JsonObject = dict[str, Any]
+DEFAULT_STRATEGY_KNOB_LIMITS: dict[str, tuple[float, float]] = {
+    "constructionPriority.extensionWeight": (0.0, 5.0),
+    "constructionPriority.containerWeight": (0.0, 5.0),
+    "constructionPriority.towerWeight": (0.0, 5.0),
+    "constructionPriority.rampartWeight": (0.0, 5.0),
+    "constructionPriority.roadWeight": (0.0, 3.0),
+    "expansionScoring.distanceWeight": (0.0, 3.0),
+    "expansionScoring.sourceCountWeight": (0.0, 5.0),
+    "expansionScoring.hostileRiskWeight": (0.0, 5.0),
+    "remoteScoring.reservationPriorityWeight": (0.0, 5.0),
+}
 
 
 class RolloutManagerError(ValueError):
@@ -103,6 +143,12 @@ METRIC_SPECS: dict[str, MetricSpec] = {
         minimum_post_value=0.98,
     ),
 }
+
+
+def normalize_contract_text(value: str | None, default: str) -> str:
+    if value is None or value == "":
+        return default
+    return value
 
 
 def utc_now_iso() -> str:
@@ -280,6 +326,167 @@ def extract_reliability(raw: JsonObject) -> float | None:
     return None
 
 
+def observation_requirements() -> JsonObject:
+    return {
+        "preWindow": {
+            "hours": DEFAULT_OBSERVATION_WINDOW_HOURS,
+            "minimumSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
+        },
+        "postWindow": {
+            "hours": DEFAULT_OBSERVATION_WINDOW_HOURS,
+            "minimumSamples": DEFAULT_MIN_OBSERVATION_SAMPLES,
+        },
+    }
+
+
+def rollback_thresholds() -> JsonObject:
+    thresholds: JsonObject = {}
+    for key in METRIC_ORDER:
+        spec = METRIC_SPECS[key]
+        threshold: JsonObject = {"direction": "higher_is_better"}
+        if spec.max_degradation_absolute is not None:
+            threshold["maxDegradationAbsolute"] = round_float(spec.max_degradation_absolute)
+        if spec.max_degradation_percent is not None:
+            threshold["maxDegradationPercent"] = round_float(spec.max_degradation_percent)
+        if spec.minimum_post_value is not None:
+            threshold["minimumPostValue"] = round_float(spec.minimum_post_value)
+        thresholds[key] = threshold
+    return thresholds
+
+
+def strategy_knob_limits() -> JsonObject:
+    return {
+        key: {
+            "max": round_float(maximum),
+            "min": round_float(minimum),
+            "validator": "candidate value must be finite and inside this inclusive range before use",
+        }
+        for key, (minimum, maximum) in DEFAULT_STRATEGY_KNOB_LIMITS.items()
+    }
+
+
+def validator_requirements() -> JsonObject:
+    return {
+        "deterministicVetoRequired": True,
+        "defaultOnMissingValidator": "veto",
+        "requirements": [
+            "reject forbidden live influence surfaces before canary",
+            "reject missing incumbent baseline, candidate deploy, or rollback refs before canary",
+            "reject non-finite or out-of-bounds strategy knob values",
+            "reject any raw intent, Memory/RawMemory, market, or direct official MMO write authority",
+        ],
+    }
+
+
+def build_safe_canary_contract(
+    *,
+    candidate_id: str | None = None,
+    deploy_ref: str | None = None,
+    rollback_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
+    live_influence_state: str | None = None,
+    live_influence_surface: str | None = None,
+    created_at: str | None = None,
+    baseline_source: str | None = None,
+) -> JsonObject:
+    state = normalize_contract_text(live_influence_state, DEFAULT_LIVE_INFLUENCE_STATE)
+    surface = normalize_contract_text(live_influence_surface, DEFAULT_LIVE_INFLUENCE_SURFACE)
+    surface_contract = ALLOWED_LIVE_INFLUENCE_SURFACES.get(surface)
+    violations: list[JsonObject] = []
+
+    if state not in LIVE_INFLUENCE_STATES:
+        violations.append(
+            {
+                "field": "liveInfluence.state",
+                "reason": "invalid_live_influence_state",
+                "value": state,
+            }
+        )
+
+    if surface in FORBIDDEN_LIVE_INFLUENCE_SURFACES:
+        violations.append(
+            {
+                "field": "liveInfluence.allowedSurface",
+                "reason": "forbidden_live_influence_surface",
+                "value": surface,
+            }
+        )
+    elif surface_contract is None:
+        violations.append(
+            {
+                "field": "liveInfluence.allowedSurface",
+                "reason": "unknown_live_influence_surface",
+                "value": surface,
+            }
+        )
+
+    if state in LIVE_INFLUENCE_STATES_REQUIRING_REFS:
+        required_fields = (
+            ("incumbentBaseline.ref", incumbent_baseline_ref, "missing_incumbent_baseline_ref"),
+            ("candidate.id", candidate_id, "missing_candidate_id"),
+            ("candidate.deployRef", deploy_ref, "missing_candidate_deploy_ref"),
+            ("rollback.ref", rollback_ref, "missing_rollback_ref"),
+        )
+        for field, value, reason in required_fields:
+            if value is None or value == "":
+                violations.append({"field": field, "reason": reason})
+        if surface == "none":
+            violations.append(
+                {
+                    "field": "liveInfluence.allowedSurface",
+                    "reason": "live_influence_requires_safe_surface",
+                    "value": surface,
+                }
+            )
+
+    return {
+        "type": CANARY_CONTRACT_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "contractVersion": CONTRACT_VERSION,
+        "allowedLiveInfluenceStates": list(LIVE_INFLUENCE_STATES),
+        "candidate": {
+            "deployRef": deploy_ref,
+            "id": candidate_id,
+        },
+        "createdAt": created_at,
+        "incumbentBaseline": {
+            "ref": incumbent_baseline_ref,
+            "requiredBeforeCanary": True,
+            "sourcePath": baseline_source,
+        },
+        "liveInfluence": {
+            "allowedSurface": surface,
+            "allowedSurfaceContract": surface_contract,
+            "forbiddenSurfaces": list(FORBIDDEN_LIVE_INFLUENCE_SURFACES),
+            "officialMmoWritesAllowed": False,
+            "state": state,
+            "trainingEvaluationOfficialMmoWritesAllowed": False,
+        },
+        "rollback": {
+            "ref": rollback_ref,
+            "requiredBeforeCanary": True,
+        },
+        "rollbackThresholds": rollback_thresholds(),
+        "sampleRequirements": observation_requirements(),
+        "strategyKnobLimits": strategy_knob_limits(),
+        "validation": {
+            "status": "fail" if violations else "pass",
+            "violations": violations,
+        },
+        "validators": validator_requirements(),
+    }
+
+
+def canary_blocking_reasons(canary_contract: JsonObject) -> list[JsonObject]:
+    validation = canary_contract.get("validation")
+    if not isinstance(validation, dict):
+        return [{"scope": "safeCanary", "reason": "missing_canary_validation"}]
+    violations = validation.get("violations")
+    if not isinstance(violations, list):
+        return [{"scope": "safeCanary", "reason": "missing_canary_violations"}]
+    return [{"scope": "safeCanary", **violation} for violation in violations if isinstance(violation, dict)]
+
+
 def extract_metrics(raw: JsonObject) -> dict[str, float | None]:
     return {
         "territory": extract_territory(raw),
@@ -408,6 +615,7 @@ def build_gate_contract() -> JsonObject:
             "dryRunOnly": True,
         },
         "rollbackTrigger": rollback_trigger_spec(),
+        "safeCanary": build_safe_canary_contract(),
         "feedbackIngestion": {
             "postWindowRequired": True,
             "record": "persist the dry-run decision, rollback checks, and post-rollout comparison as RL dataset source metadata",
@@ -536,11 +744,18 @@ def build_kpi_comparison(
     pre_raw: JsonObject,
     post_raw: JsonObject,
     *,
+    candidate_id: str | None = None,
     created_at: str | None = None,
+    deploy_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
+    live_influence_state: str | None = None,
+    live_influence_surface: str | None = None,
     pre_source: str | None = None,
     post_source: str | None = None,
     require_complete_window: bool = True,
+    rollback_ref: str | None = None,
 ) -> JsonObject:
+    created = created_at or utc_now_iso()
     pre = normalize_kpi_window(pre_raw, pre_source)
     post = normalize_kpi_window(post_raw, post_source)
     metrics = {
@@ -552,14 +767,27 @@ def build_kpi_comparison(
         post["window"],
         require_complete_window=require_complete_window,
     )
+    canary_contract = build_safe_canary_contract(
+        candidate_id=candidate_id,
+        deploy_ref=deploy_ref,
+        rollback_ref=rollback_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
+        live_influence_state=live_influence_state,
+        live_influence_surface=live_influence_surface,
+        created_at=created,
+        baseline_source=pre_source,
+    )
+    canary_passed = canary_contract["validation"]["status"] == "pass"
     return {
         "type": COMPARISON_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "contractVersion": CONTRACT_VERSION,
-        "createdAt": created_at or utc_now_iso(),
+        "canaryContract": canary_contract,
+        "createdAt": created,
         "gateStatus": "pass"
         if observation["status"] in ("pass", "not_required_for_mode")
         and all(metric["status"] == "pass" for metric in metrics.values())
+        and canary_passed
         else "fail",
         "metrics": metrics,
         "observation": observation,
@@ -576,6 +804,7 @@ def collect_blocking_reasons(comparison: JsonObject) -> list[JsonObject]:
     for key, metric in comparison["metrics"].items():
         if metric["status"] != "pass":
             reasons.append({"metric": key, "reasons": list(metric["reasons"]), "scope": "metric"})
+    reasons.extend(canary_blocking_reasons(comparison.get("canaryContract", {})))
     return reasons
 
 
@@ -600,19 +829,29 @@ def build_dry_run_decision(
     *,
     candidate_id: str | None = None,
     deploy_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
     created_at: str | None = None,
+    live_influence_state: str | None = None,
+    live_influence_surface: str | None = None,
     rollout_id: str | None = None,
     pre_source: str | None = None,
     post_source: str | None = None,
+    rollback_ref: str | None = None,
 ) -> JsonObject:
     created = created_at or utc_now_iso()
     comparison = build_kpi_comparison(
         pre_raw,
         post_raw,
+        candidate_id=candidate_id,
         created_at=created,
+        deploy_ref=deploy_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
+        live_influence_state=live_influence_state,
+        live_influence_surface=live_influence_surface,
         pre_source=pre_source,
         post_source=post_source,
         require_complete_window=True,
+        rollback_ref=rollback_ref,
     )
     passed = comparison["gateStatus"] == "pass"
     decision = "rollout_approved" if passed else "rollout_rejected"
@@ -627,9 +866,12 @@ def build_dry_run_decision(
         "type": DECISION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "blockingReasons": collect_blocking_reasons(comparison),
+        "canaryContract": comparison["canaryContract"],
         "candidate": {
             "deployRef": deploy_ref,
             "id": candidate_id,
+            "incumbentBaselineRef": incumbent_baseline_ref,
+            "rollbackRef": rollback_ref,
         },
         "comparison": comparison,
         "createdAt": created,
@@ -649,6 +891,37 @@ def within_observation_window(current_window: JsonObject) -> bool:
     return duration is None or duration <= DEFAULT_OBSERVATION_WINDOW_HOURS + EPSILON
 
 
+def evaluate_rollback_evidence_contract(
+    comparison: JsonObject,
+    canary_contract: JsonObject,
+) -> JsonObject:
+    checks: list[JsonObject] = []
+    checks.extend(canary_blocking_reasons(canary_contract))
+
+    for label, window in (("baseline", comparison["pre"]["window"]), ("current", comparison["post"]["window"])):
+        duration = number_or_none(window.get("durationHours"))
+        if duration is None:
+            checks.append({"label": label, "reason": "missing_duration_hours", "scope": "rollbackEvidence"})
+
+        sample_count = number_or_none(window.get("sampleCount"))
+        if sample_count is None:
+            checks.append({"label": label, "reason": "missing_sample_count", "scope": "rollbackEvidence"})
+        elif sample_count <= 0:
+            checks.append(
+                {
+                    "actualSamples": round_float(sample_count),
+                    "label": label,
+                    "reason": "empty_sample_window",
+                    "scope": "rollbackEvidence",
+                }
+            )
+
+    return {
+        "checks": checks,
+        "status": "fail" if checks else "pass",
+    }
+
+
 def build_rollback_check(
     baseline_raw: JsonObject,
     current_raw: JsonObject,
@@ -656,20 +929,33 @@ def build_rollback_check(
     candidate_id: str | None = None,
     previous_deploy_ref: str | None = None,
     current_deploy_ref: str | None = None,
+    incumbent_baseline_ref: str | None = None,
     created_at: str | None = None,
+    live_influence_state: str | None = "canary",
+    live_influence_surface: str | None = "bounded_high_level_strategy_knobs",
     rollout_id: str | None = None,
     baseline_source: str | None = None,
     current_source: str | None = None,
+    rollback_ref: str | None = None,
 ) -> JsonObject:
     created = created_at or utc_now_iso()
+    resolved_rollback_ref = rollback_ref or previous_deploy_ref
     comparison = build_kpi_comparison(
         baseline_raw,
         current_raw,
+        candidate_id=candidate_id,
         created_at=created,
+        deploy_ref=current_deploy_ref,
+        incumbent_baseline_ref=incumbent_baseline_ref,
+        live_influence_state=live_influence_state,
+        live_influence_surface=live_influence_surface,
         pre_source=baseline_source,
         post_source=current_source,
         require_complete_window=False,
+        rollback_ref=resolved_rollback_ref,
     )
+    canary_contract = comparison["canaryContract"]
+    rollback_evidence = evaluate_rollback_evidence_contract(comparison, canary_contract)
     metric_triggers = [
         {
             "allowedDegradation": metric["allowedDegradation"],
@@ -683,22 +969,28 @@ def build_rollback_check(
         if metric.get("triggered") is True
     ]
     in_window = within_observation_window(comparison["post"]["window"])
-    rollback_triggered = bool(metric_triggers and in_window)
+    fail_safe_reasons = rollback_evidence["checks"]
+    rollback_triggered = bool((metric_triggers and in_window) or fail_safe_reasons)
     decision = "auto_revert" if rollback_triggered else "continue_observation"
     resolved_rollout_id = rollout_id or f"rl-rollout-{canonical_hash({'candidateId': candidate_id, 'createdAt': created})[:12]}"
     return {
         "type": ROLLBACK_TYPE,
         "schemaVersion": SCHEMA_VERSION,
+        "canaryContract": canary_contract,
         "candidate": {
             "currentDeployRef": current_deploy_ref,
             "id": candidate_id,
+            "incumbentBaselineRef": incumbent_baseline_ref,
             "previousDeployRef": previous_deploy_ref,
+            "rollbackRef": resolved_rollback_ref,
         },
         "comparison": comparison,
         "createdAt": created,
         "currentWithinObservationWindow": in_window,
         "decision": decision,
+        "failSafeReasons": fail_safe_reasons,
         "metricTriggers": metric_triggers,
+        "rollbackEvidence": rollback_evidence,
         "rollbackTrigger": rollback_trigger_spec(),
         "rollbackTriggered": rollback_triggered,
         "rolloutId": resolved_rollout_id,
@@ -733,6 +1025,26 @@ def add_common_kpi_args(parser: argparse.ArgumentParser, left_name: str, right_n
     parser.add_argument("--output", type=Path, help="Write JSON output to this path instead of stdout.")
 
 
+def add_canary_args(
+    parser: argparse.ArgumentParser,
+    *,
+    default_state: str = DEFAULT_LIVE_INFLUENCE_STATE,
+    default_surface: str = DEFAULT_LIVE_INFLUENCE_SURFACE,
+) -> None:
+    parser.add_argument("--incumbent-baseline-ref", help="Incumbent baseline ref required before canary/active influence.")
+    parser.add_argument("--rollback-ref", help="Rollback deploy ref required before canary/active influence.")
+    parser.add_argument(
+        "--live-influence-state",
+        default=default_state,
+        help="Live influence state: none, shadow, canary, active, or rolled_back.",
+    )
+    parser.add_argument(
+        "--live-influence-surface",
+        default=default_surface,
+        help="Allowed surface: none, recommendation_only, or bounded_high_level_strategy_knobs.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Evaluate KPI-gated RL rollout, rollback, and post-rollout comparison records.",
@@ -747,15 +1059,35 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run.add_argument("--candidate-id", help="Candidate strategy/model identifier.")
     dry_run.add_argument("--deploy-ref", help="Candidate deploy reference or commit.")
     dry_run.add_argument("--rollout-id", help="Stable rollout ID to record.")
+    add_canary_args(dry_run)
 
     compare = subparsers.add_parser("compare", help="Compare pre/post deploy KPI fixtures.")
     add_common_kpi_args(compare, "pre", "post")
+    compare.add_argument("--candidate-id", help="Candidate strategy/model identifier.")
+    compare.add_argument("--deploy-ref", help="Candidate deploy reference or commit.")
+    add_canary_args(compare)
 
     rollback = subparsers.add_parser("rollback-check", help="Evaluate whether rollback should auto-trigger.")
     add_common_kpi_args(rollback, "baseline", "current")
     rollback.add_argument("--candidate-id", help="Candidate strategy/model identifier.")
-    rollback.add_argument("--previous-deploy-ref", help="Previously approved deploy reference.")
+    rollback.add_argument(
+        "--previous-deploy-ref",
+        "--rollback-ref",
+        dest="previous_deploy_ref",
+        help="Previously approved deploy reference to restore on rollback.",
+    )
     rollback.add_argument("--current-deploy-ref", help="Current candidate deploy reference.")
+    rollback.add_argument("--incumbent-baseline-ref", help="Incumbent baseline ref used for rollback comparison.")
+    rollback.add_argument(
+        "--live-influence-state",
+        default="canary",
+        help="Live influence state for rollback evidence. Defaults to canary.",
+    )
+    rollback.add_argument(
+        "--live-influence-surface",
+        default="bounded_high_level_strategy_knobs",
+        help="Allowed live influence surface for rollback evidence.",
+    )
     rollback.add_argument("--rollout-id", help="Stable rollout ID to record.")
 
     return parser
@@ -779,10 +1111,14 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                     post,
                     candidate_id=args.candidate_id,
                     deploy_ref=args.deploy_ref,
+                    incumbent_baseline_ref=args.incumbent_baseline_ref,
                     created_at=args.created_at,
+                    live_influence_state=args.live_influence_state,
+                    live_influence_surface=args.live_influence_surface,
                     rollout_id=args.rollout_id,
                     pre_source=str(args.pre),
                     post_source=str(args.post),
+                    rollback_ref=args.rollback_ref,
                 ),
                 args.output,
                 stdout,
@@ -796,9 +1132,15 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 build_kpi_comparison(
                     pre,
                     post,
+                    candidate_id=args.candidate_id,
                     created_at=args.created_at,
+                    deploy_ref=args.deploy_ref,
+                    incumbent_baseline_ref=args.incumbent_baseline_ref,
+                    live_influence_state=args.live_influence_state,
+                    live_influence_surface=args.live_influence_surface,
                     pre_source=str(args.pre),
                     post_source=str(args.post),
+                    rollback_ref=args.rollback_ref,
                 ),
                 args.output,
                 stdout,
@@ -815,7 +1157,10 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                     candidate_id=args.candidate_id,
                     previous_deploy_ref=args.previous_deploy_ref,
                     current_deploy_ref=args.current_deploy_ref,
+                    incumbent_baseline_ref=args.incumbent_baseline_ref,
                     created_at=args.created_at,
+                    live_influence_state=args.live_influence_state,
+                    live_influence_surface=args.live_influence_surface,
                     rollout_id=args.rollout_id,
                     baseline_source=str(args.baseline),
                     current_source=str(args.current),

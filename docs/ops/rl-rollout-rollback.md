@@ -1,6 +1,6 @@
 # RL Rollout And Rollback Workflow
 
-Status: implemented KPI-gated rollout/rollback decision helper for issue #551.
+Status: implemented KPI-gated rollout/rollback decision helper for issue #551; safe canary/rollback artifact contract wired for issue #1239.
 
 Roadmap link: `docs/ops/rl-domain-roadmap.md` L6, KPI rollout/rollback.
 
@@ -15,6 +15,23 @@ Primary artifacts:
 The rollout manager is the live-safety boundary for RL flywheel candidates. It compares pre/post deploy KPI windows, emits deterministic JSON decision records, and describes rollback triggers. It does not upload code, change Screeps branches, run git revert, or write official MMO state.
 
 Use it after a candidate has already passed the offline, simulator, historical, and manual-review gates. The default answer is reject unless every required KPI is observed and within contract.
+
+## Safe Canary Contract
+
+Every contract, dry-run, rollback-check, and compare artifact now carries a `safeCanary` or `canaryContract` block. This block records the official-MMO safety state before any canary influence:
+
+- incumbent baseline ref;
+- candidate ID and candidate deploy ref;
+- rollback ref;
+- live influence state: `none`, `shadow`, `canary`, `active`, or `rolled_back`;
+- allowed live influence surface: `none`, `recommendation_only`, or `bounded_high_level_strategy_knobs`;
+- forbidden surfaces: raw creep intents, spawn intents, construction intents, `Memory`/`RawMemory` writes, market orders, and direct official MMO writes;
+- bounded high-level strategy knob min/max limits;
+- deterministic validator/veto requirements;
+- pre/post sample requirements;
+- rollback thresholds.
+
+For `canary`, `active`, or `rolled_back` state, missing incumbent baseline, candidate ID, candidate deploy, or rollback refs fail validation. A forbidden live influence surface also fails validation. Training and evaluation remain artifact-only: learned/tuned candidates must not issue raw intents, Memory/RawMemory writes, market orders, or official MMO writes.
 
 ## Gate Contract
 
@@ -71,6 +88,10 @@ python3 scripts/screeps_rl_rollout_manager.py dry-run \
   --post runtime-artifacts/rl-rollout/<candidate>/post.json \
   --candidate-id <candidate-id> \
   --deploy-ref <commit-or-bundle-ref> \
+  --incumbent-baseline-ref <baseline-ref> \
+  --rollback-ref <previous-approved-ref> \
+  --live-influence-state canary \
+  --live-influence-surface bounded_high_level_strategy_knobs \
   --output runtime-artifacts/rl-rollout/<candidate>/decision.json
 ```
 
@@ -82,6 +103,7 @@ Decision values:
 The record includes:
 
 - the full gate contract;
+- the safe canary contract and validation status;
 - normalized pre/post metrics;
 - per-KPI deltas, degradation, thresholds, and reasons;
 - rollback trigger specification;
@@ -97,6 +119,12 @@ Use comparison mode after a deploy window closes:
 python3 scripts/screeps_rl_rollout_manager.py compare \
   --pre runtime-artifacts/rl-rollout/<candidate>/pre.json \
   --post runtime-artifacts/rl-rollout/<candidate>/post.json \
+  --candidate-id <candidate-id> \
+  --deploy-ref <candidate-ref> \
+  --incumbent-baseline-ref <baseline-ref> \
+  --rollback-ref <previous-approved-ref> \
+  --live-influence-state canary \
+  --live-influence-surface bounded_high_level_strategy_knobs \
   --output runtime-artifacts/rl-rollout/<candidate>/post-rollout-comparison.json
 ```
 
@@ -111,12 +139,13 @@ python3 scripts/screeps_rl_rollout_manager.py rollback-check \
   --baseline runtime-artifacts/rl-rollout/<candidate>/baseline.json \
   --current runtime-artifacts/rl-rollout/<candidate>/current.json \
   --candidate-id <candidate-id> \
+  --incumbent-baseline-ref <baseline-ref> \
   --previous-deploy-ref <previous-approved-ref> \
   --current-deploy-ref <candidate-ref> \
   --output runtime-artifacts/rl-rollout/<candidate>/rollback-check.json
 ```
 
-The trigger fires when, within the 8 hour observation window, any contracted KPI has measured degradation greater than its threshold or reliability drops below `0.98`.
+The trigger fires when, within the 8 hour observation window, any contracted KPI has measured degradation greater than its threshold or reliability drops below `0.98`. Rollback-check also fails safe with `decision:auto_revert` when required baseline/candidate/rollback refs are missing or when baseline/current sample windows are missing.
 
 Rollback action specification:
 
