@@ -2159,10 +2159,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
             controller = FakeController(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            timeout_stdout = (
+                b"line=203.0.113.10 ssh-ed25519-cert-v01@openssh.com "
+                b"AAAAC3NzaC1lZDI1NTE5LWNlcnQtimeoutkey\n"
+                b"STEAM_KEY=timeout-steam-secret\n"
+            )
+            timeout_stderr = b"TOKEN=timeout-token-secret\ntimed out\n"
             with mock.patch.object(
                 runner.subprocess,
                 "run",
-                side_effect=subprocess.TimeoutExpired(["ssh-keygen"], 30, output="", stderr="timed out\n"),
+                side_effect=subprocess.TimeoutExpired(["ssh-keygen"], 30, output=timeout_stdout, stderr=timeout_stderr),
             ):
                 controller.scale_up_and_wait()
 
@@ -2174,6 +2180,20 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertNotIn("203.0.113.10", controller.known_hosts_cleaned_public_ips)
         self.assertEqual(controller.result["knownHostsCleanupWarnings"][0]["returncode"], 124)
         self.assertEqual(controller.result["worker"]["publicIp"], "203.0.113.10")
+        combined = json.dumps(
+            {
+                "steps": [step.__dict__ for step in controller.steps],
+                "result": controller.result,
+            },
+            sort_keys=True,
+        )
+        self.assertIn("[REDACTED_HOST_KEY]", combined)
+        self.assertIn("STEAM_KEY=[REDACTED]", combined)
+        self.assertIn("TOKEN=[REDACTED]", combined)
+        self.assertNotIn("AAAAC3NzaC1lZDI1NTE5LWNlcnQtimeoutkey", combined)
+        self.assertNotIn("ssh-ed25519-cert-v01@openssh.com", combined)
+        self.assertNotIn("timeout-steam-secret", combined)
+        self.assertNotIn("timeout-token-secret", combined)
 
     def test_scale_up_retries_failed_known_host_cleanup_for_same_ip(self) -> None:
         args = controller_args()
@@ -2301,8 +2321,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
             controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
             controller.public_ip = "203.0.113.10"
-            stdout = "line=203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhostkey comment\nSTEAM_KEY=steam-secret\n"
-            stderr = "TOKEN=token-secret\necdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYhostkey\n"
+            stdout = (
+                "line=203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhostkey comment\n"
+                "line=203.0.113.10 ssh-rsa-cert-v01@openssh.com AAAAB3NzaC1yc2EtY2VydCcertkey comment\n"
+                "STEAM_KEY=steam-secret\n"
+            )
+            stderr = (
+                "TOKEN=token-secret\n"
+                "ecdsa-sha2-nistp256-cert-v01@openssh.com AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYtY2VydCcertkey\n"
+                "sk-ssh-ed25519-cert-v01@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5LWNlcnQcertkey\n"
+            )
 
             with mock.patch.object(
                 runner.subprocess,
@@ -2323,6 +2351,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("STEAM_KEY=[REDACTED]", combined)
         self.assertIn("TOKEN=[REDACTED]", combined)
         self.assertNotIn("AAAA", combined)
+        self.assertNotIn("-cert-v01@openssh.com", combined)
         self.assertNotIn("steam-secret", combined)
         self.assertNotIn("token-secret", combined)
 

@@ -81,8 +81,12 @@ SSH_CONNECT_OPTIONS = (
 )
 KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS = 30
 HOST_KEY_ALGORITHM_RE = (
-    r"(?:ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp\d+|"
-    r"sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)"
+    r"(?:ssh-rsa(?:-cert-v01@openssh\.com)?|"
+    r"ssh-dss(?:-cert-v01@openssh\.com)?|"
+    r"ssh-ed25519(?:-cert-v01@openssh\.com)?|"
+    r"ecdsa-sha2-nistp\d+(?:-cert-v01@openssh\.com)?|"
+    r"sk-ssh-ed25519(?:@openssh\.com|-cert-v01@openssh\.com)|"
+    r"sk-ecdsa-sha2-nistp256(?:@openssh\.com|-cert-v01@openssh\.com))"
 )
 HOST_KEY_BLOB_RE = re.compile(rf"\b{HOST_KEY_ALGORITHM_RE}\s+[A-Za-z0-9+/=]+")
 SECRET_ASSIGNMENT_RE = re.compile(
@@ -381,8 +385,12 @@ class Controller:
                 check=False,
             )
         except subprocess.TimeoutExpired as error:
-            stdout = error.output.decode("utf-8", errors="replace") if isinstance(error.output, bytes) else (error.output or "")
-            stderr = error.stderr.decode("utf-8", errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+            stdout_raw = getattr(error, "stdout", None)
+            if stdout_raw is None:
+                stdout_raw = getattr(error, "output", None)
+            stderr_raw = getattr(error, "stderr", None)
+            stdout = decode_subprocess_text(stdout_raw)
+            stderr = decode_subprocess_text(stderr_raw)
             stderr = "\n".join(part for part in (f"{type(error).__name__}: {error}", stderr) if part)
             cp = subprocess.CompletedProcess(cmd, 124, stdout, stderr)
         except OSError as error:
@@ -1068,10 +1076,16 @@ def tail_text(raw: str | None, limit: int = 3000) -> str:
     return text[-limit:]
 
 
+def decode_subprocess_text(raw: str | bytes | None) -> str:
+    if not raw:
+        return ""
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
+
 def sanitize_known_hosts_cleanup_text(raw: str | bytes | None) -> str:
     if not raw:
         return ""
-    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    text = decode_subprocess_text(raw)
     text = text.replace("\r", "")
     text = HOST_KEY_BLOB_RE.sub("[REDACTED_HOST_KEY]", text)
 
