@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import io
 import json
 import os
@@ -27,6 +28,13 @@ CONTROLLER_IP = "43.128.104.34/32"
 READY_RUNTIME_SCORECARD_PATH = (
     "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json"
 )
+
+
+def ready_runtime_pair_scorecard_path(scorecard_id: str, candidate_id: str, baseline_id: str) -> str:
+    return (
+        "runtime-artifacts/rl-training/candidate-scorecards/run-test/"
+        f"{candidate_id}--vs--{baseline_id}/{scorecard_id}.json"
+    )
 
 
 def add_file(tar: tarfile.TarFile, name: str, content: bytes = b"ok") -> None:
@@ -90,6 +98,20 @@ def write_text(path: Path, text: str = "ok\n") -> None:
 
 def write_ready_runtime_scorecard_artifact(root: Path) -> None:
     write_text(root / "remote" / READY_RUNTIME_SCORECARD_PATH, "{}\n")
+
+
+def write_candidate_scorecard_set_artifacts(root: Path, scorecard_set: object) -> None:
+    if not isinstance(scorecard_set, dict):
+        return
+    comparisons = scorecard_set.get("comparisons")
+    if not isinstance(comparisons, list):
+        return
+    for comparison in comparisons:
+        if not isinstance(comparison, dict):
+            continue
+        artifact_path = comparison.get("scorecardArtifactPath")
+        if isinstance(artifact_path, str):
+            write_text(root / "remote" / artifact_path, "{}\n")
 
 
 def decode_remote_bash_lc(remote_command: str) -> str:
@@ -201,6 +223,97 @@ def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
             "validationScaleComputeBlocked": False,
             "scorecardUsable": True,
         },
+    }
+
+
+def ready_runtime_candidate_scorecard_set() -> dict[str, object]:
+    return {
+        "type": runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE,
+        "schemaVersion": 1,
+        "status": "ready",
+        "classification": "runtime_injected_multi_candidate_scorecards_ready",
+        "reportId": "run-test",
+        "comparisonCount": 1,
+        "candidateCount": 1,
+        "baselineCount": 1,
+        "candidateStrategyIds": ["candidate"],
+        "baselineStrategyIds": ["baseline"],
+        "selectedScorecardId": "rl-scorecard-run-test",
+        "materializedScorecardCount": 1,
+        "blockedComparisonCount": 0,
+        "readyComparisonCount": 1,
+        "validationScaleComputeBlocked": False,
+        "scorecardUsable": True,
+        "missingPrerequisites": [],
+        "reasonCodes": ["runtime_injected_candidate_scorecard_ready"],
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "comparisons": [
+            {
+                "type": "screeps-rl-candidate-vs-baseline-scorecard-readiness",
+                "schemaVersion": 1,
+                "status": "ready",
+                "classification": "runtime_injected_candidate_scorecard_ready",
+                "scorecardId": "rl-scorecard-run-test",
+                "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "comparisonKey": "candidate::vs::baseline",
+                "runtimeParameterInjection": True,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "reportRuntimeParameterInjection": True,
+                "reportInjectedVariantCount": 1,
+                "validationScaleComputeBlocked": False,
+                "scorecardUsable": True,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+        ],
+    }
+
+
+def ready_runtime_candidate_scorecard_matrix() -> dict[str, object]:
+    candidate_ids = ["candidate-a", "candidate-b"]
+    baseline_ids = ["baseline-a", "baseline-b"]
+    base = ready_runtime_candidate_scorecard_set()
+    template = base["comparisons"][0]
+    comparisons: list[dict[str, object]] = []
+    for candidate_index, candidate_id in enumerate(candidate_ids, start=1):
+        for baseline_index, baseline_id in enumerate(baseline_ids, start=1):
+            comparison = copy.deepcopy(template)
+            scorecard_id = f"rl-scorecard-run-test-{candidate_id}-vs-{baseline_id}"
+            comparison.update(
+                {
+                    "scorecardId": scorecard_id,
+                    "scorecardArtifactPath": ready_runtime_pair_scorecard_path(
+                        scorecard_id,
+                        candidate_id,
+                        baseline_id,
+                    ),
+                    "candidateStrategyId": candidate_id,
+                    "baselineStrategyId": baseline_id,
+                    "candidateRank": candidate_index,
+                    "baselineRank": len(candidate_ids) + baseline_index,
+                    "comparisonKey": f"{candidate_id}::vs::{baseline_id}",
+                }
+            )
+            comparisons.append(comparison)
+    return {
+        **base,
+        "comparisonCount": len(comparisons),
+        "candidateCount": len(candidate_ids),
+        "baselineCount": len(baseline_ids),
+        "candidateStrategyIds": candidate_ids,
+        "baselineStrategyIds": baseline_ids,
+        "selectedScorecardId": comparisons[0]["scorecardId"],
+        "materializedScorecardCount": len(comparisons),
+        "readyComparisonCount": len(comparisons),
+        "comparisons": comparisons,
     }
 
 
@@ -1248,6 +1361,120 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(training_report["candidateScorecard"]["status"], "ready")
         self.assertTrue(training_report["candidateScorecard"]["runtimeParameterInjection"])
         self.assertFalse(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+
+    def test_verify_remote_training_report_accepts_valid_candidate_scorecard_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["candidateScorecards"] = ready_runtime_candidate_scorecard_set()
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        scorecard_set = controller.result["trainingReport"]["candidateScorecards"]
+        self.assertEqual(scorecard_set["type"], runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE)
+        self.assertEqual(scorecard_set["status"], "ready")
+        self.assertEqual(scorecard_set["comparisonCount"], 1)
+        self.assertEqual(scorecard_set["comparisons"][0]["scorecardId"], "rl-scorecard-run-test")
+
+    def test_verify_remote_training_report_accepts_complete_candidate_scorecard_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            scorecard_matrix = ready_runtime_candidate_scorecard_matrix()
+            data["candidateScorecards"] = scorecard_matrix
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            write_candidate_scorecard_set_artifacts(root, scorecard_matrix)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        scorecard_set = controller.result["trainingReport"]["candidateScorecards"]
+        comparisons = scorecard_set["comparisons"]
+        self.assertEqual(scorecard_set["comparisonCount"], 4)
+        scorecard_ids = [item["scorecardId"] for item in comparisons]
+        artifact_paths = [item["scorecardArtifactPath"] for item in comparisons]
+        self.assertEqual(len(scorecard_ids), len(set(scorecard_ids)))
+        self.assertEqual(len(artifact_paths), len(set(artifact_paths)))
+        for item in comparisons:
+            self.assertIn(item["scorecardId"], item["scorecardArtifactPath"])
+        self.assertEqual(
+            {
+                (item["candidateStrategyId"], item["baselineStrategyId"])
+                for item in comparisons
+            },
+            {
+                ("candidate-a", "baseline-a"),
+                ("candidate-a", "baseline-b"),
+                ("candidate-b", "baseline-a"),
+                ("candidate-b", "baseline-b"),
+            },
+        )
+
+    def test_verify_remote_training_report_rejects_malformed_candidate_scorecard_set(self) -> None:
+        duplicate_matrix = ready_runtime_candidate_scorecard_matrix()
+        duplicate_matrix["comparisons"][-1] = copy.deepcopy(duplicate_matrix["comparisons"][0])
+        missing_matrix = ready_runtime_candidate_scorecard_matrix()
+        missing_matrix["comparisons"] = missing_matrix["comparisons"][:-1]
+        missing_matrix["comparisonCount"] = len(missing_matrix["comparisons"])
+        missing_matrix["materializedScorecardCount"] = len(missing_matrix["comparisons"])
+        missing_matrix["readyComparisonCount"] = len(missing_matrix["comparisons"])
+        cases = (
+            (
+                "non-object set",
+                ["not-a-scorecard-set"],
+                "candidateScorecards must be an object",
+            ),
+            (
+                "non-list comparisons",
+                {**ready_runtime_candidate_scorecard_set(), "comparisons": {"bad": True}},
+                "candidateScorecards.comparisons must be a list",
+            ),
+            (
+                "malformed comparison",
+                {
+                    **ready_runtime_candidate_scorecard_set(),
+                    "comparisons": ["not-a-scorecard"],
+                },
+                "candidateScorecards.comparisons\\[0\\] must be an object",
+            ),
+            (
+                "comparison count mismatch",
+                {**ready_runtime_candidate_scorecard_set(), "comparisonCount": 2},
+                "candidateScorecards.comparisonCount disagrees with comparisons",
+            ),
+            (
+                "duplicate comparison pair",
+                duplicate_matrix,
+                "candidateScorecards.comparisons\\[3\\] duplicates comparison",
+            ),
+            (
+                "missing comparison pair",
+                missing_matrix,
+                "candidateScorecards.comparisons does not cover the full candidate/baseline matrix",
+            ),
+        )
+        for name, scorecard_set, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data["candidateScorecards"] = scorecard_set
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                write_ready_runtime_scorecard_artifact(root)
+                write_candidate_scorecard_set_artifacts(root, scorecard_set)
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_accepts_materialized_metadata_only_scorecard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

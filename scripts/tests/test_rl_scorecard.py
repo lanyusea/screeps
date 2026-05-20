@@ -25,6 +25,12 @@ def runtime_line(payload: JsonObject) -> str:
     return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
 
 
+def loop_b_metrics(payload: JsonObject, *, role: str = "candidate") -> dict[str, JsonObject]:
+    accumulator = scorecard.MetricAccumulator()
+    scorecard.ingest_metrics_by_category(accumulator, payload, "loop-b.json", role=role)
+    return accumulator.summarize()
+
+
 def runtime_payload(
     *,
     tick: int,
@@ -290,6 +296,91 @@ def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_pat
     assert report["candidate"]["runtimeParameterInjection"]["status"] == "injected"
 
 
+def test_loop_b_primary_metric_role_fallbacks_do_not_leak_to_submetrics() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"candidateValue": 0.995, "baselineValue": 0.991},
+            "territory": {"candidateValue": 3, "baselineValue": 2},
+            "resources": {"candidateValue": 900, "baselineValue": 1000},
+            "kills": {"candidateValue": 2, "baselineValue": 0},
+        },
+    }
+
+    candidate_metrics = loop_b_metrics(payload, role="candidate")
+    baseline_metrics = loop_b_metrics(payload, role="baseline")
+
+    assert candidate_metrics["reliability_score"]["value"] == 0.995
+    assert baseline_metrics["reliability_score"]["value"] == 0.991
+    assert candidate_metrics["owned_room_count"]["value"] == 3
+    assert baseline_metrics["owned_room_count"]["value"] == 2
+    assert candidate_metrics["productive_energy"]["value"] == 900
+    assert baseline_metrics["productive_energy"]["value"] == 1000
+    assert candidate_metrics["combat_score"]["value"] == 2
+    assert baseline_metrics["combat_score"]["value"] == 0
+    for metrics in (candidate_metrics, baseline_metrics):
+        for key in (
+            "controller_progress",
+            "controller_level_sum",
+            "expansion_survival_count",
+            "harvested_energy",
+            "stored_energy",
+            "energy_surplus",
+            "hostile_pressure",
+        ):
+            assert key not in metrics
+
+
+def test_loop_b_primary_metric_role_values_win_over_generic_score_and_value() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"score": 0.1, "value": 0.2, "candidateValue": 0.995, "baselineValue": 0.991},
+            "territory": {"score": 1, "value": 9, "candidateValue": 3, "baselineValue": 2},
+            "resources": {"score": 100, "value": 200, "candidateValue": 900, "baselineValue": 1000},
+            "kills": {"score": -1, "value": -2, "candidateValue": 2, "baselineValue": 0},
+        },
+    }
+
+    candidate_metrics = loop_b_metrics(payload, role="candidate")
+    baseline_metrics = loop_b_metrics(payload, role="baseline")
+
+    assert candidate_metrics["reliability_score"]["value"] == 0.995
+    assert baseline_metrics["reliability_score"]["value"] == 0.991
+    assert candidate_metrics["owned_room_count"]["value"] == 3
+    assert baseline_metrics["owned_room_count"]["value"] == 2
+    assert candidate_metrics["productive_energy"]["value"] == 900
+    assert baseline_metrics["productive_energy"]["value"] == 1000
+    assert candidate_metrics["combat_score"]["value"] == 2
+    assert baseline_metrics["combat_score"]["value"] == 0
+
+
+def test_loop_b_primary_metric_value_fallback_is_primary_only() -> None:
+    payload = {
+        "metricsByCategory": {
+            "reliability": {"value": 0.996},
+            "territory": {"value": 4},
+            "resources": {"value": 1250},
+            "combat": {"value": 7},
+        },
+    }
+
+    metrics = loop_b_metrics(payload)
+
+    assert metrics["reliability_score"]["value"] == 0.996
+    assert metrics["owned_room_count"]["value"] == 4
+    assert metrics["productive_energy"]["value"] == 1250
+    assert metrics["combat_score"]["value"] == 7
+    for key in (
+        "controller_progress",
+        "controller_level_sum",
+        "expansion_survival_count",
+        "harvested_energy",
+        "stored_energy",
+        "energy_surplus",
+        "hostile_pressure",
+    ):
+        assert key not in metrics
+
+
 def test_candidate_scorecard_readiness_uses_selected_candidate_runtime_evidence() -> None:
     report = {
         "reportId": "multi-candidate-selected-runtime-ready",
@@ -455,6 +546,52 @@ def test_runtime_scorecard_missing_baseline_metric_is_inconclusive_not_pass(tmp_
     assert report["overallGate"]["status"] != "PASS"
     assert "resources_economy" in report["overallGate"]["inconclusiveDimensions"]
     assert "combat" in report["overallGate"]["inconclusiveDimensions"]
+
+
+def test_missing_dimension_metrics_carry_stable_reason_codes(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    baseline.mkdir()
+    candidate.mkdir()
+    write_json(
+        candidate / "candidate-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {
+                "resources": {"score": 1500},
+            },
+        },
+    )
+    write_json(
+        baseline / "baseline-kpis.json",
+        {
+            "type": "screeps-rl-kpi-window",
+            "metrics": {},
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-20T00:06:00Z",
+        run_id="scorecard-missing-reason-codes",
+    )
+
+    resources = report["dimensions"]["resources_economy"]
+    productive = next(metric for metric in resources["metrics"] if metric["metric"] == "productive_energy")
+    assert productive["candidate"] == 1500
+    assert productive["baseline"] is None
+    assert productive["reasonCodes"] == ["missing_baseline_metric"]
+    productive_detail = next(
+        detail for detail in resources["missingEvidenceDetails"] if detail["metric"] == "productive_energy"
+    )
+    assert productive_detail["reasonCodes"] == ["missing_baseline_metric"]
+    assert productive_detail["baselineMissing"] is True
+    assert productive_detail["candidateMissing"] is False
+    construction = report["dimensions"]["construction_infrastructure"]
+    assert "missing_candidate_metric" in construction["reasonCodes"]
+    assert "missing_baseline_metric" in construction["reasonCodes"]
 
 
 def test_metadata_only_policy_update_holds_even_with_complete_metric_advantage(tmp_path: Path) -> None:

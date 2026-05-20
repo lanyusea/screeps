@@ -122,6 +122,8 @@ RUNTIME_PARAMETER_INJECTION_ALLOWED_STATUS_SCOPES = {
     "not_injected": "runtime_injected",
     "partial": "partial_runtime_injection",
 }
+MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
+CANDIDATE_SCORECARD_SET_STATUSES = {"blocked", "materialized", "partial", "planned", "ready"}
 ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "algorithm",
     "anchor",
@@ -905,6 +907,7 @@ print(json.dumps({
   'scorecardId': d.get('scorecardId'),
   'scorecardArtifactPath': d.get('scorecardArtifactPath'),
   'candidateScorecard': d.get('candidateScorecard'),
+  'candidateScorecards': d.get('candidateScorecards'),
   'warnings': d.get('warnings'),
   'simulation': d.get('simulation'),
   'scaleValidation': d.get('scaleValidation'),
@@ -989,6 +992,11 @@ tar -czf remote-artifacts.tar.gz \
             scorecard_artifact_path=data.get("scorecardArtifactPath"),
             artifact_dir=self.artifact_dir,
         )
+        candidate_scorecards = verified_remote_candidate_scorecards(
+            data.get("candidateScorecards"),
+            runtime_parameter_injection=runtime_parameter_injection,
+            artifact_dir=self.artifact_dir,
+        )
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
@@ -1003,6 +1011,7 @@ tar -czf remote-artifacts.tar.gz \
             "scorecardId": data.get("scorecardId"),
             "scorecardArtifactPath": data.get("scorecardArtifactPath"),
             "candidateScorecard": candidate_scorecard,
+            "candidateScorecards": candidate_scorecards,
             **policy_update_fields,
             "ranking": data.get("ranking"),
             "warnings": data.get("warnings"),
@@ -2266,6 +2275,203 @@ def verified_remote_candidate_scorecard(
     return copy.deepcopy(raw)
 
 
+def verified_remote_candidate_scorecards(
+    raw: Any,
+    *,
+    runtime_parameter_injection: dict[str, Any] | None,
+    artifact_dir: Path,
+) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BatchRunError("remote candidateScorecards must be an object when present")
+    unsafe = unsafe_policy_update_safety_flags(
+        raw,
+        "candidateScorecards",
+        {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    )
+    if unsafe:
+        raise BatchRunError("remote candidateScorecards safety flags are unsafe: " + "; ".join(unsafe))
+    payload_type = required_non_empty_text(raw.get("type"), "candidateScorecards.type")
+    if payload_type != MULTI_CANDIDATE_SCORECARD_SET_TYPE:
+        raise BatchRunError(f"remote candidateScorecards.type invalid: {payload_type!r}")
+    required_non_negative_int(raw.get("schemaVersion"), "candidateScorecards.schemaVersion")
+    status = required_non_empty_text(raw.get("status"), "candidateScorecards.status")
+    if status not in CANDIDATE_SCORECARD_SET_STATUSES:
+        raise BatchRunError(f"remote candidateScorecards.status invalid: {status!r}")
+    required_non_empty_text(raw.get("classification"), "candidateScorecards.classification")
+    comparisons = raw.get("comparisons")
+    if not isinstance(comparisons, list):
+        raise BatchRunError("remote candidateScorecards.comparisons must be a list")
+    comparison_count = required_non_negative_int(raw.get("comparisonCount"), "candidateScorecards.comparisonCount")
+    if comparison_count != len(comparisons):
+        raise BatchRunError(
+            f"remote candidateScorecards.comparisonCount disagrees with comparisons: "
+            f"{comparison_count} != {len(comparisons)}"
+        )
+
+    verified_comparisons: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for index, item in enumerate(comparisons):
+        if not isinstance(item, dict):
+            raise BatchRunError(f"remote candidateScorecards.comparisons[{index}] must be an object")
+        candidate_id = required_non_empty_text(
+            item.get("candidateStrategyId"),
+            f"candidateScorecards.comparisons[{index}].candidateStrategyId",
+        )
+        baseline_id = required_non_empty_text(
+            item.get("baselineStrategyId"),
+            f"candidateScorecards.comparisons[{index}].baselineStrategyId",
+        )
+        require_optional_non_negative_int(
+            item.get("candidateRank"),
+            f"candidateScorecards.comparisons[{index}].candidateRank",
+        )
+        require_optional_non_negative_int(
+            item.get("baselineRank"),
+            f"candidateScorecards.comparisons[{index}].baselineRank",
+        )
+        comparison_key = required_non_empty_text(
+            item.get("comparisonKey"),
+            f"candidateScorecards.comparisons[{index}].comparisonKey",
+        )
+        expected_comparison_key = f"{candidate_id}::vs::{baseline_id}"
+        if comparison_key != expected_comparison_key:
+            raise BatchRunError(
+                f"remote candidateScorecards.comparisons[{index}].comparisonKey disagrees with strategy ids"
+            )
+        pair = (candidate_id, baseline_id)
+        if pair in seen_pairs:
+            raise BatchRunError(
+                f"remote candidateScorecards.comparisons[{index}] duplicates comparison {comparison_key!r}"
+            )
+        seen_pairs.add(pair)
+        try:
+            verified = verified_remote_candidate_scorecard(
+                item,
+                runtime_parameter_injection=runtime_parameter_injection,
+                scorecard_id=item.get("scorecardId"),
+                scorecard_artifact_path=item.get("scorecardArtifactPath"),
+                artifact_dir=artifact_dir,
+            )
+        except BatchRunError as error:
+            raise BatchRunError(f"remote candidateScorecards.comparisons[{index}] invalid: {error}") from error
+        if verified is None:
+            raise BatchRunError(f"remote candidateScorecards.comparisons[{index}] cannot be null")
+        verified_comparisons.append(verified)
+
+    candidate_ids = sorted({item["candidateStrategyId"] for item in verified_comparisons})
+    baseline_ids = sorted({item["baselineStrategyId"] for item in verified_comparisons})
+    candidate_count = required_non_negative_int(raw.get("candidateCount"), "candidateScorecards.candidateCount")
+    baseline_count = required_non_negative_int(raw.get("baselineCount"), "candidateScorecards.baselineCount")
+    if candidate_count != len(candidate_ids):
+        raise BatchRunError(
+            f"remote candidateScorecards.candidateCount disagrees with comparisons: "
+            f"{candidate_count} != {len(candidate_ids)}"
+        )
+    if baseline_count != len(baseline_ids):
+        raise BatchRunError(
+            f"remote candidateScorecards.baselineCount disagrees with comparisons: "
+            f"{baseline_count} != {len(baseline_ids)}"
+        )
+    expected_pairs = {(candidate_id, baseline_id) for candidate_id in candidate_ids for baseline_id in baseline_ids}
+    missing_pairs = sorted(expected_pairs - seen_pairs)
+    if missing_pairs:
+        missing = ", ".join(f"{candidate_id}::vs::{baseline_id}" for candidate_id, baseline_id in missing_pairs)
+        raise BatchRunError(
+            "remote candidateScorecards.comparisons does not cover the full candidate/baseline matrix: "
+            f"missing {missing}"
+        )
+    if "candidateStrategyIds" in raw and required_text_list(
+        raw.get("candidateStrategyIds"),
+        "candidateScorecards.candidateStrategyIds",
+    ) != candidate_ids:
+        raise BatchRunError("remote candidateScorecards.candidateStrategyIds disagree with comparisons")
+    if "baselineStrategyIds" in raw and required_text_list(
+        raw.get("baselineStrategyIds"),
+        "candidateScorecards.baselineStrategyIds",
+    ) != baseline_ids:
+        raise BatchRunError("remote candidateScorecards.baselineStrategyIds disagree with comparisons")
+
+    materialized_count = sum(
+        1 for item in verified_comparisons if text_value(item.get("scorecardArtifactPath")) is not None
+    )
+    blocked_count = sum(1 for item in verified_comparisons if item.get("status") == "blocked")
+    ready_count = sum(1 for item in verified_comparisons if item.get("status") == "ready")
+    declared_materialized = required_non_negative_int(
+        raw.get("materializedScorecardCount"),
+        "candidateScorecards.materializedScorecardCount",
+    )
+    if declared_materialized != materialized_count:
+        raise BatchRunError(
+            f"remote candidateScorecards.materializedScorecardCount disagrees with comparisons: "
+            f"{declared_materialized} != {materialized_count}"
+        )
+    if "blockedComparisonCount" in raw:
+        declared_blocked = required_non_negative_int(
+            raw.get("blockedComparisonCount"),
+            "candidateScorecards.blockedComparisonCount",
+        )
+        if declared_blocked != blocked_count:
+            raise BatchRunError(
+                f"remote candidateScorecards.blockedComparisonCount disagrees with comparisons: "
+                f"{declared_blocked} != {blocked_count}"
+            )
+    if "readyComparisonCount" in raw:
+        declared_ready = required_non_negative_int(
+            raw.get("readyComparisonCount"),
+            "candidateScorecards.readyComparisonCount",
+        )
+        if declared_ready != ready_count:
+            raise BatchRunError(
+                f"remote candidateScorecards.readyComparisonCount disagrees with comparisons: "
+                f"{declared_ready} != {ready_count}"
+            )
+
+    validation_blocked = required_bool(
+        raw.get("validationScaleComputeBlocked"),
+        "candidateScorecards.validationScaleComputeBlocked",
+    )
+    expected_validation_blocked = (
+        True
+        if not verified_comparisons
+        else any(item.get("validationScaleComputeBlocked") is True for item in verified_comparisons)
+    )
+    if validation_blocked != expected_validation_blocked:
+        raise BatchRunError("remote candidateScorecards.validationScaleComputeBlocked disagrees with comparisons")
+    scorecard_usable = required_bool(raw.get("scorecardUsable"), "candidateScorecards.scorecardUsable")
+    expected_usable = bool(verified_comparisons) and all(
+        item.get("scorecardUsable") is True for item in verified_comparisons
+    )
+    if scorecard_usable != expected_usable:
+        raise BatchRunError("remote candidateScorecards.scorecardUsable disagrees with comparisons")
+    if not verified_comparisons and status != "blocked":
+        raise BatchRunError("remote candidateScorecards with no comparisons must be blocked")
+    if verified_comparisons and blocked_count:
+        if blocked_count == len(verified_comparisons) and status not in {"blocked", "partial"}:
+            raise BatchRunError("remote candidateScorecards fully blocked comparisons require blocked or partial status")
+        if blocked_count != len(verified_comparisons) and status != "partial":
+            raise BatchRunError("remote candidateScorecards mixed blocked comparisons require partial status")
+    elif verified_comparisons and ready_count == len(verified_comparisons):
+        if status != "ready":
+            raise BatchRunError("remote candidateScorecards ready comparisons require ready status")
+    elif verified_comparisons and materialized_count == len(verified_comparisons):
+        if status != "materialized":
+            raise BatchRunError("remote candidateScorecards materialized comparisons require materialized status")
+    if verified_comparisons and "selectedScorecardId" in raw:
+        selected = verified_comparisons[0].get("scorecardId")
+        if raw.get("selectedScorecardId") != selected:
+            raise BatchRunError("remote candidateScorecards.selectedScorecardId disagrees with first comparison")
+
+    verified_payload = copy.deepcopy(raw)
+    verified_payload["comparisons"] = verified_comparisons
+    return verified_payload
+
+
 def required_bool(raw: Any, label: str) -> bool:
     if type(raw) is bool:
         return raw
@@ -2282,6 +2488,18 @@ def required_non_empty_text(raw: Any, label: str) -> str:
     if isinstance(raw, str) and raw.strip():
         return raw
     raise BatchRunError(f"remote {label} must be a non-empty string")
+
+
+def require_optional_non_negative_int(raw: Any, label: str) -> int | None:
+    if raw is None:
+        return None
+    return required_non_negative_int(raw, label)
+
+
+def required_text_list(raw: Any, label: str) -> list[str]:
+    if not isinstance(raw, list):
+        raise BatchRunError(f"remote {label} must be a list")
+    return [required_non_empty_text(item, f"{label}[{index}]") for index, item in enumerate(raw)]
 
 
 def require_explicit_false_fields(raw: dict[str, Any], label: str, fields: Sequence[str]) -> None:

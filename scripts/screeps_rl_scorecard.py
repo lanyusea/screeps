@@ -214,6 +214,12 @@ DIMENSION_SPECS: dict[str, DimensionSpec] = {
         ("combat_score", "hostile_pressure"),
         missing_behavior="not_applicable",
     ),
+    "cpu_reliability_process_quality": DimensionSpec(
+        "cpu_reliability_process_quality",
+        "CPU/reliability/process quality",
+        True,
+        ("telemetry_silence_ticks", "cpu_bucket_min", "cpu_used_avg", "stale_candidate"),
+    ),
 }
 
 
@@ -1020,39 +1026,101 @@ def ingest_metrics_by_category(
     metrics = payload.get("metricsByCategory")
     if not isinstance(metrics, dict):
         return
-    value_keys = (
+    role_value_keys = (
         ("candidateValue", "candidate", "postValue", "currentValue", "value")
         if role == "candidate"
         else ("baselineValue", "baseline", "preValue", "incumbentValue", "value")
     )
+
+    def category_number(raw_block: JsonObject, keys: Sequence[str], *, primary: bool = False) -> float | None:
+        if primary:
+            preferred_role_keys = tuple(key for key in role_value_keys if key != "value")
+            lookup_keys = (*preferred_role_keys, *keys, "value")
+        else:
+            lookup_keys = tuple(keys)
+        return first_number(raw_block, tuple((key,) for key in lookup_keys))
+
+    def add(metric_key: str, raw_block: JsonObject, keys: Sequence[str], note: str, *, primary: bool = False) -> None:
+        accumulator.add(metric_key, category_number(raw_block, keys, primary=primary), source, note)
+
     for raw_category, raw_block in metrics.items():
         if not isinstance(raw_block, dict):
             continue
         category = normalized_key(str(raw_category))
-        metric_key: str | None = None
-        note = ""
+        primary_metric_present = False
         if category in {"reliability", "safetyreliability", "runtimereliability"}:
-            metric_key = "reliability_score"
-            note = "Loop B reliability metric"
+            add(
+                "reliability_score",
+                raw_block,
+                ("score", "reliabilityScore", "okRate", "successRate"),
+                "Loop B reliability metric",
+                primary=True,
+            )
+            accumulator.add(
+                "gate_pass",
+                first_number(raw_block, (("gatePass",), ("gate_pass",))),
+                source,
+                "Loop B gate pass metric",
+            )
         elif category in {"territory", "territoryexpansion"}:
-            metric_key = "owned_room_count"
-            note = "Loop B territory metric"
+            owned_rooms = category_number(raw_block, ("ownedRoomCount", "ownedRooms", "score"), primary=True)
+            primary_metric_present = owned_rooms is not None
+            accumulator.add("owned_room_count", owned_rooms, source, "Loop B territory metric")
+            add("controller_progress", raw_block, ("controllerProgress", "controller_progress"), "Loop B controller progress metric")
+            add("controller_level_sum", raw_block, ("controllerLevelSum", "rclDelta", "rclSum"), "Loop B controller level metric")
+            add(
+                "expansion_survival_count",
+                raw_block,
+                ("expansionSurvivalCount", "survivedEndRoomCount", "ownedRoomCount", "ownedRooms"),
+                "Loop B expansion survival metric",
+            )
         elif category in {"resources", "resource", "resourceseconomy", "economy"}:
-            metric_key = "productive_energy"
-            note = "Loop B resource metric"
-        elif category in {"kills", "combat", "hostilekills"}:
-            metric_key = "combat_score"
-            note = "Loop B kill metric"
-        if metric_key is None:
-            continue
-        value = first_number(raw_block, tuple((key,) for key in value_keys))
+            add("harvested_energy", raw_block, ("collectedEnergy", "harvestedEnergy"), "Loop B harvested energy metric")
+            add("stored_energy", raw_block, ("storedEnergyDelta", "storedEnergy"), "Loop B stored energy metric")
+            add("energy_surplus", raw_block, ("raw", "energySurplus", "energy_surplus"), "Loop B energy surplus metric")
+            productive_energy = category_number(raw_block, ("score", "resourceScore", "raw"), primary=True)
+            primary_metric_present = productive_energy is not None
+            accumulator.add("productive_energy", productive_energy, source, "Loop B resource metric")
+        elif category in {"construction", "constructioninfrastructure", "infrastructure"}:
+            add("build_progress", raw_block, ("buildProgress", "builtProgress"), "Loop B construction metric")
+            add(
+                "defense_infrastructure",
+                raw_block,
+                ("defenseInfrastructure", "towerCount", "rampartCount"),
+                "Loop B infrastructure metric",
+            )
+            add("stale_candidate", raw_block, ("staleCandidate", "stale_candidate"), "Loop B stale-candidate metric")
+        elif category in {"creepefficiency", "logistics", "creeplogistics"}:
+            add("low_load_return_count", raw_block, ("lowLoadReturnCount", "avoidableLowLoadReturnCount"), "Loop B logistics metric")
+            add("return_load_factor", raw_block, ("returnLoadFactor", "loadFactor"), "Loop B return load metric")
+        elif category in {"kills", "combat", "hostilekills", "defensecombat"}:
+            value = category_number(raw_block, ("score", "combatScore"), primary=True)
+            if value is None:
+                hostile_kills = first_number(raw_block, (("hostileKills",), ("hostileCreepKills",)))
+                own_losses = first_number(raw_block, (("ownLosses",), ("ownCreepLosses",)))
+                if hostile_kills is not None or own_losses is not None:
+                    value = (hostile_kills or 0.0) - (own_losses or 0.0)
+            primary_metric_present = value is not None
+            accumulator.add("combat_score", value, source, "Loop B kill metric")
+            accumulator.add(
+                "hostile_pressure",
+                first_number(raw_block, (("hostilePressure",), ("finalHostileCreeps",))),
+                source,
+                "Loop B hostile pressure metric",
+            )
+        elif category in {"cpu", "cpureliability", "processquality", "cpureliabilityprocessquality"}:
+            add("cpu_bucket_min", raw_block, ("cpuBucketMin", "bucketMin", "bucket"), "Loop B CPU bucket metric")
+            add("cpu_used_avg", raw_block, ("cpuUsedAvg", "usedAvg", "used"), "Loop B CPU used metric")
+            add("telemetry_silence_ticks", raw_block, ("telemetrySilenceTicks",), "Loop B telemetry silence metric")
+            add("stale_candidate", raw_block, ("staleCandidate", "stale_candidate"), "Loop B process quality metric")
+
         relative_value = first_number(raw_block, (("delta",), ("advantage",)))
-        if value is None and relative_value is not None:
-            spec = METRIC_SPECS.get(metric_key)
-            if spec is not None and spec.safety_floor:
-                continue
-            value = relative_value if role == "candidate" else 0.0
-        accumulator.add(metric_key, value, source, note)
+        if category in {"territory", "territoryexpansion"} and relative_value is not None and not primary_metric_present:
+            accumulator.add("owned_room_count", relative_value if role == "candidate" else 0.0, source, "Loop B relative territory metric")
+        if category in {"resources", "resource", "resourceseconomy", "economy"} and relative_value is not None and not primary_metric_present:
+            accumulator.add("productive_energy", relative_value if role == "candidate" else 0.0, source, "Loop B relative resource metric")
+        if category in {"kills", "combat", "hostilekills", "defensecombat"} and relative_value is not None and not primary_metric_present:
+            accumulator.add("combat_score", relative_value if role == "candidate" else 0.0, source, "Loop B relative kill metric")
 
 
 def ingest_training_or_advantage(
@@ -1462,14 +1530,18 @@ def compare_metric(spec: MetricSpec, candidate: JsonObject, baseline: JsonObject
         "delta": None,
         "status": STATUS_INCONCLUSIVE,
         "reasons": [],
+        "reasonCodes": [],
         "candidateEvidence": metric_evidence(candidate, spec.key),
         "baselineEvidence": metric_evidence(baseline, spec.key),
     }
     reasons: list[str] = result["reasons"]
+    reason_codes: list[str] = result["reasonCodes"]
     if candidate_value is None:
         reasons.append("missing_candidate_metric")
+        reason_codes.append("missing_candidate_metric")
     if baseline_value is None:
         reasons.append("missing_baseline_metric")
+        reason_codes.append("missing_baseline_metric")
     if reasons:
         return result
 
@@ -1479,9 +1551,11 @@ def compare_metric(spec: MetricSpec, candidate: JsonObject, baseline: JsonObject
     if spec.maximum is not None and candidate_value > spec.maximum + spec.tolerance:
         floor_failed = True
         reasons.append("candidate_violates_maximum_floor")
+        reason_codes.append("candidate_violates_maximum_floor")
     if spec.minimum is not None and candidate_value < spec.minimum - spec.tolerance:
         floor_failed = True
         reasons.append("candidate_violates_minimum_floor")
+        reason_codes.append("candidate_violates_minimum_floor")
     if floor_failed:
         result["status"] = STATUS_REGRESSED
         return result
@@ -1514,12 +1588,32 @@ def compare_dimension(spec: DimensionSpec, candidate: JsonObject, baseline: Json
     else:
         status = STATUS_INCONCLUSIVE
 
+    dimension_not_applicable = spec.missing_behavior == "not_applicable" and not combat_is_applicable(candidate, baseline)
     missing_evidence = [
         metric["metric"]
         for metric in metrics
-        if metric["status"] == STATUS_INCONCLUSIVE
-        and not (spec.missing_behavior == "not_applicable" and not combat_is_applicable(candidate, baseline))
+        if metric["status"] == STATUS_INCONCLUSIVE and not dimension_not_applicable
     ]
+    missing_evidence_details = [
+        {
+            "metric": metric["metric"],
+            "reasonCodes": metric.get("reasonCodes", metric.get("reasons", [])),
+            "candidateMissing": "missing_candidate_metric" in metric.get("reasonCodes", metric.get("reasons", [])),
+            "baselineMissing": "missing_baseline_metric" in metric.get("reasonCodes", metric.get("reasons", [])),
+        }
+        for metric in metrics
+        if metric["status"] == STATUS_INCONCLUSIVE and not dimension_not_applicable
+    ]
+    reason_codes = sorted(
+        {
+            str(code)
+            for metric in metrics
+            for code in metric.get("reasonCodes", metric.get("reasons", []))
+            if code
+        }
+    )
+    if dimension_not_applicable:
+        reason_codes.append("dimension_not_applicable_no_combat_evidence")
     evidence: list[JsonObject] = []
     for metric in metrics:
         if metric["status"] == STATUS_INCONCLUSIVE:
@@ -1542,6 +1636,8 @@ def compare_dimension(spec: DimensionSpec, candidate: JsonObject, baseline: Json
         "metrics": metrics,
         "evidence": evidence,
         "missingEvidence": missing_evidence,
+        "missingEvidenceDetails": missing_evidence_details,
+        "reasonCodes": reason_codes,
     }
 
 
