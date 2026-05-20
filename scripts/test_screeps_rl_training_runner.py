@@ -1622,6 +1622,15 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["trueGradient"])
         self.assertEqual(report["runtimeParameterInjection"]["status"], "metadata_only")
         self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertIsNone(report["scorecardId"])
+        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "runtime_parameter_injection_metadata_only",
+        )
+        self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_injection")
+        self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
         self.assertFalse(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
         self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "metadata_only")
@@ -2141,9 +2150,23 @@ export const STRATEGY_REGISTRY = [
             persisted = read_json(out_dir / "policy-gradient-injected.json")
             artifact_dir_exists = (out_dir / "policy-candidates").exists()
             artifact_path_exists = Path(report["policyUpdateArtifactPath"]).exists()
+            scorecard_path = Path(report["scorecardArtifactPath"])
+            scorecard_path_exists = scorecard_path.exists()
+            scorecard_payload = read_json(scorecard_path)
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertIsNotNone(report["scorecardId"])
+        self.assertEqual(report["candidateScorecard"]["status"], "ready")
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
+        self.assertFalse(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
+        self.assertTrue(scorecard_path_exists)
+        self.assertEqual(scorecard_payload["runId"], report["scorecardId"])
+        self.assertTrue(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
+        )
         self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
         self.assertEqual(report["policyUpdateIterations"], 1)

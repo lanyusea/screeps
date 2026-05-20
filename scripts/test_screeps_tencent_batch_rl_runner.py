@@ -1038,6 +1038,28 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
                         "artifactCount": 1,
+                        "runtimeParameterInjection": {
+                            "type": "screeps-rl-runtime-parameter-injection",
+                            "status": "injected",
+                            "runtimeParameterInjection": True,
+                            "policyUpdateEligible": True,
+                            "candidateParameterScope": "runtime_injected",
+                            "injectedVariantCount": 1,
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                        },
+                        "scorecardId": "rl-scorecard-run-test",
+                        "scorecardArtifactPath": "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json",
+                        "candidateScorecard": {
+                            "status": "ready",
+                            "classification": "runtime_injected_candidate_scorecard_ready",
+                            "scorecardId": "rl-scorecard-run-test",
+                            "runtimeParameterInjection": True,
+                            "injectedVariantCount": 1,
+                            "validationScaleComputeBlocked": False,
+                            "scorecardUsable": True,
+                        },
                         "policyUpdateIterations": 1,
                         "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
                         "policyUpdate": {
@@ -1079,6 +1101,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(
                 summary["outputs"]["trainingReport"]["activationProof"]["audit"]["comparisonKey"],
                 "activation-key",
+            )
+            self.assertTrue(
+                summary["outputs"]["trainingReport"]["runtimeParameterInjection"]["runtimeParameterInjection"]
+            )
+            self.assertEqual(summary["outputs"]["trainingReport"]["runtimeParameterInjection"]["injectedVariantCount"], 1)
+            self.assertEqual(summary["outputs"]["trainingReport"]["scorecardId"], "rl-scorecard-run-test")
+            self.assertEqual(summary["outputs"]["trainingReport"]["candidateScorecard"]["status"], "ready")
+            self.assertFalse(
+                summary["outputs"]["trainingReport"]["candidateScorecard"]["validationScaleComputeBlocked"]
             )
             self.assertEqual(
                 summary["outputs"]["trainingReport"]["policyUpdateArtifactPath"],
@@ -1210,6 +1241,30 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                                 "successfulEnvironments": 25,
                                 "repetitions": 5,
                             },
+                            "runtimeParameterInjection": {
+                                "type": "screeps-rl-runtime-parameter-injection",
+                                "status": "metadata_only",
+                                "runtimeParameterInjection": False,
+                                "policyUpdateEligible": False,
+                                "candidateParameterScope": "metadata_only",
+                                "injectedVariantCount": 0,
+                                "reason": "candidate vectors were metadata only",
+                                "liveEffect": False,
+                                "officialMmoWrites": False,
+                                "officialMmoWritesAllowed": False,
+                            },
+                            "scorecardId": None,
+                            "scorecardArtifactPath": None,
+                            "candidateScorecard": {
+                                "status": "blocked",
+                                "classification": "runtime_parameter_injection_metadata_only",
+                                "scorecardId": None,
+                                "runtimeParameterInjection": False,
+                                "injectedVariantCount": 0,
+                                "missingPrerequisite": "runtime_parameter_injection",
+                                "validationScaleComputeBlocked": True,
+                                "scorecardUsable": False,
+                            },
                             "policyUpdateIterations": 0,
                             "policyUpdate": policy_update,
                         }
@@ -1251,6 +1306,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(training_report["artifactCount"], 25)
         self.assertEqual(training_report["policyUpdateIterations"], 0)
         self.assertIsNone(training_report["policyUpdateArtifactPath"])
+        self.assertFalse(training_report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(training_report["runtimeParameterInjection"]["injectedVariantCount"], 0)
+        self.assertIsNone(training_report["scorecardId"])
+        self.assertEqual(training_report["candidateScorecard"]["status"], "blocked")
+        self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertFalse(training_report["candidateScorecard"]["scorecardUsable"])
         self.assertEqual(training_report["policyUpdate"]["metadataCandidateCount"], 5)
         self.assertFalse(training_report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
         self.assertNotIn("nextCandidatePolicy", training_report["policyUpdate"])
