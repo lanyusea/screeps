@@ -34,11 +34,11 @@
         "validation": "runtime-artifacts/rl-experiment-cards/experiment_card.validation.json"
       },
       "safety": {
-        "conservativeActionsOnly": true,
+        "conservative_actions_only": true,
         "liveEffect": false,
         "officialMmoWrites": false,
         "officialMmoWritesAllowed": false,
-        "oodRejection": true
+        "ood_rejection": true
       },
       "selectedGate": {
         "acceptanceRate": 1.0,
