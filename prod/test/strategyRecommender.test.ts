@@ -104,7 +104,7 @@ describe('strategy recommender', () => {
   it('recommends safe remote targets for territory-ready rooms', () => {
     const recommendations = generateStrategyRecommendations({
       ...makeStableLowRclRoom(),
-      controllerLevel: 6,
+      controllerLevel: 5,
       workerCount: 4,
       territory: {
         remoteTargets: [
@@ -121,7 +121,7 @@ describe('strategy recommender', () => {
     );
   });
 
-  it.each([2, 3, 4, 5])(
+  it.each([2, 3, 4])(
     'does not recommend controller-control territory at RCL %i',
     (controllerLevel) => {
       const recommendations = generateStrategyRecommendations({

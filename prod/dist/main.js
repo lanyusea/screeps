@@ -3818,9 +3818,9 @@ function isNonEmptyString4(value) {
 }
 
 // src/territory/controlGate.ts
-var AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 6;
+var AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL = 5;
 var AUTONOMOUS_TERRITORY_CONTROL_SUPPRESSION_REASON = "controllerLevel";
-var AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON = "rcl6Gate";
+var AUTONOMOUS_TERRITORY_CONTROL_ABORT_REASON = "controllerLevelGate";
 function isAutonomousTerritoryControlAllowedForColony(colony) {
   return isAutonomousTerritoryControlAllowedForController(colony.room.controller);
 }
@@ -16420,7 +16420,7 @@ function isExpansionClaimState(state) {
   return state === "scouted" || state === "claiming" || state === "claimed";
 }
 function isExpansionAbortReason(reason) {
-  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing" || reason === "rcl6Gate";
+  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing" || reason === "rcl6Gate" || reason === "controllerLevelGate";
 }
 function isFiniteNumber9(value) {
   return typeof value === "number" && Number.isFinite(value);

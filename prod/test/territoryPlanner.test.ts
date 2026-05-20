@@ -72,9 +72,9 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('suppresses controller-control territory intents before RCL6', () => {
+  it('suppresses controller-control territory intents before RCL5', () => {
     const colony = makeSafeColony({
-      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController,
       energyAvailable: 1300,
       energyCapacityAvailable: 1300
     });
@@ -125,10 +125,10 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('continues allowed scouting when the best control candidate is gated before RCL6', () => {
+  it('continues allowed scouting when the best control candidate is gated before RCL5', () => {
     const colony = makeSafeColony({
       roomName: 'E17S59',
-      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 841,
@@ -191,12 +191,12 @@ describe('planTerritoryIntent', () => {
   it.each([
     ['reserve', makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve')],
     ['claim', makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim')]
-  ] as const)('refreshes stale suppressed recovered %s follow-ups while controller work is gated before RCL6', (
+  ] as const)('refreshes stale suppressed recovered %s follow-ups while controller work is gated before RCL5', (
     action,
     followUp
   ) => {
     const colony = makeSafeColony({
-      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController,
       energyAvailable: 1300,
       energyCapacityAvailable: 1300
     });
@@ -252,9 +252,9 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('does not suppress visible-owned target controller work before RCL6', () => {
+  it('does not suppress visible-owned target controller work before RCL5', () => {
     const colony = makeSafeColony({
-      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController,
+      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController,
       energyAvailable: 1300,
       energyCapacityAvailable: 1300
     });
@@ -318,9 +318,9 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('keeps scout-only territory intelligence available before RCL6', () => {
+  it('keeps scout-only territory intelligence available before RCL5', () => {
     const colony = makeSafeColony({
-      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, owner: { username: 'me' }, level: 4, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
