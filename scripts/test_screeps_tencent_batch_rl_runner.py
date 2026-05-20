@@ -30,6 +30,13 @@ READY_RUNTIME_SCORECARD_PATH = (
 )
 
 
+def ready_runtime_pair_scorecard_path(scorecard_id: str, candidate_id: str, baseline_id: str) -> str:
+    return (
+        "runtime-artifacts/rl-training/candidate-scorecards/run-test/"
+        f"{candidate_id}--vs--{baseline_id}/{scorecard_id}.json"
+    )
+
+
 def add_file(tar: tarfile.TarFile, name: str, content: bytes = b"ok") -> None:
     info = tarfile.TarInfo(name)
     info.size = len(content)
@@ -91,6 +98,20 @@ def write_text(path: Path, text: str = "ok\n") -> None:
 
 def write_ready_runtime_scorecard_artifact(root: Path) -> None:
     write_text(root / "remote" / READY_RUNTIME_SCORECARD_PATH, "{}\n")
+
+
+def write_candidate_scorecard_set_artifacts(root: Path, scorecard_set: object) -> None:
+    if not isinstance(scorecard_set, dict):
+        return
+    comparisons = scorecard_set.get("comparisons")
+    if not isinstance(comparisons, list):
+        return
+    for comparison in comparisons:
+        if not isinstance(comparison, dict):
+            continue
+        artifact_path = comparison.get("scorecardArtifactPath")
+        if isinstance(artifact_path, str):
+            write_text(root / "remote" / artifact_path, "{}\n")
 
 
 def decode_remote_bash_lc(remote_command: str) -> str:
@@ -269,6 +290,11 @@ def ready_runtime_candidate_scorecard_matrix() -> dict[str, object]:
             comparison.update(
                 {
                     "scorecardId": scorecard_id,
+                    "scorecardArtifactPath": ready_runtime_pair_scorecard_path(
+                        scorecard_id,
+                        candidate_id,
+                        baseline_id,
+                    ),
                     "candidateStrategyId": candidate_id,
                     "baselineStrategyId": baseline_id,
                     "candidateRank": candidate_index,
@@ -1359,21 +1385,30 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data = training_report_with_ready_runtime_scorecard()
-            data["candidateScorecards"] = ready_runtime_candidate_scorecard_matrix()
+            scorecard_matrix = ready_runtime_candidate_scorecard_matrix()
+            data["candidateScorecards"] = scorecard_matrix
             report = runner.remote_training_report_path(root, "run-test")
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text(json.dumps(data), encoding="utf-8")
             write_ready_runtime_scorecard_artifact(root)
+            write_candidate_scorecard_set_artifacts(root, scorecard_matrix)
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
 
             controller.verify_remote_training_report()
 
         scorecard_set = controller.result["trainingReport"]["candidateScorecards"]
+        comparisons = scorecard_set["comparisons"]
         self.assertEqual(scorecard_set["comparisonCount"], 4)
+        scorecard_ids = [item["scorecardId"] for item in comparisons]
+        artifact_paths = [item["scorecardArtifactPath"] for item in comparisons]
+        self.assertEqual(len(scorecard_ids), len(set(scorecard_ids)))
+        self.assertEqual(len(artifact_paths), len(set(artifact_paths)))
+        for item in comparisons:
+            self.assertIn(item["scorecardId"], item["scorecardArtifactPath"])
         self.assertEqual(
             {
                 (item["candidateStrategyId"], item["baselineStrategyId"])
-                for item in scorecard_set["comparisons"]
+                for item in comparisons
             },
             {
                 ("candidate-a", "baseline-a"),
@@ -1435,6 +1470,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 report.parent.mkdir(parents=True, exist_ok=True)
                 report.write_text(json.dumps(data), encoding="utf-8")
                 write_ready_runtime_scorecard_artifact(root)
+                write_candidate_scorecard_set_artifacts(root, scorecard_set)
                 controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
 
                 with self.assertRaisesRegex(runner.BatchRunError, expected_error):
