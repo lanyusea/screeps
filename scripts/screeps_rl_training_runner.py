@@ -776,7 +776,10 @@ def run_training_experiment(
         assert_no_secret_leak(artifact_payload, report_secret_values)
     for artifact_path, artifact_payload in policy_artifacts:
         write_json_atomic(artifact_path, artifact_payload)
-    materialize_candidate_scorecard_artifact(report, report_path.parent, report_secret_values)
+    try:
+        materialize_candidate_scorecard_artifact(report, report_path.parent, report_secret_values)
+    except scorecard_helper.ScorecardError as error:
+        mark_candidate_scorecard_materialization_failed(report, error)
     assert_no_secret_leak(report, report_secret_values)
     write_json_atomic(report_path, report)
     report["reportPath"] = dataset_export.display_path(report_path)
@@ -2177,6 +2180,24 @@ def materialize_candidate_scorecard_artifact(
         else None,
     }
     report["scorecardArtifactPath"] = display
+
+
+def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: Exception) -> None:
+    reason = f"candidate scorecard artifact generation failed: {error}"
+    warning = f"candidate scorecard artifact generation skipped: {error}"
+    warnings = report.get("warnings")
+    if isinstance(warnings, list):
+        warnings.append(warning)
+    else:
+        report["warnings"] = [warning]
+    report["candidateScorecard"] = candidate_scorecard_blocked_payload(
+        report,
+        classification="candidate_scorecard_materialization_failed",
+        reason=reason,
+        missing_prerequisite="candidate_scorecard_artifact",
+    )
+    report["scorecardId"] = None
+    report["scorecardArtifactPath"] = None
 
 
 def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:

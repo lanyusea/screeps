@@ -975,6 +975,13 @@ tar -czf remote-artifacts.tar.gz \
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
         policy_update_fields = verified_remote_policy_update_fields(data, safety_flags, self.artifact_dir)
+        runtime_parameter_injection = verified_remote_runtime_parameter_injection(data.get("runtimeParameterInjection"))
+        candidate_scorecard = verified_remote_candidate_scorecard(
+            data.get("candidateScorecard"),
+            runtime_parameter_injection=runtime_parameter_injection,
+            scorecard_id=data.get("scorecardId"),
+            scorecard_artifact_path=data.get("scorecardArtifactPath"),
+        )
         self.result["trainingReport"] = {
             "path": str(report),
             "reportId": data.get("reportId"),
@@ -985,10 +992,10 @@ tar -czf remote-artifacts.tar.gz \
             "batchScale": batch_scale,
             "changedTopCount": data.get("changedTopCount"),
             "activationProof": data.get("activationProof"),
-            "runtimeParameterInjection": data.get("runtimeParameterInjection"),
+            "runtimeParameterInjection": runtime_parameter_injection,
             "scorecardId": data.get("scorecardId"),
             "scorecardArtifactPath": data.get("scorecardArtifactPath"),
-            "candidateScorecard": data.get("candidateScorecard"),
+            "candidateScorecard": candidate_scorecard,
             **policy_update_fields,
             "ranking": data.get("ranking"),
             "warnings": data.get("warnings"),
@@ -2070,6 +2077,150 @@ def verified_remote_policy_update_fields(
         "policyUpdateArtifactPath": rel_artifact_path.as_posix(),
         "policyUpdate": safe_policy_update,
     }
+
+
+def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BatchRunError("remote runtimeParameterInjection must be an object when present")
+    require_explicit_false_fields(raw, "runtimeParameterInjection", POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS)
+    status = required_non_empty_text(raw.get("status"), "runtimeParameterInjection.status")
+    runtime_injected = required_bool(raw.get("runtimeParameterInjection"), "runtimeParameterInjection.runtimeParameterInjection")
+    policy_update_eligible = required_bool(raw.get("policyUpdateEligible"), "runtimeParameterInjection.policyUpdateEligible")
+    scope = required_non_empty_text(raw.get("candidateParameterScope"), "runtimeParameterInjection.candidateParameterScope")
+    injected_count = required_non_negative_int(
+        raw.get("injectedVariantCount"),
+        "runtimeParameterInjection.injectedVariantCount",
+    )
+    if "inlineCandidatesRuntimeInjected" in raw:
+        required_bool(raw.get("inlineCandidatesRuntimeInjected"), "runtimeParameterInjection.inlineCandidatesRuntimeInjected")
+    if "variantCount" in raw:
+        required_non_negative_int(raw.get("variantCount"), "runtimeParameterInjection.variantCount")
+    if runtime_injected:
+        if status != "injected":
+            raise BatchRunError("remote runtimeParameterInjection status must be injected when runtime injection is proven")
+        if scope != "runtime_injected":
+            raise BatchRunError("remote runtimeParameterInjection candidateParameterScope must be runtime_injected")
+        if not policy_update_eligible:
+            raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible must be true when runtime injection is proven")
+        if injected_count <= 0:
+            raise BatchRunError("remote runtimeParameterInjection injectedVariantCount must be positive when runtime injection is proven")
+    elif policy_update_eligible:
+        raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
+    elif status == "injected":
+        raise BatchRunError("remote runtimeParameterInjection status injected requires runtimeParameterInjection=true")
+    elif status == "metadata_only" and scope != "metadata_only":
+        raise BatchRunError("remote runtimeParameterInjection metadata_only status requires metadata_only scope")
+    elif status == "partial" and scope != "partial_runtime_injection":
+        raise BatchRunError("remote runtimeParameterInjection partial status requires partial_runtime_injection scope")
+    return copy.deepcopy(raw)
+
+
+def verified_remote_candidate_scorecard(
+    raw: Any,
+    *,
+    runtime_parameter_injection: dict[str, Any] | None,
+    scorecard_id: Any,
+    scorecard_artifact_path: Any,
+) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BatchRunError("remote candidateScorecard must be an object when present")
+    unsafe = unsafe_policy_update_safety_flags(
+        raw,
+        "candidateScorecard",
+        {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    )
+    if unsafe:
+        raise BatchRunError("remote candidateScorecard safety flags are unsafe: " + "; ".join(unsafe))
+    status = required_non_empty_text(raw.get("status"), "candidateScorecard.status")
+    runtime_injected = required_bool(raw.get("runtimeParameterInjection"), "candidateScorecard.runtimeParameterInjection")
+    validation_blocked = required_bool(
+        raw.get("validationScaleComputeBlocked"),
+        "candidateScorecard.validationScaleComputeBlocked",
+    )
+    scorecard_usable = required_bool(raw.get("scorecardUsable"), "candidateScorecard.scorecardUsable")
+    injected_count = required_non_negative_int(raw.get("injectedVariantCount"), "candidateScorecard.injectedVariantCount")
+    if status == "ready":
+        if runtime_parameter_injection is None or runtime_parameter_injection.get("runtimeParameterInjection") is not True:
+            raise BatchRunError("remote candidateScorecard is ready without runtimeParameterInjection proof")
+        if not runtime_injected:
+            raise BatchRunError("remote candidateScorecard ready status requires runtimeParameterInjection=true")
+        if validation_blocked:
+            raise BatchRunError("remote candidateScorecard ready status cannot be validation-scale blocked")
+        if not scorecard_usable:
+            raise BatchRunError("remote candidateScorecard ready status requires scorecardUsable=true")
+        if injected_count <= 0:
+            raise BatchRunError("remote candidateScorecard ready status requires positive injectedVariantCount")
+        nested_scorecard_id = required_non_empty_text(raw.get("scorecardId"), "candidateScorecard.scorecardId")
+        top_level_scorecard_id = required_non_empty_text(scorecard_id, "scorecardId")
+        if nested_scorecard_id != top_level_scorecard_id:
+            raise BatchRunError("remote candidateScorecard.scorecardId disagrees with scorecardId")
+        safe_candidate_scorecard_artifact_path(scorecard_artifact_path)
+    elif status == "blocked":
+        if runtime_injected:
+            raise BatchRunError("remote candidateScorecard blocked status requires runtimeParameterInjection=false")
+        if not validation_blocked:
+            raise BatchRunError("remote candidateScorecard blocked status requires validationScaleComputeBlocked=true")
+        if scorecard_usable:
+            raise BatchRunError("remote candidateScorecard blocked status requires scorecardUsable=false")
+        if scorecard_id is not None:
+            raise BatchRunError("remote scorecardId must be null when candidateScorecard is blocked")
+        if scorecard_artifact_path is not None:
+            raise BatchRunError("remote scorecardArtifactPath must be null when candidateScorecard is blocked")
+    else:
+        raise BatchRunError(f"remote candidateScorecard.status invalid: {status!r}")
+    return copy.deepcopy(raw)
+
+
+def required_bool(raw: Any, label: str) -> bool:
+    if type(raw) is bool:
+        return raw
+    raise BatchRunError(f"remote {label} must be a boolean")
+
+
+def required_non_negative_int(raw: Any, label: str) -> int:
+    if type(raw) is int and raw >= 0:
+        return raw
+    raise BatchRunError(f"remote {label} must be a non-negative integer")
+
+
+def required_non_empty_text(raw: Any, label: str) -> str:
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    raise BatchRunError(f"remote {label} must be a non-empty string")
+
+
+def require_explicit_false_fields(raw: dict[str, Any], label: str, fields: Sequence[str]) -> None:
+    for field in fields:
+        if raw.get(field) is not False:
+            raise BatchRunError(f"remote {label}.{field} must be explicitly false")
+
+
+def safe_candidate_scorecard_artifact_path(raw: Any) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise BatchRunError("remote scorecardArtifactPath must be a non-empty string when candidateScorecard is ready")
+    if "\\" in raw:
+        raise BatchRunError(f"remote scorecardArtifactPath is unsafe: {raw!r}")
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise BatchRunError(f"remote scorecardArtifactPath is unsafe: {raw!r}")
+    if (
+        len(path.parts) < 4
+        or path.parts[0] != "runtime-artifacts"
+        or path.parts[1] != "rl-training"
+        or path.parts[2] != "candidate-scorecards"
+    ):
+        raise BatchRunError(f"remote scorecardArtifactPath is outside rl-training candidate scorecards: {raw!r}")
+    if path.suffix != ".json":
+        raise BatchRunError(f"remote scorecardArtifactPath must be a JSON scorecard artifact: {raw!r}")
+    return path
 
 
 def policy_update_iterations(raw: Any, label: str) -> int:

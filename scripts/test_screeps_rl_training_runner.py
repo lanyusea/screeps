@@ -2188,6 +2188,69 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
 
+    def test_scorecard_materialization_error_blocks_scorecard_without_crashing(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scorecard-error",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T06:30:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(simulator_results, inject_runtime_parameters=True)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            with mock.patch.object(
+                runner.scorecard_helper,
+                "build_scorecard",
+                side_effect=runner.scorecard_helper.ScorecardError("fixture scorecard failure"),
+            ):
+                report = runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="policy-gradient-scorecard-error",
+                    generated_at="2026-05-17T06:30:00Z",
+                    simulator_runner=simulator,
+                )
+            persisted = read_json(out_dir / "policy-gradient-scorecard-error.json")
+
+        self.assertEqual(report["candidateScorecard"]["status"], "blocked")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "candidate_scorecard_materialization_failed",
+        )
+        self.assertFalse(report["candidateScorecard"]["scorecardUsable"])
+        self.assertIsNone(report["scorecardId"])
+        self.assertIsNone(report["scorecardArtifactPath"])
+        self.assertTrue(
+            any("candidate scorecard artifact generation skipped" in warning for warning in report["warnings"])
+        )
+        self.assertEqual(persisted["candidateScorecard"]["status"], "blocked")
+        self.assertIsNone(persisted["scorecardArtifactPath"])
+
     def test_runtime_injected_reinforce_requires_evaluated_parameters_from_successful_payloads(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-missing-evaluated",

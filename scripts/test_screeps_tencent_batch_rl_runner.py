@@ -167,6 +167,38 @@ def generated_experiment_card() -> dict[str, object]:
     }
 
 
+def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
+    return {
+        "reportId": "run-test",
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "artifactCount": 1,
+        "runtimeParameterInjection": {
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "policyUpdateEligible": True,
+            "candidateParameterScope": "runtime_injected",
+            "injectedVariantCount": 1,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+        "scorecardId": "rl-scorecard-run-test",
+        "scorecardArtifactPath": (
+            "runtime-artifacts/rl-training/candidate-scorecards/run-test/rl-scorecard-run-test.json"
+        ),
+        "candidateScorecard": {
+            "status": "ready",
+            "scorecardId": "rl-scorecard-run-test",
+            "runtimeParameterInjection": True,
+            "injectedVariantCount": 1,
+            "validationScaleComputeBlocked": False,
+            "scorecardUsable": True,
+        },
+    }
+
+
 def write_tencent_guard_summary(
     artifact_root: Path,
     run_id: str,
@@ -1119,6 +1151,105 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(summary["outputs"]["trainingReport"]["batchScale"]["batchClass"], "smoke")
             self.assertFalse(summary["outputs"]["trainingReport"]["batchScale"]["scaleFirstEligible"])
             self.assertEqual(summary["batchScale"]["batchClass"], "smoke")
+
+    def test_verify_remote_training_report_rejects_malformed_runtime_parameter_injection_evidence(self) -> None:
+        cases = (
+            ("string evidence", {"runtimeParameterInjection": "false"}, "runtimeParameterInjection must be an object"),
+            (
+                "missing eligibility",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "injectedVariantCount": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
+                "policyUpdateEligible",
+            ),
+            (
+                "string boolean",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": "true",
+                        "policyUpdateEligible": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "injectedVariantCount": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
+                "runtimeParameterInjection.runtimeParameterInjection must be a boolean",
+            ),
+        )
+        for name, patch, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data.update(patch)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_rejects_inconsistent_candidate_scorecard_evidence(self) -> None:
+        cases = (
+            (
+                "string evidence",
+                {"candidateScorecard": "ready"},
+                "candidateScorecard must be an object",
+            ),
+            (
+                "ready blocked",
+                {
+                    "candidateScorecard": {
+                        "status": "ready",
+                        "scorecardId": "rl-scorecard-run-test",
+                        "runtimeParameterInjection": True,
+                        "injectedVariantCount": 1,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": True,
+                    }
+                },
+                "ready status cannot be validation-scale blocked",
+            ),
+            (
+                "ready without runtime proof",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "metadata_only",
+                        "runtimeParameterInjection": False,
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "metadata_only",
+                        "injectedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    },
+                },
+                "ready without runtimeParameterInjection proof",
+            ),
+        )
+        for name, patch, expected_error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data.update(patch)
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                with self.assertRaisesRegex(runner.BatchRunError, expected_error):
+                    controller.verify_remote_training_report()
 
     def test_verify_remote_training_report_records_smoke_batch_scale_from_simulator_ticks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
