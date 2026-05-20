@@ -607,6 +607,31 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertIn("Loop A policy-gradient proof requires", stderr.getvalue())
 
+    def test_committed_loop_a_local_fallback_card_is_discoverable(self) -> None:
+        card_path = REPO_ROOT / "runtime-artifacts" / "rl-experiment-cards" / "experiment_card.json"
+        self.assertTrue(card_path.is_file())
+        card = json.loads(card_path.read_text(encoding="utf-8"))
+
+        card_helper.validate_card(card)
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(card))
+        self.assertEqual(card["training_approach"], "policy_gradient")
+        self.assertEqual(card["status"], "shadow")
+        self.assertFalse(card["liveEffect"])
+        self.assertFalse(card["officialMmoWrites"])
+        self.assertFalse(card["officialMmoWritesAllowed"])
+        self.assertTrue(card["conservative_actions_only"])
+        self.assertTrue(card["ood_rejection"])
+        self.assertEqual(card["reward_model"]["component_order"], ["reliability", "territory", "resources", "kills"])
+        self.assertFalse(card["reward_model"]["scalar_weighted_sum_authorized"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected = card_helper.select_loop_a_card_supply(card_path.parent, Path(temp_dir))
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["card_path"], str(card_path))
+        self.assertEqual(selected["card_supply"]["state"], "available")
+
     def test_source_gate_block_uses_stable_provenance_path(self) -> None:
         gate_id = "rl-gate-93bf1aa18b62"
         dataset_run_id = "rl-ebf33fae619f"
