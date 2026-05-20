@@ -100,6 +100,40 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
         self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
 
+    def test_no_compute_status_takes_precedence_over_missing_capabilities(self) -> None:
+        cases = (
+            {
+                "title": "Policy advantage has no compute evidence but lists scenario gaps",
+                "onlineUtilityStatus": "BLOCKED_NO_COMPUTE",
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "parameterSurface": "construction-priority",
+            },
+            {
+                "title": "Explicit scenario gap still lacks compute evidence",
+                "classification": "scenario_gap",
+                "onlineUtilityStatus": "BLOCKED_NO_COMPUTE",
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "parameterSurface": "construction-priority",
+            },
+        )
+
+        for raw in cases:
+            with self.subTest(title=raw["title"]):
+                plan = planner.build_plan(raw)
+
+                self.assertEqual(plan["finding"]["classification"], "data_quality")
+                self.assertIn("scenario_gap", plan["finding"]["secondaryClassifications"])
+                self.assertIn("policy_parameterization_gap", plan["finding"]["secondaryClassifications"])
+                self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+                self.assertIsNone(plan["nextRewardDecision"])
+                self.assertIsNone(plan["nextScenarioDelta"])
+                self.assertIsNone(plan["nextPolicyDelta"])
+                self.assertIsNone(plan["nextExperimentCardDelta"])
+                self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
+                self.assertTrue(any("data quality" in reason for reason in plan["blockingReasons"]))
+
     def test_blocked_classification_with_signal_noise_still_blocks_all_deltas(self) -> None:
         plan = planner.build_plan(
             {
@@ -143,7 +177,9 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
             {
                 "title": "Training report already exists",
                 "classification": "data_quality",
+                "trainingRunId": "",
                 "trainingReportIds": ["", "training-loop-b-sample-000002"],
+                "scorecardId": None,
                 "scorecardIds": [{"id": "scorecard-loop-b-sample-000002"}],
             }
         )

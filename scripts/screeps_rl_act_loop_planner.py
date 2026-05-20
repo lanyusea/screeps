@@ -33,6 +33,7 @@ SCORECARD_HELPER = "scripts/screeps_rl_scorecard.py"
 DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
 MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
 UNPROVEN_ONLINE_STATUSES = {"MIXED", "UNPROVEN", "INCONCLUSIVE", "BLOCKED", "BLOCKED_NO_COMPUTE"}
+BLOCKING_ONLINE_EVIDENCE_STATUSES = {"BLOCKED", "BLOCKED_NO_COMPUTE"}
 
 JsonObject = dict[str, Any]
 
@@ -265,14 +266,18 @@ def identifier_text(value: Any) -> str | None:
 
 
 def first_identifier(raw: JsonObject, aliases: Sequence[str]) -> str | None:
-    value = lookup(raw, aliases)
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            identifier = identifier_text(item)
-            if identifier:
-                return identifier
-        return None
-    return identifier_text(value)
+    for alias in aliases:
+        value = lookup(raw, (alias,))
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                identifier = identifier_text(item)
+                if identifier:
+                    return identifier
+            continue
+        identifier = identifier_text(value)
+        if identifier:
+            return identifier
+    return None
 
 
 def nested_lookup(raw: JsonObject, paths: Sequence[Sequence[str]]) -> Any:
@@ -302,6 +307,24 @@ def string_list(value: Any) -> list[str]:
 def status_key(raw: Any) -> str | None:
     text = text_value(raw)
     return text.upper().replace("-", "_") if text else None
+
+
+def has_blocking_evidence_gap(raw: JsonObject) -> bool:
+    statuses = {
+        status_key(lookup(raw, aliases))
+        for aliases in (
+            ("onlineUtilityStatus",),
+            ("onlineStatus",),
+            ("status",),
+            ("rawStatus",),
+        )
+    }
+    if statuses & BLOCKING_ONLINE_EVIDENCE_STATUSES:
+        return True
+    return any(
+        isinstance(status, str) and ("NO_COMPUTE" in status or "NO_EVIDENCE" in status)
+        for status in statuses
+    )
 
 
 def text_blob(raw: JsonObject) -> str:
@@ -335,7 +358,12 @@ def text_blob(raw: JsonObject) -> str:
 def infer_classification(raw: JsonObject) -> str:
     explicit = classification_key(lookup(raw, ("classification", "actLoopClassification", "findingClassification")))
     if explicit:
+        if explicit not in BLOCKING_DELTA_CLASSIFICATIONS and has_blocking_evidence_gap(raw):
+            return "data_quality"
         return explicit
+
+    if has_blocking_evidence_gap(raw):
+        return "data_quality"
 
     missing_capabilities = infer_missing_capabilities(raw)
     if missing_capabilities:
