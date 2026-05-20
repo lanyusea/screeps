@@ -466,6 +466,48 @@ describe('autonomous expansion trigger pipeline', () => {
     });
   });
 
+  it('preserves a legacy RCL6 gate abort reason when normalizing persisted pipeline memory', () => {
+    const colony = makeColony({ storageEnergy: 2_000 });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {
+          W1N1: {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            status: 'active',
+            stage: 'reserving',
+            score: 900,
+            threshold: 700,
+            startedAt: 40,
+            updatedAt: 40,
+            controllerId: 'controller2' as Id<StructureController>,
+            abortReason: 'rcl6Gate'
+          }
+        }
+      }
+    };
+    setSafeHomeThreat('W1N1', 42);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 42,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, makeReport([]), 42)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'active',
+      abortReason: 'rcl6Gate',
+      updatedAt: 42
+    });
+  });
+
   it('blocks new pipelines while claim work is already in flight', () => {
     const colony = makeColony({ storageEnergy: 2_000 });
     const report = makeReport([

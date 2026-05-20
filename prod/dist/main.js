@@ -16420,7 +16420,7 @@ function isExpansionClaimState(state) {
   return state === "scouted" || state === "claiming" || state === "claimed";
 }
 function isExpansionAbortReason(reason) {
-  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing" || reason === "controllerLevelGate";
+  return reason === "homeUnstable" || reason === "existingExpansion" || reason === "scoreBelowThreshold" || reason === "scoutTimedOut" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "reservationLost" || reason === "targetHostile" || reason === "sourcesMissing" || reason === "rcl6Gate" || reason === "controllerLevelGate";
 }
 function isFiniteNumber9(value) {
   return typeof value === "number" && Number.isFinite(value);
