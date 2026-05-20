@@ -2135,7 +2135,7 @@ def materialize_candidate_scorecard_artifact(
         result=candidate_result,
         role="candidate",
         peer_variant_id=baseline_id,
-        runtime_parameter_injection=report.get("runtimeParameterInjection"),
+        runtime_parameter_injection=candidate_scorecard_runtime_parameter_injection(report, candidate_id),
     )
     baseline_projection = scorecard_projection_payload(
         report,
@@ -2221,8 +2221,7 @@ def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: E
 
 def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
     pair = candidate_scorecard_pair(report)
-    runtime_parameter_injection = report.get("runtimeParameterInjection")
-    runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    report_runtime_parameter_injection = report.get("runtimeParameterInjection")
     if pair is None:
         return candidate_scorecard_blocked_payload(
             report,
@@ -2232,7 +2231,10 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
         )
     candidate_id, baseline_id, candidate_rank, baseline_rank = pair
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
+    runtime_parameter_injection = candidate_scorecard_runtime_parameter_injection(report, candidate_id)
+    runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
     injected_count = runtime_injected_variant_count(runtime_parameter_injection)
+    report_injected_count = runtime_injected_variant_count(report_runtime_parameter_injection)
     if runtime_ready:
         status = "ready"
         classification = "runtime_injected_candidate_scorecard_ready"
@@ -2264,6 +2266,8 @@ def build_candidate_scorecard_readiness(report: JsonObject) -> JsonObject:
         "runtimeParameterInjection": runtime_ready,
         "injectedVariantCount": injected_count,
         "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
+        "reportRuntimeParameterInjection": scorecard_runtime_injection_ready(report_runtime_parameter_injection),
+        "reportInjectedVariantCount": report_injected_count,
         "scorecardUsable": True,
         "validationScaleComputeBlocked": not runtime_ready,
         "liveEffect": False,
@@ -2334,6 +2338,15 @@ def candidate_scorecard_pair(report: JsonObject) -> tuple[str, str, int | None, 
         int_or_none(candidate_item.get("rank")),
         int_or_none(baseline_item.get("rank")),
     )
+
+
+def candidate_scorecard_runtime_parameter_injection(report: JsonObject, candidate_id: str) -> Any:
+    candidate_result = variant_result_by_id(report, candidate_id)
+    if isinstance(candidate_result, dict):
+        runtime_parameter_injection = candidate_result.get("runtimeParameterInjection")
+        if isinstance(runtime_parameter_injection, dict):
+            return runtime_parameter_injection
+    return report.get("runtimeParameterInjection")
 
 
 def scorecard_runtime_injection_ready(value: Any) -> bool:

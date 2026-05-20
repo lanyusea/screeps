@@ -10,6 +10,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import screeps_rl_scorecard as scorecard
+import screeps_rl_training_runner as training_runner
 
 
 JsonObject = dict[str, Any]
@@ -287,6 +288,60 @@ def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_pat
     assert report["dimensions"]["resources_economy"]["status"] == "regressed"
     assert report["dimensions"]["combat"]["status"] == "improved"
     assert report["candidate"]["runtimeParameterInjection"]["status"] == "injected"
+
+
+def test_candidate_scorecard_readiness_uses_selected_candidate_runtime_evidence() -> None:
+    report = {
+        "reportId": "multi-candidate-selected-runtime-ready",
+        "ranking": [
+            {"variantId": "candidate.v1", "rank": 1},
+            {"variantId": "baseline.v1", "rank": 2},
+            {"variantId": "loser.v1", "rank": 3},
+        ],
+        "incumbentStrategyIds": ["baseline.v1"],
+        "runtimeParameterInjection": {
+            "status": "partial",
+            "runtimeParameterInjection": False,
+            "candidateParameterScope": "partial_runtime_injection",
+            "injectedVariantCount": 1,
+            "variants": [
+                {"variantId": "candidate.v1", "runtimeParameterInjection": True},
+                {"variantId": "loser.v1", "runtimeParameterInjection": False},
+            ],
+        },
+        "variantResults": [
+            {
+                "variantId": "candidate.v1",
+                "runtimeParameterInjection": {
+                    "status": "injected",
+                    "runtimeParameterInjection": True,
+                    "candidateParameterScope": "runtime_injected",
+                },
+            },
+            {"variantId": "baseline.v1"},
+            {
+                "variantId": "loser.v1",
+                "runtimeParameterInjection": {
+                    "status": "metadata_only",
+                    "runtimeParameterInjection": False,
+                    "candidateParameterScope": "metadata_only",
+                },
+            },
+        ],
+    }
+
+    readiness = training_runner.build_candidate_scorecard_readiness(report)
+
+    assert readiness["status"] == "ready"
+    assert readiness["classification"] == "runtime_injected_candidate_scorecard_ready"
+    assert readiness["runtimeParameterInjection"] is True
+    assert readiness["injectedVariantCount"] == 1
+    assert readiness["candidateParameterScope"] == "runtime_injected"
+    assert readiness["reportRuntimeParameterInjection"] is False
+    assert readiness["reportInjectedVariantCount"] == 1
+    assert readiness["validationScaleComputeBlocked"] is False
+    assert readiness["scorecardUsable"] is True
+    assert "missingPrerequisite" not in readiness
 
 
 def test_delta_only_safety_floor_metric_does_not_create_false_rollback(tmp_path: Path) -> None:
