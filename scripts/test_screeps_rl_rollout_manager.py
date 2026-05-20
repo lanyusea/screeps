@@ -177,6 +177,7 @@ class RlRolloutManagerTest(unittest.TestCase):
             any(reason.get("reason") == "forbidden_live_influence_surface" for reason in forbidden["blockingReasons"])
         )
         self.assertFalse(missing_rollback["passed"])
+        self.assertEqual(missing_rollback["canaryContract"]["validation"]["status"], "fail")
         self.assertTrue(
             any(reason.get("reason") == "missing_rollback_ref" for reason in missing_rollback["blockingReasons"])
         )
@@ -243,7 +244,10 @@ class RlRolloutManagerTest(unittest.TestCase):
 
         self.assertTrue(check["rollbackTriggered"])
         self.assertEqual(check["decision"], "auto_revert")
-        self.assertEqual(check["metricTriggers"][0]["metric"], "territory")
+        self.assertCountEqual(
+            [trigger["metric"] for trigger in check["metricTriggers"]],
+            ["territory"],
+        )
 
     def test_rollback_trigger_fires_on_reliability_regression(self) -> None:
         check = manager.build_rollback_check(
@@ -258,7 +262,10 @@ class RlRolloutManagerTest(unittest.TestCase):
 
         self.assertTrue(check["rollbackTriggered"])
         self.assertEqual(check["decision"], "auto_revert")
-        self.assertEqual(check["metricTriggers"][0]["metric"], "reliability")
+        self.assertCountEqual(
+            [trigger["metric"] for trigger in check["metricTriggers"]],
+            ["reliability"],
+        )
 
     def test_rollback_check_fails_safe_when_refs_or_sample_windows_are_missing(self) -> None:
         baseline = kpi_window()
