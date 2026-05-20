@@ -188,6 +188,54 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "present")
         self.assertEqual(plan["nextExperimentCardDelta"]["scenarioId"], planner.MULTI_TIER_SCENARIO_ID)
 
+    def test_conflicting_status_aliases_preserve_raw_online_routing(self) -> None:
+        policy_plan = planner.build_plan(
+            {
+                "title": "Online assessment needs follow-up",
+                "status": "accepted",
+                "rawStatus": "INCONCLUSIVE",
+                "parameterSurface": {
+                    "name": "expansion-risk-window",
+                    "bounds": [
+                        {
+                            "name": "remoteRiskLimit",
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.05,
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(policy_plan["finding"]["classification"], "policy_parameterization_gap")
+        self.assertEqual(policy_plan["status"], "ACT_DELTA_READY")
+        self.assertEqual(policy_plan["nextPolicyDelta"]["parameterSurface"], "expansion-risk-window")
+
+        scenario_plan = planner.build_plan(
+            {
+                "title": "Single-room scenario has conflicting online status aliases",
+                "classification": "scenario_gap",
+                "scenarioId": planner.DEFAULT_SCENARIO_ID,
+                "status": "accepted",
+                "rawStatus": "UNPROVEN",
+                "parameterSurface": {
+                    "name": "expansion-risk-window",
+                    "bounds": [
+                        {
+                            "name": "remoteRiskLimit",
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.05,
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(scenario_plan["nextScenarioDelta"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(scenario_plan["nextExperimentCardDelta"]["scenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+
     def test_rollout_regression_with_signal_noise_still_blocks_all_deltas(self) -> None:
         plan = planner.build_plan(
             {
@@ -200,6 +248,39 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
             }
         )
 
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertIsNone(plan["nextRewardDecision"])
+        self.assertIsNone(plan["nextScenarioDelta"])
+        self.assertIsNone(plan["nextPolicyDelta"])
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertEqual(plan["feedbackIngestion"]["training"]["state"], "missing")
+        self.assertTrue(any("rollout regression" in reason for reason in plan["blockingReasons"]))
+
+    def test_explicit_secondary_blocker_suppresses_all_deltas(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Scenario gap is actually a rollout regression",
+                "classification": "scenario_gap",
+                "secondaryClassifications": ["rollout_regression"],
+                "missingCapabilities": ["multi_room_capable"],
+                "componentId": "construction-neglect-penalty",
+                "onlineUtilityStatus": "UNPROVEN",
+                "parameterSurface": {
+                    "name": "construction-priority",
+                    "bounds": [
+                        {
+                            "name": "territorySignalWeight",
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.05,
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(plan["finding"]["classification"], "scenario_gap")
+        self.assertIn("rollout_regression", plan["finding"]["secondaryClassifications"])
         self.assertEqual(plan["status"], "ROUTE_REQUIRED")
         self.assertIsNone(plan["nextRewardDecision"])
         self.assertIsNone(plan["nextScenarioDelta"])
@@ -357,7 +438,7 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertIsNone(plan["nextExperimentCardDelta"])
         self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
 
-    def test_unbounded_construction_priority_policy_blocks_scenario_card_delta(self) -> None:
+    def test_unbounded_construction_priority_policy_preserves_scenario_card_delta(self) -> None:
         plan = planner.build_plan(
             {
                 "title": "Construction-priority scenario gap has no bounded parameters",
@@ -369,12 +450,31 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertEqual(plan["status"], "ACT_DELTA_READY")
         self.assertEqual(plan["nextScenarioDelta"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(plan["nextPolicyDelta"]["parameterSurface"], "construction-priority")
         self.assertEqual(plan["nextPolicyDelta"]["bounds"], [])
         self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
-        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertEqual(plan["nextExperimentCardDelta"]["deltas"]["scenario"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+        self.assertNotIn("policy", plan["nextExperimentCardDelta"]["deltas"])
+        self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
+
+    def test_missing_policy_bounds_preserve_reward_card_delta_without_policy_delta(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Reward gap has unbounded policy follow-up",
+                "classification": "reward_gap",
+                "componentId": "construction-neglect-penalty",
+                "onlineStatus": "UNPROVEN",
+                "parameterSurface": "construction-priority",
+            }
+        )
+
+        self.assertEqual(plan["status"], "ACT_DELTA_READY")
+        self.assertIsNotNone(plan["nextRewardDecision"])
+        self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
+        self.assertIn("rewardDecision", plan["nextExperimentCardDelta"]["deltas"])
+        self.assertNotIn("policy", plan["nextExperimentCardDelta"]["deltas"])
         self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
 
     def test_cli_writes_deterministic_plan_without_github_or_mmo_actions(self) -> None:

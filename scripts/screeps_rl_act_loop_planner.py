@@ -319,11 +319,16 @@ def status_key(raw: Any) -> str | None:
     return text.upper().replace("-", "_") if text else None
 
 
-def has_blocking_evidence_gap(raw: JsonObject) -> bool:
-    statuses = {
-        status_key(lookup(raw, aliases))
-        for aliases in ((alias,) for alias in ONLINE_STATUS_ALIASES)
+def online_status_keys(raw: JsonObject) -> set[str]:
+    return {
+        status
+        for alias in ONLINE_STATUS_ALIASES
+        if (status := status_key(lookup(raw, (alias,)))) is not None
     }
+
+
+def has_blocking_evidence_gap(raw: JsonObject) -> bool:
+    statuses = online_status_keys(raw)
     if statuses & BLOCKING_ONLINE_EVIDENCE_STATUSES:
         return True
     return any(
@@ -381,18 +386,33 @@ def infer_classification(raw: JsonObject) -> str:
         if any(keyword in blob for keyword in keywords):
             return classification
 
-    if status_key(first_text(raw, ONLINE_STATUS_ALIASES)) in UNPROVEN_ONLINE_STATUSES:
+    if online_status_keys(raw) & UNPROVEN_ONLINE_STATUSES:
         return "policy_parameterization_gap"
     return "data_quality"
 
 
+def explicit_secondary_classifications(raw: JsonObject, primary: str) -> list[str]:
+    explicit: list[str] = []
+    for alias in (
+        "secondaryClassifications",
+        "secondary_classifications",
+        "secondaryClassification",
+        "secondary_classification",
+        "secondary",
+    ):
+        value = lookup(raw, (alias,))
+        values = value if isinstance(value, (list, tuple)) else [value] if value is not None else []
+        for item in values:
+            classification = classification_key(item)
+            if classification and classification != primary:
+                explicit.append(classification)
+    return explicit
+
+
 def secondary_classifications(raw: JsonObject, primary: str) -> list[str]:
     blob = text_blob(raw)
-    statuses = {
-        status_key(lookup(raw, aliases))
-        for aliases in ((alias,) for alias in ONLINE_STATUS_ALIASES)
-    }
-    inferred: list[str] = []
+    statuses = online_status_keys(raw)
+    inferred = explicit_secondary_classifications(raw, primary)
     if primary != "policy_parameterization_gap" and (
         statuses & UNPROVEN_ONLINE_STATUSES or any(token in blob for token in ("policy", "parameter", "bounds", "candidate"))
     ):
@@ -498,8 +518,8 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
     if explicit:
         return explicit
     missing = infer_missing_capabilities(raw)
-    online_status = status_key(first_text(raw, ONLINE_STATUS_ALIASES))
-    if missing or (infer_source_scenario_id(raw) == DEFAULT_SCENARIO_ID and online_status in UNPROVEN_ONLINE_STATUSES):
+    statuses = online_status_keys(raw)
+    if missing or (infer_source_scenario_id(raw) == DEFAULT_SCENARIO_ID and statuses & UNPROVEN_ONLINE_STATUSES):
         return MULTI_TIER_SCENARIO_ID
     return infer_source_scenario_id(raw) or DEFAULT_SCENARIO_ID
 
@@ -709,11 +729,11 @@ def needs_scenario_delta(classification: str, secondary: Sequence[str], raw: Jso
 def needs_policy_delta(classification: str, secondary: Sequence[str], raw: JsonObject) -> bool:
     if has_delta_blocker(classification, secondary):
         return False
-    status = status_key(first_text(raw, ONLINE_STATUS_ALIASES))
+    statuses = online_status_keys(raw)
     return (
         classification == "policy_parameterization_gap"
         or "policy_parameterization_gap" in secondary
-        or status in UNPROVEN_ONLINE_STATUSES
+        or bool(statuses & UNPROVEN_ONLINE_STATUSES)
     )
 
 
@@ -931,16 +951,17 @@ def build_feedback_state(
 def plan_blocking_reasons(
     *,
     classification: str,
+    secondary: Sequence[str],
     reward_decision: JsonObject | None,
     policy_delta: JsonObject | None,
     card_delta: JsonObject | None,
 ) -> list[str]:
     reasons: list[str] = []
-    if classification == "data_quality":
+    if classification == "data_quality" or "data_quality" in secondary:
         reasons.append("data quality finding must be resolved or converted to evidence before training changes")
-    if classification == "runtime_bug":
+    if classification == "runtime_bug" or "runtime_bug" in secondary:
         reasons.append("runtime bug must route to a construction issue before reward/scenario/policy iteration")
-    if classification == "rollout_regression":
+    if classification == "rollout_regression" or "rollout_regression" in secondary:
         reasons.append("rollout regression must preserve rollback evidence before the next training card")
     if reward_decision is not None:
         reasons.append("reward changes require a GitHub-managed #907-style decision record before training use")
@@ -983,19 +1004,17 @@ def build_plan(raw: JsonObject, *, source_artifact: str | None = None) -> JsonOb
         if needs_policy_delta(classification, secondary, raw)
         else None
     )
-    card_delta = (
-        None
-        if has_missing_policy_bounds(policy_delta)
-        else build_experiment_card_delta(
-            raw,
-            finding=finding,
-            reward_decision=reward_decision,
-            scenario_delta=scenario_delta,
-            policy_delta=policy_delta,
-        )
+    card_policy_delta = None if has_missing_policy_bounds(policy_delta) else policy_delta
+    card_delta = build_experiment_card_delta(
+        raw,
+        finding=finding,
+        reward_decision=reward_decision,
+        scenario_delta=scenario_delta,
+        policy_delta=card_policy_delta,
     )
     blocking_reasons = plan_blocking_reasons(
         classification=classification,
+        secondary=secondary,
         reward_decision=reward_decision,
         policy_delta=policy_delta,
         card_delta=card_delta,
