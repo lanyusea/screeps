@@ -34,6 +34,18 @@ DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
 MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
 UNPROVEN_ONLINE_STATUSES = {"MIXED", "UNPROVEN", "INCONCLUSIVE", "BLOCKED", "BLOCKED_NO_COMPUTE"}
 BLOCKING_ONLINE_EVIDENCE_STATUSES = {"BLOCKED", "BLOCKED_NO_COMPUTE"}
+POLICY_SURFACE_NAME_ALIASES = (
+    "name",
+    "id",
+    "surface",
+    "parameterSurface",
+    "policySurface",
+    "policy_surface",
+    "strategyFamily",
+    "family",
+    "targetFamily",
+    "target_family",
+)
 
 JsonObject = dict[str, Any]
 
@@ -293,6 +305,35 @@ def nested_lookup(raw: JsonObject, paths: Sequence[Sequence[str]]) -> Any:
     return None
 
 
+def named_text(value: Any, aliases: Sequence[str]) -> str | None:
+    text = text_value(value)
+    if text:
+        return text
+    if not isinstance(value, dict):
+        return None
+    for alias in aliases:
+        text = text_value(lookup(value, (alias,)))
+        if text:
+            return text
+    return None
+
+
+def first_named_text(raw: JsonObject, aliases: Sequence[str], name_aliases: Sequence[str]) -> str | None:
+    for alias in aliases:
+        text = named_text(lookup(raw, (alias,)), name_aliases)
+        if text:
+            return text
+    return None
+
+
+def first_nested_named_text(raw: JsonObject, paths: Sequence[Sequence[str]], name_aliases: Sequence[str]) -> str | None:
+    for path in paths:
+        text = named_text(nested_lookup(raw, (path,)), name_aliases)
+        if text:
+            return text
+    return None
+
+
 def string_list(value: Any) -> list[str]:
     if isinstance(value, str):
         text = text_value(value)
@@ -501,7 +542,7 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
 
 
 def infer_policy_surface(raw: JsonObject) -> str:
-    explicit = first_text(
+    explicit = first_named_text(
         raw,
         (
             "parameterSurface",
@@ -510,21 +551,25 @@ def infer_policy_surface(raw: JsonObject) -> str:
             "strategyFamily",
             "family",
             "targetFamily",
+            "target_family",
         ),
+        POLICY_SURFACE_NAME_ALIASES,
     )
     if explicit:
         return explicit
-    nested = nested_lookup(
+    nested = first_nested_named_text(
         raw,
         (
             ("policyDelta", "parameterSurface"),
             ("policyDelta", "policySurface"),
-            ("parameterSurface", "name"),
+            ("policyDelta", "strategyFamily"),
+            ("parameterSurface",),
             ("policy", "target_family"),
         ),
+        POLICY_SURFACE_NAME_ALIASES,
     )
-    if text_value(nested):
-        return str(nested)
+    if nested:
+        return nested
     blob = text_blob(raw)
     if "construction" in blob or "build" in blob:
         return "construction-priority"
@@ -534,20 +579,21 @@ def infer_policy_surface(raw: JsonObject) -> str:
 
 
 def infer_policy_bounds(raw: JsonObject, surface: str) -> list[JsonObject]:
-    raw_bounds = lookup(raw, ("bounds", "parameterBounds", "policyBounds"))
-    if raw_bounds is None:
-        raw_bounds = nested_lookup(
-            raw,
-            (
-                ("policyDelta", "bounds"),
-                ("parameterSurface", "bounds"),
-                ("parameterSurface", "parameters"),
-                ("policy", "learnable_parameters"),
-            ),
-        )
-    bounds = normalize_bounds(raw_bounds)
-    if bounds:
-        return bounds
+    for raw_bounds in (
+        lookup(raw, ("bounds",)),
+        lookup(raw, ("parameterBounds",)),
+        lookup(raw, ("policyBounds",)),
+        nested_lookup(raw, (("policyDelta", "bounds"),)),
+        nested_lookup(raw, (("policyDelta", "parameterSurface", "bounds"),)),
+        nested_lookup(raw, (("policyDelta", "parameterSurface", "parameters"),)),
+        nested_lookup(raw, (("policyDelta", "parameterSurface"),)),
+        nested_lookup(raw, (("parameterSurface", "bounds"),)),
+        nested_lookup(raw, (("parameterSurface", "parameters"),)),
+        nested_lookup(raw, (("policy", "learnable_parameters"),)),
+    ):
+        bounds = normalize_bounds(raw_bounds)
+        if bounds:
+            return bounds
     if surface == "construction-priority":
         return [dict(item) for item in CONSTRUCTION_PRIORITY_BOUNDS]
     return []

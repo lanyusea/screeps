@@ -172,6 +172,60 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertIsNone(plan["nextExperimentCardDelta"])
         self.assertTrue(any("rollout regression" in reason for reason in plan["blockingReasons"]))
 
+    def test_nested_policy_surface_name_and_bounds_are_honored(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Construction backlog policy family should use the explicit nested surface",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "policyDelta": {
+                    "parameterSurface": {
+                        "name": "expansion-risk-window",
+                        "bounds": [
+                            {
+                                "name": "remoteRiskLimit",
+                                "min": 0,
+                                "max": 1,
+                                "step": 0.05,
+                                "reason": "Keep remote risk bounded before expansion changes.",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+
+        policy_delta = plan["nextPolicyDelta"]
+        self.assertEqual(plan["status"], "ACT_DELTA_READY")
+        self.assertEqual(policy_delta["parameterSurface"], "expansion-risk-window")
+        self.assertEqual(policy_delta["boundsStatus"], "present")
+        self.assertEqual(policy_delta["bounds"][0]["name"], "remoteRiskLimit")
+        self.assertEqual(plan["nextExperimentCardDelta"]["deltas"]["policy"]["parameterSurface"], "expansion-risk-window")
+        self.assertEqual(
+            [item["name"] for item in plan["nextExperimentCardDelta"]["deltas"]["policy"]["bounds"]],
+            ["remoteRiskLimit"],
+        )
+
+    def test_nested_policy_surface_without_bounds_stays_route_required(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Explicit nested expansion surface is still unbounded",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "policyDelta": {
+                    "parameterSurface": {
+                        "name": "expansion-risk-window",
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(plan["status"], "ROUTE_REQUIRED")
+        self.assertEqual(plan["nextPolicyDelta"]["parameterSurface"], "expansion-risk-window")
+        self.assertEqual(plan["nextPolicyDelta"]["boundsStatus"], "missing")
+        self.assertIsNone(plan["nextExperimentCardDelta"])
+        self.assertTrue(any("missing named bounds" in reason for reason in plan["blockingReasons"]))
+
     def test_feedback_ingestion_links_first_usable_list_form_report_id(self) -> None:
         plan = planner.build_plan(
             {
