@@ -861,6 +861,284 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('converts fresh safe E29N56 scout-only evidence into a reserve target at RCL5', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 5,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const gameTime = 6_801;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
+            colony: 'E29N55',
+            controller: { id: 'controller-E29N56' as Id<StructureController>, my: false },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            sourceAccessPoints: 1,
+            mineral: { id: 'mineral-E29N56', mineralType: 'H' }
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) =>
+          roomName === 'E29N55' ? { '1': 'E29N56', '3': 'E30N55', '5': 'E29N54', '7': 'E28N55' } : {}
+        ),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        {
+          worker: 4,
+          claimer: 0,
+          scout: 2,
+          scoutsByTargetRoom: { E29N54: 1, E28N55: 1 },
+          claimersByTargetRoom: {}
+        },
+        4,
+        gameTime
+      )
+    ).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N56',
+      action: 'reserve',
+      controllerId: 'controller-E29N56'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E29N55',
+        roomName: 'E29N56',
+        action: 'reserve',
+        controllerId: 'controller-E29N56'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: gameTime,
+        controllerId: 'controller-E29N56'
+      }
+    ]);
+  });
+
+  it('keeps fresh safe E29N56 scout-only evidence held below RCL5', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 4,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const gameTime = 6_802;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
+            colony: 'E29N55',
+            controller: { id: 'controller-E29N56' as Id<StructureController>, my: false },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            sourceAccessPoints: 1
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({ '1': 'E29N56' })),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+      4,
+      gameTime
+    );
+
+    expect(plan?.action).toBe('scout');
+    expect(plan?.targetRoom).toBe('E29N56');
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: gameTime
+      }
+    ]);
+  });
+
+  it.each([
+    [
+      'hostile creep',
+      {
+        hostileCreepCount: 1
+      }
+    ],
+    [
+      'foreign reservation',
+      {
+        controller: {
+          id: 'controller-E29N56' as Id<StructureController>,
+          my: false,
+          reservationUsername: 'enemy'
+        }
+      }
+    ],
+    [
+      'foreign ownership',
+      {
+        controller: {
+          id: 'controller-E29N56' as Id<StructureController>,
+          my: false,
+          ownerUsername: 'enemy'
+        }
+      }
+    ]
+  ] as const)('does not convert E29N56 scout-only evidence when %s is present', (_label, intelOverrides) => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 5,
+        ticksToDowngrade: 10_000
+      } as StructureController,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    const gameTime = 6_803;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
+            colony: 'E29N55',
+            controller: { id: 'controller-E29N56' as Id<StructureController>, my: false },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            sourceAccessPoints: 1,
+            ...intelOverrides
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({ '1': 'E29N56' })),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 4, gameTime);
+
+    expect(plan).toBeNull();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'low energy capacity',
+      {
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+      }
+    ],
+    [
+      'downgrade guard',
+      {
+        energyAvailable: 1_800,
+        energyCapacityAvailable: 1_800,
+        ticksToDowngrade: TERRITORY_DOWNGRADE_GUARD_TICKS
+      }
+    ]
+  ] as const)('holds E29N56 scout-only conversion when the home %s is unhealthy', (_label, homeState) => {
+    const ticksToDowngrade = 'ticksToDowngrade' in homeState ? homeState.ticksToDowngrade : 10_000;
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 5,
+        ticksToDowngrade
+      } as StructureController,
+      energyAvailable: homeState.energyAvailable,
+      energyCapacityAvailable: homeState.energyCapacityAvailable
+    });
+    const gameTime = 6_804;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
+            colony: 'E29N55',
+            controller: { id: 'controller-E29N56' as Id<StructureController>, my: false },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            sourceAccessPoints: 1
+          })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: gameTime,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({ '1': 'E29N56' })),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 4, gameTime)
+    ).toBeNull();
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
   it('refreshes stale expansion candidate scout intel before generic adjacent scouting', () => {
     const colony = makeSafeColony();
     const gameTime = 2_000;
