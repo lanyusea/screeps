@@ -114,6 +114,37 @@ def write_candidate_scorecard_set_artifacts(root: Path, scorecard_set: object) -
             write_text(root / "remote" / artifact_path, "{}\n")
 
 
+def positive_policy_update(artifact_path: str) -> dict[str, object]:
+    updated_parameters = {
+        "baseScoreWeight": 1,
+        "territorySignalWeight": 7,
+        "resourceSignalWeight": 4,
+        "killSignalWeight": 6,
+        "riskPenalty": 4,
+    }
+    return {
+        "iterations": 1,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "artifactPath": artifact_path,
+        "updatedParameters": updated_parameters,
+        "parameterDelta": {
+            "baseScoreWeight": 0,
+            "territorySignalWeight": 1,
+            "resourceSignalWeight": 0,
+            "killSignalWeight": 0,
+            "riskPenalty": 0,
+        },
+        "nextCandidatePolicy": {
+            "parameters": copy.deepcopy(updated_parameters),
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        },
+    }
+
+
 def decode_remote_bash_lc(remote_command: str) -> str:
     tokens = shlex.split(remote_command)
     script_arg = tokens[tokens.index("-lc") + 1]
@@ -865,18 +896,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
         }
-        policy_update = {
-            "iterations": 1,
-            "liveEffect": False,
-            "officialMmoWrites": False,
-            "officialMmoWritesAllowed": False,
-            "artifactPath": artifact_path,
-            "nextCandidatePolicy": {
-                "liveEffect": False,
-                "officialMmoWrites": False,
-                "officialMmoWritesAllowed": False,
-            },
-        }
+        policy_update = positive_policy_update(artifact_path)
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             write_text(root / "remote" / artifact_path, "{}\n")
@@ -898,6 +918,46 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 },
             )
 
+    def test_verified_remote_policy_update_rejects_positive_update_without_parameter_change(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        cases = (
+            ("updatedParameters", {**positive_policy_update(artifact_path), "updatedParameters": {}}),
+            (
+                "nextCandidatePolicy.parameters",
+                {
+                    **positive_policy_update(artifact_path),
+                    "nextCandidatePolicy": {
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    },
+                },
+            ),
+            ("at least one non-zero change", {**positive_policy_update(artifact_path), "parameterDelta": {"territorySignalWeight": 0}}),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_text(root / "remote" / artifact_path, "{}\n")
+            for expected_error, policy_update in cases:
+                with self.subTest(expected_error=expected_error), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
     def test_verified_remote_policy_update_rejects_positive_update_without_explicit_policy_update_safety_flags(self) -> None:
         artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
         top_level_safety = {
@@ -907,18 +967,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         }
 
         def valid_policy_update() -> dict[str, object]:
-            return {
-                "iterations": 1,
-                "liveEffect": False,
-                "officialMmoWrites": False,
-                "officialMmoWritesAllowed": False,
-                "artifactPath": artifact_path,
-                "nextCandidatePolicy": {
-                    "liveEffect": False,
-                    "officialMmoWrites": False,
-                    "officialMmoWritesAllowed": False,
-                },
-            }
+            return positive_policy_update(artifact_path)
 
         missing_live_effect = valid_policy_update()
         missing_live_effect.pop("liveEffect")
@@ -955,18 +1004,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         }
 
         def valid_policy_update() -> dict[str, object]:
-            return {
-                "iterations": 1,
-                "liveEffect": False,
-                "officialMmoWrites": False,
-                "officialMmoWritesAllowed": False,
-                "artifactPath": artifact_path,
-                "nextCandidatePolicy": {
-                    "liveEffect": False,
-                    "officialMmoWrites": False,
-                    "officialMmoWritesAllowed": False,
-                },
-            }
+            return positive_policy_update(artifact_path)
 
         missing_writes = valid_policy_update()
         next_candidate = missing_writes["nextCandidatePolicy"]
@@ -1093,17 +1131,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "artifactCount": 1,
                         "policyUpdateIterations": 1,
                         "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
-                        "policyUpdate": {
-                            "iterations": 1,
-                            "liveEffect": False,
-                            "officialMmoWrites": False,
-                            "officialMmoWritesAllowed": False,
-                            "nextCandidatePolicy": {
-                                "liveEffect": False,
-                                "officialMmoWrites": False,
-                                "officialMmoWritesAllowed": False,
-                            },
-                        },
+                        "policyUpdate": positive_policy_update(
+                            "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+                        ),
                     }
                 ),
                 encoding="utf-8",
@@ -1125,18 +1155,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 {
                     "policyUpdateIterations": 5,
                     "policyUpdateArtifactPath": artifact_path,
-                    "policyUpdate": {
-                        "iterations": 1,
-                        "liveEffect": False,
-                        "officialMmoWrites": False,
-                        "officialMmoWritesAllowed": False,
-                        "artifactPath": artifact_path,
-                        "nextCandidatePolicy": {
-                            "liveEffect": False,
-                            "officialMmoWrites": False,
-                            "officialMmoWritesAllowed": False,
-                        },
-                    },
+                    "policyUpdate": positive_policy_update(artifact_path),
                 },
                 "policyUpdate.iterations disagrees",
             ),
@@ -1145,16 +1164,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "policyUpdateIterations": 1,
                     "policyUpdateArtifactPath": artifact_path,
                     "policyUpdate": {
-                        "iterations": 1,
-                        "liveEffect": False,
-                        "officialMmoWrites": False,
-                        "officialMmoWritesAllowed": False,
+                        **positive_policy_update(artifact_path),
                         "artifactPath": "runtime-artifacts/rl-training/policy-candidates/other-next-policy.json",
-                        "nextCandidatePolicy": {
-                            "liveEffect": False,
-                            "officialMmoWrites": False,
-                            "officialMmoWritesAllowed": False,
-                        },
                     },
                 },
                 "policyUpdate.artifactPath disagrees",
@@ -1212,17 +1223,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         },
                         "policyUpdateIterations": 1,
                         "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
-                        "policyUpdate": {
-                            "iterations": 1,
-                            "liveEffect": False,
-                            "officialMmoWrites": False,
-                            "officialMmoWritesAllowed": False,
-                            "nextCandidatePolicy": {
-                                "liveEffect": False,
-                                "officialMmoWrites": False,
-                                "officialMmoWritesAllowed": False,
-                            },
-                        },
+                        "policyUpdate": positive_policy_update(
+                            "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+                        ),
                     }
                 ),
                 encoding="utf-8",

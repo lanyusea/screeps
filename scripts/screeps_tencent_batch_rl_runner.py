@@ -2558,6 +2558,36 @@ def validate_positive_policy_update(raw: Any) -> None:
         raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
     require_explicit_false_policy_update_safety_flags(raw, "policyUpdate")
     require_explicit_false_policy_update_safety_flags(next_candidate_policy, "policyUpdate.nextCandidatePolicy")
+    validate_positive_policy_update_parameter_change(raw, next_candidate_policy)
+
+
+def validate_positive_policy_update_parameter_change(
+    raw: dict[str, Any],
+    next_candidate_policy: dict[str, Any],
+) -> None:
+    updated_parameters = raw.get("updatedParameters")
+    if not isinstance(updated_parameters, dict) or not updated_parameters:
+        raise BatchRunError("remote policyUpdate.updatedParameters must be a non-empty object when policyUpdateIterations is positive")
+    next_parameters = next_candidate_policy.get("parameters")
+    if not isinstance(next_parameters, dict) or not next_parameters:
+        raise BatchRunError(
+            "remote policyUpdate.nextCandidatePolicy.parameters must be a non-empty object when policyUpdateIterations is positive"
+        )
+    if next_parameters != updated_parameters:
+        raise BatchRunError("remote policyUpdate.nextCandidatePolicy.parameters disagree with policyUpdate.updatedParameters")
+    parameter_delta = raw.get("parameterDelta")
+    if not isinstance(parameter_delta, dict) or not parameter_delta:
+        raise BatchRunError("remote policyUpdate.parameterDelta must be a non-empty object when policyUpdateIterations is positive")
+    changed = False
+    for name, delta in parameter_delta.items():
+        if name not in updated_parameters:
+            raise BatchRunError("remote policyUpdate.parameterDelta contains a parameter absent from updatedParameters")
+        if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(float(delta)):
+            raise BatchRunError("remote policyUpdate.parameterDelta values must be finite numbers")
+        if abs(float(delta)) > 0:
+            changed = True
+    if not changed:
+        raise BatchRunError("remote policyUpdate.parameterDelta must include at least one non-zero change")
 
 
 def require_explicit_false_policy_update_safety_flags(raw: dict[str, Any], label: str) -> None:

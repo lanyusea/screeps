@@ -2808,7 +2808,7 @@ export const STRATEGY_REGISTRY = [
             )
         )
 
-    def test_runtime_injected_reinforce_requires_explicit_consumption_evidence(self) -> None:
+    def test_runtime_injected_reinforce_without_consumption_probe_still_requires_reward_signal(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-missing-consumption",
             code_commit="f" * 40,
@@ -2851,11 +2851,101 @@ export const STRATEGY_REGISTRY = [
             "missing_runtime_parameter_consumption",
         )
         self.assertEqual(report["policyUpdateIterations"], 0)
-        self.assertFalse(report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
+        self.assertEqual(report["policyUpdate"]["skippedReason"], "bounded_update_no_parameter_change")
+        self.assertTrue(report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
         self.assertFalse(report["policyUpdate"]["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertEqual(
+            report["policyUpdate"]["parameterEvidence"]["eligibilityMode"],
+            "runtime_injected_metadata_scorecard_ranking",
+        )
         self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertTrue(all("evaluatedParameters" in result for result in simulator.last_variants))
         self.assertTrue(all("runtimeParameterConsumption" not in result for result in simulator.last_variants))
+
+    def test_runtime_injected_metadata_ranking_materializes_reinforce_update_without_consumption_probe(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-metadata-ranking",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T07:02:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(
+            simulator_results,
+            inject_runtime_parameters=True,
+            include_runtime_consumption_evidence=False,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-metadata-ranking",
+                generated_at="2026-05-17T07:03:00Z",
+                simulator_runner=simulator,
+            )
+            persisted = read_json(out_dir / "policy-gradient-metadata-ranking.json")
+            artifact_path = Path(report["policyUpdateArtifactPath"])
+            artifact = read_json(artifact_path)
+
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertFalse(report["runtimeParameterInjection"]["policyUpdateEligible"])
+        self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(
+            report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"],
+            "missing_runtime_parameter_consumption",
+        )
+        self.assertEqual(report["policyUpdateIterations"], 1)
+        self.assertEqual(persisted["policyUpdateIterations"], 1)
+        self.assertTrue(report["trueGradient"])
+        self.assertEqual(report["candidateScorecard"]["status"], "materialized")
+        self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
+        self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])
+        self.assertIsNotNone(report["candidateScorecard"]["baselineRank"])
+        self.assertEqual(report["candidateScorecards"]["status"], "materialized")
+        self.assertGreater(len(report["ranking"]), 1)
+        self.assertIn("policyUpdateArtifactPath", report)
+        update = report["policyUpdate"]
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+        self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertTrue(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertEqual(
+            update["parameterEvidence"]["eligibilityMode"],
+            "runtime_injected_metadata_scorecard_ranking",
+        )
+        self.assertTrue(any(abs(float(value)) > 0 for value in update["parameterDelta"].values()))
+        self.assertEqual(artifact["parameters"], update["updatedParameters"])
+        self.assertFalse(artifact["liveEffect"])
+        self.assertFalse(artifact["officialMmoWrites"])
+        self.assertFalse(artifact["officialMmoWritesAllowed"])
 
     def test_failed_only_runtime_parameter_uploads_do_not_become_injected_evidence(self) -> None:
         card = card_helper.build_card(
