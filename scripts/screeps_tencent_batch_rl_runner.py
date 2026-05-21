@@ -141,6 +141,7 @@ ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "schemaVersion",
     "skippedReason",
     "targetFamily",
+    "returnSummary",
     "type",
 }
 ZERO_ITERATION_POLICY_UPDATE_FORBIDDEN_KEYS = {
