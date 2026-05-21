@@ -416,6 +416,57 @@ describe('expansion executor', () => {
     ).toEqual(expect.arrayContaining(['E29N56', 'E29N54', 'E28N55', 'E30N55']));
   });
 
+  it('records an E29N56 energy-buffer block when scout-only evidence is sufficient but spending would break RCL5 buffer', () => {
+    const colony = makeColony({
+      roomName: 'E29N55',
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_800,
+      controllerLevel: 5,
+      structures: makeE29N55ReadyStructures()
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        scoutIntel: {
+          'E29N55>E29N56': {
+            ...makeScoutIntel('E29N55', 'E29N56', 968_950),
+            sourceIds: ['source-E29N56-0'],
+            sourceCount: 1,
+            sourcePositions: [{ id: 'source-E29N56-0', x: 10, y: 20, accessPoints: 1 }],
+            sourceAccessPoints: 1,
+            mineral: { id: 'mineral-E29N56', mineralType: 'H' }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 968_951,
+      rooms: {
+        E29N55: colony.room
+      },
+      map: {
+        describeExits: jest.fn(() => ({ '1': 'E29N56' })),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+    setSafeHomeThreat('E29N55', 968_951);
+
+    refreshExpansionExecutorIntent(colony, 968_951);
+
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'energyBufferLow'
+    });
+  });
+
   it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {
     const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     Memory.territory = {

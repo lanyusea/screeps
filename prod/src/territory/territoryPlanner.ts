@@ -49,7 +49,7 @@ import {
   isAutonomousTerritoryControlAllowedForColony,
   isAutonomousTerritoryControlAllowedForColonyName
 } from './controlGate';
-import { getSpawnEnergyBufferRequirement } from '../economy/spawnEnergyBuffer';
+import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
@@ -3682,14 +3682,7 @@ function isScoutOnlyRemoteEnergyBufferReady(colony: ColonySnapshot): boolean {
     return false;
   }
 
-  if (colony.spawns.length === 0) {
-    return true;
-  }
-
-  return (
-    colony.energyAvailable - TERRITORY_CONTROLLER_BODY_COST >=
-    getSpawnEnergyBufferRequirement(colony.room, colony.spawns)
-  );
+  return colony.energyAvailable - TERRITORY_CONTROLLER_BODY_COST >= getEffectiveRoomEnergyBufferThreshold(colony.room);
 }
 
 function isUnscoutedAdjacentReservationCandidate(candidate: ScoredTerritoryTarget): boolean {

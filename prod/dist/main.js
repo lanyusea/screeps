@@ -6326,6 +6326,10 @@ var FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = "foreign reservation requires
 var ROOM_LIMIT_PRECONDITION_PREFIX = "limit expansion to ";
 var GCL_LIMIT_PRECONDITION = "wait for GCL capacity to claim another room";
 var SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION = `reach controller level ${AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL} before scout-only remote conversion`;
+var SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION = "preserve home energy buffer before scout-only remote conversion";
+var SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION = "wait for CPU bucket before scout-only remote conversion";
+var SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION = "clear home alert before scout-only remote conversion";
+var SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
 var MAX_ROOM_COUNT_BY_RCL = {
   1: 1,
   2: 1,
@@ -6380,10 +6384,16 @@ function clearNextExpansionTargetIntent(colony) {
 function buildRuntimeExpansionScoringInput(colony) {
   var _a, _b;
   const gclLevel = getGclLevel();
+  const gameTime = getGameTime15();
+  const cpuBucket = getCpuBucket();
   return {
     colonyName: colony.room.name,
     ...getControllerOwnerUsername4(colony.room.controller) ? { colonyOwnerUsername: getControllerOwnerUsername4(colony.room.controller) } : {},
+    energyAvailable: colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
+    energyBufferThreshold: getEffectiveRoomEnergyBufferThreshold(colony.room),
+    ...cpuBucket !== null ? { cpuBucket } : {},
+    homeAlertActive: isExpansionScoringHomeAlertActive(colony.room, gameTime),
     ...gclLevel !== null ? { gclLevel } : {},
     ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
     ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername4(colony.room.controller)),
@@ -6900,6 +6910,15 @@ function getExpansionPreconditions(input, candidate) {
   if ((candidate == null ? void 0 : candidate.scoutOnly) === true && ((_b = input.controllerLevel) != null ? _b : 0) < AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL) {
     preconditions.push(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION);
   }
+  if ((candidate == null ? void 0 : candidate.scoutOnly) === true && input.homeAlertActive === true) {
+    preconditions.push(SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION);
+  }
+  if ((candidate == null ? void 0 : candidate.scoutOnly) === true && isScoutOnlyRemoteCpuBucketLow(input.cpuBucket)) {
+    preconditions.push(SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION);
+  }
+  if ((candidate == null ? void 0 : candidate.scoutOnly) === true && isScoutOnlyRemoteEnergyBufferLow(input)) {
+    preconditions.push(SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION);
+  }
   const ownedRoomCount = getOwnedRoomCount(input);
   const gclRoomCapacity = getGclClaimRoomCapacity(input);
   if (gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity) {
@@ -6916,6 +6935,15 @@ function getExpansionPreconditions(input, candidate) {
     preconditions.push("finish active post-claim bootstrap before next expansion");
   }
   return preconditions;
+}
+function isScoutOnlyRemoteCpuBucketLow(bucket) {
+  return typeof bucket === "number" && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET;
+}
+function isScoutOnlyRemoteEnergyBufferLow(input) {
+  if (typeof input.energyAvailable !== "number" || !Number.isFinite(input.energyAvailable) || typeof input.energyBufferThreshold !== "number" || !Number.isFinite(input.energyBufferThreshold)) {
+    return false;
+  }
+  return input.energyAvailable - TERRITORY_CONTROLLER_BODY_COST < input.energyBufferThreshold;
 }
 function getGclClaimRoomCapacity(input) {
   const level = input.gclLevel;
@@ -7021,6 +7049,15 @@ function getPersistedExpansionCandidateBlockReason(candidate, recommendedAction)
   }
   if (hasExpansionPrecondition(candidate, "reach 650 energy capacity for claim body")) {
     return "energyCapacityLow";
+  }
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION)) {
+    return "homeAlertActive";
+  }
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION)) {
+    return "cpuBucketLow";
+  }
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION)) {
+    return "energyBufferLow";
   }
   if (candidate.preconditions.some((precondition) => precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX))) {
     return "roomLimitReached";
@@ -7457,6 +7494,14 @@ function findRoomObjects10(room, findConstant) {
 function getFindConstant3(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
+}
+function getCpuBucket() {
+  var _a, _b;
+  const bucket = (_b = (_a = globalThis.Game) == null ? void 0 : _a.cpu) == null ? void 0 : _b.bucket;
+  return typeof bucket === "number" && Number.isFinite(bucket) ? bucket : null;
+}
+function isExpansionScoringHomeAlertActive(room, gameTime) {
+  return findRoomObjects10(room, getFindConstant3("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects10(room, getFindConstant3("FIND_HOSTILE_STRUCTURES")).length > 0 || isColonyRoomThreatened(room.name, gameTime);
 }
 function getControllerOwnerUsername4(controller) {
   var _a;
@@ -16761,7 +16806,7 @@ var TERRITORY_ROUTE_DISTANCE_SEPARATOR3 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST2 = 50;
 var TERRITORY_SCOUT_INTEL_PLANNING_TTL = 1e4;
-var SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
+var SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET2 = 500;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 var MAX_CONTROLLER_LEVEL = 8;
@@ -19015,16 +19060,13 @@ function isScoutOnlyRemoteHomeAlertActive(colony, gameTime) {
 function isCpuBucketBelowScoutOnlyRemoteFloor() {
   var _a, _b;
   const bucket = (_b = (_a = globalThis.Game) == null ? void 0 : _a.cpu) == null ? void 0 : _b.bucket;
-  return typeof bucket === "number" && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET;
+  return typeof bucket === "number" && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET2;
 }
 function isScoutOnlyRemoteEnergyBufferReady(colony) {
   if (colony.energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return false;
   }
-  if (colony.spawns.length === 0) {
-    return true;
-  }
-  return colony.energyAvailable - TERRITORY_CONTROLLER_BODY_COST >= getSpawnEnergyBufferRequirement(colony.room, colony.spawns);
+  return colony.energyAvailable - TERRITORY_CONTROLLER_BODY_COST >= getEffectiveRoomEnergyBufferThreshold(colony.room);
 }
 function isUnscoutedAdjacentReservationCandidate(candidate) {
   return isAdjacentRoomReservationReserveSelection(candidate);
