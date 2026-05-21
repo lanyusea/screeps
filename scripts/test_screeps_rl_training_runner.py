@@ -1299,6 +1299,37 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["ranking"][0]["rewardTuple"][1], 0)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["firstDifferingTier"], "resources")
 
+    def test_inline_policy_family_is_preserved_in_report_surfaces(self) -> None:
+        card = base_card()
+        card["strategy_variants"][0]["policyFamily"] = "top.construction"
+        card["strategy_variants"][1]["policy_family"] = "role.worker-task"
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=300, harvested=100)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=900, harvested=100)])])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="policy-family-report",
+                simulator_runner=MockSimulator({"baseline": baseline, "candidate": candidate}),
+            )
+
+        strategy_by_id = {item["id"]: item for item in report["strategyVariants"]}
+        result_by_id = {item["variantId"]: item for item in report["variantResults"]}
+        ranking_by_id = {item["variantId"]: item for item in report["ranking"]}
+        self.assertEqual(strategy_by_id["baseline"]["policyFamily"], "top.construction")
+        self.assertEqual(strategy_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(result_by_id["baseline"]["policyFamily"], "top.construction")
+        self.assertEqual(result_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(ranking_by_id["baseline"]["policyFamily"], "top.construction")
+        self.assertEqual(ranking_by_id["candidate"]["policyFamily"], "role.worker-task")
+        self.assertEqual(report["policyFamilies"], ["role.worker-task", "top.construction"])
+        self.assertEqual(report["modelFamilies"], ["test-family"])
+
     def test_equal_reward_tuple_does_not_count_as_top_change(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         finish = tick(2, [room("W1N1", energy=300, harvested=100)])
