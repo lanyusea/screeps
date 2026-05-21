@@ -1272,10 +1272,61 @@ class RlExperimentCardTest(unittest.TestCase):
         error = stderr.getvalue()
         self.assertEqual(exit_code, 2)
         self.assertFalse(output_path.exists())
+        self.assertIn("fresh gate required within 36h", error)
         self.assertIn("newest accepted gate is stale", error)
         self.assertIn(gate_id, error)
         self.assertIn("classification=accepted", error)
         self.assertIn("age 62.0h > 36h", error)
+
+    def test_cli_accepts_explicit_stale_source_gate_for_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            card_dir = root / "cards"
+            gate_id = "gate-20260518T025000Z-postmerge1188"
+            dataset_run_id = "rl-explicit-stale-replay"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-19T00:00:00Z",
+                        "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--source-gate-id",
+                    gate_id,
+                    "--dataset-gate-root",
+                    str(gate_root),
+                    "--code-commit",
+                    "8" * 40,
+                    "--created-at",
+                    "2026-05-21T14:00:00Z",
+                    "--output-dir",
+                    str(card_dir),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(Path(summary["path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(summary["dataset_run_id"], dataset_run_id)
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
 
     def test_loop_a_local_fallback_accepts_e1_gate_by_dataset_run_id_outside_gate_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

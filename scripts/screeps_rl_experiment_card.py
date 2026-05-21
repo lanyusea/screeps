@@ -2558,7 +2558,7 @@ def main(
         dataset_gate_reference_time = args.created_at or utc_now_iso()
         dataset_gate_max_age_hours = (
             E1_GATE_FRESHNESS_HOURS
-            if args.source_gate_id is not None or args.from_latest_accepted_dataset or args.loop_a_local_fallback
+            if args.source_gate_id is None and (args.from_latest_accepted_dataset or args.loop_a_local_fallback)
             else None
         )
         if args.from_latest_accepted_dataset and dataset_run_id is not None:
