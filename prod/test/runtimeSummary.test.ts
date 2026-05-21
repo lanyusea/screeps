@@ -2482,7 +2482,46 @@ describe('runtime telemetry summaries', () => {
       runtime: {
         currentRoomName: 'E29N55'
       },
-      territory: {}
+      territory: {
+        expansionCandidates: [
+          {
+            colony: 'E29N55',
+            roomName: 'E29N56',
+            rank: 1,
+            score: 120,
+            evidenceStatus: 'sufficient',
+            visible: false,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 10,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true,
+            recommendedAction: 'scout',
+            ignoredPostClaimBootstrapBlockers: [
+              {
+                colony: 'E29N55',
+                roomName: 'E29N54',
+                status: 'ready',
+                updatedAt: RUNTIME_SUMMARY_INTERVAL - 20,
+                age: 20,
+                workerTarget: 2,
+                spawnCount: 1,
+                workerCount: 2,
+                reason: 'ready'
+              },
+              {
+                colony: 'E28N55',
+                roomName: 'E28N54',
+                status: 'ready',
+                updatedAt: RUNTIME_SUMMARY_INTERVAL - 20,
+                age: 20,
+                workerTarget: 2,
+                spawnCount: 1,
+                workerCount: 2,
+                reason: 'ready'
+              }
+            ]
+          }
+        ]
+      }
     };
     (Game as Partial<Game>).map = {
       describeExits: jest.fn(() => ({
@@ -2500,6 +2539,7 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [summaryRoom] = payload.rooms as Array<Record<string, unknown>>;
     const territoryScout = summaryRoom.territoryScout as Record<string, unknown>;
+    const scoutOnlyTargets = territoryScout.scoutOnlyTargets as Array<Record<string, unknown>>;
     expect(territoryScout.scoutOnlyTargets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2511,6 +2551,15 @@ describe('runtime telemetry summaries', () => {
         })
       ])
     );
+    expect(scoutOnlyTargets.find((target) => target.roomName === 'E29N56')).toMatchObject({
+      ignoredPostClaimBootstrapBlockers: [
+        {
+          colony: 'E29N55',
+          roomName: 'E29N54',
+          reason: 'ready'
+        }
+      ]
+    });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
       (Memory.territory?.intents ?? []).filter(

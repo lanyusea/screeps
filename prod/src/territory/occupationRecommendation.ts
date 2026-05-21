@@ -514,26 +514,30 @@ function addScoutOnlyExpansionRemoteOccupationCandidates(
       continue;
     }
 
-    upsertOccupationCandidate(candidatesByRoom, {
-      roomName: candidate.roomName,
-      source: 'configured',
-      order: nextOrder,
-      adjacent: candidate.adjacentToOwnedRoom,
-      visible: candidate.visible,
-      ...(candidate.visible === false ? { scouted: true } : {}),
-      actionHint: 'reserve',
-      controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
-      ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
-      ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
-      ...(candidate.nearestOwnedRoomDistance !== undefined
-        ? { roadDistance: candidate.nearestOwnedRoomDistance }
-        : candidate.routeDistance !== undefined
-          ? { roadDistance: candidate.routeDistance }
-          : {}),
-      sourceCount: candidate.sourceCount,
-      hostileCreepCount: candidate.hostileCreepCount ?? 0,
-      hostileStructureCount: candidate.hostileStructureCount ?? 0
-    });
+    upsertOccupationCandidate(
+      candidatesByRoom,
+      {
+        roomName: candidate.roomName,
+        source: 'configured',
+        order: nextOrder,
+        adjacent: candidate.adjacentToOwnedRoom,
+        visible: candidate.visible,
+        ...(candidate.visible === false ? { scouted: true } : {}),
+        actionHint: 'reserve',
+        controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
+        ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+        ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+        ...(candidate.nearestOwnedRoomDistance !== undefined
+          ? { roadDistance: candidate.nearestOwnedRoomDistance }
+          : candidate.routeDistance !== undefined
+            ? { roadDistance: candidate.routeDistance }
+            : {}),
+        sourceCount: candidate.sourceCount,
+        hostileCreepCount: candidate.hostileCreepCount,
+        hostileStructureCount: candidate.hostileStructureCount
+      },
+      { preferCandidate: true }
+    );
     nextOrder += 1;
   }
 
@@ -543,7 +547,11 @@ function addScoutOnlyExpansionRemoteOccupationCandidates(
 function isActionableScoutOnlyExpansionRemoteCandidate(
   candidate: ExpansionCandidateScore,
   workerCount: number
-): candidate is ExpansionCandidateScore & { sourceCount: number } {
+): candidate is ExpansionCandidateScore & {
+  hostileCreepCount: number;
+  hostileStructureCount: number;
+  sourceCount: number;
+} {
   return (
     workerCount >= MIN_READY_WORKERS &&
     candidate.scoutOnly === true &&
@@ -554,8 +562,10 @@ function isActionableScoutOnlyExpansionRemoteCandidate(
     candidate.preconditions.every(isScoutOnlyRemoteCompatibleExpansionPrecondition) &&
     typeof candidate.sourceCount === 'number' &&
     candidate.sourceCount > 0 &&
-    (candidate.hostileCreepCount ?? 0) === 0 &&
-    (candidate.hostileStructureCount ?? 0) === 0 &&
+    typeof candidate.hostileCreepCount === 'number' &&
+    typeof candidate.hostileStructureCount === 'number' &&
+    candidate.hostileCreepCount === 0 &&
+    candidate.hostileStructureCount === 0 &&
     isAdjacentScoutOnlyExpansionRemoteCandidate(candidate)
   );
 }
@@ -685,11 +695,22 @@ function isExpansionCandidateBlockReason(value: unknown): value is TerritoryExpa
 
 function upsertOccupationCandidate(
   candidatesByRoom: Map<string, OccupationRecommendationCandidateInput>,
-  candidate: OccupationRecommendationCandidateInput
+  candidate: OccupationRecommendationCandidateInput,
+  options: { preferCandidate?: boolean } = {}
 ): void {
   const existing = candidatesByRoom.get(candidate.roomName);
   if (!existing) {
     candidatesByRoom.set(candidate.roomName, candidate);
+    return;
+  }
+
+  if (options.preferCandidate === true) {
+    candidatesByRoom.set(candidate.roomName, {
+      ...existing,
+      ...candidate,
+      adjacent: existing.adjacent || candidate.adjacent,
+      order: Math.min(existing.order, candidate.order)
+    });
     return;
   }
 

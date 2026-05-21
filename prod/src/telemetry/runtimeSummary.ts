@@ -1194,7 +1194,8 @@ function getScoutOnlyExpansionCandidatesByRoom(
       ...(Array.isArray(rawCandidate.ignoredPostClaimBootstrapBlockers)
         ? {
             ignoredPostClaimBootstrapBlockers: rawCandidate.ignoredPostClaimBootstrapBlockers.filter(
-              isPostClaimBootstrapIgnoredBlockerMemory
+              (blocker): blocker is TerritoryPostClaimBootstrapIgnoredBlockerMemory =>
+                isPostClaimBootstrapIgnoredBlockerMemory(blocker) && blocker.colony === rawCandidate.colony
             )
           }
         : {})

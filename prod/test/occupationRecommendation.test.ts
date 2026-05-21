@@ -6,6 +6,7 @@ import {
   type OccupationRecommendationInput,
   type OccupationRecommendationReport
 } from '../src/territory/occupationRecommendation';
+import type { ExpansionCandidateReport, ExpansionCandidateScore } from '../src/territory/expansionScoring';
 import { TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS } from '../src/territory/territoryPlanner';
 
 describe('occupation recommendation scoring', () => {
@@ -13,6 +14,9 @@ describe('occupation recommendation scoring', () => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
     delete (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
   });
 
   it('keeps occupy recommendations ahead of richer reserve rooms', () => {
@@ -317,6 +321,70 @@ describe('occupation recommendation scoring', () => {
       routeDistance: 1
     });
     expect(report.next?.roomName).toBe('W2N1');
+  });
+
+  it('forces scout-only expansion conversions to reserve over stale configured claim targets', () => {
+    installRuntimeFindConstants();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap,
+      rooms: {
+        W2N1: makeVisibleRemoteRoom('W2N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(
+      makeRuntimeColony(),
+      [{} as Creep, {} as Creep, {} as Creep],
+      makeScoutOnlyExpansionReport(makeScoutOnlyExpansionCandidate())
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      source: 'configured',
+      controllerId: 'controller-W2N1',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0
+    });
+    expect(report.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller-W2N1'
+    });
+  });
+
+  it('does not convert scout-only expansion candidates with unknown hostile evidence', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap,
+      rooms: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = { territory: {} };
+
+    const report = buildRuntimeOccupationRecommendationReport(
+      makeRuntimeColony(),
+      [{} as Creep, {} as Creep, {} as Creep],
+      makeScoutOnlyExpansionReport(
+        makeScoutOnlyExpansionCandidate({
+          hostileCreepCount: undefined,
+          hostileStructureCount: undefined
+        })
+      )
+    );
+
+    expect(report.candidates).toEqual([]);
+    expect(report.next).toBeNull();
+    expect(report.followUpIntent).toBeNull();
   });
 
   it('falls back to map route lookup for uncached nearest-owned road distance telemetry', () => {
@@ -1567,6 +1635,62 @@ function makeCandidate(
     ownedStructureCount: 0,
     ...overrides
   };
+}
+
+function makeScoutOnlyExpansionReport(candidate: ExpansionCandidateScore): ExpansionCandidateReport {
+  return {
+    colonyName: 'W1N1',
+    candidates: [candidate],
+    next: candidate
+  };
+}
+
+function makeScoutOnlyExpansionCandidate(
+  overrides: Partial<ExpansionCandidateScore> = {}
+): ExpansionCandidateScore {
+  return {
+    roomName: 'W2N1',
+    score: 900,
+    synergyScore: 0,
+    evidenceStatus: 'sufficient',
+    visible: false,
+    rationale: [],
+    preconditions: ['wait for GCL capacity to claim another room'],
+    risks: [],
+    routeDistance: 1,
+    nearestOwnedRoomDistance: 1,
+    adjacentToOwnedRoom: true,
+    controllerId: 'controller-W2N1' as Id<StructureController>,
+    sourceCount: 1,
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    scoutOnly: true,
+    ...overrides
+  };
+}
+
+function installRuntimeFindConstants(): void {
+  (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 101;
+  (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 102;
+  (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 103;
+}
+
+function makeVisibleRemoteRoom(roomName: string): Room {
+  return {
+    name: roomName,
+    controller: { id: `controller-${roomName}` as Id<StructureController>, my: false } as StructureController,
+    find: jest.fn((type: number): unknown[] => {
+      switch (type) {
+        case FIND_SOURCES:
+          return [{ id: `source-${roomName}` } as Source];
+        case FIND_HOSTILE_CREEPS:
+        case FIND_HOSTILE_STRUCTURES:
+          return [];
+        default:
+          return [];
+      }
+    })
+  } as unknown as Room;
 }
 
 function makeRuntimeColony(): { room: Room; spawns: StructureSpawn[]; energyAvailable: number; energyCapacityAvailable: number } {

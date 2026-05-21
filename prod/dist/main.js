@@ -15115,35 +15115,37 @@ function buildRuntimeOccupationCandidates(colony, colonyWorkers, expansionReport
   return Array.from(candidatesByRoom.values()).map(enrichVisibleOccupationCandidate);
 }
 function addScoutOnlyExpansionRemoteOccupationCandidates(candidatesByRoom, expansionReport, workerCount, order) {
-  var _a, _b;
   let nextOrder = order;
   for (const candidate of expansionReport.candidates) {
     if (!isActionableScoutOnlyExpansionRemoteCandidate(candidate, workerCount)) {
       continue;
     }
-    upsertOccupationCandidate(candidatesByRoom, {
-      roomName: candidate.roomName,
-      source: "configured",
-      order: nextOrder,
-      adjacent: candidate.adjacentToOwnedRoom,
-      visible: candidate.visible,
-      ...candidate.visible === false ? { scouted: true } : {},
-      actionHint: "reserve",
-      controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
-      ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
-      ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
-      ...candidate.nearestOwnedRoomDistance !== void 0 ? { roadDistance: candidate.nearestOwnedRoomDistance } : candidate.routeDistance !== void 0 ? { roadDistance: candidate.routeDistance } : {},
-      sourceCount: candidate.sourceCount,
-      hostileCreepCount: (_a = candidate.hostileCreepCount) != null ? _a : 0,
-      hostileStructureCount: (_b = candidate.hostileStructureCount) != null ? _b : 0
-    });
+    upsertOccupationCandidate(
+      candidatesByRoom,
+      {
+        roomName: candidate.roomName,
+        source: "configured",
+        order: nextOrder,
+        adjacent: candidate.adjacentToOwnedRoom,
+        visible: candidate.visible,
+        ...candidate.visible === false ? { scouted: true } : {},
+        actionHint: "reserve",
+        controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
+        ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
+        ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
+        ...candidate.nearestOwnedRoomDistance !== void 0 ? { roadDistance: candidate.nearestOwnedRoomDistance } : candidate.routeDistance !== void 0 ? { roadDistance: candidate.routeDistance } : {},
+        sourceCount: candidate.sourceCount,
+        hostileCreepCount: candidate.hostileCreepCount,
+        hostileStructureCount: candidate.hostileStructureCount
+      },
+      { preferCandidate: true }
+    );
     nextOrder += 1;
   }
   return nextOrder;
 }
 function isActionableScoutOnlyExpansionRemoteCandidate(candidate, workerCount) {
-  var _a, _b;
-  return workerCount >= MIN_READY_WORKERS && candidate.scoutOnly === true && candidate.evidenceStatus === "sufficient" && candidate.blockReason === void 0 && candidate.requiresControllerPressure !== true && candidate.risks.length === 0 && candidate.preconditions.every(isScoutOnlyRemoteCompatibleExpansionPrecondition) && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0 && ((_a = candidate.hostileCreepCount) != null ? _a : 0) === 0 && ((_b = candidate.hostileStructureCount) != null ? _b : 0) === 0 && isAdjacentScoutOnlyExpansionRemoteCandidate(candidate);
+  return workerCount >= MIN_READY_WORKERS && candidate.scoutOnly === true && candidate.evidenceStatus === "sufficient" && candidate.blockReason === void 0 && candidate.requiresControllerPressure !== true && candidate.risks.length === 0 && candidate.preconditions.every(isScoutOnlyRemoteCompatibleExpansionPrecondition) && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0 && typeof candidate.hostileCreepCount === "number" && typeof candidate.hostileStructureCount === "number" && candidate.hostileCreepCount === 0 && candidate.hostileStructureCount === 0 && isAdjacentScoutOnlyExpansionRemoteCandidate(candidate);
 }
 function isAdjacentScoutOnlyExpansionRemoteCandidate(candidate) {
   return candidate.adjacentToOwnedRoom || typeof candidate.routeDistance === "number" && candidate.routeDistance <= 1 || typeof candidate.nearestOwnedRoomDistance === "number" && candidate.nearestOwnedRoomDistance <= 1;
@@ -15210,10 +15212,19 @@ function isExpansionCandidateEvidenceStatus(value) {
 function isExpansionCandidateBlockReason(value) {
   return value === "insufficientEvidence" || value === "targetUnavailable" || value === "targetHostile" || value === "controllerMissing" || value === "controllerOwned" || value === "controllerReserved" || value === "sourcesMissing" || value === "controllerRangeMissing" || value === "terrainMissing" || value === "energyCapacityLow" || value === "energyBufferLow" || value === "cpuBucketLow" || value === "homeAlertActive" || value === "controllerLevelLow" || value === "homeDowngradeGuard" || value === "postClaimBootstrapActive" || value === "gclInsufficient" || value === "roomLimitReached" || value === "routeUnavailable";
 }
-function upsertOccupationCandidate(candidatesByRoom, candidate) {
+function upsertOccupationCandidate(candidatesByRoom, candidate, options = {}) {
   const existing = candidatesByRoom.get(candidate.roomName);
   if (!existing) {
     candidatesByRoom.set(candidate.roomName, candidate);
+    return;
+  }
+  if (options.preferCandidate === true) {
+    candidatesByRoom.set(candidate.roomName, {
+      ...existing,
+      ...candidate,
+      adjacent: existing.adjacent || candidate.adjacent,
+      order: Math.min(existing.order, candidate.order)
+    });
     return;
   }
   if (candidate.source === "configured" && existing.source !== "configured") {
@@ -36376,7 +36387,7 @@ function getScoutOnlyExpansionCandidatesByRoom(colonyName) {
       ...isPostClaimBootstrapBlockerMemory(rawCandidate.postClaimBootstrapBlocker) ? { postClaimBootstrapBlocker: rawCandidate.postClaimBootstrapBlocker } : {},
       ...Array.isArray(rawCandidate.ignoredPostClaimBootstrapBlockers) ? {
         ignoredPostClaimBootstrapBlockers: rawCandidate.ignoredPostClaimBootstrapBlockers.filter(
-          isPostClaimBootstrapIgnoredBlockerMemory
+          (blocker) => isPostClaimBootstrapIgnoredBlockerMemory(blocker) && blocker.colony === rawCandidate.colony
         )
       } : {}
     });
