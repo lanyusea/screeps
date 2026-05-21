@@ -1130,6 +1130,119 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
         self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
 
+    def test_fresh_dataset_gate_selection_requires_reference_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_root = Path(temp_dir) / "runtime-artifacts"
+            runtime_root.mkdir()
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "freshness requires a reference time"):
+                card_helper.select_accepted_dataset_gate(
+                    runtime_root,
+                    max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+                )
+            with self.assertRaisesRegex(card_helper.CardValidationError, "reference time"):
+                card_helper.select_accepted_dataset_gate(
+                    runtime_root,
+                    reference_time="not-a-timestamp",
+                    max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+                )
+
+    def test_latest_accepted_dataset_rejects_only_gate_deleted_during_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260517T020000Z-postmerge1188"
+            vanished_gate = gate_root / gate_id / "gate_report.json"
+            vanished_gate.parent.mkdir(parents=True)
+            vanished_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-17T02:00:00Z",
+                        "dataset": {"runId": "rl-accepted-vanished"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            original_stat = Path.stat
+
+            def stat_or_raise(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+                if path == vanished_gate:
+                    raise OSError("deleted during scan")
+                return original_stat(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "stat", stat_or_raise):
+                with self.assertRaisesRegex(card_helper.CardValidationError, "no accepted dataset gate"):
+                    card_helper.select_accepted_dataset_gate(gate_root)
+
+    def test_fresh_dataset_gate_selection_prefers_full_quality_over_newer_degraded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            full_gate_id = "gate-20260521T123000Z"
+            degraded_gate_id = "gate-20260521T133000Z"
+            full_gate = runtime_root / "rl-control-loop" / "gate-data" / full_gate_id / "gate_report.json"
+            degraded_gate = runtime_root / "rl-control-loop" / "gate-data" / degraded_gate_id / "gate_report.json"
+            full_gate.parent.mkdir(parents=True)
+            degraded_gate.parent.mkdir(parents=True)
+            full_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": full_gate_id,
+                        "createdAt": "2026-05-21T12:30:00Z",
+                        "dataset": {"ok": True, "runId": "rl-full-quality", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            degraded_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": False,
+                        "gateId": degraded_gate_id,
+                        "createdAt": "2026-05-21T13:30:00Z",
+                        "dataset": {"ok": True, "runId": "rl-degraded-quality", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [
+                            {
+                                "gate": "quality_checks",
+                                "name": "sample_quality",
+                                "status": "fail",
+                                "samplesAccepted": 191,
+                                "samplesRejected": 9,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(full_gate, (1_779_189_000, 1_779_189_000))
+            os.utime(degraded_gate, (1_779_192_600, 1_779_192_600))
+
+            selected = card_helper.select_accepted_dataset_gate(
+                runtime_root,
+                reference_time="2026-05-21T14:00:00Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+
+        self.assertEqual(selected["gate_id"], full_gate_id)
+        self.assertEqual(selected["dataset_run_id"], "rl-full-quality")
+        self.assertEqual(selected["quality_acceptance_rate"], 1.0)
+
     def test_loop_a_local_fallback_reports_zero_sample_newest_gate_and_stale_nonzero_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -776,7 +776,8 @@ export function emitRuntimeSummary(
       persistOccupationRecommendations,
       eventMetricsByRoom.get(colony.room.name) ?? {},
       shouldBuildStructureSnapshot(tick),
-      options.strategyRegistry
+      options.strategyRegistry,
+      options.onStrategyRegistryRuntimeUse
     )
   );
   const summary: RuntimeSummary = {
@@ -875,7 +876,8 @@ function summarizeRoom(
   persistOccupationRecommendations: boolean,
   eventMetrics: RuntimeRoomEventMetrics,
   includeStructureSnapshot: boolean,
-  strategyRegistry: StrategyRegistryEntry[] | undefined
+  strategyRegistry: StrategyRegistryEntry[] | undefined,
+  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
 ): RuntimeRoomSummary {
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
@@ -917,7 +919,12 @@ function summarizeRoom(
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
+    constructionPriority: summarizeConstructionPriority(
+      colony,
+      colonyWorkers,
+      strategyRegistry,
+      onStrategyRegistryRuntimeUse
+    ),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
@@ -2821,17 +2828,38 @@ function summarizeCombat(room: Room, events: RuntimeCombatEventSummary | undefin
 function summarizeConstructionPriority(
   colony: ColonySnapshot,
   colonyWorkers: Creep[],
-  strategyRegistry: StrategyRegistryEntry[] | undefined
+  strategyRegistry: StrategyRegistryEntry[] | undefined,
+  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
 ): RuntimeConstructionPrioritySummary {
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
+  const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
-    strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
+    strategyParameters
   });
+  if (strategyEntry && strategyParameters) {
+    recordStrategyRegistryRuntimeUse(strategyEntry, onStrategyRegistryRuntimeUse);
+  }
 
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
   };
+}
+
+function recordStrategyRegistryRuntimeUse(
+  strategyEntry: StrategyRegistryEntry,
+  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
+): void {
+  if (!onStrategyRegistryRuntimeUse) {
+    return;
+  }
+
+  try {
+    onStrategyRegistryRuntimeUse(strategyEntry);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`[runtime-summary] strategy registry runtime-use hook failed: ${message}`);
+  }
 }
 
 function summarizeSurvival(colony: ColonySnapshot, roleCounts: RoleCounts): RuntimeSurvivalSummary {

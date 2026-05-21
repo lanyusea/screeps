@@ -1373,7 +1373,7 @@ def select_accepted_dataset_gate(
 ) -> JsonObject:
     if gate_id is not None:
         validate_gate_id(gate_id)
-    candidates: list[tuple[float, str, int, str, str, Path, JsonObject]] = []
+    candidates: list[tuple[int, float, str, str, str, Path, JsonObject]] = []
     stale_accepted: list[JsonObject] = []
     roots = dataset_gate_roots(gate_root)
     existing_roots = [root for root in roots if root.exists()]
@@ -1382,6 +1382,10 @@ def select_accepted_dataset_gate(
             "dataset gate root does not exist: " + ", ".join(str(root) for root in roots)
         )
     reference_dt = normalize_reference_time(reference_time)
+    if reference_time is not None and reference_dt is None:
+        raise CardValidationError("dataset gate reference time must be an ISO UTC timestamp")
+    if max_age_hours is not None and reference_dt is None:
+        raise CardValidationError("dataset gate freshness requires a reference time")
     reports = scan_dataset_gate_reports(existing_roots, gate_id=gate_id, reference_time=reference_dt)
     for report in reports:
         if not report.get("acceptable"):
@@ -1393,7 +1397,10 @@ def select_accepted_dataset_gate(
             run_id = str(report["dataset_run_id"])
             created_at = report.get("created_at")
             quality_rank = dataset_gate_quality_rank(payload, path)
-            mtime = float(report.get("mtime") or 0.0)
+            report_mtime = report.get("mtime")
+            if report_mtime is None:
+                continue
+            mtime = float(report_mtime)
         except (KeyError, TypeError, ValueError):
             continue
         if max_age_hours is not None and dataset_gate_report_is_stale(report, max_age_hours):
@@ -1401,9 +1408,9 @@ def select_accepted_dataset_gate(
             continue
         candidates.append(
             (
+                quality_rank,
                 mtime,
                 str(created_at or ""),
-                quality_rank,
                 selected_gate_id,
                 run_id,
                 path,

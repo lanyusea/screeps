@@ -35906,7 +35906,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         persistOccupationRecommendations,
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
         shouldBuildStructureSnapshot(tick),
-        options.strategyRegistry
+        options.strategyRegistry,
+        options.onStrategyRegistryRuntimeUse
       );
     }
   );
@@ -35979,7 +35980,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse) {
   const tick = getGameTime32();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -36019,7 +36020,12 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry),
+    constructionPriority: summarizeConstructionPriority(
+      colony,
+      colonyWorkers,
+      strategyRegistry,
+      onStrategyRegistryRuntimeUse
+    ),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
@@ -37261,15 +37267,30 @@ function summarizeCombat(room, events) {
     ...events ? { events } : {}
   };
 }
-function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry) {
+function summarizeConstructionPriority(colony, colonyWorkers, strategyRegistry, onStrategyRegistryRuntimeUse) {
   const strategyEntry = selectConstructionPriorityStrategyRegistryEntry(strategyRegistry);
+  const strategyParameters = constructionPriorityStrategyParametersFromEntry(strategyEntry);
   const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers, {
-    strategyParameters: constructionPriorityStrategyParametersFromEntry(strategyEntry)
+    strategyParameters
   });
+  if (strategyEntry && strategyParameters) {
+    recordStrategyRegistryRuntimeUse2(strategyEntry, onStrategyRegistryRuntimeUse);
+  }
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
   };
+}
+function recordStrategyRegistryRuntimeUse2(strategyEntry, onStrategyRegistryRuntimeUse) {
+  if (!onStrategyRegistryRuntimeUse) {
+    return;
+  }
+  try {
+    onStrategyRegistryRuntimeUse(strategyEntry);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`[runtime-summary] strategy registry runtime-use hook failed: ${message}`);
+  }
 }
 function summarizeSurvival(colony, roleCounts) {
   const assessment = assessColonySnapshotSurvival(colony, roleCounts);
@@ -45487,7 +45508,8 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
     persistOccupationRecommendations: false,
-    strategyRegistry: options.strategyRegistry
+    strategyRegistry: options.strategyRegistry,
+    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   });
 }
 function ensureLocalWorkerColonyMemory(colonies, creeps) {

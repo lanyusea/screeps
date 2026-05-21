@@ -345,7 +345,8 @@ export function runEconomy(
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, {
     persistOccupationRecommendations: false,
-    strategyRegistry: options.strategyRegistry
+    strategyRegistry: options.strategyRegistry,
+    onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
   });
 }
 
