@@ -2299,13 +2299,18 @@ def verified_remote_candidate_scorecard(
             or raw.get("classification") == "gradient_stability_untrusted_scorecard_materialized"
         )
         if gradient_blocked:
-            if not top_level_runtime_injected or not runtime_injected:
+            if not (top_level_runtime_injected or top_level_runtime_partially_injected) or not runtime_injected:
                 raise BatchRunError(
                     "remote candidateScorecard gradient-stability materialized status requires runtimeParameterInjection proof"
                 )
             if injected_count <= 0:
                 raise BatchRunError(
                     "remote candidateScorecard gradient-stability materialized status requires positive injectedVariantCount"
+                )
+            if top_level_runtime_partially_injected and injected_count > top_level_injected_count:
+                raise BatchRunError(
+                    "remote candidateScorecard gradient-stability materialized status exceeds "
+                    "top-level runtimeParameterInjection injectedVariantCount"
                 )
             if raw.get("missingPrerequisite") != "gradient_stability":
                 raise BatchRunError(
