@@ -778,6 +778,7 @@ def collect_runtime_parameter_consumption_evidence(
     errors: list[str] = []
     collectors = [
         ("Memory.rlRuntimePolicyParameters", _collect_http_runtime_parameter_consumption_evidence),
+        ("redis.Memory.rlRuntimePolicyParameters", _collect_redis_runtime_parameter_consumption_evidence),
         ("mongo.Memory.rlRuntimePolicyParameters", _collect_mongo_runtime_parameter_consumption_evidence),
     ]
     for source, collector in collectors:
@@ -826,6 +827,54 @@ def _collect_http_runtime_parameter_consumption_evidence(
         if evidence is not None:
             return evidence
     return None
+
+
+def _collect_redis_runtime_parameter_consumption_evidence(
+    smoke: Any,
+    compose: Sequence[str] | None,
+    cfg: Any,
+    token: str | None,
+    injection: JsonObject | None = None,
+) -> JsonObject | None:
+    _ = token
+    if compose is None:
+        return None
+    eval_script = """
+local cursor = "0"
+local candidates = {}
+local seen = {}
+for _, pattern in ipairs({"*memory*", "*Memory*"}) do
+  cursor = "0"
+  repeat
+    local result = redis.call("SCAN", cursor, "MATCH", pattern, "COUNT", 100)
+    cursor = result[1]
+    for _, key in ipairs(result[2]) do
+      local keyText = tostring(key)
+      local keyLower = string.lower(keyText)
+      if not seen[keyText] and string.find(keyLower, "memory", 1, true) then
+        seen[keyText] = true
+        local keyType = redis.call("TYPE", key).ok
+        if keyType == "string" then
+          local value = redis.call("GET", key)
+          if value then
+            table.insert(candidates, {source = "redis." .. keyText, value = value})
+          end
+        end
+      end
+    end
+  until cursor == "0"
+end
+return cjson.encode({ok = true, candidates = candidates})
+""".strip()
+    command = [*compose, "exec", "-T", "redis", "redis-cli", "--raw", "EVAL", eval_script, "0"]
+    result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
+    if result.get("returncode") != 0:
+        return None
+    try:
+        payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
+    except (IndexError, json.JSONDecodeError):
+        return None
+    return find_runtime_parameter_consumption_evidence(payload, injection=injection)
 
 
 def _collect_mongo_runtime_parameter_consumption_evidence(
@@ -883,10 +932,14 @@ print(JSON.stringify({{ok: true, candidates}}));
     if result.get("returncode") != 0:
         return None
     try:
-        payload = json.loads(str(result.get("output_excerpt", "")).strip().splitlines()[-1])
+        payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
     except (IndexError, json.JSONDecodeError):
         return None
     return find_runtime_parameter_consumption_evidence(payload, injection=injection)
+
+
+def _json_payload_from_command_output(output: Any) -> Any:
+    return json.loads(str(output).strip().splitlines()[-1])
 
 
 def find_runtime_parameter_consumption_evidence(

@@ -1914,6 +1914,59 @@ cli:
 
         self.assertEqual(extracted, matching)
 
+    def test_redis_runtime_parameter_consumption_collector_reads_private_memory(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "candidates": [
+                            {
+                                "source": "redis.memory:user",
+                                "value": json.dumps({"rlRuntimePolicyParameters": evidence}, sort_keys=True),
+                            }
+                        ],
+                    }),
+                }
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        command = smoke.command if smoke.command is not None else []
+        self.assertIn("redis", command)
+        self.assertIn("redis-cli", command)
+        self.assertIn("SCAN", command[-2])
+        self.assertIn("*memory*", command[-2])
+        self.assertIn("*Memory*", command[-2])
+        self.assertNotIn("KEYS", command[-2])
+
     def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
