@@ -197,9 +197,15 @@ class MockSimulator:
                     injection,
                     code_text=code_text,
                 )
-                evaluated_parameters = copy.deepcopy(
-                    self.evaluated_parameters_by_variant.get(variant_id, variant_config.get("parameters", {}))
-                )
+                if variant_id in self.evaluated_parameters_by_variant:
+                    evaluated_parameters = copy.deepcopy(self.evaluated_parameters_by_variant[variant_id])
+                else:
+                    parameters = variant_config.get("parameters")
+                    if not isinstance(parameters, dict) or not parameters:
+                        raise AssertionError(
+                            f"runtime injection test expected parameters for {variant_id}, got {variant_config!r}"
+                        )
+                    evaluated_parameters = copy.deepcopy(parameters)
                 consumption_evidence = {
                     "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
                     "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
@@ -2585,20 +2591,34 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=simulator,
             )
 
-        scaled_variant_id = expanded_ids[0]
-        scaled_config = runner.simulator_harness.strategy_variant_config_by_id(
-            scaled_variant_id,
-            variant_configs=simulator.calls[0]["variant_configs"],
-        )
-        base_variant_id = runner.simulator_harness.scale_environment_base_variant_id(scaled_variant_id)
-        base_parameters = next(
-            variant["parameters"]
-            for variant in card["strategy_variants"]
-            if variant["id"] == base_variant_id
-        )
         self.assertEqual(simulator.calls[0]["variants"], expanded_ids)
-        self.assertEqual(scaled_config["parameters"], base_parameters)
-        self.assertEqual(scaled_config["scaleEnvironment"]["baseVariantId"], base_variant_id)
+        expected_parameters_by_base_id = {
+            candidate["strategyVariantId"]: candidate["parameters"]
+            for candidate in card["policy_gradient"]["candidate_parameter_vectors"]
+        }
+        expected_hashes_by_base_id = {
+            base_id: runner.canonical_hash(parameters)
+            for base_id, parameters in expected_parameters_by_base_id.items()
+        }
+        observed_hashes_by_base_id: dict[str, str] = {}
+        for scaled_variant_id in expanded_ids:
+            scaled_config = runner.simulator_harness.strategy_variant_config_by_id(
+                scaled_variant_id,
+                variant_configs=simulator.calls[0]["variant_configs"],
+            )
+            base_variant_id = runner.simulator_harness.scale_environment_base_variant_id(scaled_variant_id)
+            self.assertIn(base_variant_id, expected_parameters_by_base_id)
+            self.assertEqual(scaled_config["parameters"], expected_parameters_by_base_id[base_variant_id])
+            self.assertEqual(
+                runner.canonical_hash(scaled_config["parameters"]),
+                expected_hashes_by_base_id[base_variant_id],
+            )
+            self.assertEqual(scaled_config["scaleEnvironment"]["baseVariantId"], base_variant_id)
+            observed_hashes_by_base_id[base_variant_id] = runner.canonical_hash(
+                scaled_config["parameters"]
+            )
+        self.assertEqual(observed_hashes_by_base_id, expected_hashes_by_base_id)
+        self.assertEqual(len(set(expected_hashes_by_base_id.values())), len(expected_hashes_by_base_id))
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
