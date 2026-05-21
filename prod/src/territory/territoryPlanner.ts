@@ -2818,7 +2818,6 @@ function getAdjacentReserveCandidates(
     const target: TerritoryTargetMemory = { colony: colonyName, roomName, action: 'reserve' };
     if (
       roomName === colonyName ||
-      isConfiguredExpansionScoutOnlyTarget(colonyName, roomName) ||
       existingTargetRooms.has(roomName) ||
       isKnownDeadZoneRoom(roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
@@ -3311,7 +3310,9 @@ function applyOccupationRecommendationScore(
   const commitTarget =
     recommendation.evidenceStatus === 'sufficient' &&
     intentAction !== 'scout' &&
-    (candidate.commitTarget || isScoutedAdjacentControlCandidate(candidate));
+    (candidate.commitTarget ||
+      isScoutedAdjacentControlCandidate(candidate) ||
+      isConfiguredScoutOnlyRemoteConversionCandidate(candidate, intentAction));
   const target = getRecommendedTerritoryTarget(candidate.target, recommendation, intentAction);
   const nextSelection: SelectedTerritoryTarget = {
     target,
@@ -3404,7 +3405,11 @@ function getRecommendedTerritoryIntentAction(
     return candidate.intentAction;
   }
 
-  if (isConfiguredScoutOnlyExpansionCandidate(candidate)) {
+  if (
+    isConfiguredScoutOnlyExpansionCandidate(candidate) &&
+    (recommendation.evidenceStatus !== 'sufficient' ||
+      !isAutonomousTerritoryControlAllowedForColonyName(candidate.target.colony))
+  ) {
     return 'scout';
   }
 
@@ -3446,6 +3451,18 @@ function isConfiguredScoutOnlyExpansionCandidate(candidate: ScoredTerritoryTarge
   return (
     candidate.source === 'configuredExpansionScout' &&
     isConfiguredExpansionScoutOnlyTarget(candidate.target.colony, candidate.target.roomName)
+  );
+}
+
+function isConfiguredScoutOnlyRemoteConversionCandidate(
+  candidate: ScoredTerritoryTarget,
+  intentAction: TerritoryIntentAction
+): boolean {
+  return (
+    isConfiguredScoutOnlyExpansionCandidate(candidate) &&
+    candidate.target.action === 'reserve' &&
+    intentAction === 'reserve' &&
+    (candidate.routeDistance === undefined || candidate.routeDistance <= 1)
   );
 }
 

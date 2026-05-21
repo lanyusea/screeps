@@ -315,7 +315,8 @@ type RuntimeTerritoryScoutOnlyTargetStatus = TerritoryScoutAttemptStatus | 'pend
 interface RuntimeTerritoryScoutOnlyTargetSummary {
   colony: string;
   roomName: string;
-  recommendedAction: 'scout';
+  recommendedAction: TerritoryExpansionCandidateRecommendedAction;
+  blockReason?: TerritoryExpansionCandidateBlockReason;
   gateOpen: boolean;
   status: RuntimeTerritoryScoutOnlyTargetStatus;
   requestedAt?: number;
@@ -1085,6 +1086,7 @@ function buildScoutOnlyTargetSummaries(
   const colonyName = colony.room.name;
   const attemptsByRoom = new Map((summary?.attempts ?? []).map((attempt) => [attempt.roomName, attempt]));
   const intelByRoom = new Map((summary?.intel ?? []).map((intel) => [intel.roomName, intel]));
+  const expansionCandidatesByRoom = getScoutOnlyExpansionCandidatesByRoom(colonyName);
   const seenRooms = new Set<string>();
 
   return getTerritoryExpansionScoutTargets(colonyName).flatMap((target) => {
@@ -1095,12 +1097,14 @@ function buildScoutOnlyTargetSummaries(
 
     const attempt = attemptsByRoom.get(target.roomName);
     const intel = intelByRoom.get(target.roomName);
+    const expansionCandidate = expansionCandidatesByRoom.get(target.roomName);
     const gateOpen = isPassiveScoutGateOpen(colony, target.roomName);
     return [
       {
         colony: colonyName,
         roomName: target.roomName,
-        recommendedAction: 'scout' as const,
+        recommendedAction: expansionCandidate?.recommendedAction ?? 'scout',
+        ...(expansionCandidate?.blockReason ? { blockReason: expansionCandidate.blockReason } : {}),
         gateOpen,
         status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
         ...(attempt?.requestedAt !== undefined ? { requestedAt: attempt.requestedAt } : {}),
@@ -1114,6 +1118,70 @@ function buildScoutOnlyTargetSummaries(
       }
     ];
   });
+}
+
+function getScoutOnlyExpansionCandidatesByRoom(
+  colonyName: string
+): Map<string, Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason'>> {
+  const candidates = Memory.territory?.expansionCandidates;
+  if (!Array.isArray(candidates)) {
+    return new Map();
+  }
+
+  const candidatesByRoom = new Map<
+    string,
+    Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason'>
+  >();
+  for (const rawCandidate of candidates) {
+    if (
+      !isRecord(rawCandidate) ||
+      rawCandidate.colony !== colonyName ||
+      rawCandidate.scoutOnly !== true ||
+      !isNonEmptyString(rawCandidate.roomName)
+    ) {
+      continue;
+    }
+
+    candidatesByRoom.set(rawCandidate.roomName, {
+      recommendedAction: isExpansionCandidateRecommendedAction(rawCandidate.recommendedAction)
+        ? rawCandidate.recommendedAction
+        : 'scout',
+      ...(isExpansionCandidateBlockReason(rawCandidate.blockReason)
+        ? { blockReason: rawCandidate.blockReason }
+        : {})
+    });
+  }
+
+  return candidatesByRoom;
+}
+
+function isExpansionCandidateRecommendedAction(
+  action: unknown
+): action is TerritoryExpansionCandidateRecommendedAction {
+  return action === 'claim' || action === 'reserve' || action === 'scout';
+}
+
+function isExpansionCandidateBlockReason(
+  reason: unknown
+): reason is TerritoryExpansionCandidateBlockReason {
+  return (
+    reason === 'insufficientEvidence' ||
+    reason === 'targetUnavailable' ||
+    reason === 'targetHostile' ||
+    reason === 'controllerMissing' ||
+    reason === 'controllerOwned' ||
+    reason === 'controllerReserved' ||
+    reason === 'sourcesMissing' ||
+    reason === 'controllerRangeMissing' ||
+    reason === 'terrainMissing' ||
+    reason === 'energyCapacityLow' ||
+    reason === 'controllerLevelLow' ||
+    reason === 'homeDowngradeGuard' ||
+    reason === 'postClaimBootstrapActive' ||
+    reason === 'gclInsufficient' ||
+    reason === 'roomLimitReached' ||
+    reason === 'routeUnavailable'
+  );
 }
 
 function getScoutOnlyTargetStatus(

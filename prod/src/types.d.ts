@@ -682,6 +682,23 @@ declare global {
     | 'sourcesMissing';
   type TerritoryExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
   type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'reserve' | 'scout';
+  type TerritoryExpansionCandidateBlockReason =
+    | 'insufficientEvidence'
+    | 'targetUnavailable'
+    | 'targetHostile'
+    | 'controllerMissing'
+    | 'controllerOwned'
+    | 'controllerReserved'
+    | 'sourcesMissing'
+    | 'controllerRangeMissing'
+    | 'terrainMissing'
+    | 'energyCapacityLow'
+    | 'controllerLevelLow'
+    | 'homeDowngradeGuard'
+    | 'postClaimBootstrapActive'
+    | 'gclInsufficient'
+    | 'roomLimitReached'
+    | 'routeUnavailable';
   type TerritoryExpansionPipelineStage = 'scouting' | 'reserving' | 'claiming' | 'bootstrapping';
   type TerritoryExpansionPipelineStatus = 'active' | 'aborted' | 'completed';
   type TerritoryExpansionClaimState = 'scouted' | 'claiming' | 'claimed';
@@ -935,6 +952,7 @@ declare global {
     adjacentToOwnedRoom: boolean;
     scoutOnly?: boolean;
     recommendedAction?: TerritoryExpansionCandidateRecommendedAction;
+    blockReason?: TerritoryExpansionCandidateBlockReason;
     routeDistance?: number;
     nearestOwnedRoom?: string;
     nearestOwnedRoomDistance?: number;

@@ -2,6 +2,7 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   buildRuntimeExpansionCandidateReport,
   maxRoomsForRcl,
+  persistExpansionCandidateScores,
   refreshNextExpansionTargetSelection,
   scoreExpansionCandidates,
   selectExpansionScoutTargets,
@@ -288,6 +289,182 @@ describe('next expansion scoring', () => {
     expect(report.candidates.find((candidate) => candidate.roomName === 'W3N1')).toMatchObject({
       evidenceStatus: 'unavailable',
       risks: ['enemy-owned controller cannot be claimed safely']
+    });
+  });
+
+  it('promotes sufficient safe E29N56 scout-only evidence to reserve at RCL5', () => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'E29N56',
+            scoutOnly: true,
+            controllerId: 'controller-E29N56' as Id<StructureController>,
+            sourceCount: 1,
+            sourceAccessPoints: 1,
+            mineral: { mineralType: 'H' }
+          })
+        ],
+        {
+          colonyName: 'E29N55',
+          controllerLevel: 5,
+          energyCapacityAvailable: 1_800
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      sourceCount: 1,
+      sourceAccessPoints: 1
+    });
+
+    persistExpansionCandidateScores('E29N55', report, 1_281);
+
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      recommendedAction: 'reserve',
+      visible: true,
+      updatedAt: 1_281
+    });
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('blockReason');
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
+  it('holds sufficient E29N56 scout-only evidence below RCL5 with a controller-level block reason', () => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'E29N56',
+            scoutOnly: true,
+            controllerId: 'controller-E29N56' as Id<StructureController>,
+            sourceCount: 1,
+            sourceAccessPoints: 1,
+            mineral: { mineralType: 'H' }
+          })
+        ],
+        {
+          colonyName: 'E29N55',
+          controllerLevel: 4,
+          energyCapacityAvailable: 1_800
+        }
+      )
+    );
+
+    persistExpansionCandidateScores('E29N55', report, 1_282);
+
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'controllerLevelLow'
+    });
+  });
+
+  it.each([
+    [
+      'hostiles',
+      makeCandidate({
+        roomName: 'E29N56',
+        scoutOnly: true,
+        hostileCreepCount: 1,
+        sourceCount: 1,
+        sourceAccessPoints: 1
+      }),
+      undefined,
+      'targetHostile'
+    ],
+    [
+      'foreign reservation',
+      makeCandidate({
+        roomName: 'E29N56',
+        scoutOnly: true,
+        controller: { reservationUsername: 'enemy', reservationTicksToEnd: 4_000 },
+        sourceCount: 1,
+        sourceAccessPoints: 1
+      }),
+      'scout',
+      'controllerReserved'
+    ],
+    [
+      'foreign ownership',
+      makeCandidate({
+        roomName: 'E29N56',
+        scoutOnly: true,
+        controller: { ownerUsername: 'enemy' },
+        sourceCount: 1,
+        sourceAccessPoints: 1
+      }),
+      undefined,
+      'controllerOwned'
+    ]
+  ] as const)(
+    'holds E29N56 scout-only evidence when %s is present',
+    (_label, candidate, recommendedAction, blockReason) => {
+      const report = scoreExpansionCandidates(
+        makeInput([candidate], {
+          colonyName: 'E29N55',
+          controllerLevel: 5,
+          energyCapacityAvailable: 1_800
+        })
+      );
+
+      persistExpansionCandidateScores('E29N55', report, 1_283);
+
+      expect(getExpansionCandidateMemory()[0]).toMatchObject({
+        colony: 'E29N55',
+        roomName: 'E29N56',
+        scoutOnly: true,
+        blockReason
+      });
+      if (recommendedAction) {
+        expect(getExpansionCandidateMemory()[0]).toHaveProperty('recommendedAction', recommendedAction);
+      } else {
+        expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
+      }
+    }
+  );
+
+  it.each([
+    ['low energy capacity', { energyCapacityAvailable: 300 }, 'energyCapacityLow'],
+    ['downgrade guard', { ticksToDowngrade: 100 }, 'homeDowngradeGuard'],
+    ['active post-claim bootstrap', { activePostClaimBootstrapCount: 1 }, 'postClaimBootstrapActive']
+  ] as const)('holds E29N56 scout-only evidence on %s', (_label, inputOverrides, blockReason) => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'E29N56',
+            scoutOnly: true,
+            controllerId: 'controller-E29N56' as Id<StructureController>,
+            sourceCount: 1,
+            sourceAccessPoints: 1
+          })
+        ],
+        {
+          colonyName: 'E29N55',
+          controllerLevel: 5,
+          energyCapacityAvailable: 1_800,
+          ...inputOverrides
+        }
+      )
+    );
+
+    persistExpansionCandidateScores('E29N55', report, 1_284);
+
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason
     });
   });
 
@@ -1617,27 +1794,33 @@ function makeRoomScoutReport(
 }
 
 function makeSafeColony({
-  controllerLevel = 6
+  roomName = 'W1N1',
+  controllerLevel = 6,
+  energyAvailable = 650,
+  energyCapacityAvailable = 650
 }: {
+  roomName?: string;
   controllerLevel?: number;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
 } = {}): ColonySnapshot {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     controller: {
       my: true,
       owner: { username: 'me' },
       level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
-    energyAvailable: 650,
-    energyCapacityAvailable: 650
+    energyAvailable,
+    energyCapacityAvailable
   } as unknown as Room;
 
   return {
     room,
     spawns: [],
-    energyAvailable: 650,
-    energyCapacityAvailable: 650
+    energyAvailable,
+    energyCapacityAvailable
   };
 }
 

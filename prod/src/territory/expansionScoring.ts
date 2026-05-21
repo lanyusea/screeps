@@ -20,6 +20,7 @@ import {
   getTerritoryExpansionScoutTargets,
   type TerritoryExpansionScoutTargetConfig
 } from './expansionConfig';
+import { AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL } from './controlGate';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import { pruneLowerPriorityDuplicateClaimPlans } from './multiRoomTerritory';
 import {
@@ -54,6 +55,8 @@ const SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY = 80;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
+const SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION =
+  `reach controller level ${AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL} before scout-only remote conversion`;
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
   2: 1,
@@ -97,6 +100,7 @@ export interface ExpansionCandidateScore {
   reservation?: ExpansionReservationEvidence;
   requiresControllerPressure?: boolean;
   scoutOnly?: boolean;
+  blockReason?: TerritoryExpansionCandidateBlockReason;
 }
 
 export interface ExpansionScoringInput {
@@ -682,7 +686,7 @@ function scoreExpansionCandidate(
 ): ExpansionCandidateScore {
   const rationale: string[] = [];
   const risks: string[] = [];
-  const preconditions = getExpansionPreconditions(input);
+  const preconditions = getExpansionPreconditions(input, candidate);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
   const visible = candidate.visible !== false;
   const scouted = candidate.scouted === true;
@@ -780,7 +784,7 @@ function scoreExpansionCandidate(
   const score = calculateExpansionScore(input, candidate, evidenceStatus, synergy.score);
   const reservation = getReservationEvidence(input, candidate.controller);
   const requiresControllerPressure = reservation?.relation === 'foreign';
-  return {
+  const scoredCandidate: ExpansionCandidateScore = {
     roomName: candidate.roomName,
     score,
     synergyScore: synergy.score,
@@ -808,6 +812,12 @@ function scoreExpansionCandidate(
     ...(reservation ? { reservation } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {})
+  };
+  const recommendedAction = getPersistedExpansionCandidateRecommendedAction(scoredCandidate);
+  const blockReason = getPersistedExpansionCandidateBlockReason(scoredCandidate, recommendedAction);
+  return {
+    ...scoredCandidate,
+    ...(blockReason ? { blockReason } : {})
   };
 }
 
@@ -838,7 +848,7 @@ function calculateExpansionScore(
   const hostilePenalty = (candidate.hostileCreepCount ?? 0) * 240 + (candidate.hostileStructureCount ?? 0) * 140;
   const unavailablePenalty = evidenceStatus === 'unavailable' ? 2_000 : 0;
   const insufficientEvidencePenalty = evidenceStatus === 'insufficient-evidence' ? 260 : 0;
-  const preconditionPenalty = getExpansionPreconditions(input).length * 120;
+  const preconditionPenalty = getExpansionPreconditions(input, candidate).length * 120;
 
   return Math.round(
     500 +
@@ -1054,7 +1064,10 @@ function getReservationEvidence(
   };
 }
 
-function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
+function getExpansionPreconditions(
+  input: ExpansionScoringInput,
+  candidate?: Pick<ExpansionCandidateInput, 'scoutOnly'>
+): string[] {
   const preconditions: string[] = [];
   if (input.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     preconditions.push('reach 650 energy capacity for claim body');
@@ -1062,6 +1075,13 @@ function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
 
   if ((input.controllerLevel ?? 0) < MIN_CONTROLLER_LEVEL) {
     preconditions.push('reach controller level 2 before expansion');
+  }
+
+  if (
+    candidate?.scoutOnly === true &&
+    (input.controllerLevel ?? 0) < AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL
+  ) {
+    preconditions.push(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION);
   }
 
   const ownedRoomCount = getOwnedRoomCount(input);
@@ -1104,7 +1124,14 @@ function getOwnedRoomCount(input: ExpansionScoringInput): number {
 }
 
 function selectPersistableExpansionCandidate(report: ExpansionCandidateReport): ExpansionCandidateScore | null {
-  return report.candidates.find(isViableExpansionCandidate) ?? null;
+  return report.candidates.find(isViableExpansionClaimCandidate) ?? null;
+}
+
+function isViableExpansionClaimCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.scoutOnly !== true &&
+    isViableExpansionCandidate(candidate)
+  );
 }
 
 function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
@@ -1184,6 +1211,7 @@ function toPersistedExpansionCandidateMemory(
   rank: number
 ): PersistedExpansionCandidateMemory {
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(candidate);
+  const blockReason = candidate.blockReason ?? getPersistedExpansionCandidateBlockReason(candidate, recommendedAction);
   return {
     colony,
     roomName: candidate.roomName,
@@ -1195,6 +1223,7 @@ function toPersistedExpansionCandidateMemory(
     adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
     ...(recommendedAction ? { recommendedAction } : {}),
+    ...(blockReason ? { blockReason } : {}),
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
     ...(candidate.nearestOwnedRoom ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {}),
     ...(candidate.nearestOwnedRoomDistance !== undefined
@@ -1223,16 +1252,146 @@ function getPersistedExpansionCandidateRecommendedAction(
   candidate: ExpansionCandidateScore
 ): PersistedExpansionCandidateRecommendedAction | undefined {
   if (candidate.scoutOnly === true) {
+    if (isViableScoutOnlyRemoteCandidate(candidate)) {
+      return 'reserve';
+    }
+
     return candidate.evidenceStatus === 'unavailable' ? undefined : 'scout';
   }
 
-  if (isViableExpansionCandidate(candidate)) {
+  if (isViableExpansionClaimCandidate(candidate)) {
     return 'claim';
   }
 
   return candidate.evidenceStatus === 'insufficient-evidence' && isScoutableNearbyExpansionCandidate(candidate)
     ? 'scout'
     : undefined;
+}
+
+function isViableScoutOnlyRemoteCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.scoutOnly === true &&
+    candidate.evidenceStatus === 'sufficient' &&
+    hasScoutOnlyRemoteRelevantPrecondition(candidate) === false &&
+    candidate.requiresControllerPressure !== true &&
+    typeof candidate.sourceCount === 'number' &&
+    candidate.sourceCount > 0 &&
+    isAdjacentScoutOnlyRemoteCandidate(candidate)
+  );
+}
+
+function isAdjacentScoutOnlyRemoteCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.adjacentToOwnedRoom ||
+    (typeof candidate.routeDistance === 'number' && candidate.routeDistance <= 1) ||
+    (typeof candidate.nearestOwnedRoomDistance === 'number' && candidate.nearestOwnedRoomDistance <= 1)
+  );
+}
+
+function hasScoutOnlyRemoteRelevantPrecondition(candidate: ExpansionCandidateScore): boolean {
+  return candidate.preconditions.some(isScoutOnlyRemoteRelevantPrecondition);
+}
+
+function isScoutOnlyRemoteRelevantPrecondition(precondition: string): boolean {
+  return (
+    precondition !== GCL_LIMIT_PRECONDITION &&
+    !precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
+  );
+}
+
+function getPersistedExpansionCandidateBlockReason(
+  candidate: ExpansionCandidateScore,
+  recommendedAction: PersistedExpansionCandidateRecommendedAction | undefined
+): TerritoryExpansionCandidateBlockReason | undefined {
+  if (recommendedAction === 'claim' || recommendedAction === 'reserve') {
+    return undefined;
+  }
+
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION)) {
+    return 'controllerLevelLow';
+  }
+
+  if (hasExpansionPrecondition(candidate, 'reach controller level 2 before expansion')) {
+    return 'controllerLevelLow';
+  }
+
+  if (hasExpansionPrecondition(candidate, 'reach 650 energy capacity for claim body')) {
+    return 'energyCapacityLow';
+  }
+
+  if (candidate.preconditions.some((precondition) => precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX))) {
+    return 'roomLimitReached';
+  }
+
+  if (hasExpansionPrecondition(candidate, GCL_LIMIT_PRECONDITION)) {
+    return 'gclInsufficient';
+  }
+
+  if (hasExpansionPrecondition(candidate, 'stabilize home controller downgrade timer')) {
+    return 'homeDowngradeGuard';
+  }
+
+  if (hasExpansionPrecondition(candidate, 'finish active post-claim bootstrap before next expansion')) {
+    return 'postClaimBootstrapActive';
+  }
+
+  if ((candidate.hostileCreepCount ?? 0) > 0 || (candidate.hostileStructureCount ?? 0) > 0) {
+    return 'targetHostile';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('hostile presence'))) {
+    return 'targetHostile';
+  }
+
+  if (candidate.requiresControllerPressure === true || candidate.risks.includes(FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK)) {
+    return 'controllerReserved';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('enemy-owned controller'))) {
+    return 'controllerOwned';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('has no controller'))) {
+    return 'controllerMissing';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('no known route'))) {
+    return 'routeUnavailable';
+  }
+
+  if (typeof candidate.sourceCount !== 'number' || candidate.sourceCount <= 0) {
+    return 'sourcesMissing';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('source count evidence missing'))) {
+    return 'sourcesMissing';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('controller evidence missing'))) {
+    return 'controllerMissing';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('controller proximity evidence missing'))) {
+    return 'controllerRangeMissing';
+  }
+
+  if (candidate.risks.some((risk) => risk.includes('terrain quality evidence missing'))) {
+    return 'terrainMissing';
+  }
+
+  if (candidate.evidenceStatus === 'insufficient-evidence') {
+    return 'insufficientEvidence';
+  }
+
+  if (candidate.evidenceStatus === 'unavailable') {
+    return 'targetUnavailable';
+  }
+
+  return undefined;
+}
+
+function hasExpansionPrecondition(candidate: ExpansionCandidateScore, precondition: string): boolean {
+  return candidate.preconditions.includes(precondition);
 }
 
 function persistNextExpansionTarget(
