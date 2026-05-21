@@ -2134,6 +2134,49 @@ cli:
         self.assertEqual(consumption["source"], "redis.Memory.rlRuntimePolicyParameters")
         self.assertIn("parameters disagreed", consumption["reason"])
 
+    def test_runtime_parameter_consumption_collection_records_redis_probe_error(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                side_effect=RuntimeError("redis runtime-parameter probe returned malformed JSON: not-json"),
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                object(),
+                ["docker", "compose"],
+                object(),
+                None,
+                injection,
+            )
+
+        self.assertIsNone(evidence)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("redis.Memory.rlRuntimePolicyParameters failed", errors[0])
+        self.assertIn("malformed JSON", errors[0])
+
+        consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            evidence,
+            source_errors=errors,
+        )
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("redis.Memory.rlRuntimePolicyParameters failed", consumption["reason"])
+
     def test_redis_runtime_parameter_consumption_collector_reads_private_memory(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
@@ -2609,7 +2652,6 @@ cli:
                 return {"returncode": 0, "output_excerpt": self.output_excerpt}
 
         for output_excerpt in (
-            "not-json",
             json.dumps({
                 "ok": True,
                 "candidates": [{"source": "redis.memory:user", "value": {"notRuntimeEvidence": True}}],
@@ -2628,6 +2670,45 @@ cli:
                 self.assertIsNone(extracted)
                 self.assertEqual(consumption["status"], "missing")
                 self.assertFalse(consumption["runtimeParameterConsumption"])
+
+    def test_redis_runtime_parameter_consumption_collector_raises_on_probe_failure(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            def __init__(self, returncode: int, output_excerpt: object) -> None:
+                self.returncode = returncode
+                self.output_excerpt = output_excerpt
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": self.returncode, "output_excerpt": self.output_excerpt}
+
+        cases = [
+            ("nonzero-exit", 1, "ERR Lua execution failed", "redis runtime-parameter probe failed"),
+            ("malformed-json", 0, "not-json", "redis runtime-parameter probe returned malformed JSON"),
+        ]
+
+        for name, returncode, output_excerpt, expected_error in cases:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(RuntimeError, expected_error):
+                    harness._collect_redis_runtime_parameter_consumption_evidence(
+                        FakeSmoke(returncode, output_excerpt),
+                        ["docker", "compose"],
+                        FakeConfig(),
+                        None,
+                        injection,
+                    )
 
     def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

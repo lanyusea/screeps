@@ -1213,11 +1213,18 @@ def _collect_redis_runtime_parameter_payload(
         command.append(scan_mode)
     result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
     if result.get("returncode") != 0:
-        return None
+        raise RuntimeError(
+            "redis runtime-parameter probe failed: "
+            f"exit={result.get('returncode')} "
+            f"output={_safe_text(result.get('output_excerpt', ''), 240)}"
+        )
     try:
         payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
-    except (IndexError, json.JSONDecodeError):
-        return None
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "redis runtime-parameter probe returned malformed JSON: "
+            f"{_safe_text(result.get('output_excerpt', ''), 240)}"
+        ) from exc
     return payload if isinstance(payload, dict) else None
 
 
