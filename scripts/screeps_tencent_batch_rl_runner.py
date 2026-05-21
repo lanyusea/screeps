@@ -130,6 +130,12 @@ ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "candidateCount",
     "candidateRewards",
     "gradient",
+    "gradientByRewardTier",
+    "gradientEstimation",
+    "gradientMomentum",
+    "gradientStable",
+    "gradientStability",
+    "highVariance",
     "iterations",
     "learningRate",
     "liveEffect",
@@ -138,12 +144,16 @@ ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "officialMmoWritesAllowed",
     "parameterEvidence",
     "promotionGate",
+    "rawGradient",
     "safety",
     "schemaVersion",
     "skippedReason",
     "targetFamily",
     "returnSummary",
+    "selectedRewardTierByParameter",
     "type",
+    "trueGradient",
+    "trustedGradientUpdate",
 }
 ZERO_ITERATION_POLICY_UPDATE_FORBIDDEN_KEYS = {
     "artifactPath",
@@ -909,6 +919,12 @@ print(json.dumps({
   'policyUpdateIterations': d.get('policyUpdateIterations'),
   'policyUpdateArtifactPath': d.get('policyUpdateArtifactPath'),
   'policyUpdate': d.get('policyUpdate'),
+  'gradientStable': d.get('gradientStable'),
+  'trustedGradientUpdate': d.get('trustedGradientUpdate'),
+  'highVariance': d.get('highVariance'),
+  'gradientEstimation': d.get('gradientEstimation'),
+  'gradientMomentum': d.get('gradientMomentum'),
+  'gradientStability': d.get('gradientStability'),
   'runtimeParameterInjection': d.get('runtimeParameterInjection'),
   'scorecardId': d.get('scorecardId'),
   'scorecardArtifactPath': d.get('scorecardArtifactPath'),
@@ -2060,6 +2076,23 @@ def validated_remote_policy_update(raw: Any, top_level_safety: dict[str, Any]) -
     return copy.deepcopy(raw)
 
 
+def remote_policy_update_gradient_fields(
+    data: dict[str, Any],
+    policy_update: Any,
+) -> dict[str, Any]:
+    source = policy_update if isinstance(policy_update, dict) else {}
+    fields: dict[str, Any] = {}
+    for key in ("gradientStable", "trustedGradientUpdate", "highVariance"):
+        value = data.get(key) if key in data else source.get(key)
+        if isinstance(value, bool):
+            fields[key] = value
+    for key in ("gradientEstimation", "gradientMomentum", "gradientStability"):
+        value = data.get(key) if isinstance(data.get(key), dict) else source.get(key)
+        if isinstance(value, dict):
+            fields[key] = copy.deepcopy(value)
+    return fields
+
+
 def verified_remote_policy_update_fields(
     data: dict[str, Any],
     top_level_safety: dict[str, Any],
@@ -2081,12 +2114,14 @@ def verified_remote_policy_update_fields(
                 "policyUpdateIterations": iterations,
                 "policyUpdateArtifactPath": None,
                 "policyUpdate": None,
+                **remote_policy_update_gradient_fields(data, safe_policy_update),
             }
         if is_safe_zero_iteration_policy_update(safe_policy_update):
             return {
                 "policyUpdateIterations": iterations,
                 "policyUpdateArtifactPath": None,
                 "policyUpdate": safe_policy_update,
+                **remote_policy_update_gradient_fields(data, safe_policy_update),
             }
         raise BatchRunError("remote policyUpdate is present without positive policyUpdateIterations")
     if iterations <= 0:
@@ -2130,6 +2165,7 @@ def verified_remote_policy_update_fields(
         "policyUpdateArtifactPath": rel_artifact_path.as_posix(),
         "policyUpdatePromotionGate": copy.deepcopy(safe_policy_update.get("promotionGate")),
         "policyUpdate": safe_policy_update,
+        **remote_policy_update_gradient_fields(data, safe_policy_update),
     }
 
 
@@ -2258,11 +2294,30 @@ def verified_remote_candidate_scorecard(
                 f"{rel_scorecard_artifact_path.as_posix()}"
             )
     elif status == "materialized":
-        if top_level_runtime_injected or runtime_injected:
+        gradient_blocked = (
+            raw.get("trustedGradientUpdate") is False
+            or raw.get("highVariance") is True
+            or raw.get("missingPrerequisite") == "gradient_stability"
+            or raw.get("classification") == "gradient_stability_untrusted_scorecard_materialized"
+        )
+        if gradient_blocked:
+            if not top_level_runtime_injected or not runtime_injected:
+                raise BatchRunError(
+                    "remote candidateScorecard gradient-stability materialized status requires runtimeParameterInjection proof"
+                )
+            if injected_count <= 0:
+                raise BatchRunError(
+                    "remote candidateScorecard gradient-stability materialized status requires positive injectedVariantCount"
+                )
+            if raw.get("missingPrerequisite") != "gradient_stability":
+                raise BatchRunError(
+                    "remote candidateScorecard gradient-stability materialized status requires gradient_stability prerequisite"
+                )
+        elif top_level_runtime_injected or runtime_injected:
             raise BatchRunError(
                 "remote candidateScorecard materialized status requires incomplete runtimeParameterInjection proof"
             )
-        if injected_count != 0:
+        if not gradient_blocked and injected_count != 0:
             raise BatchRunError(
                 "remote candidateScorecard materialized status requires injectedVariantCount=0"
             )
@@ -2661,6 +2716,12 @@ def validate_policy_update_promotion_gate(
         raw.get("runtimeConsumedPromotionEligible"),
         f"{label}.runtimeConsumedPromotionEligible",
     )
+    trusted_gradient_update = raw.get("trustedGradientUpdate")
+    if trusted_gradient_update is not None:
+        trusted_gradient_update = required_bool(trusted_gradient_update, f"{label}.trustedGradientUpdate")
+    high_variance = raw.get("highVariance")
+    if high_variance is not None:
+        high_variance = required_bool(high_variance, f"{label}.highVariance")
     missing_prerequisites = required_text_list(raw.get("missingPrerequisites"), f"{label}.missingPrerequisites")
     required_non_empty_text(raw.get("validationText"), f"{label}.validationText")
 
@@ -2686,6 +2747,19 @@ def validate_policy_update_promotion_gate(
             raise BatchRunError(f"remote {label} contradicts consumed runtimeParameterInjection proof")
         if consumption_mode != "runtime_consumed":
             raise BatchRunError(f"remote {label} consumed mode must use runtime_consumed consumptionMode")
+        gradient_blocked = (
+            trusted_gradient_update is False
+            or high_variance is True
+            or status == "blocked_gradient_stability_untrusted"
+        )
+        if gradient_blocked:
+            if loop_a or loop_b or runtime_consumed_promotion:
+                raise BatchRunError(f"remote {label} untrusted gradient mode must block Loop A/B promotion")
+            if "gradient_stability" not in missing_prerequisites:
+                raise BatchRunError(f"remote {label} untrusted gradient mode must require gradient_stability")
+            if status != "blocked_gradient_stability_untrusted":
+                raise BatchRunError(f"remote {label} untrusted gradient mode has unsafe status: {status!r}")
+            return
         if missing_prerequisites:
             raise BatchRunError(f"remote {label} consumed mode cannot declare missing prerequisites")
         if not (loop_a and loop_b and runtime_consumed_promotion):

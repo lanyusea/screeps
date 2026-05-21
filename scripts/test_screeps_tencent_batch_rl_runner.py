@@ -160,6 +160,38 @@ def non_consumed_promotion_gate() -> dict[str, object]:
     return gate
 
 
+def high_variance_consumed_promotion_gate() -> dict[str, object]:
+    gate = runtime_consumed_promotion_gate()
+    gate.update(
+        {
+            "status": "blocked_gradient_stability_untrusted",
+            "runtimeConsumedPromotionEligible": False,
+            "loopAPromotionEligible": False,
+            "loopBPromotionEligible": False,
+            "missingPrerequisites": ["gradient_stability"],
+            "gradientStable": False,
+            "trustedGradientUpdate": False,
+            "highVariance": True,
+            "reason": "runtime consumption proof is present but gradient stability is untrusted",
+            "gradientStability": {
+                "type": "screeps-rl-gradient-stability-gate",
+                "schemaVersion": 1,
+                "status": "untrusted",
+                "classification": "insufficient_sample_high_variance",
+                "trueGradient": True,
+                "gradientStable": False,
+                "trustedUpdate": False,
+                "trustedGradientUpdate": False,
+                "highVariance": True,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+    )
+    return gate
+
+
 def ready_runtime_parameter_injection() -> dict[str, object]:
     return {
         "status": "injected",
@@ -1092,6 +1124,64 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(promotion_gate["loopBPromotionEligible"])
         self.assertEqual(promotion_gate["missingPrerequisites"], ["runtime_parameter_consumption"])
 
+    def test_verified_remote_policy_update_accepts_high_variance_consumed_update_as_non_promotional(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        gate = high_variance_consumed_promotion_gate()
+        policy_update.update(
+            {
+                "gradientStable": False,
+                "trustedGradientUpdate": False,
+                "highVariance": True,
+                "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                "promotionGate": copy.deepcopy(gate),
+            }
+        )
+        next_candidate = policy_update["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate.update(
+            {
+                "gradientStable": False,
+                "trustedGradientUpdate": False,
+                "highVariance": True,
+                "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                "promotionGate": copy.deepcopy(gate),
+            }
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"], gate)
+
+            verified = runner.verified_remote_policy_update_fields(
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "trustedGradientUpdate": False,
+                    "gradientStable": False,
+                    "highVariance": True,
+                    "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                    "policyUpdate": policy_update,
+                },
+                top_level_safety,
+                root,
+                runtime_parameter_injection=ready_runtime_parameter_injection(),
+            )
+
+        promotion_gate = verified["policyUpdatePromotionGate"]
+        assert isinstance(promotion_gate, dict)
+        self.assertTrue(promotion_gate["runtimeParameterConsumption"])
+        self.assertFalse(promotion_gate["runtimeConsumedPromotionEligible"])
+        self.assertFalse(promotion_gate["loopAPromotionEligible"])
+        self.assertFalse(promotion_gate["loopBPromotionEligible"])
+        self.assertEqual(promotion_gate["missingPrerequisites"], ["gradient_stability"])
+        self.assertFalse(verified["trustedGradientUpdate"])
+        self.assertTrue(verified["highVariance"])
+
     def test_verified_remote_policy_update_rejects_missing_consumption_key_for_injected_proof(self) -> None:
         artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
         top_level_safety = {
@@ -1649,6 +1739,103 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "candidate scorecard artifact was not collected",
             ):
                 controller.verify_remote_training_report()
+
+    def test_verify_remote_training_report_accepts_gradient_untrusted_materialized_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            policy_artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+            gate = high_variance_consumed_promotion_gate()
+            gradient_estimation = {
+                "type": "screeps-rl-gradient-estimation-evidence",
+                "schemaVersion": 1,
+                "estimator": "scalar_weighted_sum_score_function_reinforce_v1",
+                "gradientReward": "scalar_weighted_sum",
+                "lexicographicRankingPreserved": True,
+                "scalarWeightedSumAuthorized": False,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            gradient_momentum = {
+                "type": "screeps-rl-gradient-momentum-evidence",
+                "schemaVersion": 1,
+                "emaDecay": 0.8,
+                "momentumConsistent": True,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            policy_update = positive_policy_update(policy_artifact_path)
+            policy_update.update(
+                {
+                    "gradientStable": False,
+                    "trustedGradientUpdate": False,
+                    "highVariance": True,
+                    "gradientEstimation": copy.deepcopy(gradient_estimation),
+                    "gradientMomentum": copy.deepcopy(gradient_momentum),
+                    "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                    "promotionGate": copy.deepcopy(gate),
+                }
+            )
+            next_candidate = policy_update["nextCandidatePolicy"]
+            assert isinstance(next_candidate, dict)
+            next_candidate.update(
+                {
+                    "gradientStable": False,
+                    "trustedGradientUpdate": False,
+                    "highVariance": True,
+                    "gradientEstimation": copy.deepcopy(gradient_estimation),
+                    "gradientMomentum": copy.deepcopy(gradient_momentum),
+                    "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                    "promotionGate": copy.deepcopy(gate),
+                }
+            )
+            data = training_report_with_ready_runtime_scorecard()
+            data.update(
+                {
+                    "generatedAt": "2026-05-21T22:35:00Z",
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": policy_artifact_path,
+                    "policyUpdate": policy_update,
+                    "gradientStable": False,
+                    "trustedGradientUpdate": False,
+                    "highVariance": True,
+                    "gradientEstimation": copy.deepcopy(gradient_estimation),
+                    "gradientMomentum": copy.deepcopy(gradient_momentum),
+                    "gradientStability": copy.deepcopy(gate["gradientStability"]),
+                    "candidateScorecard": {
+                        "status": "materialized",
+                        "classification": "gradient_stability_untrusted_scorecard_materialized",
+                        "scorecardId": "rl-scorecard-run-test",
+                        "runtimeParameterInjection": True,
+                        "injectedVariantCount": 1,
+                        "validationScaleComputeBlocked": True,
+                        "scorecardUsable": True,
+                        "missingPrerequisite": "gradient_stability",
+                        "gradientStable": False,
+                        "trustedGradientUpdate": False,
+                        "highVariance": True,
+                    },
+                }
+            )
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_policy_update_artifact(root, policy_artifact_path, policy_update["updatedParameters"], gate)
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+            controller.verify_remote_training_report()
+
+        training_report = controller.result["trainingReport"]
+        self.assertEqual(training_report["candidateScorecard"]["status"], "materialized")
+        self.assertEqual(
+            training_report["candidateScorecard"]["classification"],
+            "gradient_stability_untrusted_scorecard_materialized",
+        )
+        self.assertFalse(training_report["trustedGradientUpdate"])
+        self.assertTrue(training_report["highVariance"])
+        self.assertEqual(training_report["gradientEstimation"]["estimator"], gradient_estimation["estimator"])
+        self.assertEqual(training_report["gradientMomentum"]["type"], gradient_momentum["type"])
 
     def test_verify_remote_training_report_accepts_ready_scorecard_with_candidate_scoped_partial_runtime_evidence(
         self,

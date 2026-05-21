@@ -29,6 +29,60 @@ def read_json(path: Path) -> JsonObject:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def reinforce_stability_policy_gradient() -> JsonObject:
+    return {
+        "targetFamily": "test-family",
+        "policyUpdate": {
+            "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+            "learning_rate": 1,
+        },
+        "runner_support": {
+            "runtime_parameter_injection": True,
+            "inline_candidates_runtime_injected": True,
+            "candidate_parameter_scope": "runtime_injected",
+            "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+            "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+            "runtime_parameter_consumption_status": "consumed",
+        },
+        "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+        "candidateParameterVectors": [
+            {
+                "candidatePolicyId": "candidate-a",
+                "strategyVariantId": "variant-a",
+                "rolloutStatus": "incumbent",
+                "parameters": {"territorySignalWeight": 6.0},
+            },
+            {
+                "candidatePolicyId": "candidate-b",
+                "strategyVariantId": "variant-b",
+                "rolloutStatus": "shadow",
+                "parameters": {"territorySignalWeight": 8.0},
+            },
+        ],
+    }
+
+
+def reinforce_stability_results(candidate_returns: list[list[int | float]]) -> list[JsonObject]:
+    anchor_returns = [[1, 0, 0, 0] for _index in range(len(candidate_returns))]
+    return [
+        {
+            "variantId": "variant-a",
+            "sampleCount": len(anchor_returns),
+            "reward": {"tuple": [1, 0, 0, 0], "samples": anchor_returns},
+            "evaluatedParameters": {"territorySignalWeight": 6.0},
+        },
+        {
+            "variantId": "variant-b",
+            "sampleCount": len(candidate_returns),
+            "reward": {
+                "tuple": runner.mean_policy_return_tuple(candidate_returns),
+                "samples": candidate_returns,
+            },
+            "evaluatedParameters": {"territorySignalWeight": 8.0},
+        },
+    ]
+
+
 def base_card(variant_ids: list[str] | None = None) -> JsonObject:
     ids = variant_ids or ["baseline", "candidate"]
     return {
@@ -2140,6 +2194,114 @@ export const STRATEGY_REGISTRY = [
             ],
         )
 
+    def test_reinforce_gradient_stability_trusts_sufficient_consistent_samples(self) -> None:
+        update = runner.build_policy_update(
+            policy_gradient=reinforce_stability_policy_gradient(),
+            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(20)]),
+            report_id="policy-gradient-stable",
+            generated_at="2026-05-21T21:30:00Z",
+        )
+
+        stability = update["gradientStability"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertTrue(update["trueGradient"])
+        self.assertTrue(update["gradientStable"])
+        self.assertTrue(update["trustedGradientUpdate"])
+        self.assertFalse(update["highVariance"])
+        self.assertEqual(stability["minimumSamplesPerCandidate"], 20)
+        self.assertEqual(stability["sampleCountByCandidate"], {"variant-a": 20, "variant-b": 20})
+        self.assertEqual(stability["classification"], "stable")
+        self.assertEqual(stability["convergenceLabel"], "trusted_gradient_update")
+        self.assertEqual(update["policyGradientEstimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
+        self.assertEqual(update["gradientEstimation"]["gradientReward"], "scalar_weighted_sum")
+        self.assertEqual(update["gradientEstimation"]["scalarWeightedSumUse"], "gradient_estimation_only_non_promotional")
+        self.assertTrue(update["gradientEstimation"]["lexicographicRankingPreserved"])
+        self.assertFalse(update["gradientEstimation"]["scalarWeightedSumAuthorized"])
+        self.assertEqual(update["gradient"], update["gradientMomentum"]["emaGradient"])
+        self.assertTrue(update["gradientMomentum"]["momentumConsistent"])
+        self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["officialMmoWritesAllowed"])
+        self.assertTrue(update["nextCandidatePolicy"]["trustedGradientUpdate"])
+        self.assertFalse(update["nextCandidatePolicy"]["liveEffect"])
+
+    def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
+        update = runner.build_policy_update(
+            policy_gradient=reinforce_stability_policy_gradient(),
+            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(5)]),
+            report_id="policy-gradient-low-sample",
+            generated_at="2026-05-21T21:31:00Z",
+        )
+
+        stability = update["gradientStability"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertTrue(update["trueGradient"])
+        self.assertFalse(update["gradientStable"])
+        self.assertFalse(update["trustedGradientUpdate"])
+        self.assertTrue(update["highVariance"])
+        self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
+        self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
+        self.assertTrue(stability["sampleOnly"])
+        self.assertEqual(stability["insufficientCandidates"][0]["returnSampleCount"], 5)
+        self.assertEqual(update["promotionGate"]["status"], "blocked_gradient_stability_untrusted")
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertIn("gradient_stability", update["promotionGate"]["missingPrerequisites"])
+        self.assertFalse(update["nextCandidatePolicy"]["trustedGradientUpdate"])
+        self.assertTrue(update["nextCandidatePolicy"]["highVariance"])
+
+    def test_reinforce_gradient_stability_marks_oscillating_direction_untrusted(self) -> None:
+        oscillating_returns = [[2, 0, 0, 0] for _index in range(11)] + [[0, 0, 0, 0] for _index in range(9)]
+        update = runner.build_policy_update(
+            policy_gradient=reinforce_stability_policy_gradient(),
+            results=reinforce_stability_results(oscillating_returns),
+            report_id="policy-gradient-oscillating",
+            generated_at="2026-05-21T21:32:00Z",
+        )
+
+        stability = update["gradientStability"]
+        direction = stability["directionByParameter"]["territorySignalWeight"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertTrue(update["trueGradient"])
+        self.assertFalse(update["trustedGradientUpdate"])
+        self.assertTrue(update["highVariance"])
+        self.assertEqual(stability["classification"], "conflicting_direction_high_variance")
+        self.assertFalse(direction["directionStable"])
+        self.assertEqual(direction["positiveContributionCount"], 11)
+        self.assertEqual(direction["negativeContributionCount"], 9)
+        self.assertEqual(stability["conflictingParameters"], ["territorySignalWeight"])
+        self.assertFalse(update["promotionGate"]["runtimeConsumedPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertTrue(update["promotionGate"]["runtimeParameterConsumption"])
+        self.assertFalse(update["promotionGate"]["liveEffect"])
+        self.assertFalse(update["gradientStability"]["officialMmoWritesAllowed"])
+
+    def test_reinforce_gradient_stability_marks_momentum_conflict_untrusted(self) -> None:
+        policy_gradient = reinforce_stability_policy_gradient()
+        policy_gradient["policyUpdate"]["gradient_momentum"] = {
+            "ema_decay": 0.8,
+            "previous_ema_gradient": {"territorySignalWeight": 0.25},
+        }
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=reinforce_stability_results([[0, 0, 0, 0] for _index in range(20)]),
+            report_id="policy-gradient-momentum-conflict",
+            generated_at="2026-05-21T21:33:00Z",
+        )
+
+        stability = update["gradientStability"]
+        momentum = update["gradientMomentum"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertFalse(update["trustedGradientUpdate"])
+        self.assertTrue(update["highVariance"])
+        self.assertEqual(stability["classification"], "momentum_conflict_high_variance")
+        self.assertFalse(stability["momentumConsistent"])
+        self.assertEqual(stability["conflictingMomentumParameters"], ["territorySignalWeight"])
+        self.assertFalse(momentum["momentumConsistent"])
+        self.assertEqual(momentum["conflictingParameters"], ["territorySignalWeight"])
+        self.assertEqual(update["promotionGate"]["status"], "blocked_gradient_stability_untrusted")
+
     def test_policy_gradient_noop_update_preserves_structured_skip_evidence(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
@@ -2623,10 +2785,14 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
         self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], len(variant_ids))
         self.assertIsNotNone(report["scorecardId"])
-        self.assertEqual(report["candidateScorecard"]["status"], "ready")
+        self.assertEqual(report["candidateScorecard"]["status"], "materialized")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "gradient_stability_untrusted_scorecard_materialized",
+        )
         self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
         self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
-        self.assertFalse(report["candidateScorecard"]["validationScaleComputeBlocked"])
+        self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
         self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
         self.assertTrue(scorecard_path_exists)
         self.assertEqual(scorecard_payload["runId"], report["scorecardId"])
@@ -2638,6 +2804,13 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["policyUpdateIterations"], 1)
         self.assertTrue(report["trueGradient"])
         self.assertTrue(persisted["trueGradient"])
+        self.assertFalse(report["gradientStable"])
+        self.assertFalse(report["trustedGradientUpdate"])
+        self.assertTrue(report["highVariance"])
+        self.assertEqual(report["gradientEstimation"]["gradientReward"], "scalar_weighted_sum")
+        self.assertEqual(report["gradientMomentum"]["type"], runner.GRADIENT_MOMENTUM_EVIDENCE_TYPE)
+        self.assertFalse(persisted["trustedGradientUpdate"])
+        self.assertEqual(persisted["gradientEstimation"]["estimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
         self.assertIsNotNone(report["policyUpdateCandidatePolicyId"])
         self.assertIn("policyUpdateArtifactPath", report)
         self.assertTrue(artifact_dir_exists)
@@ -2658,8 +2831,11 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["candidateCount"], len(variant_ids))
         self.assertTrue(update["runtimeParameterConsumption"])
         self.assertEqual(update["consumptionMode"], runner.POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED)
-        self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
-        self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertEqual(update["promotionGate"]["status"], "blocked_gradient_stability_untrusted")
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertFalse(update["nextCandidatePolicy"]["trustedGradientUpdate"])
+        self.assertTrue(update["nextCandidatePolicy"]["highVariance"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
         self.assertEqual(update["nextCandidatePolicy"]["promotionGate"], update["promotionGate"])
         self.assertFalse(update["liveEffect"])
@@ -3017,6 +3193,7 @@ export const STRATEGY_REGISTRY = [
             persisted = read_json(out_dir / "policy-gradient-metadata-ranking.json")
             artifact_path = Path(report["policyUpdateArtifactPath"])
             artifact = read_json(artifact_path)
+            scorecard_payload = read_json(Path(report["scorecardArtifactPath"]))
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
         self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
@@ -3035,6 +3212,12 @@ export const STRATEGY_REGISTRY = [
             "runtime_parameter_consumption_missing_scorecard_materialized",
         )
         self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_consumption")
+        self.assertEqual(report["candidateScorecard"]["overallGate"]["status"], "HOLD")
+        self.assertFalse(report["candidateScorecard"]["overallGate"]["runtimeParameterInjectionProven"])
+        self.assertEqual(scorecard_payload["overallGate"]["status"], "HOLD")
+        self.assertFalse(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
+        )
         self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
         self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
         self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])

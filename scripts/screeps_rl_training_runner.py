@@ -48,12 +48,25 @@ POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 CANDIDATE_SCORECARD_ARTIFACT_DIR = "candidate-scorecards"
 MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
 POLICY_UPDATE_PROMOTION_GATE_TYPE = "screeps-rl-policy-update-promotion-gate"
+GRADIENT_STABILITY_GATE_TYPE = "screeps-rl-gradient-stability-gate"
 POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED = "runtime_consumed"
 POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED = (
     "runtime_injected_scorecard_metadata_non_promotional"
 )
 POLICY_UPDATE_CONSUMPTION_MODE_METADATA_ONLY = "metadata_only_non_promotional"
 POLICY_UPDATE_CONSUMPTION_MODE_INCOMPLETE = "runtime_parameter_evidence_incomplete_non_promotional"
+DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
+DEFAULT_GRADIENT_DIRECTION_CONSISTENCY_THRESHOLD = 0.8
+DEFAULT_GRADIENT_EMA_DECAY = 0.8
+GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
+GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
+POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
+DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS = {
+    "reliability": 1000000000.0,
+    "territory": 1000000.0,
+    "resources": 1000.0,
+    "kills": 1.0,
+}
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
 MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
@@ -1302,6 +1315,11 @@ def build_training_report(
         "policyUpdateAlgorithm": None,
         "policyUpdateCandidatePolicyId": None,
         "trueGradient": False,
+        "gradientStable": False,
+        "trustedGradientUpdate": False,
+        "highVariance": False,
+        "gradientEstimation": None,
+        "gradientMomentum": None,
         "modelFamilies": sorted({text for text in (result.get("family") for result in results) if isinstance(text, str)}),
         "policyFamilies": sorted(
             {text for text in (result.get("policyFamily") for result in results) if isinstance(text, str)}
@@ -1354,6 +1372,18 @@ def build_training_report(
         promotion_gate = policy_update.get("promotionGate")
         if isinstance(promotion_gate, dict):
             report["policyUpdatePromotionGate"] = copy.deepcopy(promotion_gate)
+        gradient_stability = policy_update.get("gradientStability")
+        if isinstance(gradient_stability, dict):
+            report["gradientStability"] = copy.deepcopy(gradient_stability)
+            report["gradientStable"] = gradient_stability.get("gradientStable") is True
+            report["trustedGradientUpdate"] = gradient_stability.get("trustedUpdate") is True
+            report["highVariance"] = gradient_stability.get("highVariance") is True
+        gradient_estimation = policy_update.get("gradientEstimation")
+        if isinstance(gradient_estimation, dict):
+            report["gradientEstimation"] = copy.deepcopy(gradient_estimation)
+        gradient_momentum = policy_update.get("gradientMomentum")
+        if isinstance(gradient_momentum, dict):
+            report["gradientMomentum"] = copy.deepcopy(gradient_momentum)
         report["policyUpdate"] = policy_update
     return report
 
@@ -1677,10 +1707,7 @@ def build_reinforce_policy_update(
     learning_rate = policy_update_learning_rate(policy_gradient)
     anchor_parameters = anchor["parameters"]
     gradient_by_tier: JsonObject = {}
-    gradient: JsonObject = {}
     selected_reward_tier_by_parameter: JsonObject = {}
-    updated_parameters: JsonObject = {}
-    parameter_delta: JsonObject = {}
 
     for name, spec in parameter_space.items():
         anchor_value = float(anchor_parameters[name])
@@ -1697,9 +1724,27 @@ def build_reinforce_policy_update(
         selected_tier, selected_gradient = first_nonzero_tier_gradient(tier_gradients)
         selected_reward_tier_by_parameter[name] = selected_tier
         gradient_by_tier[name] = tier_gradients
-        gradient[name] = selected_gradient
+        del selected_gradient
+
+    gradient_estimation = policy_update_scalar_weighted_gradient_estimation(
+        policy_gradient=policy_gradient,
+        parameter_space=parameter_space,
+        samples=samples,
+        anchor_parameters=anchor_parameters,
+    )
+    raw_gradient = gradient_estimation["gradient"]
+    gradient_momentum = policy_update_gradient_momentum_evidence(
+        policy_gradient=policy_gradient,
+        raw_gradient=raw_gradient,
+    )
+    gradient = gradient_momentum["emaGradient"]
+    updated_parameters: JsonObject = {}
+    parameter_delta: JsonObject = {}
+    for name, spec in parameter_space.items():
+        anchor_value = float(anchor_parameters[name])
+        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
         updated = bounded_policy_parameter_value(
-            anchor_value + (learning_rate * float(selected_gradient) * span),
+            anchor_value + (learning_rate * float(gradient.get(name, 0)) * span),
             spec,
         )
         updated_parameters[name] = updated
@@ -1709,6 +1754,18 @@ def build_reinforce_policy_update(
         candidates=candidates,
         samples=samples,
         baseline=return_baseline,
+    )
+    gradient_stability = policy_update_gradient_stability_gate(
+        policy_gradient=policy_gradient,
+        parameter_space=parameter_space,
+        candidates=candidates,
+        samples=samples,
+        anchor_parameters=anchor_parameters,
+        return_baseline=return_baseline,
+        gradient=gradient,
+        selected_reward_tier_by_parameter=selected_reward_tier_by_parameter,
+        gradient_estimation=gradient_estimation,
+        gradient_momentum=gradient_momentum,
     )
     parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
     if parameter_evidence.get("policyUpdateEligible") is not True:
@@ -1722,8 +1779,19 @@ def build_reinforce_policy_update(
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
             "gradient": gradient,
+            "rawGradient": raw_gradient,
+            "gradientEstimation": gradient_estimation,
+            "gradientMomentum": gradient_momentum,
+            "gradientStability": gradient_stability,
+            "gradientStable": gradient_stability["gradientStable"],
+            "trustedGradientUpdate": False,
+            "highVariance": gradient_stability["highVariance"],
             "returnSummary": return_summary,
-            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
+            "promotionGate": policy_update_promotion_gate(
+                parameter_evidence,
+                policy_update_generated=False,
+                gradient_stability=gradient_stability,
+            ),
         }
 
     if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
@@ -1736,7 +1804,18 @@ def build_reinforce_policy_update(
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
             "gradient": gradient,
-            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
+            "rawGradient": raw_gradient,
+            "gradientEstimation": gradient_estimation,
+            "gradientMomentum": gradient_momentum,
+            "gradientStability": gradient_stability,
+            "gradientStable": gradient_stability["gradientStable"],
+            "trustedGradientUpdate": False,
+            "highVariance": gradient_stability["highVariance"],
+            "promotionGate": policy_update_promotion_gate(
+                parameter_evidence,
+                policy_update_generated=False,
+                gradient_stability=gradient_stability,
+            ),
         }
 
     candidate_policy_id = updated_candidate_policy_id(
@@ -1744,7 +1823,12 @@ def build_reinforce_policy_update(
         report_id=report_id,
         parameters=updated_parameters,
     )
-    promotion_gate = policy_update_promotion_gate(parameter_evidence, policy_update_generated=True)
+    trusted_gradient_update = gradient_stability["trustedUpdate"] is True
+    promotion_gate = policy_update_promotion_gate(
+        parameter_evidence,
+        policy_update_generated=True,
+        gradient_stability=gradient_stability,
+    )
     next_candidate_policy = {
         "type": "screeps-rl-next-candidate-policy",
         "schemaVersion": SCHEMA_VERSION,
@@ -1761,6 +1845,12 @@ def build_reinforce_policy_update(
         "sourceAnchorCandidatePolicyId": anchor.get("candidatePolicyId"),
         "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
         "policyUpdateIterations": 1,
+        "gradientStable": gradient_stability["gradientStable"],
+        "trustedGradientUpdate": trusted_gradient_update,
+        "highVariance": gradient_stability["highVariance"],
+        "gradientEstimation": copy.deepcopy(gradient_estimation),
+        "gradientMomentum": copy.deepcopy(gradient_momentum),
+        "gradientStability": copy.deepcopy(gradient_stability),
         "parameters": updated_parameters,
         "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
         "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
@@ -1768,14 +1858,18 @@ def build_reinforce_policy_update(
         "promotionGate": copy.deepcopy(promotion_gate),
         "parameterEvidence": {
             "derivation": (
-                "deterministic REINFORCE score-function estimate from offline simulator "
-                "Monte Carlo reward-tuple returns with a mean-return baseline"
+                "deterministic REINFORCE score-function estimate from offline simulator Monte Carlo "
+                "reward-tuple returns, using scalar weighted-sum rewards for gradient estimation only "
+                "and preserving lexicographic ranking/promotion gates"
             ),
             "targetFamily": target_family,
             "learnableKnobs": list(parameter_space),
             "anchorParameters": copy.deepcopy(anchor_parameters),
             "gradient": copy.deepcopy(gradient),
+            "rawGradient": copy.deepcopy(raw_gradient),
             "gradientByRewardTier": copy.deepcopy(gradient_by_tier),
+            "gradientEstimation": copy.deepcopy(gradient_estimation),
+            "gradientMomentum": copy.deepcopy(gradient_momentum),
             "selectedRewardTierByParameter": copy.deepcopy(selected_reward_tier_by_parameter),
             "parameterDelta": copy.deepcopy(parameter_delta),
             "learningRate": learning_rate,
@@ -1784,6 +1878,10 @@ def build_reinforce_policy_update(
             "candidateCount": len(candidates),
             "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
             "trueGradient": True,
+            "gradientStable": gradient_stability["gradientStable"],
+            "trustedGradientUpdate": trusted_gradient_update,
+            "highVariance": gradient_stability["highVariance"],
+            "gradientStability": copy.deepcopy(gradient_stability),
             "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
             "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
             "consumptionMode": promotion_gate["consumptionMode"],
@@ -1801,7 +1899,10 @@ def build_reinforce_policy_update(
         "iterations": 1,
         "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
         "trueGradient": True,
-        "policyGradientEstimator": "score_function_reinforce_v1",
+        "policyGradientEstimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
+        "gradientStable": gradient_stability["gradientStable"],
+        "trustedGradientUpdate": trusted_gradient_update,
+        "highVariance": gradient_stability["highVariance"],
         "learningRate": learning_rate,
         "parameterSpace": copy.deepcopy(parameter_space),
         "candidateCount": len(candidates),
@@ -1810,7 +1911,11 @@ def build_reinforce_policy_update(
         "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
         "returnSummary": return_summary,
         "gradient": gradient,
+        "rawGradient": raw_gradient,
         "gradientByRewardTier": gradient_by_tier,
+        "gradientEstimation": gradient_estimation,
+        "gradientMomentum": gradient_momentum,
+        "gradientStability": gradient_stability,
         "selectedRewardTierByParameter": selected_reward_tier_by_parameter,
         "parameterDelta": parameter_delta,
         "updatedParameters": updated_parameters,
@@ -1895,6 +2000,488 @@ def mean_policy_return_tuple(return_tuples: Sequence[Sequence[Any]]) -> list[flo
         return [0 for _tier in REWARD_TIERS]
     columns = list(zip(*return_tuples))
     return [round_policy_number(statistics.fmean(float(value) for value in column)) for column in columns]
+
+
+def policy_update_scalar_weighted_gradient_estimation(
+    *,
+    policy_gradient: JsonObject,
+    parameter_space: dict[str, JsonObject],
+    samples: Sequence[JsonObject],
+    anchor_parameters: JsonObject,
+) -> JsonObject:
+    weight_evidence = policy_update_scalar_reward_weight_evidence(policy_gradient)
+    weights = weight_evidence["normalizedWeightsByRewardTier"]
+    scalar_returns = [policy_update_scalar_reward(sample["returnTuple"], weights) for sample in samples]
+    scalar_baseline = statistics.fmean(scalar_returns) if scalar_returns else 0.0
+    gradient: JsonObject = {}
+    direction_by_parameter: JsonObject = {}
+
+    for name, spec in parameter_space.items():
+        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
+        anchor_value = float(anchor_parameters[name])
+        raw_gradient = 0.0
+        contribution_sum = 0.0
+        positive_count = 0
+        negative_count = 0
+        zero_count = 0
+        for sample, scalar_return in zip(samples, scalar_returns):
+            row = sample["candidate"]
+            normalized_delta = (float(row["parameters"][name]) - anchor_value) / span
+            advantage = scalar_return - scalar_baseline
+            contribution = advantage * normalized_delta
+            raw_gradient += contribution
+            contribution_sum += contribution
+            if contribution > 1e-12:
+                positive_count += 1
+            elif contribution < -1e-12:
+                negative_count += 1
+            else:
+                zero_count += 1
+        nonzero_count = positive_count + negative_count
+        dominant_count = max(positive_count, negative_count)
+        dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
+        gradient[name] = round_policy_number(raw_gradient / len(samples)) if samples else 0
+        direction_by_parameter[name] = {
+            "gradientReward": "scalar_weighted_sum",
+            "gradient": gradient[name],
+            "contributionSum": round_policy_number(contribution_sum),
+            "positiveContributionCount": positive_count,
+            "negativeContributionCount": negative_count,
+            "zeroContributionCount": zero_count,
+            "nonZeroContributionCount": nonzero_count,
+            "dominantDirectionRatio": round_policy_number(dominant_ratio),
+        }
+
+    return {
+        "type": GRADIENT_ESTIMATION_EVIDENCE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "estimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
+        "gradientReward": "scalar_weighted_sum",
+        "gradientUse": "policy_gradient_estimation_only",
+        "scalarWeightedSumUse": "gradient_estimation_only_non_promotional",
+        "rankingRewardModel": "lexicographic",
+        "lexicographicRankingPreserved": True,
+        "scalarWeightedSumAuthorized": False,
+        "sourceComponentWeights": weight_evidence["sourceComponentWeights"],
+        "normalizedWeightsByRewardTier": weights,
+        "normalizationFactor": weight_evidence["normalizationFactor"],
+        "gradient": gradient,
+        "scalarReturnBaseline": round_policy_number(scalar_baseline),
+        "sampleCount": len(samples),
+        "directionByParameter": direction_by_parameter,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> JsonObject:
+    source_weights = dict(DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS)
+    for raw in policy_update_config_candidates(policy_gradient):
+        reward_model = first_mapping(raw, ("reward_model", "rewardModel"))
+        if reward_model is not None:
+            component_weights = first_mapping(reward_model, ("component_weights", "componentWeights"))
+            if component_weights is not None:
+                source_weights.update(policy_update_component_weights_by_tier(component_weights))
+        component_weights = first_mapping(
+            raw,
+            (
+                "gradient_reward_weights",
+                "gradientRewardWeights",
+                "scalar_reward_weights",
+                "scalarRewardWeights",
+            ),
+        )
+        if component_weights is not None:
+            source_weights.update(policy_update_component_weights_by_tier(component_weights))
+
+    normalization_factor = max(max(abs(value) for value in source_weights.values()), 1.0)
+    normalized = {
+        tier: round_policy_number(source_weights[tier] / normalization_factor)
+        for tier in REWARD_TIERS
+    }
+    return {
+        "sourceComponentWeights": {tier: round_policy_number(source_weights[tier]) for tier in REWARD_TIERS},
+        "normalizedWeightsByRewardTier": normalized,
+        "normalizationFactor": round_policy_number(normalization_factor),
+    }
+
+
+def policy_update_component_weights_by_tier(raw: JsonObject) -> dict[str, float]:
+    aliases = {
+        "reliability": ("reliability", "alpha_reliability", "alphaReliability", "reliabilityWeight"),
+        "territory": ("territory", "beta_territory", "betaTerritory", "territoryWeight"),
+        "resources": ("resources", "gamma_resources", "gammaResources", "resourcesWeight"),
+        "kills": ("kills", "delta_kills", "deltaKills", "killsWeight"),
+    }
+    weights: dict[str, float] = {}
+    for tier, names in aliases.items():
+        for name in names:
+            value = number_or_none(raw.get(name))
+            if value is not None and math.isfinite(float(value)) and float(value) > 0:
+                weights[tier] = float(value)
+                break
+    return weights
+
+
+def policy_update_scalar_reward(return_tuple: Sequence[Any], weights: JsonObject) -> float:
+    total = 0.0
+    for index, tier in enumerate(REWARD_TIERS):
+        if index >= len(return_tuple):
+            continue
+        total += float(return_tuple[index]) * float(weights.get(tier, 0))
+    return total
+
+
+def policy_update_gradient_momentum_evidence(
+    *,
+    policy_gradient: JsonObject,
+    raw_gradient: JsonObject,
+) -> JsonObject:
+    config = policy_update_gradient_momentum_config(policy_gradient)
+    decay = float(config["emaDecay"])
+    previous_gradient = config["previousEmaGradient"]
+    ema_gradient: JsonObject = {}
+    conflicting_parameters: list[str] = []
+    direction_by_parameter: JsonObject = {}
+    for name, value in raw_gradient.items():
+        raw_value = float(value)
+        previous_present = name in previous_gradient
+        previous_value = float(previous_gradient.get(name, raw_value))
+        ema_value = (decay * previous_value) + ((1.0 - decay) * raw_value) if previous_present else raw_value
+        raw_sign = policy_gradient_direction_sign(raw_value)
+        previous_sign = policy_gradient_direction_sign(previous_value) if previous_present else raw_sign
+        ema_sign = policy_gradient_direction_sign(ema_value)
+        direction_consistent = not (
+            previous_present
+            and raw_sign != 0
+            and previous_sign != 0
+            and raw_sign != previous_sign
+        )
+        ema_consistent = not (raw_sign != 0 and ema_sign != 0 and raw_sign != ema_sign)
+        momentum_consistent = direction_consistent and ema_consistent
+        if not momentum_consistent:
+            conflicting_parameters.append(str(name))
+        ema_gradient[name] = round_policy_number(ema_value)
+        direction_by_parameter[name] = {
+            "rawGradient": round_policy_number(raw_value),
+            "previousEmaGradient": round_policy_number(previous_value) if previous_present else None,
+            "emaGradient": ema_gradient[name],
+            "previousGradientPresent": previous_present,
+            "rawDirection": raw_sign,
+            "previousDirection": previous_sign if previous_present else None,
+            "emaDirection": ema_sign,
+            "momentumConsistent": momentum_consistent,
+        }
+
+    return {
+        "type": GRADIENT_MOMENTUM_EVIDENCE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "emaDecay": decay,
+        "previousGradientPresent": bool(previous_gradient),
+        "rawGradient": copy.deepcopy(raw_gradient),
+        "emaGradient": ema_gradient,
+        "momentumConsistent": not conflicting_parameters,
+        "conflictingParameters": conflicting_parameters,
+        "directionByParameter": direction_by_parameter,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonObject:
+    configs: list[JsonObject] = []
+    for raw in policy_update_config_candidates(policy_gradient):
+        configs.append(raw)
+        for key in ("gradient_momentum", "gradientMomentum", "gradient_ema", "gradientEma"):
+            nested = raw.get(key)
+            if isinstance(nested, dict):
+                configs.append(nested)
+
+    decay = DEFAULT_GRADIENT_EMA_DECAY
+    previous_gradient: JsonObject = {}
+    for raw in configs:
+        raw_decay = first_present(
+            raw,
+            ("ema_decay", "emaDecay", "momentum", "momentumDecay", "gradient_ema_decay", "gradientEmaDecay"),
+        )
+        parsed_decay = number_or_none(raw_decay)
+        if parsed_decay is not None and 0 <= float(parsed_decay) < 1:
+            decay = float(parsed_decay)
+        raw_previous = first_present(
+            raw,
+            (
+                "previous_ema_gradient",
+                "previousEmaGradient",
+                "previous_gradient_ema",
+                "previousGradientEma",
+                "ema_gradient",
+                "emaGradient",
+            ),
+        )
+        if isinstance(raw_previous, dict):
+            for name, value in raw_previous.items():
+                parsed_value = number_or_none(value)
+                if isinstance(name, str) and parsed_value is not None and math.isfinite(float(parsed_value)):
+                    previous_gradient[name] = round_policy_number(float(parsed_value))
+
+    return {
+        "emaDecay": decay,
+        "previousEmaGradient": previous_gradient,
+    }
+
+
+def policy_gradient_direction_sign(value: float | int) -> int:
+    numeric = float(value)
+    if abs(numeric) <= 1e-12:
+        return 0
+    return 1 if numeric > 0 else -1
+
+
+def policy_update_gradient_stability_gate(
+    *,
+    policy_gradient: JsonObject,
+    parameter_space: dict[str, JsonObject],
+    candidates: Sequence[JsonObject],
+    samples: Sequence[JsonObject],
+    anchor_parameters: JsonObject,
+    return_baseline: Sequence[float | int],
+    gradient: JsonObject,
+    selected_reward_tier_by_parameter: JsonObject,
+    gradient_estimation: JsonObject | None = None,
+    gradient_momentum: JsonObject | None = None,
+) -> JsonObject:
+    config = policy_update_gradient_stability_config(policy_gradient)
+    min_samples_per_candidate = int(config["minimumSamplesPerCandidate"])
+    consistency_threshold = float(config["directionConsistencyThreshold"])
+    sample_count_by_candidate = {
+        str(row.get("strategyVariantId") or row.get("candidatePolicyId") or "<unknown>"): int(
+            row.get("returnSampleCount") if isinstance(row.get("returnSampleCount"), int) else 0
+        )
+        for row in candidates
+    }
+    insufficient_candidates = [
+        {"strategyVariantId": variant_id, "returnSampleCount": sample_count}
+        for variant_id, sample_count in sorted(sample_count_by_candidate.items())
+        if sample_count < min_samples_per_candidate
+    ]
+    total_sample_count = len(samples)
+    minimum_total_samples = max(min_samples_per_candidate * max(1, len(candidates)), min_samples_per_candidate)
+    sample_size_sufficient = not insufficient_candidates and total_sample_count >= minimum_total_samples
+
+    direction_by_parameter = policy_update_gradient_direction_evidence(
+        parameter_space=parameter_space,
+        samples=samples,
+        anchor_parameters=anchor_parameters,
+        return_baseline=return_baseline,
+        gradient=gradient,
+        selected_reward_tier_by_parameter=selected_reward_tier_by_parameter,
+        gradient_estimation=gradient_estimation,
+        consistency_threshold=consistency_threshold,
+    )
+    conflicting_parameters = [
+        name
+        for name, evidence in direction_by_parameter.items()
+        if isinstance(evidence, dict) and evidence.get("directionStable") is False
+    ]
+    gradient_momentum = gradient_momentum if isinstance(gradient_momentum, dict) else None
+    momentum_consistent = gradient_momentum is None or gradient_momentum.get("momentumConsistent") is not False
+    conflicting_momentum_parameters = (
+        list(gradient_momentum.get("conflictingParameters", []))
+        if isinstance(gradient_momentum, dict) and isinstance(gradient_momentum.get("conflictingParameters"), list)
+        else []
+    )
+
+    direction_consistent = not conflicting_parameters
+    gradient_stable = sample_size_sufficient and direction_consistent and momentum_consistent
+    high_variance = not gradient_stable
+    if insufficient_candidates:
+        classification = "insufficient_sample_high_variance"
+        convergence_label = "sample_only_not_convergence"
+        reason = (
+            "true-gradient estimate has fewer Monte Carlo return samples per candidate than the "
+            "configured trust threshold"
+        )
+    elif conflicting_parameters:
+        classification = "conflicting_direction_high_variance"
+        convergence_label = "high_variance_not_convergence"
+        reason = (
+            "true-gradient estimate has opposing per-sample update directions for scalar weighted-sum rewards"
+        )
+    elif conflicting_momentum_parameters:
+        classification = "momentum_conflict_high_variance"
+        convergence_label = "high_variance_not_convergence"
+        reason = (
+            "true-gradient estimate conflicts with the configured gradient EMA/momentum direction"
+        )
+    else:
+        classification = "stable"
+        convergence_label = "trusted_gradient_update"
+        reason = "true-gradient estimate has sufficient samples and consistent per-sample update directions"
+
+    payload: JsonObject = {
+        "type": GRADIENT_STABILITY_GATE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "trusted" if gradient_stable else "untrusted",
+        "classification": classification,
+        "convergenceLabel": convergence_label,
+        "convergenceStatus": "trusted" if gradient_stable else "not_converged_high_variance",
+        "trueGradient": True,
+        "gradientStable": gradient_stable,
+        "trustedUpdate": gradient_stable,
+        "trustedGradientUpdate": gradient_stable,
+        "highVariance": high_variance,
+        "sampleOnly": not sample_size_sufficient,
+        "sampleSizeSufficient": sample_size_sufficient,
+        "directionConsistent": direction_consistent,
+        "momentumConsistent": momentum_consistent,
+        "minimumSamplesPerCandidate": min_samples_per_candidate,
+        "minimumTotalSamples": minimum_total_samples,
+        "totalReturnSampleCount": total_sample_count,
+        "sampleCountByCandidate": sample_count_by_candidate,
+        "insufficientCandidates": insufficient_candidates,
+        "conflictingParameters": conflicting_parameters,
+        "conflictingMomentumParameters": conflicting_momentum_parameters,
+        "directionConsistencyThreshold": consistency_threshold,
+        "directionByParameter": direction_by_parameter,
+        "reason": reason,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    if isinstance(gradient_estimation, dict):
+        payload["gradientEstimation"] = copy.deepcopy(gradient_estimation)
+    if isinstance(gradient_momentum, dict):
+        payload["gradientMomentum"] = copy.deepcopy(gradient_momentum)
+    return payload
+
+
+def policy_update_gradient_direction_evidence(
+    *,
+    parameter_space: dict[str, JsonObject],
+    samples: Sequence[JsonObject],
+    anchor_parameters: JsonObject,
+    return_baseline: Sequence[float | int],
+    gradient: JsonObject,
+    selected_reward_tier_by_parameter: JsonObject,
+    gradient_estimation: JsonObject | None,
+    consistency_threshold: float,
+) -> JsonObject:
+    if isinstance(gradient_estimation, dict) and isinstance(gradient_estimation.get("directionByParameter"), dict):
+        direction_by_parameter = copy.deepcopy(gradient_estimation["directionByParameter"])
+        for evidence in direction_by_parameter.values():
+            if not isinstance(evidence, dict):
+                continue
+            nonzero_count = int(evidence.get("nonZeroContributionCount", 0))
+            positive_count = int(evidence.get("positiveContributionCount", 0))
+            negative_count = int(evidence.get("negativeContributionCount", 0))
+            dominant_ratio = float(evidence.get("dominantDirectionRatio", 1.0))
+            evidence["directionConsistencyThreshold"] = consistency_threshold
+            evidence["directionStable"] = (
+                nonzero_count == 0
+                or positive_count == 0
+                or negative_count == 0
+                or dominant_ratio >= consistency_threshold
+            )
+        return direction_by_parameter
+
+    direction_by_parameter: JsonObject = {}
+    for name, selected_gradient in gradient.items():
+        selected_tier = text_or_none(selected_reward_tier_by_parameter.get(name))
+        if selected_tier not in REWARD_TIERS:
+            direction_by_parameter[name] = {
+                "selectedRewardTier": selected_tier,
+                "gradient": selected_gradient,
+                "directionStable": True,
+                "reason": "zero_selected_gradient",
+            }
+            continue
+        tier_index = REWARD_TIERS.index(selected_tier)
+        spec = parameter_space.get(name)
+        if spec is None:
+            continue
+        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
+        anchor_value = float(anchor_parameters[name])
+        positive_count = 0
+        negative_count = 0
+        zero_count = 0
+        contribution_sum = 0.0
+        for sample in samples:
+            row = sample["candidate"]
+            normalized_delta = (float(row["parameters"][name]) - anchor_value) / span
+            advantage = float(sample["returnTuple"][tier_index]) - float(return_baseline[tier_index])
+            contribution = advantage * normalized_delta
+            contribution_sum += contribution
+            if contribution > 1e-12:
+                positive_count += 1
+            elif contribution < -1e-12:
+                negative_count += 1
+            else:
+                zero_count += 1
+        nonzero_count = positive_count + negative_count
+        dominant_count = max(positive_count, negative_count)
+        dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
+        direction_stable = nonzero_count == 0 or positive_count == 0 or negative_count == 0 or dominant_ratio >= consistency_threshold
+        direction_by_parameter[name] = {
+            "selectedRewardTier": selected_tier,
+            "gradient": selected_gradient,
+            "contributionSum": round_policy_number(contribution_sum),
+            "positiveContributionCount": positive_count,
+            "negativeContributionCount": negative_count,
+            "zeroContributionCount": zero_count,
+            "nonZeroContributionCount": nonzero_count,
+            "dominantDirectionRatio": round_policy_number(dominant_ratio),
+            "directionConsistencyThreshold": consistency_threshold,
+            "directionStable": direction_stable,
+        }
+    return direction_by_parameter
+
+
+def policy_update_gradient_stability_config(policy_gradient: JsonObject) -> JsonObject:
+    configs: list[JsonObject] = []
+    for raw in policy_update_config_candidates(policy_gradient):
+        configs.append(raw)
+        for key in ("gradient_stability_gate", "gradientStabilityGate", "gradient_trust_gate", "gradientTrustGate"):
+            nested = raw.get(key)
+            if isinstance(nested, dict):
+                configs.append(nested)
+
+    min_samples = DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
+    consistency_threshold = DEFAULT_GRADIENT_DIRECTION_CONSISTENCY_THRESHOLD
+    for raw in configs:
+        raw_min_samples = first_present(
+            raw,
+            (
+                "minimum_samples_per_candidate",
+                "minimumSamplesPerCandidate",
+                "min_samples_per_candidate",
+                "minSamplesPerCandidate",
+            ),
+        )
+        parsed_min_samples = int_or_none(raw_min_samples)
+        if parsed_min_samples is not None and parsed_min_samples > 0:
+            min_samples = parsed_min_samples
+        raw_threshold = first_present(
+            raw,
+            (
+                "direction_consistency_threshold",
+                "directionConsistencyThreshold",
+                "consistency_threshold",
+                "consistencyThreshold",
+            ),
+        )
+        parsed_threshold = number_or_none(raw_threshold)
+        if parsed_threshold is not None and 0.5 <= float(parsed_threshold) <= 1:
+            consistency_threshold = float(parsed_threshold)
+
+    return {
+        "minimumSamplesPerCandidate": min_samples,
+        "directionConsistencyThreshold": consistency_threshold,
+    }
 
 
 def policy_update_parameter_space(policy_gradient: JsonObject) -> dict[str, JsonObject]:
@@ -2472,16 +3059,31 @@ def build_candidate_scorecard_readiness_for_pair(
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
     runtime_parameter_injection = candidate_scorecard_runtime_parameter_injection(report, candidate_id)
     runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    gradient_stability = report.get("gradientStability")
+    gradient_gate_present = isinstance(gradient_stability, dict)
+    trusted_gradient_update = report.get("trustedGradientUpdate") is True if gradient_gate_present else True
     injected_count = runtime_injected_variant_count(runtime_parameter_injection)
     report_injected_count = runtime_injected_variant_count(report_runtime_parameter_injection)
-    if runtime_ready:
+    if runtime_ready and trusted_gradient_update:
         status = "ready"
         classification = "runtime_injected_candidate_scorecard_ready"
         reason = None
         next_action = None
+        missing_prerequisite = None
+    elif runtime_ready:
+        status = "materialized"
+        classification = "gradient_stability_untrusted_scorecard_materialized"
+        missing_prerequisite = "gradient_stability"
+        reason = (
+            "true-gradient update is marked high-variance or otherwise untrusted; "
+            "candidate-vs-baseline scorecard will be materialized from completed offline ranking/KPI "
+            "evidence but cannot pass the gradient stability gate"
+        )
+        next_action = "collect sufficient consistent policy-gradient samples before promotion"
     else:
         status = "materialized"
         classification = candidate_scorecard_materialized_classification(runtime_parameter_injection)
+        missing_prerequisite = candidate_scorecard_runtime_missing_prerequisite(runtime_parameter_injection)
         reason = (
             f"{candidate_scorecard_runtime_blocker_reason(runtime_parameter_injection)}; "
             "candidate-vs-baseline scorecard will be materialized from completed offline ranking/KPI "
@@ -2509,14 +3111,18 @@ def build_candidate_scorecard_readiness_for_pair(
         "reportRuntimeParameterInjection": scorecard_runtime_injection_ready(report_runtime_parameter_injection),
         "reportInjectedVariantCount": report_injected_count,
         "scorecardUsable": True,
-        "validationScaleComputeBlocked": not runtime_ready,
+        "validationScaleComputeBlocked": not (runtime_ready and trusted_gradient_update),
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+    if gradient_gate_present:
+        payload["gradientStable"] = report.get("gradientStable")
+        payload["trustedGradientUpdate"] = report.get("trustedGradientUpdate")
+        payload["highVariance"] = report.get("highVariance")
     if reason is not None:
-        payload["missingPrerequisite"] = candidate_scorecard_runtime_missing_prerequisite(runtime_parameter_injection)
+        payload["missingPrerequisite"] = missing_prerequisite
         payload["reason"] = reason
     if next_action is not None:
         payload["nextAction"] = next_action
@@ -4655,6 +5261,9 @@ def policy_gradient_metadata_from_card(
     raw = raw_policy_gradient_metadata_from_card(card)
     if raw is None:
         return None
+    reward_model = card.get("reward_model", card.get("rewardModel"))
+    if isinstance(reward_model, dict):
+        raw["rewardModel"] = copy.deepcopy(reward_model)
     return policy_gradient_metadata_with_runner_transport(
         raw,
         runtime_parameter_injection=runtime_parameter_injection,
@@ -4843,15 +5452,29 @@ def policy_update_promotion_gate(
     parameter_evidence: JsonObject,
     *,
     policy_update_generated: bool,
+    gradient_stability: JsonObject | None = None,
 ) -> JsonObject:
-    """Classify whether a policy update has tick-time runtime consumption proof."""
+    """Classify whether a policy update has runtime consumption and trusted gradient proof."""
     runtime_injection = parameter_evidence.get("runtimeParameterInjection") is True
     runtime_consumed = parameter_evidence.get("runtimeParameterConsumption") is True
     eligibility_mode = text_or_none(parameter_evidence.get("eligibilityMode"))
     scope = text_or_none(parameter_evidence.get("candidateParameterScope")) or "metadata_only"
     consumption_status = text_or_none(parameter_evidence.get("runtimeParameterConsumptionStatus"))
+    gradient_gate_present = isinstance(gradient_stability, dict)
+    trusted_gradient_update = (
+        gradient_stability.get("trustedUpdate") is True if gradient_gate_present else True
+    )
+    gradient_high_variance = gradient_stability.get("highVariance") is True if gradient_gate_present else False
 
-    if runtime_consumed:
+    if runtime_consumed and not trusted_gradient_update:
+        consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
+        status = "blocked_gradient_stability_untrusted"
+        missing_prerequisites = ["gradient_stability"]
+        reason = (
+            "tick-time runtime policy parameter consumption proof is present, but the true-gradient "
+            "estimate is not trusted because sample size or per-sample direction consistency failed"
+        )
+    elif runtime_consumed:
         consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
         status = "runtime_consumed_shadow_candidate"
         missing_prerequisites: list[str] = []
@@ -4885,7 +5508,7 @@ def policy_update_promotion_gate(
             "as runtime-consumed or promotional"
         )
 
-    runtime_consumed_promotion_eligible = runtime_consumed
+    runtime_consumed_promotion_eligible = runtime_consumed and trusted_gradient_update
     payload: JsonObject = {
         "type": POLICY_UPDATE_PROMOTION_GATE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -4903,14 +5526,19 @@ def policy_update_promotion_gate(
         "reason": reason,
         "validationText": (
             "#924 scorecards and #907 change-control require tick-time runtime parameter "
-            "consumption proof before Loop A or Loop B can treat a policy update as "
-            "runtime-consumed or promotional."
+            "consumption proof plus trusted gradient stability before Loop A or Loop B can "
+            "treat a policy update as runtime-consumed or promotional."
         ),
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+    if gradient_gate_present:
+        payload["gradientStable"] = gradient_stability.get("gradientStable") is True
+        payload["trustedGradientUpdate"] = trusted_gradient_update
+        payload["highVariance"] = gradient_high_variance
+        payload["gradientStability"] = copy.deepcopy(gradient_stability)
     return payload
 
 
@@ -5096,6 +5724,12 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "policyUpdateArtifactPath": report.get("policyUpdateArtifactPath"),
         "policyUpdatePromotionGate": copy.deepcopy(report.get("policyUpdatePromotionGate")),
         "trueGradient": report.get("trueGradient", False),
+        "gradientStable": report.get("gradientStable", False),
+        "trustedGradientUpdate": report.get("trustedGradientUpdate", False),
+        "highVariance": report.get("highVariance", False),
+        "gradientEstimation": copy.deepcopy(report.get("gradientEstimation")),
+        "gradientMomentum": copy.deepcopy(report.get("gradientMomentum")),
+        "gradientStability": copy.deepcopy(report.get("gradientStability")),
         "runtimeParameterInjection": copy.deepcopy(report.get("runtimeParameterInjection")),
         "scorecardId": report.get("scorecardId"),
         "scorecardArtifactPath": report.get("scorecardArtifactPath"),
