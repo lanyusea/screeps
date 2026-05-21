@@ -1996,6 +1996,52 @@ cli:
             )
         )
 
+    def test_ownerless_redis_runtime_consumption_requires_target_scoped_source(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        ownerless = self.runtime_parameter_consumption_evidence(injection)
+
+        cases: list[tuple[str, dict[str, object], harness.JsonObject | None]] = [
+            (
+                "unscoped-memory-key",
+                {"source": "redis.memory:unknown.rlRuntimePolicyParameters", "value": ownerless},
+                None,
+            ),
+            (
+                "other-user-memory-key",
+                {"source": "redis.memory:other.rlRuntimePolicyParameters", "value": ownerless},
+                None,
+            ),
+            (
+                "username-prefix-only",
+                {"source": "redis.memory:bot2.rlRuntimePolicyParameters", "value": ownerless},
+                None,
+            ),
+            (
+                "target-user-memory-key",
+                {"source": "redis.memory:bot.rlRuntimePolicyParameters", "value": ownerless},
+                ownerless,
+            ),
+            (
+                "target-user-wrapper",
+                {
+                    "source": "redis.memory:opaque.rlRuntimePolicyParameters",
+                    "ownerUsername": "bot",
+                    "value": ownerless,
+                },
+                ownerless,
+            ),
+        ]
+
+        for name, candidate, expected in cases:
+            with self.subTest(name=name):
+                extracted = harness.find_runtime_parameter_consumption_evidence(
+                    {"ok": True, "candidates": [candidate]},
+                    injection=injection,
+                    owner_username="bot",
+                )
+
+                self.assertEqual(extracted, expected)
+
     def test_runtime_parameter_consumption_collection_skips_stale_redis_for_valid_mongo(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         stale = self.runtime_parameter_consumption_evidence(injection)
@@ -2144,6 +2190,11 @@ cli:
         self.assertIn("SCAN", eval_script)
         self.assertIn("*memory*", eval_script)
         self.assertIn("*Memory*", eval_script)
+        self.assertIn("redisGlobLiteral", eval_script)
+        self.assertIn('"*memory*" .. escapedUsername .. "*"', eval_script)
+        self.assertIn('"*" .. escapedUsername .. "*Memory*"', eval_script)
+        self.assertIn("scanMemoryPattern(pattern)", eval_script)
+        self.assertIn("if #candidates == 0 then", eval_script)
         self.assertEqual(command[-2:], ["0", "bot"])
         self.assertIn("pcall(cjson.decode, value)", eval_script)
         self.assertIn('decoded.type == "screeps-rl-runtime-policy-parameter-consumption"', eval_script)
@@ -2155,6 +2206,110 @@ cli:
         self.assertIn("candidateMatchesExpectedOwner", eval_script)
         self.assertIn("candidate.ownerUsername = expectedUsername", eval_script)
         self.assertNotIn("KEYS", eval_script)
+        self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
+
+    def test_redis_runtime_parameter_consumption_collector_requires_configured_username(self) -> None:
+        class FakeConfig:
+            shard = "shardX"
+
+        class FakeSmoke:
+            called = False
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                self.called = True
+                return {"returncode": 0, "output_excerpt": "{}"}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+        )
+
+        self.assertIsNone(extracted)
+        self.assertFalse(smoke.called)
+
+    def test_redis_runtime_parameter_consumption_collector_returns_minimal_policy_subobjects(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+            output_excerpt: str | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.command = command
+                eval_script = command[-3]
+                raw_memory = {
+                    "creeps": {
+                        "Worker1": {
+                            "memory": {
+                                "role": "worker",
+                                "largeUnrelatedState": "x" * output_limit,
+                            },
+                        },
+                    },
+                    "rooms": {"E1S1": {"largeUnrelatedState": "y" * output_limit}},
+                    "rlRuntimePolicyParameters": evidence,
+                }
+                candidates: list[dict[str, object]] = []
+                if (
+                    "pcall(cjson.decode, value)" in eval_script
+                    and "decoded.rlRuntimePolicyParameters" in eval_script
+                    and 'return cjson.encode({ok = true, candidates = candidates})' in eval_script
+                ):
+                    candidates.append({
+                        "source": "redis.memory:bot.rlRuntimePolicyParameters",
+                        "ownerUsername": "bot",
+                        "value": raw_memory["rlRuntimePolicyParameters"],
+                    })
+                self.output_excerpt = json.dumps({"ok": True, "candidates": candidates})
+                return {"returncode": 0, "output_excerpt": self.output_excerpt}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        self.assertIsNotNone(smoke.output_excerpt)
+        output_excerpt = smoke.output_excerpt or ""
+        self.assertLess(len(output_excerpt), 200000)
+        self.assertNotIn("largeUnrelatedState", output_excerpt)
+        self.assertNotIn("Worker1", output_excerpt)
+        eval_script = smoke.command[-3] if smoke.command is not None else ""
+        self.assertIn("pcall(cjson.decode, value)", eval_script)
+        self.assertIn("decoded.rlRuntimePolicyParameters", eval_script)
+        self.assertIn("scanPatterns = {", eval_script)
+        self.assertIn("if #candidates == 0 then", eval_script)
         self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
 
     def test_redis_runtime_parameter_consumption_collector_extracts_nested_memory_evidence(self) -> None:

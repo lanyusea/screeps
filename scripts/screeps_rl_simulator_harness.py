@@ -980,6 +980,9 @@ local function keyMatchesExpectedUsername(keyText)
   local escaped = string.gsub(expectedUsername, "([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
   return string.find(keyText, "%f[%w_%-]" .. escaped .. "%f[^%w_%-]") ~= nil
 end
+local function redisGlobLiteral(value)
+  return string.gsub(value, "([%*%?%[%]\\\\])", "\\%1")
+end
 local function nestedOwnerUsername(value)
   if type(value) ~= "table" then
     return nil
@@ -1099,7 +1102,7 @@ end
 local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMatched)
   pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
-for _, pattern in ipairs({"*memory*", "*Memory*"}) do
+local function scanMemoryPattern(pattern)
   cursor = "0"
   repeat
     local result = redis.call("SCAN", cursor, "MATCH", pattern, "COUNT", 100)
@@ -1118,9 +1121,29 @@ for _, pattern in ipairs({"*memory*", "*Memory*"}) do
     end
   until cursor == "0"
 end
+local scanPatterns = {}
+if expectedUsername ~= "" then
+  local escapedUsername = redisGlobLiteral(expectedUsername)
+  scanPatterns = {
+    "*memory*" .. escapedUsername .. "*",
+    "*Memory*" .. escapedUsername .. "*",
+    "*" .. escapedUsername .. "*memory*",
+    "*" .. escapedUsername .. "*Memory*",
+  }
+end
+for _, pattern in ipairs(scanPatterns) do
+  scanMemoryPattern(pattern)
+end
+if #candidates == 0 then
+  for _, pattern in ipairs({"*memory*", "*Memory*"}) do
+    scanMemoryPattern(pattern)
+  end
+end
 return cjson.encode({ok = true, candidates = candidates})
 """.strip()
-    username = text_or_none(getattr(cfg, "username", None)) or ""
+    username = text_or_none(getattr(cfg, "username", None))
+    if username is None:
+        return None
     command = [*compose, "exec", "-T", "redis", "redis-cli", "--raw", "EVAL", eval_script, "0", username]
     result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
     if result.get("returncode") != 0:
