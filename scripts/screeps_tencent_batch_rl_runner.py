@@ -2295,9 +2295,7 @@ def verified_remote_candidate_scorecard(
             )
     elif status == "materialized":
         gradient_blocked = (
-            raw.get("trustedGradientUpdate") is False
-            or raw.get("highVariance") is True
-            or raw.get("missingPrerequisite") == "gradient_stability"
+            raw.get("missingPrerequisite") == "gradient_stability"
             or raw.get("classification") == "gradient_stability_untrusted_scorecard_materialized"
         )
         if gradient_blocked:

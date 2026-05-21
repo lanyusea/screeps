@@ -2038,6 +2038,124 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertTrue(training_report["candidateScorecard"]["scorecardUsable"])
         self.assertFalse(training_report["candidateScorecard"]["runtimeParameterInjection"])
 
+    def test_verify_remote_training_report_accepts_runtime_blocked_materialized_scorecard_with_gradient_metadata(
+        self,
+    ) -> None:
+        cases = (
+            (
+                "runtime injection metadata only",
+                {
+                    "status": "metadata_only",
+                    "runtimeParameterInjection": False,
+                    "policyUpdateEligible": False,
+                    "candidateParameterScope": "metadata_only",
+                    "injectedVariantCount": 0,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+                {
+                    "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
+                    "candidateParameterScope": "metadata_only",
+                    "missingPrerequisite": "runtime_parameter_injection",
+                },
+            ),
+            (
+                "runtime consumption missing",
+                {
+                    "status": "not_injected",
+                    "runtimeParameterInjection": False,
+                    "runtimeParameterConsumption": False,
+                    "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                    "policyUpdateEligible": False,
+                    "candidateParameterScope": "runtime_injected",
+                    "injectedVariantCount": 0,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                },
+                {
+                    "classification": "runtime_parameter_consumption_missing_scorecard_materialized",
+                    "candidateParameterScope": "runtime_injected",
+                    "missingPrerequisite": "runtime_parameter_consumption",
+                },
+            ),
+        )
+        for name, runtime_parameter_injection, candidate_patch in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                data = training_report_with_ready_runtime_scorecard()
+                data["runtimeParameterInjection"] = runtime_parameter_injection
+                data["candidateScorecard"] = {
+                    "status": "materialized",
+                    "scorecardId": "rl-scorecard-run-test",
+                    "runtimeParameterInjection": False,
+                    "injectedVariantCount": 0,
+                    "validationScaleComputeBlocked": True,
+                    "scorecardUsable": True,
+                    "gradientStable": False,
+                    "trustedGradientUpdate": False,
+                    "highVariance": True,
+                    **candidate_patch,
+                }
+                report = runner.remote_training_report_path(root, "run-test")
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(json.dumps(data), encoding="utf-8")
+                write_ready_runtime_scorecard_artifact(root)
+                controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+                controller.verify_remote_training_report()
+
+                training_report = controller.result["trainingReport"]
+                self.assertEqual(
+                    training_report["candidateScorecard"]["missingPrerequisite"],
+                    candidate_patch["missingPrerequisite"],
+                )
+                self.assertFalse(training_report["candidateScorecard"]["runtimeParameterInjection"])
+                self.assertFalse(training_report["candidateScorecard"]["trustedGradientUpdate"])
+                self.assertTrue(training_report["candidateScorecard"]["highVariance"])
+
+    def test_verify_remote_training_report_rejects_gradient_materialized_scorecard_without_runtime_proof(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["candidateScorecard"] = {
+                "status": "materialized",
+                "classification": "gradient_stability_untrusted_scorecard_materialized",
+                "scorecardId": "rl-scorecard-run-test",
+                "runtimeParameterInjection": False,
+                "injectedVariantCount": 0,
+                "candidateParameterScope": "metadata_only",
+                "missingPrerequisite": "gradient_stability",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+                "gradientStable": False,
+                "trustedGradientUpdate": False,
+                "highVariance": True,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "gradient-stability materialized status requires runtimeParameterInjection proof",
+            ):
+                controller.verify_remote_training_report()
+
     def test_verify_remote_training_report_rejects_materialized_scorecard_with_injected_count(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
