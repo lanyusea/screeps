@@ -776,6 +776,21 @@ def runtime_parameter_record_matches_username(value: Any, username: str | None) 
     return observed == expected
 
 
+def _runtime_parameter_record_allowed_for_username(
+    value: Any,
+    username: str | None,
+    *,
+    owner_matched: bool = False,
+) -> bool:
+    expected = _non_empty_text(username)
+    if expected is None or not isinstance(value, dict):
+        return True
+    observed = _runtime_parameter_explicit_owner_username(value)
+    if observed is not None:
+        return observed == expected
+    return owner_matched
+
+
 def _runtime_parameter_record_has_different_username(value: Any, username: str | None) -> bool:
     expected = _non_empty_text(username)
     if expected is None or not isinstance(value, dict):
@@ -815,6 +830,17 @@ def _runtime_parameter_scalar_owner_username(value: Any) -> str | None:
     if observed is None or re.fullmatch(r"[0-9a-fA-F]{24}", observed):
         return None
     return observed
+
+
+def _runtime_parameter_redis_source_matches_username(value: JsonObject, username: str | None) -> bool:
+    expected = _non_empty_text(username)
+    source = _non_empty_text(value.get("source"))
+    if expected is None or source is None:
+        return False
+    if not source.startswith("redis.") or "memory" not in source.lower():
+        return False
+    username_pattern = rf"(?<![A-Za-z0-9_-]){re.escape(expected)}(?![A-Za-z0-9_-])"
+    return re.search(username_pattern, source) is not None
 
 
 def collect_runtime_parameter_consumption_evidence(
@@ -947,6 +973,13 @@ local function scalarOwnerUsername(value)
   end
   return text
 end
+local function keyMatchesExpectedUsername(keyText)
+  if expectedUsername == "" then
+    return false
+  end
+  local escaped = string.gsub(expectedUsername, "([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+  return string.find(keyText, "%f[%w_%-]" .. escaped .. "%f[^%w_%-]") ~= nil
+end
 local function nestedOwnerUsername(value)
   if type(value) ~= "table" then
     return nil
@@ -979,36 +1012,28 @@ local function hasDifferentExplicitOwner(value)
   local observed = explicitOwnerUsername(value)
   return observed ~= nil and observed ~= expectedUsername
 end
-local function candidateValueForExpectedOwner(value, ownerMatched)
+local function candidateMatchesExpectedOwner(value, ownerMatched)
   if expectedUsername == "" or type(value) ~= "table" then
-    return value
+    return true
   end
   local observed = explicitOwnerUsername(value)
   if observed ~= nil then
-    if observed == expectedUsername then
-      return value
-    end
-    return nil
+    return observed == expectedUsername
   end
-  if not ownerMatched then
-    return nil
-  end
-  local copied = {}
-  for key, item in pairs(value) do
-    copied[key] = item
-  end
-  copied.ownerUsername = expectedUsername
-  return copied
+  return ownerMatched
 end
 local function appendRuntimePolicyParameterCandidate(source, value, ownerMatched)
   if #candidates >= candidateLimit then
     return
   end
-  local candidateValue = candidateValueForExpectedOwner(value, ownerMatched)
-  if candidateValue == nil then
+  if not candidateMatchesExpectedOwner(value, ownerMatched) then
     return
   end
-  table.insert(candidates, {source = source, value = candidateValue})
+  local candidate = {source = source, value = value}
+  if expectedUsername ~= "" and ownerMatched and explicitOwnerUsername(value) == nil then
+    candidate.ownerUsername = expectedUsername
+  end
+  table.insert(candidates, candidate)
 end
 local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMatched)
   if depth > candidateMaxDepth or #candidates >= candidateLimit then
@@ -1071,8 +1096,8 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMat
     end
   end
 end
-local function pushRuntimePolicyParameterCandidate(source, value)
-  pushRuntimePolicyParameterEvidence(source, value, 0, false)
+local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMatched)
+  pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
 for _, pattern in ipairs({"*memory*", "*Memory*"}) do
   cursor = "0"
@@ -1087,7 +1112,7 @@ for _, pattern in ipairs({"*memory*", "*Memory*"}) do
         local keyType = redis.call("TYPE", key).ok
         if keyType == "string" then
           local value = redis.call("GET", key)
-          pushRuntimePolicyParameterCandidate("redis." .. keyText, value)
+          pushRuntimePolicyParameterCandidate("redis." .. keyText, value, 0, keyMatchesExpectedUsername(keyText))
         end
       end
     end
@@ -1205,6 +1230,7 @@ def iter_runtime_parameter_consumption_candidates(
     depth: int = 0,
     *,
     owner_username: str | None = None,
+    owner_matched: bool = False,
 ) -> Iterable[Any]:
     if depth > 4:
         return
@@ -1214,11 +1240,21 @@ def iter_runtime_parameter_consumption_candidates(
             decoded,
             depth + 1,
             owner_username=owner_username,
+            owner_matched=owner_matched,
         )
     if isinstance(payload, dict):
         if _runtime_parameter_record_has_different_username(payload, owner_username):
             return
-        if runtime_parameter_record_matches_username(payload, owner_username):
+        next_owner_matched = (
+            owner_matched
+            or runtime_parameter_record_matches_username(payload, owner_username)
+            or _runtime_parameter_redis_source_matches_username(payload, owner_username)
+        )
+        if _runtime_parameter_record_allowed_for_username(
+            payload,
+            owner_username,
+            owner_matched=owner_matched,
+        ):
             yield payload
         for key in (
             RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
@@ -1236,6 +1272,7 @@ def iter_runtime_parameter_consumption_candidates(
                     payload[key],
                     depth + 1,
                     owner_username=owner_username,
+                    owner_matched=next_owner_matched,
                 )
         candidates = payload.get("candidates")
         if isinstance(candidates, list):
@@ -1244,6 +1281,7 @@ def iter_runtime_parameter_consumption_candidates(
                     item,
                     depth + 1,
                     owner_username=owner_username,
+                    owner_matched=next_owner_matched,
                 )
     elif isinstance(payload, list):
         for item in payload:
@@ -1251,6 +1289,7 @@ def iter_runtime_parameter_consumption_candidates(
                 item,
                 depth + 1,
                 owner_username=owner_username,
+                owner_matched=owner_matched,
             )
 
 

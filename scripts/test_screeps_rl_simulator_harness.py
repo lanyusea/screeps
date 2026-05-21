@@ -1934,6 +1934,54 @@ cli:
         )
         self.assertEqual(
             harness.find_runtime_parameter_consumption_evidence(
+                {"ok": True, "candidates": [{"source": "redis.memory:bot", "value": ownerless}]},
+                injection=injection,
+                owner_username="bot",
+            ),
+            ownerless,
+        )
+        self.assertEqual(
+            harness.find_runtime_parameter_consumption_evidence(
+                {
+                    "ok": True,
+                    "candidates": [
+                        {
+                            "source": "redis.memory:opaque",
+                            "ownerUsername": "bot",
+                            "value": ownerless,
+                        }
+                    ],
+                },
+                injection=injection,
+                owner_username="bot",
+            ),
+            ownerless,
+        )
+        self.assertIsNone(
+            harness.find_runtime_parameter_consumption_evidence(
+                {"ok": True, "candidates": [{"source": "redis.memory:bot2", "value": ownerless}]},
+                injection=injection,
+                owner_username="bot",
+            )
+        )
+        self.assertIsNone(
+            harness.find_runtime_parameter_consumption_evidence(
+                {
+                    "ok": True,
+                    "candidates": [
+                        {
+                            "source": "redis.memory:opaque",
+                            "ownerUsername": "other-bot",
+                            "value": ownerless,
+                        }
+                    ],
+                },
+                injection=injection,
+                owner_username="bot",
+            )
+        )
+        self.assertEqual(
+            harness.find_runtime_parameter_consumption_evidence(
                 {"ok": True, "candidates": [{"source": "redis.memory:bot", "value": current_user}]},
                 injection=injection,
                 owner_username="bot",
@@ -2103,7 +2151,9 @@ cli:
         self.assertIn("expectedUsername = tostring(ARGV[1] or \"\")", eval_script)
         self.assertIn("hasDifferentExplicitOwner", eval_script)
         self.assertIn("scalarOwnerUsername(value.user)", eval_script)
-        self.assertIn("candidateValueForExpectedOwner", eval_script)
+        self.assertIn("keyMatchesExpectedUsername(keyText)", eval_script)
+        self.assertIn("candidateMatchesExpectedOwner", eval_script)
+        self.assertIn("candidate.ownerUsername = expectedUsername", eval_script)
         self.assertNotIn("KEYS", eval_script)
         self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
 
@@ -2276,6 +2326,16 @@ cli:
             (
                 "ownerless",
                 [{"source": "redis.memory:unknown.rlRuntimePolicyParameters", "value": ownerless}],
+                None,
+            ),
+            (
+                "ownerless-scoped-key",
+                [{"source": "redis.memory:bot.rlRuntimePolicyParameters", "value": ownerless}],
+                ownerless,
+            ),
+            (
+                "ownerless-key-token-prefix-only",
+                [{"source": "redis.memory:bot2.rlRuntimePolicyParameters", "value": ownerless}],
                 None,
             ),
             (
