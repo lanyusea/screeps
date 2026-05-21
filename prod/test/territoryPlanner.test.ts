@@ -1114,6 +1114,16 @@ describe('planTerritoryIntent', () => {
       'energyBufferLow'
     ],
     [
+      'room energy buffer would fall below RCL5 threshold',
+      {
+        energyAvailable: 1_300,
+        energyCapacityAvailable: 1_800,
+        withSpawn: true
+      },
+      {},
+      'energyBufferLow'
+    ],
+    [
       'low CPU bucket',
       {
         energyAvailable: 1_800,

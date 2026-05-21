@@ -28,6 +28,8 @@ import {
   refreshAdjacentRoomScoutReports,
   type RoomScoutReport
 } from '../intel/adjacentRoomScout';
+import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
+import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
@@ -57,6 +59,13 @@ const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION =
   `reach controller level ${AUTONOMOUS_TERRITORY_CONTROL_MIN_RCL} before scout-only remote conversion`;
+const SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION =
+  'preserve home energy buffer before scout-only remote conversion';
+const SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION =
+  'wait for CPU bucket before scout-only remote conversion';
+const SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION =
+  'clear home alert before scout-only remote conversion';
+const SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
   2: 1,
@@ -106,7 +115,11 @@ export interface ExpansionCandidateScore {
 export interface ExpansionScoringInput {
   colonyName: string;
   colonyOwnerUsername?: string;
+  energyAvailable?: number;
   energyCapacityAvailable: number;
+  energyBufferThreshold?: number;
+  cpuBucket?: number;
+  homeAlertActive?: boolean;
   gclLevel?: number;
   controllerLevel?: number;
   ownedRoomCount?: number;
@@ -360,12 +373,18 @@ function validateNextExpansionScoutIntel(
 
 function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionScoringInput {
   const gclLevel = getGclLevel();
+  const gameTime = getGameTime();
+  const cpuBucket = getCpuBucket();
   return {
     colonyName: colony.room.name,
     ...(getControllerOwnerUsername(colony.room.controller)
       ? { colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller) }
       : {}),
+    energyAvailable: colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
+    energyBufferThreshold: getEffectiveRoomEnergyBufferThreshold(colony.room),
+    ...(cpuBucket !== null ? { cpuBucket } : {}),
+    homeAlertActive: isExpansionScoringHomeAlertActive(colony.room, gameTime),
     ...(gclLevel !== null ? { gclLevel } : {}),
     ...(typeof colony.room.controller?.level === 'number' ? { controllerLevel: colony.room.controller.level } : {}),
     ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername(colony.room.controller)),
@@ -1084,6 +1103,18 @@ function getExpansionPreconditions(
     preconditions.push(SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION);
   }
 
+  if (candidate?.scoutOnly === true && input.homeAlertActive === true) {
+    preconditions.push(SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION);
+  }
+
+  if (candidate?.scoutOnly === true && isScoutOnlyRemoteCpuBucketLow(input.cpuBucket)) {
+    preconditions.push(SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION);
+  }
+
+  if (candidate?.scoutOnly === true && isScoutOnlyRemoteEnergyBufferLow(input)) {
+    preconditions.push(SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION);
+  }
+
   const ownedRoomCount = getOwnedRoomCount(input);
   const gclRoomCapacity = getGclClaimRoomCapacity(input);
   if (gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity) {
@@ -1104,6 +1135,23 @@ function getExpansionPreconditions(
   }
 
   return preconditions;
+}
+
+function isScoutOnlyRemoteCpuBucketLow(bucket: number | undefined): boolean {
+  return typeof bucket === 'number' && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET;
+}
+
+function isScoutOnlyRemoteEnergyBufferLow(input: ExpansionScoringInput): boolean {
+  if (
+    typeof input.energyAvailable !== 'number' ||
+    !Number.isFinite(input.energyAvailable) ||
+    typeof input.energyBufferThreshold !== 'number' ||
+    !Number.isFinite(input.energyBufferThreshold)
+  ) {
+    return false;
+  }
+
+  return input.energyAvailable - TERRITORY_CONTROLLER_BODY_COST < input.energyBufferThreshold;
 }
 
 function getGclClaimRoomCapacity(input: ExpansionScoringInput): number | null {
@@ -1317,6 +1365,18 @@ function getPersistedExpansionCandidateBlockReason(
 
   if (hasExpansionPrecondition(candidate, 'reach 650 energy capacity for claim body')) {
     return 'energyCapacityLow';
+  }
+
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION)) {
+    return 'homeAlertActive';
+  }
+
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION)) {
+    return 'cpuBucketLow';
+  }
+
+  if (hasExpansionPrecondition(candidate, SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION)) {
+    return 'energyBufferLow';
   }
 
   if (candidate.preconditions.some((precondition) => precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX))) {
@@ -2002,6 +2062,19 @@ function findRoomObjects<T>(room: Room, findConstant: number | undefined): T[] {
 function getFindConstant(name: string): number | undefined {
   const value = (globalThis as Record<string, unknown>)[name];
   return typeof value === 'number' ? value : undefined;
+}
+
+function getCpuBucket(): number | null {
+  const bucket = (globalThis as { Game?: Partial<Game> }).Game?.cpu?.bucket;
+  return typeof bucket === 'number' && Number.isFinite(bucket) ? bucket : null;
+}
+
+function isExpansionScoringHomeAlertActive(room: Room, gameTime: number): boolean {
+  return (
+    findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length > 0 ||
+    findRoomObjects<AnyStructure>(room, getFindConstant('FIND_HOSTILE_STRUCTURES')).length > 0 ||
+    isColonyRoomThreatened(room.name, gameTime)
+  );
 }
 
 function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {
