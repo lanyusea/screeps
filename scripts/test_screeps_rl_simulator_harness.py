@@ -1914,6 +1914,40 @@ cli:
 
         self.assertEqual(extracted, matching)
 
+    def test_runtime_parameter_consumption_owner_filter_requires_configured_owner(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        ownerless = self.runtime_parameter_consumption_evidence(injection)
+        current_user = self.runtime_parameter_consumption_evidence(injection)
+        current_user["user"] = "bot"
+        other_user = self.runtime_parameter_consumption_evidence(injection)
+        other_user["user"] = "other-bot"
+
+        self.assertFalse(harness.runtime_parameter_record_matches_username(ownerless, "bot"))
+        self.assertTrue(harness.runtime_parameter_record_matches_username(current_user, "bot"))
+        self.assertFalse(harness.runtime_parameter_record_matches_username(other_user, "bot"))
+        self.assertIsNone(
+            harness.find_runtime_parameter_consumption_evidence(
+                {"ok": True, "candidates": [{"source": "redis.memory:unknown", "value": ownerless}]},
+                injection=injection,
+                owner_username="bot",
+            )
+        )
+        self.assertEqual(
+            harness.find_runtime_parameter_consumption_evidence(
+                {"ok": True, "candidates": [{"source": "redis.memory:bot", "value": current_user}]},
+                injection=injection,
+                owner_username="bot",
+            ),
+            current_user,
+        )
+        self.assertIsNone(
+            harness.find_runtime_parameter_consumption_evidence(
+                {"ok": True, "candidates": [{"source": "redis.memory:other", "value": other_user}]},
+                injection=injection,
+                owner_username="bot",
+            )
+        )
+
     def test_runtime_parameter_consumption_collection_skips_stale_redis_for_valid_mongo(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         stale = self.runtime_parameter_consumption_evidence(injection)
@@ -2009,6 +2043,7 @@ cli:
     def test_redis_runtime_parameter_consumption_collector_reads_private_memory(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["user"] = "bot"
 
         class FakeConfig:
             shard = "shardX"
@@ -2067,12 +2102,15 @@ cli:
         self.assertIn("decoded.rlRuntimePolicyParameters", eval_script)
         self.assertIn("expectedUsername = tostring(ARGV[1] or \"\")", eval_script)
         self.assertIn("hasDifferentExplicitOwner", eval_script)
+        self.assertIn("scalarOwnerUsername(value.user)", eval_script)
+        self.assertIn("candidateValueForExpectedOwner", eval_script)
         self.assertNotIn("KEYS", eval_script)
         self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
 
     def test_redis_runtime_parameter_consumption_collector_extracts_nested_memory_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["ownerUsername"] = "bot"
 
         class FakeConfig:
             shard = "shardX"
@@ -2150,6 +2188,7 @@ cli:
     def test_redis_runtime_parameter_consumption_collector_reads_direct_consumption_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["owner"] = "bot"
 
         class FakeConfig:
             shard = "shardX"
@@ -2187,9 +2226,11 @@ cli:
         injection = self.uploaded_runtime_parameter_injection()
         ownerless = self.runtime_parameter_consumption_evidence(injection)
         current_user = self.runtime_parameter_consumption_evidence(injection)
-        current_user["user"] = {"username": "bot"}
+        current_user["user"] = "bot"
+        nested_current_user = self.runtime_parameter_consumption_evidence(injection)
+        nested_current_user["user"] = {"username": "bot"}
         other_user = self.runtime_parameter_consumption_evidence(injection)
-        other_user["username"] = "other-bot"
+        other_user["user"] = "other-bot"
 
         class FakeConfig:
             shard = "shardX"
@@ -2228,9 +2269,14 @@ cli:
                 current_user,
             ),
             (
+                "nested-current-user",
+                [{"source": "redis.memory:bot.rlRuntimePolicyParameters", "value": nested_current_user}],
+                nested_current_user,
+            ),
+            (
                 "ownerless",
                 [{"source": "redis.memory:unknown.rlRuntimePolicyParameters", "value": ownerless}],
-                ownerless,
+                None,
             ),
             (
                 "skip-other-user-then-accept-current-user",

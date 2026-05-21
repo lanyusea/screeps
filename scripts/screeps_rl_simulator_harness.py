@@ -773,7 +773,15 @@ def runtime_parameter_record_matches_username(value: Any, username: str | None) 
     if expected is None or not isinstance(value, dict):
         return True
     observed = _runtime_parameter_explicit_owner_username(value)
-    return observed is None or observed == expected
+    return observed == expected
+
+
+def _runtime_parameter_record_has_different_username(value: Any, username: str | None) -> bool:
+    expected = _non_empty_text(username)
+    if expected is None or not isinstance(value, dict):
+        return False
+    observed = _runtime_parameter_explicit_owner_username(value)
+    return observed is not None and observed != expected
 
 
 def _runtime_parameter_explicit_owner_username(value: JsonObject) -> str | None:
@@ -787,7 +795,7 @@ def _runtime_parameter_explicit_owner_username(value: JsonObject) -> str | None:
             observed = _runtime_parameter_nested_owner_username(nested)
             if observed is not None:
                 return observed
-        elif field == "owner":
+        else:
             observed = _runtime_parameter_scalar_owner_username(nested)
             if observed is not None:
                 return observed
@@ -962,6 +970,7 @@ local function explicitOwnerUsername(value)
     or nestedOwnerUsername(value.owner)
     or nestedOwnerUsername(value.user)
     or scalarOwnerUsername(value.owner)
+    or scalarOwnerUsername(value.user)
 end
 local function hasDifferentExplicitOwner(value)
   if expectedUsername == "" or type(value) ~= "table" then
@@ -970,16 +979,38 @@ local function hasDifferentExplicitOwner(value)
   local observed = explicitOwnerUsername(value)
   return observed ~= nil and observed ~= expectedUsername
 end
-local function appendRuntimePolicyParameterCandidate(source, value)
+local function candidateValueForExpectedOwner(value, ownerMatched)
+  if expectedUsername == "" or type(value) ~= "table" then
+    return value
+  end
+  local observed = explicitOwnerUsername(value)
+  if observed ~= nil then
+    if observed == expectedUsername then
+      return value
+    end
+    return nil
+  end
+  if not ownerMatched then
+    return nil
+  end
+  local copied = {}
+  for key, item in pairs(value) do
+    copied[key] = item
+  end
+  copied.ownerUsername = expectedUsername
+  return copied
+end
+local function appendRuntimePolicyParameterCandidate(source, value, ownerMatched)
   if #candidates >= candidateLimit then
     return
   end
-  if hasDifferentExplicitOwner(value) then
+  local candidateValue = candidateValueForExpectedOwner(value, ownerMatched)
+  if candidateValue == nil then
     return
   end
-  table.insert(candidates, {source = source, value = value})
+  table.insert(candidates, {source = source, value = candidateValue})
 end
-local function pushRuntimePolicyParameterEvidence(source, value, depth)
+local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMatched)
   if depth > candidateMaxDepth or #candidates >= candidateLimit then
     return
   end
@@ -987,26 +1018,45 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth)
   if decoded == nil then
     return
   end
+  local nextOwnerMatched = ownerMatched
+  if expectedUsername ~= "" then
+    local observed = explicitOwnerUsername(decoded)
+    if observed ~= nil then
+      if observed ~= expectedUsername then
+        return
+      end
+      nextOwnerMatched = true
+    end
+  end
   if hasDifferentExplicitOwner(decoded) then
     return
   end
   if decoded.type == "screeps-rl-runtime-policy-parameter-consumption" then
-    appendRuntimePolicyParameterCandidate(source, decoded)
+    appendRuntimePolicyParameterCandidate(source, decoded, nextOwnerMatched)
     return
   end
   local runtimePolicyParameters = decodedRuntimePolicyParameterValue(decoded.rlRuntimePolicyParameters)
   if runtimePolicyParameters ~= nil then
-    appendRuntimePolicyParameterCandidate(source .. ".rlRuntimePolicyParameters", runtimePolicyParameters)
+    appendRuntimePolicyParameterCandidate(
+      source .. ".rlRuntimePolicyParameters",
+      runtimePolicyParameters,
+      nextOwnerMatched
+    )
   end
   for _, key in ipairs(nestedRuntimePolicyParameterKeys) do
     if decoded[key] ~= nil then
-      pushRuntimePolicyParameterEvidence(source .. "." .. key, decoded[key], depth + 1)
+      pushRuntimePolicyParameterEvidence(source .. "." .. key, decoded[key], depth + 1, nextOwnerMatched)
     end
   end
   local nestedCandidates = decoded.candidates
   if type(nestedCandidates) == "table" then
     for index, item in ipairs(nestedCandidates) do
-      pushRuntimePolicyParameterEvidence(source .. ".candidates[" .. tostring(index) .. "]", item, depth + 1)
+      pushRuntimePolicyParameterEvidence(
+        source .. ".candidates[" .. tostring(index) .. "]",
+        item,
+        depth + 1,
+        nextOwnerMatched
+      )
       if #candidates >= candidateLimit then
         return
       end
@@ -1014,7 +1064,7 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth)
   end
   if decoded[1] ~= nil then
     for index, item in ipairs(decoded) do
-      pushRuntimePolicyParameterEvidence(source .. "[" .. tostring(index) .. "]", item, depth + 1)
+      pushRuntimePolicyParameterEvidence(source .. "[" .. tostring(index) .. "]", item, depth + 1, nextOwnerMatched)
       if #candidates >= candidateLimit then
         return
       end
@@ -1022,7 +1072,7 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth)
   end
 end
 local function pushRuntimePolicyParameterCandidate(source, value)
-  pushRuntimePolicyParameterEvidence(source, value, 0)
+  pushRuntimePolicyParameterEvidence(source, value, 0, false)
 end
 for _, pattern in ipairs({"*memory*", "*Memory*"}) do
   cursor = "0"
@@ -1166,9 +1216,10 @@ def iter_runtime_parameter_consumption_candidates(
             owner_username=owner_username,
         )
     if isinstance(payload, dict):
-        if not runtime_parameter_record_matches_username(payload, owner_username):
+        if _runtime_parameter_record_has_different_username(payload, owner_username):
             return
-        yield payload
+        if runtime_parameter_record_matches_username(payload, owner_username):
+            yield payload
         for key in (
             RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
             "rlRuntimePolicyParameters",
