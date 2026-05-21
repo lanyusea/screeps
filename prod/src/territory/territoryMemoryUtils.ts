@@ -41,7 +41,10 @@ export function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMem
     ...(isPositiveFiniteNumber(rawIntent.postClaimBootstrapReserveEnergy)
       ? { postClaimBootstrapReserveEnergy: Math.floor(rawIntent.postClaimBootstrapReserveEnergy) }
       : {}),
-    ...(suspended ? { suspended } : {})
+    ...(suspended ? { suspended } : {}),
+    ...(isTerritoryExpansionCandidateBlockReason(rawIntent.blockReason)
+      ? { blockReason: rawIntent.blockReason }
+      : {})
   };
 }
 
@@ -105,6 +108,32 @@ function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemo
 
 function isTerritoryIntentSuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
   return reason === 'deadZoneTarget' || reason === 'deadZoneRoute' || reason === 'controllerLevel';
+}
+
+function isTerritoryExpansionCandidateBlockReason(
+  reason: unknown
+): reason is TerritoryExpansionCandidateBlockReason {
+  return (
+    reason === 'insufficientEvidence' ||
+    reason === 'targetUnavailable' ||
+    reason === 'targetHostile' ||
+    reason === 'controllerMissing' ||
+    reason === 'controllerOwned' ||
+    reason === 'controllerReserved' ||
+    reason === 'sourcesMissing' ||
+    reason === 'controllerRangeMissing' ||
+    reason === 'terrainMissing' ||
+    reason === 'energyCapacityLow' ||
+    reason === 'energyBufferLow' ||
+    reason === 'cpuBucketLow' ||
+    reason === 'homeAlertActive' ||
+    reason === 'controllerLevelLow' ||
+    reason === 'homeDowngradeGuard' ||
+    reason === 'postClaimBootstrapActive' ||
+    reason === 'gclInsufficient' ||
+    reason === 'roomLimitReached' ||
+    reason === 'routeUnavailable'
+  );
 }
 
 function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {
