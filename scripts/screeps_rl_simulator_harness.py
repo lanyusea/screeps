@@ -843,6 +843,32 @@ def _collect_redis_runtime_parameter_consumption_evidence(
 local cursor = "0"
 local candidates = {}
 local seen = {}
+local function decodedRuntimePolicyParameterValue(value)
+  if type(value) == "table" then
+    return value
+  end
+  if type(value) ~= "string" then
+    return nil
+  end
+  local ok, decoded = pcall(cjson.decode, value)
+  if ok and type(decoded) == "table" then
+    return decoded
+  end
+  return nil
+end
+local function pushRuntimePolicyParameterCandidate(source, value)
+  local decoded = decodedRuntimePolicyParameterValue(value)
+  if decoded == nil then
+    return
+  end
+  if decoded.type == "screeps-rl-runtime-policy-parameter-consumption" then
+    table.insert(candidates, {source = source, value = decoded})
+  end
+  local runtimePolicyParameters = decodedRuntimePolicyParameterValue(decoded.rlRuntimePolicyParameters)
+  if runtimePolicyParameters ~= nil then
+    table.insert(candidates, {source = source .. ".rlRuntimePolicyParameters", value = runtimePolicyParameters})
+  end
+end
 for _, pattern in ipairs({"*memory*", "*Memory*"}) do
   cursor = "0"
   repeat
@@ -856,9 +882,7 @@ for _, pattern in ipairs({"*memory*", "*Memory*"}) do
         local keyType = redis.call("TYPE", key).ok
         if keyType == "string" then
           local value = redis.call("GET", key)
-          if value then
-            table.insert(candidates, {source = "redis." .. keyText, value = value})
-          end
+          pushRuntimePolicyParameterCandidate("redis." .. keyText, value)
         end
       end
     end

@@ -1940,8 +1940,8 @@ cli:
                         "ok": True,
                         "candidates": [
                             {
-                                "source": "redis.memory:user",
-                                "value": json.dumps({"rlRuntimePolicyParameters": evidence}, sort_keys=True),
+                                "source": "redis.memory:user.rlRuntimePolicyParameters",
+                                "value": evidence,
                             }
                         ],
                     }),
@@ -1960,12 +1960,96 @@ cli:
         self.assertEqual(extracted, evidence)
         self.assertIsNotNone(smoke.command)
         command = smoke.command if smoke.command is not None else []
+        self.assertEqual(command[:2], ["docker", "compose"])
+        self.assertIn("exec", command)
         self.assertIn("redis", command)
         self.assertIn("redis-cli", command)
-        self.assertIn("SCAN", command[-2])
-        self.assertIn("*memory*", command[-2])
-        self.assertIn("*Memory*", command[-2])
-        self.assertNotIn("KEYS", command[-2])
+        eval_script = command[-2]
+        self.assertIn("SCAN", eval_script)
+        self.assertIn("*memory*", eval_script)
+        self.assertIn("*Memory*", eval_script)
+        self.assertIn("pcall(cjson.decode, value)", eval_script)
+        self.assertIn('decoded.type == "screeps-rl-runtime-policy-parameter-consumption"', eval_script)
+        self.assertIn("decoded.rlRuntimePolicyParameters", eval_script)
+        self.assertNotIn("KEYS", eval_script)
+        self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
+
+    def test_redis_runtime_parameter_consumption_collector_reads_direct_consumption_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            shard = "shardX"
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "candidates": [{"source": "redis.Memory:user", "value": evidence}],
+                    }),
+                }
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            FakeSmoke(),
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+
+    def test_redis_runtime_parameter_consumption_collector_fails_closed_without_proof(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeConfig:
+            shard = "shardX"
+
+        class FakeSmoke:
+            def __init__(self, output_excerpt: object) -> None:
+                self.output_excerpt = output_excerpt
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": 0, "output_excerpt": self.output_excerpt}
+
+        for output_excerpt in (
+            "not-json",
+            json.dumps({
+                "ok": True,
+                "candidates": [{"source": "redis.memory:user", "value": {"notRuntimeEvidence": True}}],
+            }),
+        ):
+            with self.subTest(output_excerpt=output_excerpt):
+                extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+                    FakeSmoke(output_excerpt),
+                    ["docker", "compose"],
+                    FakeConfig(),
+                    None,
+                    injection,
+                )
+                consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+
+                self.assertIsNone(extracted)
+                self.assertEqual(consumption["status"], "missing")
+                self.assertFalse(consumption["runtimeParameterConsumption"])
 
     def test_mongo_runtime_parameter_consumption_collector_keeps_output_small(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
