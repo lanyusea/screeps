@@ -492,6 +492,117 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertNotIn("rewardDecision", plan["nextExperimentCardDelta"]["deltas"])
         self.assertNotIn("cron", json.dumps(plan, sort_keys=True).lower())
 
+    def test_partial_explicit_route_backfills_construction_policy_family(self) -> None:
+        cases = (
+            (
+                "top-agent-role-policy",
+                {
+                    "topAgent": "top.economy",
+                    "rolePolicy": "role.builder",
+                },
+                {
+                    "policyFamily": "top.construction",
+                    "topAgent": "top.economy",
+                    "rolePolicy": "role.builder",
+                },
+            ),
+            (
+                "top-level-level",
+                {
+                    "level": "top",
+                },
+                {
+                    "policyFamily": "top.construction",
+                    "level": "top",
+                },
+            ),
+        )
+
+        for label, route_fields, expected_route in cases:
+            with self.subTest(label=label):
+                plan = planner.build_plan(
+                    {
+                        "title": f"Partial route {label} should keep construction policy family",
+                        "classification": "policy_parameterization_gap",
+                        "onlineUtilityStatus": "UNPROVEN",
+                        **route_fields,
+                        "parameterSurface": {
+                            "name": "construction-priority",
+                            "bounds": [
+                                {
+                                    "name": "riskPenalty",
+                                    "min": 0,
+                                    "max": 10,
+                                    "step": 1,
+                                }
+                            ],
+                        },
+                    }
+                )
+
+                self.assertEqual(plan["status"], "ACT_DELTA_READY")
+                policy_card_delta = plan["nextExperimentCardDelta"]["deltas"]["policy"]
+                feedback_finding = plan["feedbackIngestion"]["finding"]
+                for field, expected in expected_route.items():
+                    self.assertEqual(plan["finding"][field], expected)
+                    self.assertEqual(plan["nextPolicyDelta"][field], expected)
+                    self.assertEqual(policy_card_delta[field], expected)
+                    self.assertEqual(feedback_finding[field], expected)
+
+    def test_explicit_policy_family_is_not_overwritten_by_surface_fallback(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Explicit family should win over construction surface fallback",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "policyFamily": "role.custom-construction",
+                "parameterSurface": {
+                    "name": "construction-priority",
+                    "bounds": [
+                        {
+                            "name": "riskPenalty",
+                            "min": 0,
+                            "max": 10,
+                            "step": 1,
+                        }
+                    ],
+                },
+            }
+        )
+
+        policy_card_delta = plan["nextExperimentCardDelta"]["deltas"]["policy"]
+        self.assertEqual(plan["finding"]["policyFamily"], "role.custom-construction")
+        self.assertEqual(plan["nextPolicyDelta"]["policyFamily"], "role.custom-construction")
+        self.assertEqual(policy_card_delta["policyFamily"], "role.custom-construction")
+        self.assertEqual(plan["feedbackIngestion"]["finding"]["policyFamily"], "role.custom-construction")
+
+    def test_unmapped_policy_surface_does_not_invent_policy_family(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Expansion risk surface keeps parameter-surface routing only",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "parameterSurface": {
+                    "name": "expansion-risk-window",
+                    "bounds": [
+                        {
+                            "name": "reservationRiskWeight",
+                            "min": 0,
+                            "max": 5,
+                            "step": 0.5,
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(plan["status"], "ACT_DELTA_READY")
+        policy_card_delta = plan["nextExperimentCardDelta"]["deltas"]["policy"]
+        self.assertNotIn("policyFamily", plan["finding"])
+        self.assertNotIn("policyFamily", plan["nextPolicyDelta"])
+        self.assertNotIn("policyFamily", policy_card_delta)
+        self.assertNotIn("policyFamily", plan["feedbackIngestion"]["finding"])
+
     def test_nested_policy_surface_without_bounds_stays_route_required(self) -> None:
         plan = planner.build_plan(
             {

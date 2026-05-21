@@ -590,7 +590,7 @@ def infer_policy_surface(raw: JsonObject) -> str:
 
 def explicit_policy_route(raw: JsonObject) -> JsonObject:
     route: JsonObject = {}
-    for field in ("policyFamily", "topAgent", "rolePolicy"):
+    for field in POLICY_ROUTE_FIELDS:
         value = first_text(raw, POLICY_ROUTE_ALIASES[field])
         if value:
             route[field] = value
@@ -609,14 +609,16 @@ def explicit_policy_route(raw: JsonObject) -> JsonObject:
 
 
 def infer_policy_route(raw: JsonObject) -> JsonObject:
-    explicit = explicit_policy_route(raw)
-    if explicit:
-        return explicit
+    route = explicit_policy_route(raw)
+    if "policyFamily" in route:
+        return route
     surface = explicit_policy_surface(raw)
     if not surface:
-        return {}
+        return route
     policy_family = POLICY_FAMILY_FALLBACKS.get(normalize_key(surface))
-    return {"policyFamily": policy_family} if policy_family else {}
+    if policy_family:
+        route["policyFamily"] = policy_family
+    return route
 
 
 def infer_policy_bounds(raw: JsonObject, surface: str) -> list[JsonObject]:
