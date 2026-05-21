@@ -511,6 +511,33 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(zero_iteration["status"], "BLOCKED")
         self.assertTrue(zero_iteration["latestPath"].endswith("z-zero-blocked.json"))
 
+    def test_positive_non_consumed_policy_update_is_blocked_as_non_promotional(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "non-consumed-update.json",
+                {
+                    "createdAt": "2026-05-18T10:15:00Z",
+                    "policyUpdateIterations": 1,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "promotionGate": {
+                            "status": "blocked_runtime_parameter_consumption_missing",
+                            "runtimeParameterConsumption": False,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertEqual(
+            zero_iteration["evidence"],
+            "policy update non-promotional: blocked_runtime_parameter_consumption_missing",
+        )
+
     def test_health_helper_requires_successful_auto_refresh(self) -> None:
         health = live.health_with_refresh(
             {"ok": True, "status": "ok", "failures": []},

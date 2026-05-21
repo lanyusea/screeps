@@ -1675,6 +1675,12 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(report["policyGradient"]["runner_support"]["report_preserves_candidate_parameters"])
         self.assertEqual(report["policyUpdateIterations"], 0)
         self.assertEqual(report["policyUpdate"]["skippedReason"], runner.METADATA_ONLY_POLICY_UPDATE_SKIP_REASON)
+        self.assertEqual(
+            report["policyUpdate"]["promotionGate"]["status"],
+            "blocked_runtime_parameter_injection_missing",
+        )
+        self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
         self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertEqual(simulator.calls[0]["ticks"], 500)
         self.assertEqual(simulator.calls[0]["variants"], variant_ids)
@@ -2344,6 +2350,67 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWrites"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
 
+    def test_ready_parameter_evidence_does_not_alias_injection_to_consumption(self) -> None:
+        policy_gradient = {
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "missing_runtime_parameter_consumption",
+            },
+            "candidateParameterVectors": [
+                {"strategyVariantId": "variant-a"},
+                {"strategyVariantId": "variant-b"},
+            ],
+        }
+
+        evidence = runner.policy_update_runtime_injection_ready_parameter_evidence(
+            policy_gradient,
+            [{"strategyVariantId": "variant-a"}, {"strategyVariantId": "variant-b"}],
+        )
+        gate = runner.policy_update_promotion_gate(evidence, policy_update_generated=True)
+
+        self.assertTrue(evidence["runtimeParameterInjection"])
+        self.assertFalse(evidence["runtimeParameterConsumption"])
+        self.assertTrue(evidence["policyUpdateEligible"])
+        self.assertEqual(evidence["runtimeParameterConsumptionStatus"], "missing_runtime_parameter_consumption")
+        self.assertEqual(gate["status"], "blocked_runtime_parameter_consumption_missing")
+        self.assertFalse(gate["runtimeConsumedPromotionEligible"])
+        self.assertFalse(gate["loopAPromotionEligible"])
+        self.assertFalse(gate["loopBPromotionEligible"])
+
+    def test_ready_parameter_evidence_accepts_consumed_runtime_status(self) -> None:
+        policy_gradient = {
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "candidateParameterVectors": [
+                {"strategyVariantId": "variant-a"},
+                {"strategyVariantId": "variant-b"},
+            ],
+        }
+
+        evidence = runner.policy_update_runtime_injection_ready_parameter_evidence(
+            policy_gradient,
+            [{"strategyVariantId": "variant-a"}, {"strategyVariantId": "variant-b"}],
+        )
+        gate = runner.policy_update_promotion_gate(evidence, policy_update_generated=True)
+
+        self.assertTrue(evidence["runtimeParameterInjection"])
+        self.assertTrue(evidence["runtimeParameterConsumption"])
+        self.assertTrue(evidence["policyUpdateEligible"])
+        self.assertEqual(gate["status"], "runtime_consumed_shadow_candidate")
+        self.assertTrue(gate["runtimeConsumedPromotionEligible"])
+        self.assertTrue(gate["loopAPromotionEligible"])
+        self.assertTrue(gate["loopBPromotionEligible"])
+
     def test_reinforce_reward_evidence_without_runtime_transport_stays_noop(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
@@ -2558,7 +2625,12 @@ export const STRATEGY_REGISTRY = [
         update = report["policyUpdate"]
         self.assertEqual(update["algorithm"], runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM)
         self.assertEqual(update["candidateCount"], len(variant_ids))
+        self.assertTrue(update["runtimeParameterConsumption"])
+        self.assertEqual(update["consumptionMode"], runner.POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED)
+        self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
+        self.assertEqual(update["nextCandidatePolicy"]["promotionGate"], update["promotionGate"])
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
@@ -2858,6 +2930,9 @@ export const STRATEGY_REGISTRY = [
             report["policyUpdate"]["parameterEvidence"]["eligibilityMode"],
             "runtime_injected_metadata_scorecard_ranking",
         )
+        self.assertFalse(report["policyUpdate"]["promotionGate"]["runtimeParameterConsumption"])
+        self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
         self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertTrue(all("evaluatedParameters" in result for result in simulator.last_variants))
         self.assertTrue(all("runtimeParameterConsumption" not in result for result in simulator.last_variants))
@@ -2924,6 +2999,11 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(persisted["policyUpdateIterations"], 1)
         self.assertTrue(report["trueGradient"])
         self.assertEqual(report["candidateScorecard"]["status"], "materialized")
+        self.assertEqual(
+            report["candidateScorecard"]["classification"],
+            "runtime_parameter_consumption_missing_scorecard_materialized",
+        )
+        self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_consumption")
         self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
         self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
         self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])
@@ -2941,8 +3021,22 @@ export const STRATEGY_REGISTRY = [
             update["parameterEvidence"]["eligibilityMode"],
             "runtime_injected_metadata_scorecard_ranking",
         )
+        self.assertFalse(update["runtimeParameterConsumption"])
+        self.assertEqual(
+            update["consumptionMode"],
+            runner.POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED,
+        )
+        self.assertEqual(
+            update["promotionGate"]["status"],
+            "blocked_runtime_parameter_consumption_missing",
+        )
+        self.assertFalse(update["promotionGate"]["runtimeConsumedPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertEqual(update["promotionGate"]["missingPrerequisites"], ["runtime_parameter_consumption"])
         self.assertTrue(any(abs(float(value)) > 0 for value in update["parameterDelta"].values()))
         self.assertEqual(artifact["parameters"], update["updatedParameters"])
+        self.assertEqual(artifact["promotionGate"], update["promotionGate"])
         self.assertFalse(artifact["liveEffect"])
         self.assertFalse(artifact["officialMmoWrites"])
         self.assertFalse(artifact["officialMmoWritesAllowed"])

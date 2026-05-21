@@ -137,6 +137,7 @@ ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "officialMmoWrites",
     "officialMmoWritesAllowed",
     "parameterEvidence",
+    "promotionGate",
     "safety",
     "schemaVersion",
     "skippedReason",
@@ -988,8 +989,13 @@ tar -czf remote-artifacts.tar.gz \
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
-        policy_update_fields = verified_remote_policy_update_fields(data, safety_flags, self.artifact_dir)
         runtime_parameter_injection = verified_remote_runtime_parameter_injection(data.get("runtimeParameterInjection"))
+        policy_update_fields = verified_remote_policy_update_fields(
+            data,
+            safety_flags,
+            self.artifact_dir,
+            runtime_parameter_injection=runtime_parameter_injection,
+        )
         candidate_scorecard = verified_remote_candidate_scorecard(
             data.get("candidateScorecard"),
             runtime_parameter_injection=runtime_parameter_injection,
@@ -2058,6 +2064,8 @@ def verified_remote_policy_update_fields(
     data: dict[str, Any],
     top_level_safety: dict[str, Any],
     artifact_dir: Path,
+    *,
+    runtime_parameter_injection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     iterations = policy_update_iterations(data.get("policyUpdateIterations"), "policyUpdateIterations")
     safe_policy_update = validated_remote_policy_update(data.get("policyUpdate"), top_level_safety)
@@ -2084,7 +2092,10 @@ def verified_remote_policy_update_fields(
     if iterations <= 0:
         raise BatchRunError("remote policyUpdateIterations must be positive when policyUpdate claims an update")
 
-    validate_positive_policy_update(safe_policy_update)
+    validate_positive_policy_update(
+        safe_policy_update,
+        runtime_parameter_injection=runtime_parameter_injection,
+    )
     nested_iterations = policy_update_iterations(safe_policy_update.get("iterations"), "policyUpdate.iterations")
     if nested_iterations != iterations:
         raise BatchRunError(
@@ -2112,10 +2123,12 @@ def verified_remote_policy_update_fields(
         local_artifact_path,
         rel_artifact_path,
         updated_parameters,
+        safe_policy_update.get("promotionGate"),
     )
     return {
         "policyUpdateIterations": iterations,
         "policyUpdateArtifactPath": rel_artifact_path.as_posix(),
+        "policyUpdatePromotionGate": copy.deepcopy(safe_policy_update.get("promotionGate")),
         "policyUpdate": safe_policy_update,
     }
 
@@ -2571,7 +2584,11 @@ def policy_update_iterations(raw: Any, label: str) -> int:
     raise BatchRunError(f"remote {label} invalid: {raw!r}")
 
 
-def validate_positive_policy_update(raw: Any) -> None:
+def validate_positive_policy_update(
+    raw: Any,
+    *,
+    runtime_parameter_injection: dict[str, Any] | None = None,
+) -> None:
     if not isinstance(raw, dict):
         raise BatchRunError("remote policyUpdate must be an object when policyUpdateIterations is positive")
     iterations = policy_update_iterations(raw.get("iterations"), "policyUpdate.iterations")
@@ -2583,6 +2600,16 @@ def validate_positive_policy_update(raw: Any) -> None:
     require_explicit_false_policy_update_safety_flags(raw, "policyUpdate")
     require_explicit_false_policy_update_safety_flags(next_candidate_policy, "policyUpdate.nextCandidatePolicy")
     validate_positive_policy_update_parameter_change(raw, next_candidate_policy)
+    validate_policy_update_promotion_gate(
+        raw.get("promotionGate"),
+        runtime_parameter_injection=runtime_parameter_injection,
+        label="policyUpdate.promotionGate",
+    )
+    validate_policy_update_promotion_gate(
+        next_candidate_policy.get("promotionGate"),
+        runtime_parameter_injection=runtime_parameter_injection,
+        label="policyUpdate.nextCandidatePolicy.promotionGate",
+    )
 
 
 def validate_positive_policy_update_parameter_change(
@@ -2616,6 +2643,67 @@ def validate_positive_policy_update_parameter_change(
         raise BatchRunError("remote policyUpdate.parameterDelta must include at least one non-zero change")
 
 
+def validate_policy_update_promotion_gate(
+    raw: Any,
+    *,
+    runtime_parameter_injection: dict[str, Any] | None,
+    label: str,
+) -> None:
+    if not isinstance(raw, dict):
+        raise BatchRunError(f"remote {label} must be an object when policyUpdateIterations is positive")
+    require_explicit_false_policy_update_safety_flags(raw, label)
+    status = required_non_empty_text(raw.get("status"), f"{label}.status")
+    consumption_mode = required_non_empty_text(raw.get("consumptionMode"), f"{label}.consumptionMode")
+    runtime_consumed = required_bool(raw.get("runtimeParameterConsumption"), f"{label}.runtimeParameterConsumption")
+    loop_a = required_bool(raw.get("loopAPromotionEligible"), f"{label}.loopAPromotionEligible")
+    loop_b = required_bool(raw.get("loopBPromotionEligible"), f"{label}.loopBPromotionEligible")
+    runtime_consumed_promotion = required_bool(
+        raw.get("runtimeConsumedPromotionEligible"),
+        f"{label}.runtimeConsumedPromotionEligible",
+    )
+    missing_prerequisites = required_text_list(raw.get("missingPrerequisites"), f"{label}.missingPrerequisites")
+    required_non_empty_text(raw.get("validationText"), f"{label}.validationText")
+
+    top_level_consumed = False
+    if (
+        isinstance(runtime_parameter_injection, dict)
+        and runtime_parameter_injection.get("runtimeParameterInjection") is True
+    ):
+        if "runtimeParameterConsumption" not in runtime_parameter_injection:
+            raise BatchRunError(
+                "remote runtimeParameterInjection.runtimeParameterConsumption must be present when "
+                "runtime injection is proven"
+            )
+        top_level_consumed = (
+            required_bool(
+                runtime_parameter_injection.get("runtimeParameterConsumption"),
+                "runtimeParameterInjection.runtimeParameterConsumption",
+            )
+            is True
+        )
+    if top_level_consumed:
+        if not runtime_consumed:
+            raise BatchRunError(f"remote {label} contradicts consumed runtimeParameterInjection proof")
+        if consumption_mode != "runtime_consumed":
+            raise BatchRunError(f"remote {label} consumed mode must use runtime_consumed consumptionMode")
+        if missing_prerequisites:
+            raise BatchRunError(f"remote {label} consumed mode cannot declare missing prerequisites")
+        if not (loop_a and loop_b and runtime_consumed_promotion):
+            raise BatchRunError(f"remote {label} consumed mode must keep Loop A/B runtime-consumed gates eligible")
+        return
+
+    if runtime_consumed:
+        raise BatchRunError(f"remote {label} claims runtime consumption without top-level consumption proof")
+    if loop_a or loop_b or runtime_consumed_promotion:
+        raise BatchRunError(f"remote {label} non-consumed mode must block Loop A/B promotion")
+    if "runtime_parameter_consumption" not in missing_prerequisites:
+        raise BatchRunError(f"remote {label} non-consumed mode must require runtime_parameter_consumption")
+    if status != "blocked_runtime_parameter_consumption_missing":
+        raise BatchRunError(f"remote {label} non-consumed mode has unsafe status: {status!r}")
+    if consumption_mode == "runtime_consumed":
+        raise BatchRunError(f"remote {label} non-consumed mode cannot use runtime_consumed consumptionMode")
+
+
 def validate_policy_update_parameter_values(parameters: dict[str, Any], label: str) -> None:
     for value in parameters.values():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
@@ -2626,6 +2714,7 @@ def validate_collected_policy_update_artifact_parameters(
     local_artifact_path: Path,
     rel_artifact_path: Path,
     updated_parameters: dict[str, Any],
+    promotion_gate: Any,
 ) -> None:
     try:
         with local_artifact_path.open(encoding="utf-8") as artifact_file:
@@ -2645,6 +2734,11 @@ def validate_collected_policy_update_artifact_parameters(
     if artifact_parameters != updated_parameters:
         raise BatchRunError(
             "remote policy update artifact parameters disagree with policyUpdate.updatedParameters: "
+            f"{rel_artifact_path.as_posix()}"
+        )
+    if promotion_gate is not None and artifact.get("promotionGate") != promotion_gate:
+        raise BatchRunError(
+            "remote policy update artifact promotionGate disagrees with policyUpdate.promotionGate: "
             f"{rel_artifact_path.as_posix()}"
         )
 

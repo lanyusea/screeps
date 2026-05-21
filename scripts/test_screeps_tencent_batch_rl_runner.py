@@ -114,8 +114,95 @@ def write_candidate_scorecard_set_artifacts(root: Path, scorecard_set: object) -
             write_text(root / "remote" / artifact_path, "{}\n")
 
 
-def write_policy_update_artifact(root: Path, artifact_path: str, parameters: object) -> None:
-    write_text(root / "remote" / artifact_path, json.dumps({"parameters": parameters}, sort_keys=True) + "\n")
+def runtime_consumed_promotion_gate() -> dict[str, object]:
+    return {
+        "type": "screeps-rl-policy-update-promotion-gate",
+        "schemaVersion": 1,
+        "status": "runtime_consumed_shadow_candidate",
+        "consumptionMode": "runtime_consumed",
+        "policyUpdateGenerated": True,
+        "runtimeParameterInjection": True,
+        "runtimeParameterConsumption": True,
+        "runtimeParameterConsumptionStatus": "consumed",
+        "candidateParameterScope": "runtime_injected",
+        "runtimeConsumedPromotionEligible": True,
+        "loopAPromotionEligible": True,
+        "loopBPromotionEligible": True,
+        "missingPrerequisites": [],
+        "reason": "tick-time runtime policy parameter consumption proof is present",
+        "validationText": (
+            "#924 scorecards and #907 change-control require tick-time runtime parameter "
+            "consumption proof before Loop A or Loop B can treat a policy update as "
+            "runtime-consumed or promotional."
+        ),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def non_consumed_promotion_gate() -> dict[str, object]:
+    gate = runtime_consumed_promotion_gate()
+    gate.update(
+        {
+            "status": "blocked_runtime_parameter_consumption_missing",
+            "consumptionMode": "runtime_injected_scorecard_metadata_non_promotional",
+            "runtimeParameterInjection": False,
+            "runtimeParameterConsumption": False,
+            "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+            "runtimeConsumedPromotionEligible": False,
+            "loopAPromotionEligible": False,
+            "loopBPromotionEligible": False,
+            "missingPrerequisites": ["runtime_parameter_consumption"],
+            "reason": "scorecard metadata update is non-promotional without runtime consumption proof",
+        }
+    )
+    return gate
+
+
+def ready_runtime_parameter_injection() -> dict[str, object]:
+    return {
+        "status": "injected",
+        "runtimeParameterInjection": True,
+        "runtimeParameterConsumption": True,
+        "runtimeParameterConsumptionStatus": "consumed",
+        "policyUpdateEligible": True,
+        "candidateParameterScope": "runtime_injected",
+        "injectedVariantCount": 1,
+        "consumedVariantCount": 1,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def missing_consumption_runtime_parameter_injection() -> dict[str, object]:
+    return {
+        "status": "injected",
+        "runtimeParameterInjection": True,
+        "runtimeParameterConsumption": False,
+        "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+        "policyUpdateEligible": False,
+        "candidateParameterScope": "runtime_injected",
+        "injectedVariantCount": 1,
+        "consumedVariantCount": 0,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+
+
+def write_policy_update_artifact(
+    root: Path,
+    artifact_path: str,
+    parameters: object,
+    promotion_gate: object | None = None,
+) -> None:
+    payload = {
+        "parameters": parameters,
+        "promotionGate": runtime_consumed_promotion_gate() if promotion_gate is None else promotion_gate,
+    }
+    write_text(root / "remote" / artifact_path, json.dumps(payload, sort_keys=True) + "\n")
 
 
 def positive_policy_update(artifact_path: str) -> dict[str, object]:
@@ -126,6 +213,7 @@ def positive_policy_update(artifact_path: str) -> dict[str, object]:
         "killSignalWeight": 6,
         "riskPenalty": 4,
     }
+    promotion_gate = runtime_consumed_promotion_gate()
     return {
         "iterations": 1,
         "liveEffect": False,
@@ -140,8 +228,10 @@ def positive_policy_update(artifact_path: str) -> dict[str, object]:
             "killSignalWeight": 0,
             "riskPenalty": 0,
         },
+        "promotionGate": copy.deepcopy(promotion_gate),
         "nextCandidatePolicy": {
             "parameters": copy.deepcopy(updated_parameters),
+            "promotionGate": copy.deepcopy(promotion_gate),
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
@@ -241,9 +331,12 @@ def training_report_with_ready_runtime_scorecard() -> dict[str, object]:
         "runtimeParameterInjection": {
             "status": "injected",
             "runtimeParameterInjection": True,
+            "runtimeParameterConsumption": True,
+            "runtimeParameterConsumptionStatus": "consumed",
             "policyUpdateEligible": True,
             "candidateParameterScope": "runtime_injected",
             "injectedVariantCount": 1,
+            "consumedVariantCount": 1,
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
@@ -696,6 +789,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaisesRegex(runner.BatchRunError, expected_error):
                 runner.safe_policy_update_artifact_path(raw)
 
+    def test_write_policy_update_artifact_preserves_intentional_falsy_promotion_gate(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, {"territorySignalWeight": 7}, promotion_gate=False)
+            payload = json.loads((root / "remote" / artifact_path).read_text(encoding="utf-8"))
+
+        self.assertIs(payload["promotionGate"], False)
+
     def test_verified_remote_policy_update_accepts_empty_zero_iteration_update(self) -> None:
         top_level_safety = {
             "liveEffect": False,
@@ -945,13 +1047,113 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     },
                     top_level_safety,
                     root,
+                    runtime_parameter_injection=ready_runtime_parameter_injection(),
                 ),
+                {
+                    "policyUpdateIterations": 1,
+                    "policyUpdateArtifactPath": artifact_path,
+                    "policyUpdatePromotionGate": policy_update["promotionGate"],
+                    "policyUpdate": policy_update,
+                },
+            )
+
+    def test_verified_remote_policy_update_accepts_non_consumed_scorecard_update_as_non_promotional(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        gate = non_consumed_promotion_gate()
+        policy_update["promotionGate"] = copy.deepcopy(gate)
+        next_candidate = policy_update["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate["promotionGate"] = copy.deepcopy(gate)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"], gate)
+
+            verified = runner.verified_remote_policy_update_fields(
                 {
                     "policyUpdateIterations": 1,
                     "policyUpdateArtifactPath": artifact_path,
                     "policyUpdate": policy_update,
                 },
+                top_level_safety,
+                root,
+                runtime_parameter_injection=missing_consumption_runtime_parameter_injection(),
             )
+
+        promotion_gate = verified["policyUpdatePromotionGate"]
+        assert isinstance(promotion_gate, dict)
+        self.assertFalse(promotion_gate["runtimeParameterConsumption"])
+        self.assertFalse(promotion_gate["loopAPromotionEligible"])
+        self.assertFalse(promotion_gate["loopBPromotionEligible"])
+        self.assertEqual(promotion_gate["missingPrerequisites"], ["runtime_parameter_consumption"])
+
+    def test_verified_remote_policy_update_rejects_missing_consumption_key_for_injected_proof(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        gate = non_consumed_promotion_gate()
+        policy_update["promotionGate"] = copy.deepcopy(gate)
+        next_candidate = policy_update["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate["promotionGate"] = copy.deepcopy(gate)
+        runtime_parameter_injection = missing_consumption_runtime_parameter_injection()
+        runtime_parameter_injection.pop("runtimeParameterConsumption")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"], gate)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "runtimeParameterInjection.runtimeParameterConsumption",
+            ):
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                    runtime_parameter_injection=runtime_parameter_injection,
+                )
+
+    def test_verified_remote_policy_update_rejects_non_consumed_scorecard_update_claiming_runtime_consumption(
+        self,
+    ) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"])
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "claims runtime consumption without top-level consumption proof",
+            ):
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                    runtime_parameter_injection=missing_consumption_runtime_parameter_injection(),
+                )
 
     def test_verified_remote_policy_update_rejects_non_numeric_policy_parameter_values(self) -> None:
         artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
@@ -1036,6 +1238,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     },
                     top_level_safety,
                     root,
+                    runtime_parameter_injection=ready_runtime_parameter_injection(),
                 )
 
     def test_verified_remote_policy_update_rejects_positive_update_without_parameter_change(self) -> None:
@@ -1249,6 +1452,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                         "officialMmoWrites": False,
                         "officialMmoWritesAllowed": False,
                         "artifactCount": 1,
+                        "runtimeParameterInjection": ready_runtime_parameter_injection(),
                         "policyUpdateIterations": 1,
                         "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
                         "policyUpdate": positive_policy_update(
@@ -1294,7 +1498,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         for data, expected_error in cases:
             with self.subTest(expected_error=expected_error), tempfile.TemporaryDirectory() as temp_dir:
                 with self.assertRaisesRegex(runner.BatchRunError, expected_error):
-                    runner.verified_remote_policy_update_fields(data, top_level_safety, Path(temp_dir))
+                    runner.verified_remote_policy_update_fields(
+                        data,
+                        top_level_safety,
+                        Path(temp_dir),
+                        runtime_parameter_injection=ready_runtime_parameter_injection(),
+                    )
 
     def test_verify_remote_training_report_records_safety_flags_in_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1325,9 +1534,12 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "type": "screeps-rl-runtime-parameter-injection",
                             "status": "injected",
                             "runtimeParameterInjection": True,
+                            "runtimeParameterConsumption": True,
+                            "runtimeParameterConsumptionStatus": "consumed",
                             "policyUpdateEligible": True,
                             "candidateParameterScope": "runtime_injected",
                             "injectedVariantCount": 1,
+                            "consumedVariantCount": 1,
                             "liveEffect": False,
                             "officialMmoWrites": False,
                             "officialMmoWritesAllowed": False,
