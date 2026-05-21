@@ -3017,6 +3017,7 @@ export const STRATEGY_REGISTRY = [
             persisted = read_json(out_dir / "policy-gradient-metadata-ranking.json")
             artifact_path = Path(report["policyUpdateArtifactPath"])
             artifact = read_json(artifact_path)
+            scorecard_payload = read_json(Path(report["scorecardArtifactPath"]))
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
         self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
@@ -3035,6 +3036,12 @@ export const STRATEGY_REGISTRY = [
             "runtime_parameter_consumption_missing_scorecard_materialized",
         )
         self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_consumption")
+        self.assertEqual(report["candidateScorecard"]["overallGate"]["status"], "HOLD")
+        self.assertFalse(report["candidateScorecard"]["overallGate"]["runtimeParameterInjectionProven"])
+        self.assertEqual(scorecard_payload["overallGate"]["status"], "HOLD")
+        self.assertFalse(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
+        )
         self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
         self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
         self.assertIsNotNone(report["candidateScorecard"]["candidateRank"])
