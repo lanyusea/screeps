@@ -1146,7 +1146,7 @@ function getExpansionPreconditions(
 }
 
 function hasActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): boolean {
-  return getActivePostClaimBootstrapBlocker(input) !== null || (input.activePostClaimBootstrapCount ?? 0) > 0;
+  return getActivePostClaimBootstrapBlocker(input) !== null;
 }
 
 function getActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): PostClaimBootstrapBlockerSummary | null {

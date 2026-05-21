@@ -36,7 +36,7 @@ import {
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
-import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import { getActivePostClaimBootstrapBlockers, recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import {
   refreshTerritoryExecutionTargets,
   type TerritoryExecutionRefreshOptions,
@@ -439,7 +439,9 @@ function evaluateAutonomousExpansionClaim(
   telemetryEvents: RuntimeTelemetryEvent[]
 ): AutonomousExpansionClaimEvaluation {
   const colonyName = colony.room.name;
-  const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
+  const expansionReport = scoreExpansionCandidates(
+    buildAutonomousExpansionScoringInput(colony, report, context, gameTime)
+  );
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
     (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
   );
@@ -615,7 +617,8 @@ function getScoutValidationClaimSkipReason(
 function buildAutonomousExpansionScoringInput(
   colony: ColonySnapshot,
   report: OccupationRecommendationReport,
-  context: AutonomousExpansionClaimTickContext
+  context: AutonomousExpansionClaimTickContext,
+  gameTime: number
 ): ExpansionScoringInput {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
@@ -652,7 +655,7 @@ function buildAutonomousExpansionScoringInput(
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
-    activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colonyName, gameTime),
     claimedRooms,
     candidates
   };
@@ -837,15 +840,6 @@ function getAdjacentRoomNames(
     const exitRoom = exits[direction];
     return isNonEmptyString(exitRoom) ? [exitRoom] : [];
   });
-}
-
-function countActivePostClaimBootstraps(): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  return Object.values(records).filter((record) => isRecord(record) && record.status !== 'ready').length;
 }
 
 function hasSufficientAutonomousExpansionClaimRcl(colony: ColonySnapshot): boolean {

@@ -991,9 +991,21 @@ function countRoomWorkers(roomName: string): number {
     return 0;
   }
 
-  return Object.values(creeps).filter(
-    (creep) => creep?.memory?.role === 'worker' && creep.memory.colony === roomName
-  ).length;
+  return Object.values(creeps).filter((creep) => isPostClaimRoomWorker(creep, roomName)).length;
+}
+
+function isPostClaimRoomWorker(creep: Creep | undefined, roomName: string): boolean {
+  if (creep?.memory?.role !== 'worker') {
+    return false;
+  }
+
+  return (
+    creep.memory.colony === roomName ||
+    creep.memory.spawnSupport?.targetRoom === roomName ||
+    creep.memory.controllerSustain?.targetRoom === roomName ||
+    creep.room?.name === roomName ||
+    creep.pos?.roomName === roomName
+  );
 }
 
 function recordSpawnSitePlacedTelemetry(

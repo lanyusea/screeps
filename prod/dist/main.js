@@ -7402,12 +7402,14 @@ function countRoomWorkers(roomName) {
   if (!creeps) {
     return 0;
   }
-  return Object.values(creeps).filter(
-    (creep) => {
-      var _a2;
-      return ((_a2 = creep == null ? void 0 : creep.memory) == null ? void 0 : _a2.role) === "worker" && creep.memory.colony === roomName;
-    }
-  ).length;
+  return Object.values(creeps).filter((creep) => isPostClaimRoomWorker(creep, roomName)).length;
+}
+function isPostClaimRoomWorker(creep, roomName) {
+  var _a, _b, _c, _d, _e;
+  if (((_a = creep == null ? void 0 : creep.memory) == null ? void 0 : _a.role) !== "worker") {
+    return false;
+  }
+  return creep.memory.colony === roomName || ((_b = creep.memory.spawnSupport) == null ? void 0 : _b.targetRoom) === roomName || ((_c = creep.memory.controllerSustain) == null ? void 0 : _c.targetRoom) === roomName || ((_d = creep.room) == null ? void 0 : _d.name) === roomName || ((_e = creep.pos) == null ? void 0 : _e.roomName) === roomName;
 }
 function recordSpawnSitePlacedTelemetry(record, spawnSite, result, telemetryEvents, existing = false) {
   telemetryEvents.push({
@@ -8371,8 +8373,7 @@ function getExpansionPreconditions(input, candidate) {
   return preconditions;
 }
 function hasActivePostClaimBootstrapBlocker(input) {
-  var _a;
-  return getActivePostClaimBootstrapBlocker(input) !== null || ((_a = input.activePostClaimBootstrapCount) != null ? _a : 0) > 0;
+  return getActivePostClaimBootstrapBlocker(input) !== null;
 }
 function getActivePostClaimBootstrapBlocker(input) {
   const blockers = input.activePostClaimBootstrapBlockers;
@@ -40856,7 +40857,9 @@ function recordExpansionClaimSkipTelemetry(creep, controller, reason, telemetryE
 function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, telemetryEvents) {
   var _a, _b, _c;
   const colonyName = colony.room.name;
-  const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
+  const expansionReport = scoreExpansionCandidates(
+    buildAutonomousExpansionScoringInput(colony, report, context, gameTime)
+  );
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
     (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
   );
@@ -41000,7 +41003,7 @@ function getScoutValidationClaimSkipReason(validation) {
       return "scoutPending";
   }
 }
-function buildAutonomousExpansionScoringInput(colony, report, context) {
+function buildAutonomousExpansionScoringInput(colony, report, context, gameTime) {
   var _a, _b;
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername10(colony.room.controller);
@@ -41032,7 +41035,7 @@ function buildAutonomousExpansionScoringInput(colony, report, context) {
     ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
     ownedRoomCount: getVisibleOwnedRoomCount(),
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
-    activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colonyName, gameTime),
     claimedRooms,
     candidates
   };
@@ -41144,14 +41147,6 @@ function getAdjacentRoomNames7(roomName, gameMap = ((_a) => (_a = globalThis.Gam
     const exitRoom = exits[direction];
     return isNonEmptyString32(exitRoom) ? [exitRoom] : [];
   });
-}
-function countActivePostClaimBootstraps() {
-  var _a, _b;
-  const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord32(records)) {
-    return 0;
-  }
-  return Object.values(records).filter((record) => isRecord32(record) && record.status !== "ready").length;
 }
 function hasSufficientAutonomousExpansionClaimRcl(colony) {
   var _a, _b;
@@ -42906,7 +42901,7 @@ function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40()) {
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
-    countActivePostClaimBootstraps2(),
+    countActivePostClaimBootstraps(),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join("|");
@@ -43006,7 +43001,7 @@ function getGclLevel5() {
   const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
   return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
-function countActivePostClaimBootstraps2() {
+function countActivePostClaimBootstraps() {
   var _a, _b;
   const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
   if (!isRecord36(records)) {
