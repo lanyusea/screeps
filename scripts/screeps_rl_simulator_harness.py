@@ -400,40 +400,58 @@ def _normalized_inline_strategy_variant_config(variant_id: str, raw_config: Mapp
     return config
 
 
+def _scale_environment_strategy_variant_config(
+    variant_id: str,
+    base_config: Mapping[str, Any],
+    *,
+    rewrite_label: bool = True,
+) -> JsonObject:
+    base_variant_id = scale_environment_base_variant_id(variant_id)
+    environment_index = scale_environment_index(variant_id)
+    config = copy.deepcopy(dict(base_config))
+    config["id"] = variant_id
+    if rewrite_label or not isinstance(config.get("label"), str) or not config["label"]:
+        base_label = config.get("label") if isinstance(config.get("label"), str) else base_variant_id
+        config["label"] = (
+            f"{base_label} scale environment {environment_index}"
+            if environment_index is not None
+            else f"{base_label} scale environment"
+        )
+    config["sourceVariantId"] = base_variant_id
+    config["scaleEnvironment"] = {
+        "enabled": True,
+        "environmentIndex": environment_index,
+        "baseVariantId": base_variant_id,
+        "purpose": "unique simulator environment row for concurrent E2 scale validation",
+    }
+    config["safety"] = {
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    return config
+
+
 def strategy_variant_config_by_id(
     variant_id: str,
     variant_configs: Mapping[str, JsonObject] | None = None,
 ) -> JsonObject:
     """Return bounded public config for a strategy variant id."""
     base_variant_id = scale_environment_base_variant_id(variant_id)
-    if base_variant_id != variant_id:
-        base_config = strategy_variant_config_by_id(base_variant_id, variant_configs=variant_configs)
-        environment_index = scale_environment_index(variant_id)
-        base_label = base_config.get("label") if isinstance(base_config.get("label"), str) else base_variant_id
-        config = copy.deepcopy(base_config)
-        config["id"] = variant_id
-        config["label"] = (
-            f"{base_label} scale environment {environment_index}"
-            if environment_index is not None
-            else f"{base_label} scale environment"
-        )
-        config["sourceVariantId"] = base_variant_id
-        config["scaleEnvironment"] = {
-            "enabled": True,
-            "environmentIndex": environment_index,
-            "baseVariantId": base_variant_id,
-            "purpose": "unique simulator environment row for concurrent E2 scale validation",
-        }
-        config["safety"] = {
-            "liveEffect": False,
-            "officialMmoWrites": False,
-            "officialMmoWritesAllowed": False,
-        }
-        return config
     if variant_configs is not None:
         override = variant_configs.get(variant_id)
         if isinstance(override, dict):
-            return _normalized_inline_strategy_variant_config(variant_id, override)
+            config = _normalized_inline_strategy_variant_config(variant_id, override)
+            if base_variant_id != variant_id:
+                return _scale_environment_strategy_variant_config(
+                    variant_id,
+                    config,
+                    rewrite_label=False,
+                )
+            return config
+    if base_variant_id != variant_id:
+        base_config = strategy_variant_config_by_id(base_variant_id, variant_configs=variant_configs)
+        return _scale_environment_strategy_variant_config(variant_id, base_config)
     for config in DEFAULT_STRATEGY_VARIANT_CONFIGS:
         if config.get("id") == variant_id:
             return copy.deepcopy(config)
