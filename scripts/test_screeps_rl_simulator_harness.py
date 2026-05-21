@@ -2193,7 +2193,7 @@ cli:
         self.assertIn("redisGlobLiteral", eval_script)
         self.assertIn('"*memory*" .. escapedUsername .. "*"', eval_script)
         self.assertIn('"*" .. escapedUsername .. "*Memory*"', eval_script)
-        self.assertIn("scanMemoryPattern(pattern)", eval_script)
+        self.assertIn("scanMemoryPattern(pattern, false)", eval_script)
         self.assertIn("if #candidates == 0 then", eval_script)
         self.assertEqual(command[-2:], ["0", "bot"])
         self.assertIn("pcall(cjson.decode, value)", eval_script)
@@ -2278,7 +2278,7 @@ cli:
                 if (
                     "pcall(cjson.decode, value)" in eval_script
                     and "decoded.rlRuntimePolicyParameters" in eval_script
-                    and 'return cjson.encode({ok = true, candidates = candidates})' in eval_script
+                    and "genericScanRan = genericScanRan" in eval_script
                 ):
                     candidates.append({
                         "source": "redis.memory:bot.rlRuntimePolicyParameters",
@@ -2518,6 +2518,73 @@ cli:
                 self.assertIsNotNone(smoke.command)
                 command = smoke.command if smoke.command is not None else []
                 self.assertEqual(command[-2:], ["0", "bot"])
+
+    def test_redis_runtime_parameter_consumption_collector_scans_generic_after_stale_target_hit(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["owner"] = "bot"
+        stale["strategyVariantId"] = "stale-variant"
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        matching["owner"] = "bot"
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            commands: list[list[str]]
+
+            def __init__(self) -> None:
+                self.commands = []
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.commands.append(command)
+                if command[-1] == "generic":
+                    return {
+                        "returncode": 0,
+                        "output_excerpt": json.dumps({
+                            "ok": True,
+                            "genericScanRan": True,
+                            "candidates": [{"source": "redis.Memory", "value": matching}],
+                        }),
+                    }
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "genericScanRan": False,
+                        "candidates": [
+                            {"source": "redis.memory:bot.rlRuntimePolicyParameters", "value": stale}
+                        ],
+                    }),
+                }
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, matching)
+        self.assertEqual(len(smoke.commands), 2)
+        self.assertEqual(smoke.commands[0][-2:], ["0", "bot"])
+        self.assertEqual(smoke.commands[1][-3:], ["0", "bot", "generic"])
+        eval_script = smoke.commands[0][smoke.commands[0].index("EVAL") + 1]
+        self.assertIn('scanMode == "generic"', eval_script)
+        self.assertIn("skipExpectedUsernameKeys", eval_script)
+        self.assertIn("genericScanRan", eval_script)
 
     def test_redis_runtime_parameter_consumption_collector_fails_closed_without_proof(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

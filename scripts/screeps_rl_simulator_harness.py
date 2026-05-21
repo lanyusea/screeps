@@ -934,6 +934,8 @@ local candidates = {}
 local seen = {}
 local candidateLimit = 32
 local candidateMaxDepth = 6
+local scanMode = tostring(ARGV[2] or "auto")
+local genericScanRan = false
 local nestedRuntimePolicyParameterKeys = {
   "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__",
   "runtimeParameterConsumption",
@@ -1102,7 +1104,7 @@ end
 local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMatched)
   pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
-local function scanMemoryPattern(pattern)
+local function scanMemoryPattern(pattern, skipExpectedUsernameKeys)
   cursor = "0"
   repeat
     local result = redis.call("SCAN", cursor, "MATCH", pattern, "COUNT", 100)
@@ -1110,16 +1112,27 @@ local function scanMemoryPattern(pattern)
     for _, key in ipairs(result[2]) do
       local keyText = tostring(key)
       local keyLower = string.lower(keyText)
-      if not seen[keyText] and string.find(keyLower, "memory", 1, true) then
+      local ownerMatched = keyMatchesExpectedUsername(keyText)
+      if
+        not seen[keyText]
+        and string.find(keyLower, "memory", 1, true)
+        and not (skipExpectedUsernameKeys and ownerMatched)
+      then
         seen[keyText] = true
         local keyType = redis.call("TYPE", key).ok
         if keyType == "string" then
           local value = redis.call("GET", key)
-          pushRuntimePolicyParameterCandidate("redis." .. keyText, value, 0, keyMatchesExpectedUsername(keyText))
+          pushRuntimePolicyParameterCandidate("redis." .. keyText, value, 0, ownerMatched)
         end
       end
     end
   until cursor == "0"
+end
+local function scanGenericMemoryPatterns(skipExpectedUsernameKeys)
+  genericScanRan = true
+  for _, pattern in ipairs({"*memory*", "*Memory*"}) do
+    scanMemoryPattern(pattern, skipExpectedUsernameKeys or false)
+  end
 end
 local scanPatterns = {}
 if expectedUsername ~= "" then
@@ -1131,20 +1144,73 @@ if expectedUsername ~= "" then
     "*" .. escapedUsername .. "*Memory*",
   }
 end
-for _, pattern in ipairs(scanPatterns) do
-  scanMemoryPattern(pattern)
-end
-if #candidates == 0 then
-  for _, pattern in ipairs({"*memory*", "*Memory*"}) do
-    scanMemoryPattern(pattern)
+if scanMode == "generic" then
+  scanGenericMemoryPatterns(true)
+else
+  for _, pattern in ipairs(scanPatterns) do
+    scanMemoryPattern(pattern, false)
+  end
+  if #candidates == 0 then
+    scanGenericMemoryPatterns(false)
   end
 end
-return cjson.encode({ok = true, candidates = candidates})
+return cjson.encode({ok = true, candidates = candidates, genericScanRan = genericScanRan})
 """.strip()
     username = text_or_none(getattr(cfg, "username", None))
     if username is None:
         return None
+    payload = _collect_redis_runtime_parameter_payload(
+        smoke,
+        compose,
+        cfg,
+        eval_script,
+        username,
+    )
+    if payload is None:
+        return None
+    evidence = find_runtime_parameter_consumption_evidence(
+        payload,
+        injection=injection,
+        owner_username=username,
+    )
+    if (
+        injection is not None
+        and not _runtime_parameter_consumption_matches_injection(evidence, injection)
+        and isinstance(payload, dict)
+        and payload.get("genericScanRan") is False
+    ):
+        generic_payload = _collect_redis_runtime_parameter_payload(
+            smoke,
+            compose,
+            cfg,
+            eval_script,
+            username,
+            scan_mode="generic",
+        )
+        generic_evidence = find_runtime_parameter_consumption_evidence(
+            generic_payload,
+            injection=injection,
+            owner_username=username,
+        )
+        if _runtime_parameter_consumption_matches_injection(generic_evidence, injection):
+            return generic_evidence
+        if evidence is None:
+            return generic_evidence
+    return evidence
+
+
+def _collect_redis_runtime_parameter_payload(
+    smoke: Any,
+    compose: Sequence[str],
+    cfg: Any,
+    eval_script: str,
+    username: str,
+    *,
+    scan_mode: str | None = None,
+) -> JsonObject | None:
     command = [*compose, "exec", "-T", "redis", "redis-cli", "--raw", "EVAL", eval_script, "0", username]
+    if scan_mode is not None:
+        command.append(scan_mode)
     result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
     if result.get("returncode") != 0:
         return None
@@ -1152,10 +1218,16 @@ return cjson.encode({ok = true, candidates = candidates})
         payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
     except (IndexError, json.JSONDecodeError):
         return None
-    return find_runtime_parameter_consumption_evidence(
-        payload,
-        injection=injection,
-        owner_username=username,
+    return payload if isinstance(payload, dict) else None
+
+
+def _runtime_parameter_consumption_matches_injection(
+    evidence: JsonObject | None,
+    injection: JsonObject,
+) -> bool:
+    return (
+        evidence is not None
+        and runtime_parameter_consumption_validation_error(injection, evidence) is None
     )
 
 
