@@ -57,6 +57,29 @@ RUNTIME_INJECTION_TRUE_KEYS = {
 RUNTIME_INJECTION_SCOPE_KEYS = {"candidateparameterscope"}
 RUNTIME_INJECTION_METADATA_ONLY_VALUES = {"metadataonly"}
 SUMMARY_STATUS_PRIORITY = {"BLOCKED": 2, "OK": 1, "N/A": 0}
+TENCENT_ACTIVE_FINAL_STATUS_KEYS = {"", "unknown", "running", "inprogress"}
+TENCENT_TERMINAL_FINAL_STATUS_KEYS = {
+    "completed",
+    "completedscaledownfailed",
+    "failed",
+    "ok",
+    "preflightok",
+    "success",
+}
+TENCENT_TIMEOUT_TOTAL_KEYS = (
+    "totalSeconds",
+    "totalTimeoutSeconds",
+    "runTimeoutSeconds",
+    "timeoutSeconds",
+    "total",
+)
+TENCENT_TIMEOUT_COMPONENT_KEY_GROUPS = (
+    ("scaleTimeoutSeconds", "scale_timeout_seconds", "scale-timeout-seconds", "scale"),
+    ("scaleDownTimeoutSeconds", "scale_down_timeout_seconds", "scale-down-timeout-seconds", "scaleDown"),
+    ("bootstrapTimeoutSeconds", "bootstrap_timeout_seconds", "bootstrap-timeout-seconds", "bootstrap"),
+    ("trainingTimeoutSeconds", "training_timeout_seconds", "training-timeout-seconds", "training"),
+    ("transferTimeoutSeconds", "transfer_timeout_seconds", "transfer-timeout-seconds", "transfer"),
+)
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -485,6 +508,10 @@ def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject
 
 
 def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+    return tencent_batch_summary_at(artifact_root, repo_root, now=None)
+
+
+def tencent_batch_summary_at(artifact_root: Path, repo_root: Path, *, now: Any | None) -> JsonObject:
     root = artifact_root / "tencent-cloud" / "batch-runs"
     runs: list[JsonObject] = []
     if root.exists():
@@ -494,6 +521,7 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
                 continue
             compute_evidence = static_dashboard.compute_evidence_summary(payload)
             batch_scale = tencent_batch_scale(payload)
+            runner_state = classify_tencent_batch_run_state(payload, now=now)
             runs.append(
                 {
                     "runId": payload.get("runId") or path.parent.name,
@@ -508,17 +536,18 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
                     "computeEvidence": compute_evidence,
                     "computeClassification": compute_evidence.get("classification"),
                     "batchScale": batch_scale,
+                    "runnerState": runner_state,
+                    "stateClassification": runner_state.get("status"),
+                    "activeAgeSeconds": runner_state.get("ageSeconds"),
+                    "declaredTimeoutSeconds": runner_state.get("timeoutSeconds"),
+                    "handoffRequired": runner_state.get("handoffRequired"),
                     "blocker": compute_evidence.get("blocker"),
                     "path": safe_display_path(path, repo_root),
                     "timestamp": display_timestamp(artifact_timestamp(path, payload)),
                 }
             )
     latest = max(runs, key=lambda item: item["timestamp"]) if runs else None
-    active = [
-        run
-        for run in runs
-        if run.get("partial") is True or str(run.get("finalStatus", "")).lower() in {"unknown", "running"}
-    ]
+    active = [run for run in runs if as_dict(run.get("runnerState")).get("active") is True]
     completed = [run for run in runs if str(run.get("finalStatus", "")).lower() in {"completed", "success", "ok"}]
     compute_confirmed = [run for run in runs if run.get("computeClassification") == "COMPUTE_CONFIRMED"]
     preflight_only = [run for run in runs if run.get("computeClassification") == "PREFLIGHT_ONLY_VALIDATION"]
@@ -531,6 +560,176 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
         "preflightOnlyRunCount": len(preflight_only),
         "latest": latest,
     }
+
+
+def classify_tencent_batch_run_state(payload: JsonObject, *, now: Any | None = None) -> JsonObject:
+    run_id = text_value(payload.get("runId")) or "unknown"
+    started_at = payload.get("startedAt")
+    age_seconds = seconds_since(started_at, now=now)
+    timeout_seconds = tencent_declared_timeout_seconds(payload)
+    progress = tencent_batch_progress(payload)
+    pid = tencent_controller_pid(payload)
+    active = tencent_batch_run_is_active(payload)
+    state: JsonObject = {
+        "runId": run_id,
+        "pid": pid,
+        "active": active,
+        "status": "TENCENT_BATCH_RUNNER_INACTIVE",
+        "startedAt": display_timestamp(started_at),
+        "ageSeconds": age_seconds,
+        "timeoutSeconds": timeout_seconds,
+        "timeoutKnown": timeout_seconds is not None,
+        "progress": progress,
+        "handoffRequired": False,
+        "action": "none",
+    }
+    if not active:
+        return state
+    if timeout_seconds is None or age_seconds is None or age_seconds <= timeout_seconds or progress.get("hasProgress") is True:
+        state.update(
+            {
+                "status": "TRAINING_IN_PROGRESS",
+                "action": "monitor",
+                "evidence": tencent_active_evidence(run_id, pid, age_seconds, timeout_seconds, progress),
+            }
+        )
+        return state
+    action = (
+        f"kill PID {pid} and scale down ASG to DesiredCapacity=0"
+        if pid is not None
+        else "scale down ASG to DesiredCapacity=0 after confirming the active runner process"
+    )
+    state.update(
+        {
+            "status": "TENCENT_BATCH_RUNNER_STUCK",
+            "handoffRequired": True,
+            "handoffSeverity": "P1",
+            "action": action,
+            "scaleDownAction": action,
+            "evidence": (
+                f"Active Tencent batch runner {run_id} (PID {pid if pid is not None else 'unknown'}) "
+                f"age={age_seconds}s exceeded declared timeout={timeout_seconds}s with no environments, "
+                "artifacts, or training report observed."
+            ),
+        }
+    )
+    return state
+
+
+def tencent_active_evidence(
+    run_id: str,
+    pid: int | None,
+    age_seconds: int | None,
+    timeout_seconds: int | None,
+    progress: JsonObject,
+) -> str:
+    pid_text = f", PID {pid}" if pid is not None else ""
+    timeout_text = f", timeout={timeout_seconds}s" if timeout_seconds is not None else ", timeout=unknown"
+    age_text = f"age={age_seconds}s" if age_seconds is not None else "age=unknown"
+    progress_text = "progress observed" if progress.get("hasProgress") is True else "no completed environments yet"
+    return f"Active Tencent batch runner {run_id}{pid_text}: {age_text}{timeout_text}; {progress_text}."
+
+
+def tencent_batch_run_is_active(payload: JsonObject) -> bool:
+    if parse_iso_datetime(payload.get("finishedAt")) is not None:
+        return False
+    final_status = normalized_key(text_value(payload.get("finalStatus")) or "")
+    if final_status in TENCENT_ACTIVE_FINAL_STATUS_KEYS:
+        return True
+    return payload.get("partial") is True and final_status not in TENCENT_TERMINAL_FINAL_STATUS_KEYS
+
+
+def tencent_declared_timeout_seconds(payload: JsonObject) -> int | None:
+    inputs = as_dict(payload.get("inputs"))
+    candidates = (
+        as_dict(inputs.get("executionTimeouts")),
+        as_dict(payload.get("executionTimeouts")),
+        as_dict(inputs.get("timeouts")),
+        as_dict(payload.get("timeouts")),
+        inputs,
+        payload,
+    )
+    for candidate in candidates:
+        total = seconds_value_for_keys(candidate, TENCENT_TIMEOUT_TOTAL_KEYS)
+        if total is not None and total > 0:
+            return total
+    for candidate in candidates:
+        components: list[int] = []
+        for keys in TENCENT_TIMEOUT_COMPONENT_KEY_GROUPS:
+            value = seconds_value_for_keys(candidate, keys)
+            if value is not None:
+                components.append(value)
+        if components:
+            return sum(components)
+    return None
+
+
+def seconds_value_for_keys(container: JsonObject, keys: Sequence[str]) -> int | None:
+    if not container:
+        return None
+    normalized_values = {normalized_key(key): value for key, value in container.items()}
+    for key in keys:
+        value = normalized_values.get(normalized_key(key))
+        parsed = static_dashboard.number_value(value)
+        if parsed is not None:
+            return max(0, int(parsed))
+    return None
+
+
+def tencent_batch_progress(payload: JsonObject) -> JsonObject:
+    execution = as_dict(payload.get("execution"))
+    outputs = as_dict(payload.get("outputs"))
+    training_report = as_dict(outputs.get("trainingReport"))
+    environments_run = first_tencent_number(
+        execution.get("environmentsRun"),
+        execution.get("environmentsCompleted"),
+        execution.get("completedEnvironments"),
+        training_report.get("environmentRows"),
+        training_report.get("environmentsRun"),
+    )
+    artifact_count = first_tencent_number(
+        execution.get("artifactCount"),
+        training_report.get("artifactCount"),
+        as_dict(outputs.get("remoteArtifacts")).get("artifactCount"),
+    )
+    training_report_produced = (
+        execution.get("trainingReportProduced") is True
+        or bool(training_report.get("reportId"))
+        or bool(training_report.get("path"))
+    )
+    has_progress = bool(
+        (environments_run is not None and environments_run > 0)
+        or (artifact_count is not None and artifact_count > 0)
+        or training_report_produced
+    )
+    return {
+        "hasProgress": has_progress,
+        "environmentsRun": environments_run,
+        "artifactCount": artifact_count,
+        "trainingReportProduced": training_report_produced,
+    }
+
+
+def first_tencent_number(*values: Any) -> int | None:
+    for value in values:
+        parsed = static_dashboard.number_value(value)
+        if parsed is not None:
+            return max(0, int(parsed))
+    return None
+
+
+def tencent_controller_pid(payload: JsonObject) -> int | None:
+    for container in (
+        payload,
+        as_dict(payload.get("controllerProcess")),
+        as_dict(payload.get("process")),
+        as_dict(payload.get("runnerProcess")),
+    ):
+        for key in ("pid", "controllerPid", "runnerPid"):
+            parsed = static_dashboard.int_value(container.get(key))
+            if parsed is not None and parsed > 0:
+                return parsed
+    return None
 
 
 def tencent_batch_scale(payload: JsonObject) -> JsonObject:
@@ -978,7 +1177,7 @@ def build_live_summary(
     raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
     scorecard = latest_scorecard_summary(artifact_root, repo_root)
-    tencent = tencent_batch_summary(artifact_root, repo_root)
+    tencent = tencent_batch_summary_at(artifact_root, repo_root, now=generated)
     safety = safety_summary(dashboard, tencent, scorecard)
     injection, zero_iteration = artifact_evidence_summaries(artifact_root, repo_root)
     flywheel_stages = flywheel_stage_summary(db=db, dashboard=dashboard, scorecard=scorecard, safety=safety)
@@ -1150,6 +1349,9 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
         ("Preflight-only validations", h(format_value(tencent.get("preflightOnlyRunCount")))),
         ("Latest run", h(latest_tencent.get("runId") or "N/A")),
         ("Latest status", render_status(latest_tencent.get("finalStatus"))),
+        ("Latest runner state", render_status(latest_tencent.get("stateClassification"))),
+        ("Latest runner age seconds", h(format_value(latest_tencent.get("activeAgeSeconds")))),
+        ("Latest declared timeout seconds", h(format_value(latest_tencent.get("declaredTimeoutSeconds")))),
         ("Latest compute evidence", h(latest_tencent.get("computeClassification") or "N/A")),
         ("Latest batch class", h(latest_batch_scale.get("batchClass") or "N/A")),
         ("Latest env rows", h(latest_batch_scale.get("environmentRows", "N/A"))),

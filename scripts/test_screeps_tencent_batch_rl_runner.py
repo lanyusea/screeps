@@ -476,6 +476,37 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
         return events, controller, guard, summary
 
+    def test_controller_summary_records_pid_and_declared_timeout_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = controller_args()
+            args.scale_timeout_seconds = 1200
+            args.scale_down_timeout_seconds = 900
+            args.bootstrap_timeout_seconds = 1800
+            args.training_timeout_seconds = 7200
+            args.transfer_timeout_seconds = 1200
+            controller = runner.Controller(
+                args=args,
+                run_id="tencent-pg-20260521t091504z",
+                artifact_dir=Path(temp_dir) / "run",
+            )
+
+            controller.write_summary(partial=True)
+
+            summary = json.loads((controller.artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(summary["controllerProcess"]["pid"], os.getpid())
+        self.assertEqual(
+            summary["inputs"]["executionTimeouts"],
+            {
+                "bootstrapTimeoutSeconds": 1800,
+                "scaleDownTimeoutSeconds": 900,
+                "scaleTimeoutSeconds": 1200,
+                "totalSeconds": 12300,
+                "trainingTimeoutSeconds": 7200,
+                "transferTimeoutSeconds": 1200,
+            },
+        )
+
     def test_security_group_guard_accepts_single_controller_ssh_rule(self) -> None:
         ingress = [
             {"Action": "ACCEPT", "Protocol": "TCP", "Port": "22", "CidrBlock": CONTROLLER_IP},

@@ -209,6 +209,78 @@ def wait_for_json_url(url: str, timeout_seconds: float = 5.0) -> JsonObject:
 
 
 class ScreepsRlLiveDashboardTest(unittest.TestCase):
+    def test_tencent_active_run_within_declared_timeout_uses_utc_age(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "tencent-cloud" / "batch-runs" / "tencent-pg-20260521t084005z"
+            write_json(
+                run_dir / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-20260521t084005z",
+                    "startedAt": "2026-05-21T08:40:06Z",
+                    "finishedAt": None,
+                    "partial": True,
+                    "finalStatus": "unknown",
+                    "controllerProcess": {"pid": 4185673},
+                    "inputs": {
+                        "executionTimeouts": {
+                            "trainingTimeoutSeconds": 7200,
+                            "scaleTimeoutSeconds": 1200,
+                            "scaleDownTimeoutSeconds": 900,
+                            "bootstrapTimeoutSeconds": 1800,
+                            "transferTimeoutSeconds": 1200,
+                        }
+                    },
+                    "execution": {
+                        "environmentsRun": 0,
+                        "artifactCount": 0,
+                        "trainingReportProduced": False,
+                    },
+                },
+            )
+
+            summary = live.tencent_batch_summary_at(root, root, now="2026-05-21T17:05:00+08:00")
+
+        latest = summary["latest"]
+        state = latest["runnerState"]
+        self.assertEqual(summary["activeRunCount"], 1)
+        self.assertEqual(latest["stateClassification"], "TRAINING_IN_PROGRESS")
+        self.assertEqual(state["ageSeconds"], 1494)
+        self.assertEqual(state["timeoutSeconds"], 12300)
+        self.assertFalse(state["handoffRequired"])
+        self.assertEqual(state["action"], "monitor")
+
+    def test_tencent_active_run_beyond_timeout_without_progress_reports_stuck_handoff(self) -> None:
+        payload = {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-pg-20260521t091504z",
+            "startedAt": "2026-05-21T09:15:04Z",
+            "finishedAt": None,
+            "partial": True,
+            "finalStatus": "running",
+            "controllerProcess": {"pid": 49283},
+            "inputs": {"executionTimeouts": {"totalSeconds": 12300}},
+            "execution": {
+                "environmentsRun": 0,
+                "artifactCount": 0,
+                "trainingReportProduced": False,
+            },
+        }
+
+        state = live.classify_tencent_batch_run_state(payload, now="2026-05-21T12:40:05Z")
+
+        self.assertEqual(state["status"], "TENCENT_BATCH_RUNNER_STUCK")
+        self.assertEqual(state["runId"], "tencent-pg-20260521t091504z")
+        self.assertEqual(state["pid"], 49283)
+        self.assertEqual(state["ageSeconds"], 12301)
+        self.assertEqual(state["timeoutSeconds"], 12300)
+        self.assertTrue(state["handoffRequired"])
+        self.assertIn("kill PID 49283", state["action"])
+        self.assertIn("scale down ASG", state["action"])
+        self.assertIn("age=12301s", state["evidence"])
+        self.assertIn("timeout=12300s", state["evidence"])
+
     def test_refresh_is_repeatable_and_summary_covers_live_observability(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

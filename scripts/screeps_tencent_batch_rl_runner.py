@@ -258,6 +258,9 @@ class Controller:
             "finishedAt": self.finished_at,
             "partial": partial,
             "finalStatus": self.final_status,
+            "controllerProcess": {
+                "pid": os.getpid(),
+            },
             "region": self.args.region,
             "autoScalingGroupId": self.args.asg_id,
             "workerUser": self.args.worker_user,
@@ -290,6 +293,7 @@ class Controller:
                 "scenarioId": getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
                 "requireMultiTierScenario": getattr(self.args, "require_multi_tier_scenario", False),
                 "plannedBatchScale": planned_batch_scale_from_args(self.args),
+                "executionTimeouts": controller_timeout_summary(self.args),
             },
             "outputs": self.result,
             "steps": [step.__dict__ for step in self.steps],
@@ -1213,6 +1217,18 @@ def controller_batch_scale_summary(
         cost_estimate=cost_estimate,
         basis=basis,
     )
+
+
+def controller_timeout_summary(args: argparse.Namespace) -> dict[str, int]:
+    timeouts = {
+        "scaleTimeoutSeconds": max(0, int(getattr(args, "scale_timeout_seconds", 0) or 0)),
+        "scaleDownTimeoutSeconds": max(0, int(getattr(args, "scale_down_timeout_seconds", 0) or 0)),
+        "bootstrapTimeoutSeconds": max(0, int(getattr(args, "bootstrap_timeout_seconds", 0) or 0)),
+        "trainingTimeoutSeconds": max(0, int(getattr(args, "training_timeout_seconds", 0) or 0)),
+        "transferTimeoutSeconds": max(0, int(getattr(args, "transfer_timeout_seconds", 0) or 0)),
+    }
+    timeouts["totalSeconds"] = sum(timeouts.values())
+    return timeouts
 
 
 def planned_batch_scale_from_args(args: argparse.Namespace) -> dict[str, Any]:
