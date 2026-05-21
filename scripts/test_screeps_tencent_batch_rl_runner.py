@@ -963,6 +963,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             for label, policy_update, expected_error in cases:
+                write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"])
                 with self.subTest(label=label), self.assertRaisesRegex(
                     runner.BatchRunError,
                     re.escape(expected_error),
