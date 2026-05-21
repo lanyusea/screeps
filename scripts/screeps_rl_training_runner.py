@@ -1448,6 +1448,20 @@ def build_rank_weighted_finite_difference_policy_update(
             "gradient": gradient,
         }
 
+    parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
+    if parameter_evidence.get("policyUpdateEligible") is not True:
+        return {
+            **base,
+            "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
+            "candidateCount": len(candidates),
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": parameter_evidence,
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
+        }
+
     candidate_policy_id = updated_candidate_policy_id(
         target_family=target_family,
         report_id=report_id,
@@ -1498,6 +1512,7 @@ def build_rank_weighted_finite_difference_policy_update(
         "learningRate": learning_rate,
         "parameterSpace": copy.deepcopy(parameter_space),
         "candidateCount": len(candidates),
+        "parameterEvidence": parameter_evidence,
         "anchor": policy_update_candidate_summary(anchor),
         "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
         "advantageByStrategyVariantId": advantages,
@@ -1602,6 +1617,21 @@ def build_reinforce_policy_update(
             "gradient": gradient,
         }
 
+    parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
+    if parameter_evidence.get("policyUpdateEligible") is not True:
+        return {
+            **base,
+            "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
+            "candidateCount": len(candidates),
+            "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+            "parameterEvidence": parameter_evidence,
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
+            "returnSummary": return_summary,
+        }
+
     candidate_policy_id = updated_candidate_policy_id(
         target_family=target_family,
         report_id=report_id,
@@ -1660,6 +1690,7 @@ def build_reinforce_policy_update(
         "learningRate": learning_rate,
         "parameterSpace": copy.deepcopy(parameter_space),
         "candidateCount": len(candidates),
+        "parameterEvidence": parameter_evidence,
         "anchor": policy_update_candidate_summary(anchor),
         "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
         "returnSummary": return_summary,
@@ -4596,6 +4627,49 @@ def policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradien
             "for every candidate variant"
         ),
     }
+
+
+def policy_update_runtime_injection_ready_parameter_evidence(
+    policy_gradient: JsonObject,
+    candidates: Sequence[JsonObject],
+) -> JsonObject:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport")) or {}
+    scope = (
+        first_present(support, ("candidate_parameter_scope", "candidateParameterScope"))
+        or "runtime_injected"
+    )
+    runtime_injection = first_present(
+        support,
+        (
+            "runtime_parameter_injection",
+            "runtimeParameterInjection",
+            "inline_candidates_runtime_injected",
+            "inlineCandidatesRuntimeInjected",
+        ),
+    ) is True
+    eligible = (
+        runtime_injection
+        and scope == "runtime_injected"
+        and policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
+        and len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
+    )
+    payload: JsonObject = {
+        "candidateParameterScope": scope,
+        "runtimeParameterInjection": runtime_injection,
+        "policyUpdateEligible": eligible,
+        "candidateCount": len(candidates),
+        "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+    }
+    if eligible:
+        payload["reason"] = (
+            "scored candidate rewards were backed by complete evaluated runtime parameter evidence"
+        )
+    else:
+        payload["reason"] = (
+            "policy updates require runtime-injected candidate parameter transport and complete "
+            "evaluated runtime parameter evidence"
+        )
+    return payload
 
 
 def safety_metadata() -> JsonObject:

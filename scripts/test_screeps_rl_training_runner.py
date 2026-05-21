@@ -2146,6 +2146,14 @@ export const STRATEGY_REGISTRY = [
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 0.25,
             },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "inline_candidates_applied_to_simulator": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+            },
             "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
             "candidateParameterVectors": [
                 {
@@ -2189,6 +2197,8 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["gradient"], {"territorySignalWeight": 0.0085})
         self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.06375})
         self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.06375})
+        self.assertTrue(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertTrue(update["parameterEvidence"]["runtimeParameterInjection"])
         self.assertEqual(
             update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
             {"territorySignalWeight": 0.06375},
@@ -2200,6 +2210,58 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["nextCandidatePolicy"]["liveEffect"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWrites"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
+
+    def test_reinforce_reward_evidence_without_runtime_transport_stays_noop(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 0.25,
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 6.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 7.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 6.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1.02, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 7.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-metadata-reward-only",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], runner.RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON)
+        self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
 
     def test_policy_update_bounds_preserve_continuous_values_without_step_quantizing(self) -> None:
         spec = {"min": 0, "max": 30, "step": 1}
