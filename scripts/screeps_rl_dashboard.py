@@ -2397,6 +2397,7 @@ def render_simulator(simulator: JsonObject, repo_root: Path) -> str:
 def render_training(training: JsonObject, repo_root: Path) -> str:
     card_supply = as_dict(training.get("cardSupply"))
     compute_evidence = as_dict(training.get("computeEvidence"))
+    promotion_status = text_value(training.get("policyUpdatePromotionStatus")) or "N/A"
     card_supply_status = "N/A"
     if card_supply:
         card_supply_status = (
@@ -2408,6 +2409,9 @@ def render_training(training: JsonObject, repo_root: Path) -> str:
         f"<tr><td>Status</td><td>{h(training.get('status', 'N/A'))}</td></tr>",
         f"<tr><td>Episodes</td><td>{h(format_count(training.get('episodes')))}</td></tr>",
         f"<tr><td>Policy updates</td><td>{h(format_count(training.get('policyUpdates')))}</td></tr>",
+        f"<tr><td>Promotion gate status</td><td>{h(promotion_status)}</td></tr>",
+        "<tr><td>Runtime-consumed policy update</td>"
+        f"<td>{h(display_value(training.get('runtimeConsumedPolicyUpdate')))}</td></tr>",
         f"<tr><td>Compute evidence</td><td>{h(compute_evidence.get('classification', 'N/A'))}</td></tr>",
         f"<tr><td>Card supply</td><td>{h(card_supply_status)}</td></tr>",
         f"<tr><td>Last ledger timestamp</td><td>{h(display_timestamp(training.get('timestamp')))}</td></tr>",

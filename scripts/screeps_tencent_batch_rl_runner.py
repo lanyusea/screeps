@@ -2664,11 +2664,23 @@ def validate_policy_update_promotion_gate(
     missing_prerequisites = required_text_list(raw.get("missingPrerequisites"), f"{label}.missingPrerequisites")
     required_non_empty_text(raw.get("validationText"), f"{label}.validationText")
 
-    top_level_consumed = (
+    top_level_consumed = False
+    if (
         isinstance(runtime_parameter_injection, dict)
         and runtime_parameter_injection.get("runtimeParameterInjection") is True
-        and runtime_parameter_injection.get("runtimeParameterConsumption") is True
-    )
+    ):
+        if "runtimeParameterConsumption" not in runtime_parameter_injection:
+            raise BatchRunError(
+                "remote runtimeParameterInjection.runtimeParameterConsumption must be present when "
+                "runtime injection is proven"
+            )
+        top_level_consumed = (
+            required_bool(
+                runtime_parameter_injection.get("runtimeParameterConsumption"),
+                "runtimeParameterInjection.runtimeParameterConsumption",
+            )
+            is True
+        )
     if top_level_consumed:
         if not runtime_consumed:
             raise BatchRunError(f"remote {label} contradicts consumed runtimeParameterInjection proof")

@@ -337,6 +337,11 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         )
         self.assertFalse(training["runtimeConsumedPolicyUpdate"])
         self.assertEqual(training["policyUpdatePromotionGate"], promotion_gate)
+        html = dashboard.render_training(training, root)
+        self.assertIn("Promotion gate status", html)
+        self.assertIn("blocked_runtime_parameter_consumption_missing", html)
+        self.assertIn("Runtime-consumed policy update", html)
+        self.assertIn("False", html)
 
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

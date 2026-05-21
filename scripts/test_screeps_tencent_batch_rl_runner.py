@@ -178,13 +178,13 @@ def ready_runtime_parameter_injection() -> dict[str, object]:
 
 def missing_consumption_runtime_parameter_injection() -> dict[str, object]:
     return {
-        "status": "not_injected",
-        "runtimeParameterInjection": False,
+        "status": "injected",
+        "runtimeParameterInjection": True,
         "runtimeParameterConsumption": False,
         "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
         "policyUpdateEligible": False,
         "candidateParameterScope": "runtime_injected",
-        "injectedVariantCount": 0,
+        "injectedVariantCount": 1,
         "consumedVariantCount": 0,
         "liveEffect": False,
         "officialMmoWrites": False,
@@ -198,7 +198,10 @@ def write_policy_update_artifact(
     parameters: object,
     promotion_gate: object | None = None,
 ) -> None:
-    payload = {"parameters": parameters, "promotionGate": promotion_gate or runtime_consumed_promotion_gate()}
+    payload = {
+        "parameters": parameters,
+        "promotionGate": runtime_consumed_promotion_gate() if promotion_gate is None else promotion_gate,
+    }
     write_text(root / "remote" / artifact_path, json.dumps(payload, sort_keys=True) + "\n")
 
 
@@ -786,6 +789,15 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaisesRegex(runner.BatchRunError, expected_error):
                 runner.safe_policy_update_artifact_path(raw)
 
+    def test_write_policy_update_artifact_preserves_intentional_falsy_promotion_gate(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, {"territorySignalWeight": 7}, promotion_gate=False)
+            payload = json.loads((root / "remote" / artifact_path).read_text(encoding="utf-8"))
+
+        self.assertIs(payload["promotionGate"], False)
+
     def test_verified_remote_policy_update_accepts_empty_zero_iteration_update(self) -> None:
         top_level_safety = {
             "liveEffect": False,
@@ -1079,6 +1091,40 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(promotion_gate["loopAPromotionEligible"])
         self.assertFalse(promotion_gate["loopBPromotionEligible"])
         self.assertEqual(promotion_gate["missingPrerequisites"], ["runtime_parameter_consumption"])
+
+    def test_verified_remote_policy_update_rejects_missing_consumption_key_for_injected_proof(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        gate = non_consumed_promotion_gate()
+        policy_update["promotionGate"] = copy.deepcopy(gate)
+        next_candidate = policy_update["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_candidate["promotionGate"] = copy.deepcopy(gate)
+        runtime_parameter_injection = missing_consumption_runtime_parameter_injection()
+        runtime_parameter_injection.pop("runtimeParameterConsumption")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"], gate)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "runtimeParameterInjection.runtimeParameterConsumption",
+            ):
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                    runtime_parameter_injection=runtime_parameter_injection,
+                )
 
     def test_verified_remote_policy_update_rejects_non_consumed_scorecard_update_claiming_runtime_consumption(
         self,
