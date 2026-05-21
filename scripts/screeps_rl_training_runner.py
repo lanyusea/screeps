@@ -998,14 +998,26 @@ def build_report_runtime_parameter_injection_summary(
         variant_id = raw_variant_id
         injection = result.get("runtimeParameterInjection")
         if isinstance(injection, dict):
-            rows.append({
+            row = {
                 "variantId": variant_id,
                 "status": injection.get("status"),
                 "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
                 "candidateParameterScope": injection.get("candidateParameterScope"),
                 "parametersSha256": injection.get("parametersSha256"),
                 "reason": injection.get("reason"),
-            })
+            }
+            for field in (
+                "runtimeParameterConsumption",
+                "runtimeParameterConsumptionStatus",
+                "runtimeParameterConsumptionSource",
+                "runtimeParameterConsumer",
+                "evaluatedParametersSource",
+                "evaluatedParametersSha256",
+                "appliedStrategyIds",
+            ):
+                if field in injection:
+                    row[field] = copy.deepcopy(injection.get(field))
+            rows.append(row)
         else:
             rows.append({
                 "variantId": variant_id,
@@ -1024,20 +1036,30 @@ def build_report_runtime_parameter_injection_summary(
         })
 
     injected_count = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
+    consumed_count = sum(
+        1
+        for row in rows
+        if row.get("runtimeParameterInjection") is True and row.get("runtimeParameterConsumption") is True
+    )
     partial_count = sum(
         1
         for row in rows
         if row.get("status") == "partial" or row.get("candidateParameterScope") == "partial_runtime_injection"
     )
     attempted_runtime_count = sum(1 for row in rows if runtime_parameter_scope_indicates_runtime_attempt(row))
-    if rows and injected_count == len(rows):
+    complete_runtime_evidence = bool(rows) and injected_count == len(rows) and consumed_count == len(rows)
+    if complete_runtime_evidence:
         status = "injected"
         reason = None
         eligible = True
         scope = "runtime_injected"
     elif injected_count > 0 or partial_count > 0:
         status = "partial"
-        reason = "not every candidate variant had runtime-injected parameter evidence"
+        reason = (
+            "not every candidate variant had consumed runtime-injected parameter evidence"
+            if injected_count == len(rows)
+            else "not every candidate variant had runtime-injected parameter evidence"
+        )
         eligible = False
         scope = "partial_runtime_injection"
     elif attempted_runtime_count > 0:
@@ -1064,6 +1086,9 @@ def build_report_runtime_parameter_injection_summary(
         "policyUpdateEligible": eligible,
         "variantCount": len(rows),
         "injectedVariantCount": injected_count,
+        "runtimeParameterConsumption": consumed_count > 0,
+        "runtimeParameterConsumptionStatus": runtime_parameter_consumption_rollup_status(rows),
+        "consumedVariantCount": consumed_count,
         "variants": rows,
         "liveEffect": False,
         "officialMmoWrites": False,
@@ -1073,6 +1098,38 @@ def build_report_runtime_parameter_injection_summary(
     if reason:
         payload["reason"] = reason
     return payload
+
+
+def runtime_parameter_consumption_rollup_status(rows: Sequence[JsonObject]) -> str:
+    if not rows:
+        return "missing"
+    consumed = sum(
+        1
+        for row in rows
+        if row.get("runtimeParameterInjection") is True and row.get("runtimeParameterConsumption") is True
+    )
+    if consumed == len(rows):
+        return "consumed"
+    if consumed > 0:
+        return "partial"
+    statuses = [
+        text_or_none(
+            row.get("runtimeParameterConsumptionStatus")
+            if "runtimeParameterConsumptionStatus" in row
+            else row.get("status")
+        )
+        for row in rows
+        if text_or_none(
+            row.get("runtimeParameterConsumptionStatus")
+            if "runtimeParameterConsumptionStatus" in row
+            else row.get("status")
+        )
+        is not None
+    ]
+    if statuses:
+        first = statuses[0]
+        return first if all(status == first for status in statuses) else "mixed"
+    return "missing" if any(runtime_parameter_scope_indicates_runtime_attempt(row) for row in rows) else "not_attempted"
 
 
 def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> dict[str, str]:
@@ -3028,20 +3085,26 @@ def multi_tier_activation_sample_trace(
     return trace
 
 
-def runtime_evaluated_parameter_source(run: JsonObject) -> tuple[str, Any] | None:
+def runtime_parameter_consumption_from_run(run: JsonObject) -> JsonObject | None:
     consumption = run.get("runtimeParameterConsumption")
-    if isinstance(consumption, dict) and consumption.get("runtimeParameterConsumption") is True:
-        parameters = consumption.get("evaluatedParameters")
-        if isinstance(parameters, dict):
-            return "runtimeParameterConsumption.evaluatedParameters", parameters
+    if isinstance(consumption, dict):
+        return consumption
 
     nested_injection = run.get("runtimeParameterInjection")
     if isinstance(nested_injection, dict):
         nested_consumption = nested_injection.get("runtimeParameterConsumptionEvidence")
-        if isinstance(nested_consumption, dict) and nested_consumption.get("runtimeParameterConsumption") is True:
-            parameters = nested_consumption.get("evaluatedParameters")
-            if isinstance(parameters, dict):
-                return "runtimeParameterInjection.runtimeParameterConsumptionEvidence.evaluatedParameters", parameters
+        if isinstance(nested_consumption, dict):
+            return nested_consumption
+
+    return None
+
+
+def runtime_evaluated_parameter_source(run: JsonObject) -> tuple[str, Any] | None:
+    consumption = runtime_parameter_consumption_from_run(run)
+    if isinstance(consumption, dict) and consumption.get("runtimeParameterConsumption") is True:
+        parameters = consumption.get("evaluatedParameters")
+        if isinstance(parameters, dict):
+            return "runtimeParameterConsumption.evaluatedParameters", parameters
 
     source = text_or_none(run.get("evaluatedParametersSource", run.get("evaluated_parameters_source")))
     if source in {
@@ -3114,9 +3177,29 @@ def summarize_runtime_parameter_injection_attempt(
         )
         return {key: value for key, value in row.items() if value is not None}
 
+    consumption = runtime_parameter_consumption_from_run(run)
+    if isinstance(consumption, dict):
+        row["runtimeParameterConsumption"] = consumption.get("runtimeParameterConsumption") is True
+        row["runtimeParameterConsumptionStatus"] = consumption.get("status")
+        row["runtimeParameterConsumptionSource"] = consumption.get("source")
+        row["runtimeParameterConsumer"] = consumption.get("consumerMarker")
+        applied_strategy_ids = consumption.get("appliedStrategyIds")
+        if isinstance(applied_strategy_ids, list):
+            row["appliedStrategyIds"] = [
+                strategy_id for strategy_id in applied_strategy_ids if isinstance(strategy_id, str)
+            ]
+
+    if not isinstance(consumption, dict) or consumption.get("runtimeParameterConsumption") is not True:
+        row["status"] = (
+            text_or_none(consumption.get("status")) if isinstance(consumption, dict) else None
+        ) or "missing_runtime_parameter_consumption"
+        row["reason"] = (
+            text_or_none(consumption.get("reason")) if isinstance(consumption, dict) else None
+        ) or "successful simulator attempt did not report consumed runtime policy parameter evidence"
+        return {key: value for key, value in row.items() if value is not None}
+
     source = runtime_evaluated_parameter_source(run)
     if source is None:
-        consumption = run.get("runtimeParameterConsumption")
         if isinstance(consumption, dict) and text_or_none(consumption.get("reason")):
             row["status"] = text_or_none(consumption.get("status")) or "missing_evaluated_parameters"
             row["reason"] = text_or_none(consumption.get("reason"))
@@ -3229,6 +3312,11 @@ def summarize_variant_runtime_parameter_injection(
 
     eligible_attempts = successful_attempts
     injected = [row for row in eligible_attempts if row.get("runtimeParameterInjection") is True]
+    consumed_attempt_count = sum(
+        1
+        for row in eligible_attempts
+        if row.get("runtimeParameterInjection") is True and row.get("runtimeParameterConsumption") is True
+    )
     if eligible_attempts and len(injected) == len(eligible_attempts):
         status = "injected"
         reason = None
@@ -3272,6 +3360,9 @@ def summarize_variant_runtime_parameter_injection(
         "successfulAttemptCount": len(successful_attempts),
         "attempts": attempts,
         "parametersSha256": canonical_hash(variant.parameters),
+        "runtimeParameterConsumption": runtime_injected and consumed_attempt_count == len(eligible_attempts),
+        "runtimeParameterConsumptionStatus": runtime_parameter_consumption_rollup_status(eligible_attempts),
+        "consumedAttemptCount": consumed_attempt_count,
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -3280,6 +3371,16 @@ def summarize_variant_runtime_parameter_injection(
         payload["reason"] = reason
     if runtime_injected and isinstance(evaluated_parameters, dict):
         payload["evaluatedParameters"] = evaluated_parameters
+        first_injected = injected[0]
+        for field in (
+            "runtimeParameterConsumptionSource",
+            "runtimeParameterConsumer",
+            "evaluatedParametersSource",
+            "evaluatedParametersSha256",
+            "appliedStrategyIds",
+        ):
+            if field in first_injected:
+                payload[field] = copy.deepcopy(first_injected.get(field))
     return {key: value for key, value in payload.items() if value is not None}
 
 

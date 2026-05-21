@@ -12588,11 +12588,11 @@ function planRuntimeStrategyPrioritizedConstruction(colony, result, budgetState,
     return false;
   }
   const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
+  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
   if (priorities.length === 0) {
     return false;
   }
-  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(
@@ -46395,15 +46395,12 @@ function createRuntimePolicyParameterConsumptionRecorder() {
   };
 }
 function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
-  const root = globalThis;
-  if (!root.Memory) {
-    root.Memory = {};
-  }
+  const memory = runtimeMemoryRoot();
   const persistedEvidence = stickyRuntimePolicyParameterConsumptionEvidence(
     evidence,
-    root.Memory.rlRuntimePolicyParameters
+    memory.rlRuntimePolicyParameters
   );
-  root.Memory.rlRuntimePolicyParameters = {
+  memory.rlRuntimePolicyParameters = {
     ...persistedEvidence,
     tick: runtimeTick()
   };
@@ -46542,8 +46539,21 @@ function cloneStrategyRegistryEntry(entry) {
 function textOrUndefined(value) {
   return typeof value === "string" && value.length > 0 ? value : void 0;
 }
+function runtimeMemoryRoot() {
+  if (typeof Memory !== "undefined") {
+    return Memory;
+  }
+  const root = globalThis;
+  if (!root.Memory) {
+    root.Memory = {};
+  }
+  return root.Memory;
+}
 function runtimeTick() {
   var _a, _b;
+  if (typeof Game !== "undefined" && typeof Game.time === "number") {
+    return Game.time;
+  }
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }
 function isRecord41(value) {

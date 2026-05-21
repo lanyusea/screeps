@@ -165,16 +165,13 @@ export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicy
 export function persistRuntimePolicyParameterConsumptionEvidence(
   evidence: RuntimePolicyParameterConsumptionEvidence
 ): void {
-  const root = globalThis as typeof globalThis & { Memory?: RuntimeMemory };
-  if (!root.Memory) {
-    root.Memory = {};
-  }
+  const memory = runtimeMemoryRoot();
 
   const persistedEvidence = stickyRuntimePolicyParameterConsumptionEvidence(
     evidence,
-    root.Memory.rlRuntimePolicyParameters
+    memory.rlRuntimePolicyParameters
   );
-  root.Memory.rlRuntimePolicyParameters = {
+  memory.rlRuntimePolicyParameters = {
     ...persistedEvidence,
     tick: runtimeTick()
   };
@@ -371,7 +368,22 @@ function textOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function runtimeMemoryRoot(): RuntimeMemory {
+  if (typeof Memory !== 'undefined') {
+    return Memory as RuntimeMemory;
+  }
+
+  const root = globalThis as typeof globalThis & { Memory?: RuntimeMemory };
+  if (!root.Memory) {
+    root.Memory = {};
+  }
+  return root.Memory;
+}
+
 function runtimeTick(): number {
+  if (typeof Game !== 'undefined' && typeof Game.time === 'number') {
+    return Game.time;
+  }
   return (globalThis as { Game?: Partial<Game> }).Game?.time ?? 0;
 }
 

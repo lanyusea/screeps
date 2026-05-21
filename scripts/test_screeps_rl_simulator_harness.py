@@ -1732,6 +1732,64 @@ cli:
 
         self.assertEqual(extracted, evidence)
 
+    def test_http_runtime_parameter_consumption_collector_falls_back_to_full_memory(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.status = 200
+                self.payload = payload
+
+        class FakeConfig:
+            server_url = "http://sim.local"
+            shard = "shardX"
+
+        class FakeSmoke:
+            calls: list[dict[str, object]] = []
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def http_json(
+                self,
+                method: str,
+                base_url: str,
+                path: str,
+                *,
+                headers: dict[str, str],
+                params: dict[str, object],
+                timeout: int,
+            ) -> Result:
+                _ = method, base_url, path, headers, timeout
+                self.calls.append(dict(params))
+                if params.get("path") == "rlRuntimePolicyParameters":
+                    return Result({"ok": 1, "data": None})
+                return Result({
+                    "ok": 1,
+                    "data": json.dumps({"rlRuntimePolicyParameters": evidence}, sort_keys=True),
+                })
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_http_runtime_parameter_consumption_evidence(
+            smoke,
+            None,
+            FakeConfig(),
+            "token",
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertEqual(
+            smoke.calls,
+            [
+                {"path": "rlRuntimePolicyParameters", "shard": "shardX"},
+                {"path": "rlRuntimePolicyParameters"},
+                {"shard": "shardX"},
+            ],
+        )
+
     def test_runtime_parameter_consumption_prefers_matching_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         stale = self.runtime_parameter_consumption_evidence(injection)
