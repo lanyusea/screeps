@@ -1914,6 +1914,98 @@ cli:
 
         self.assertEqual(extracted, matching)
 
+    def test_runtime_parameter_consumption_collection_skips_stale_redis_for_valid_mongo(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["strategyVariantId"] = "stale-variant"
+        matching = self.runtime_parameter_consumption_evidence(injection)
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=stale,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=matching,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                object(),
+                ["docker", "compose"],
+                object(),
+                None,
+                injection,
+            )
+
+        expected = copy.deepcopy(matching)
+        expected["source"] = "mongo.Memory.rlRuntimePolicyParameters"
+        self.assertEqual(evidence, expected)
+        self.assertEqual(len(errors), 1)
+        self.assertIn(
+            "redis.Memory.rlRuntimePolicyParameters returned non-matching runtime parameter consumption evidence",
+            errors[0],
+        )
+        self.assertIn("strategyVariantId disagreed", errors[0])
+
+    def test_runtime_parameter_consumption_collection_surfaces_invalid_only_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["parameters"] = {
+            **stale["parameters"],
+            "territorySignalWeight": stale["parameters"]["territorySignalWeight"] + 1,
+        }
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=stale,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                object(),
+                ["docker", "compose"],
+                object(),
+                None,
+                injection,
+            )
+
+        self.assertIsNotNone(evidence)
+        if evidence is None:
+            self.fail("expected invalid runtime parameter consumption evidence")
+        self.assertEqual(evidence["source"], "redis.Memory.rlRuntimePolicyParameters")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("parameters disagreed", errors[0])
+
+        consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            evidence,
+            source_errors=errors,
+        )
+
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["source"], "redis.Memory.rlRuntimePolicyParameters")
+        self.assertIn("parameters disagreed", consumption["reason"])
+
     def test_redis_runtime_parameter_consumption_collector_reads_private_memory(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)

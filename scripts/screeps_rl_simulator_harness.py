@@ -781,6 +781,7 @@ def collect_runtime_parameter_consumption_evidence(
         ("redis.Memory.rlRuntimePolicyParameters", _collect_redis_runtime_parameter_consumption_evidence),
         ("mongo.Memory.rlRuntimePolicyParameters", _collect_mongo_runtime_parameter_consumption_evidence),
     ]
+    invalid_evidence: JsonObject | None = None
     for source, collector in collectors:
         try:
             evidence = collector(smoke, compose, cfg, token, injection)
@@ -790,7 +791,19 @@ def collect_runtime_parameter_consumption_evidence(
         if evidence is not None:
             evidence = copy.deepcopy(evidence)
             evidence["source"] = source
+            if injection is not None:
+                validation_error = runtime_parameter_consumption_validation_error(injection, evidence)
+                if validation_error is not None:
+                    errors.append(
+                        f"{source} returned non-matching runtime parameter consumption evidence: "
+                        f"{validation_error}"
+                    )
+                    if invalid_evidence is None:
+                        invalid_evidence = evidence
+                    continue
             return evidence, errors
+    if invalid_evidence is not None:
+        return invalid_evidence, errors
     return None, errors
 
 
