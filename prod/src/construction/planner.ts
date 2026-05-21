@@ -572,12 +572,12 @@ function planRuntimeStrategyPrioritizedConstruction(
   }
 
   const report = buildRuntimeConstructionPriorityReport(colony, options.creeps, { strategyParameters });
+  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   const priorities = runtimeConstructionPlannerPriorityOrder(report, { sourceLogisticsStarved });
   if (priorities.length === 0) {
     return false;
   }
 
-  recordStrategyRegistryRuntimeUse(options, strategyEntry);
   let activePriorityTowerDefenseSiteState = priorityTowerDefenseSiteState;
   for (const priority of priorities) {
     activePriorityTowerDefenseSiteState = planRuntimeConstructionPlannerPriority(

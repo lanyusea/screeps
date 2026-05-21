@@ -158,12 +158,14 @@ class MockSimulator:
         *,
         inject_runtime_parameters: bool = False,
         include_evaluated_parameters: bool = True,
+        include_runtime_consumption_evidence: bool = True,
         include_runtime_consumption_parameters: bool = True,
         evaluated_parameters_by_variant: dict[str, JsonObject] | None = None,
     ) -> None:
         self.results_by_variant = results_by_variant
         self.inject_runtime_parameters = inject_runtime_parameters
         self.include_evaluated_parameters = include_evaluated_parameters
+        self.include_runtime_consumption_evidence = include_runtime_consumption_evidence
         self.include_runtime_consumption_parameters = include_runtime_consumption_parameters
         self.evaluated_parameters_by_variant = evaluated_parameters_by_variant or {}
         self.calls: list[JsonObject] = []
@@ -221,15 +223,19 @@ class MockSimulator:
                     "officialMmoWrites": False,
                     "officialMmoWritesAllowed": False,
                 }
-                result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
-                    result["runtimeParameterInjection"],
-                    consumption_evidence,
-                )
-                if not self.include_runtime_consumption_parameters:
-                    result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
-                    result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
+                if self.include_runtime_consumption_evidence:
+                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
+                        result["runtimeParameterInjection"],
+                        consumption_evidence,
+                    )
+                    if not self.include_runtime_consumption_parameters:
+                        result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
+                        result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
                 if self.include_evaluated_parameters:
-                    if result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True:
+                    if (
+                        isinstance(result.get("runtimeParameterConsumption"), dict)
+                        and result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True
+                    ) or not self.include_runtime_consumption_evidence:
                         result["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
                         result["evaluatedParametersSource"] = "runtime_parameter_consumption"
             variants.append(result)
@@ -1970,6 +1976,8 @@ export const STRATEGY_REGISTRY = [
                     "runtimeParameterInjection": {
                         "status": "injected",
                         "runtimeParameterInjection": True,
+                        "runtimeParameterConsumption": True,
+                        "runtimeParameterConsumptionStatus": "consumed",
                         "candidateParameterScope": "runtime_injected",
                         "parametersSha256": "candidate-sha",
                     },
@@ -2001,6 +2009,8 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(summary["status"], "injected")
         self.assertTrue(summary["runtimeParameterInjection"])
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["consumedVariantCount"], 1)
         self.assertEqual(summary["variantCount"], 1)
         self.assertEqual([row["variantId"] for row in summary["variants"]], ["candidate"])
 
@@ -2511,6 +2521,9 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertEqual(report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], len(variant_ids))
         self.assertIsNotNone(report["scorecardId"])
         self.assertEqual(report["candidateScorecard"]["status"], "ready")
         self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
@@ -2532,6 +2545,13 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(artifact_dir_exists)
         self.assertTrue(artifact_path_exists)
         self.assertTrue(all(result["runtimeParameterInjection"]["runtimeParameterInjection"] for result in report["variantResults"]))
+        self.assertTrue(all(result["runtimeParameterInjection"]["runtimeParameterConsumption"] for result in report["variantResults"]))
+        self.assertTrue(
+            all(
+                result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"] == "consumed"
+                for result in report["variantResults"]
+            )
+        )
         self.assertTrue(all("evaluatedParameters" in result for result in report["variantResults"]))
         self.assertFalse(report["officialMmoWritesAllowed"])
         self.assertFalse(persisted["officialMmoWritesAllowed"])
@@ -2787,6 +2807,55 @@ export const STRATEGY_REGISTRY = [
                 for result in simulator.last_variants
             )
         )
+
+    def test_runtime_injected_reinforce_requires_explicit_consumption_evidence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-missing-consumption",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T06:55:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results = {
+            variant_id: variant_result(variant_id, [start, tick(2, [room("W1N1", energy=200)])])
+            for variant_id in variant_ids
+        }
+        simulator = MockSimulator(
+            simulator_results,
+            inject_runtime_parameters=True,
+            include_runtime_consumption_evidence=False,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="policy-gradient-missing-consumption",
+                generated_at="2026-05-17T07:00:00Z",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertFalse(report["runtimeParameterInjection"]["policyUpdateEligible"])
+        self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], 0)
+        self.assertEqual(
+            report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"],
+            "missing_runtime_parameter_consumption",
+        )
+        self.assertEqual(report["policyUpdateIterations"], 0)
+        self.assertFalse(report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
+        self.assertFalse(report["policyUpdate"]["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertNotIn("policyUpdateArtifactPath", report)
+        self.assertTrue(all("evaluatedParameters" in result for result in simulator.last_variants))
+        self.assertTrue(all("runtimeParameterConsumption" not in result for result in simulator.last_variants))
 
     def test_failed_only_runtime_parameter_uploads_do_not_become_injected_evidence(self) -> None:
         card = card_helper.build_card(
