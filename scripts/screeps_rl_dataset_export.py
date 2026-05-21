@@ -15,10 +15,12 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence, TextIO
 
 import screeps_runtime_kpi_reducer as reducer
+import screeps_world_profiles as world_profiles
 
 
 SCHEMA_VERSION = 1
@@ -39,13 +41,19 @@ DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_SAMPLE_LIMIT = 200
 DEFAULT_EVAL_RATIO = 0.2
 INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_summary"
+STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON = "stale_non_current_room_console_capture"
+STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS = 24.0
+SKIPPED_SAMPLE_LOG_LIMIT = 50
 DERIVED_RUNTIME_SOURCE_MARKERS = ("screeps-runtime-monitor", "screeps-runtime-monitor-json")
 DERIVED_RUNTIME_BASENAME_PREFIXES = ("postdeploy-observation", "runtime-summary-monitor", "latest-summary-output")
+CONSOLE_CAPTURE_SOURCE_MARKER = "runtime-summary-console"
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 ROOM_RE = re.compile(r"^(?:(?P<shard>[^/]+)/)?(?P<room>[WE]\d+[NS]\d+)$")
+SOURCE_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6}Z)")
 SECRET_TEXT_RE = re.compile(
     r"(?i)(x-token|authorization|token|password|secret|steam[_-]?key)\s*[:=]\s*(?:bearer\s+)?[^,\s}\"']+"
 )
+HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 SECRET_ENV_NAMES = (
     "SCREEPS_AUTH_TOKEN",
     "STEAM_KEY",
@@ -80,6 +88,7 @@ class ScanResult:
     records: list[ArtifactRecord] = field(default_factory=list)
     strategy_shadow_reports: list[JsonObject] = field(default_factory=list)
     skipped_files: list[JsonObject] = field(default_factory=list)
+    skipped_samples: list[JsonObject] = field(default_factory=list)
     scanned_files: int = 0
 
     def skip(self, path: Path | str, reason: str, **details: Any) -> None:
@@ -138,6 +147,10 @@ def redact_text(text: str) -> str:
 
 def configured_secret_values() -> list[str]:
     return [os.environ.get(name, "") for name in SECRET_ENV_NAMES]
+
+
+def configured_home_room() -> str:
+    return os.environ.get(HOME_ROOM_ENV_VAR, "").strip() or world_profiles.PERSISTENT_DEFAULTS.room
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -703,6 +716,156 @@ def derived_room_has_console_gate_fields(room: JsonObject) -> bool:
     return has_task_counts and has_energy_field and has_creep_ownership and has_spawn_ownership
 
 
+def filter_stale_non_current_console_capture_records(
+    scan: ScanResult,
+    *,
+    home_room: str,
+    created_at: str | None = None,
+) -> None:
+    fallback_reference_at = latest_console_capture_reference_at(scan.records)
+    reference_at = created_at or fallback_reference_at
+    reference = parse_iso_utc_timestamp(reference_at)
+    if reference is None and created_at is not None:
+        reference_at = fallback_reference_at
+        reference = parse_iso_utc_timestamp(reference_at)
+    if reference is None:
+        return
+
+    filtered_records: list[ArtifactRecord] = []
+    for record in scan.records:
+        filtered_record, skipped_samples = prune_stale_non_current_console_capture_record(
+            record,
+            home_room=home_room,
+            reference=reference,
+            reference_at=reference_at,
+        )
+        scan.skipped_samples.extend(skipped_samples)
+        if filtered_record is not None:
+            filtered_records.append(filtered_record)
+
+    scan.records = filtered_records
+
+
+def prune_stale_non_current_console_capture_record(
+    record: ArtifactRecord,
+    *,
+    home_room: str,
+    reference: datetime,
+    reference_at: str | None,
+) -> tuple[ArtifactRecord | None, list[JsonObject]]:
+    if not is_console_capture_record(record):
+        return record, []
+
+    source_timestamp = record_source_timestamp(record)
+    if source_timestamp is None:
+        return record, []
+
+    source_age = source_age_hours(source_timestamp, reference)
+    if source_age < STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS:
+        return record, []
+
+    rooms = record.payload.get("rooms")
+    if not isinstance(rooms, list):
+        return record, []
+
+    kept_rooms: list[JsonObject] = []
+    skipped_samples: list[JsonObject] = []
+    for room in rooms:
+        if not isinstance(room, dict):
+            continue
+        room_name = room.get("roomName")
+        if isinstance(room_name, str) and room_name and room_name != home_room:
+            skipped_samples.append(
+                {
+                    "reason": STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON,
+                    "path": record.source.display_path,
+                    "artifactKind": record.artifact_kind,
+                    "lineNumber": record.line_number,
+                    "tick": number_or_none(record.payload.get("tick")),
+                    "roomName": room_name,
+                    "homeRoom": home_room,
+                    "sourceTimestamp": isoformat_utc(source_timestamp),
+                    "sourceAgeHours": source_age,
+                    "staleSourceAgeHours": STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS,
+                    "sourceWindowReferenceAt": reference_at,
+                }
+            )
+            continue
+        kept_rooms.append(room)
+
+    if not skipped_samples:
+        return record, []
+    if not kept_rooms:
+        return None, skipped_samples
+
+    payload = dict(record.payload)
+    payload["rooms"] = kept_rooms
+    return (
+        ArtifactRecord(
+            source=record.source,
+            artifact_kind=record.artifact_kind,
+            payload=payload,
+            line_number=record.line_number,
+        ),
+        skipped_samples,
+    )
+
+
+def is_console_capture_record(record: ArtifactRecord) -> bool:
+    source_text = f"{record.source.path}\n{record.source.display_path}".lower().replace("\\", "/")
+    return CONSOLE_CAPTURE_SOURCE_MARKER in source_text
+
+
+def latest_console_capture_reference_at(records: Sequence[ArtifactRecord]) -> str | None:
+    timestamps = [
+        timestamp
+        for record in records
+        if is_console_capture_record(record)
+        for timestamp in [record_source_timestamp(record)]
+        if timestamp is not None
+    ]
+    if not timestamps:
+        return None
+    return isoformat_utc(max(timestamps))
+
+
+def record_source_timestamp(record: ArtifactRecord) -> datetime | None:
+    return source_timestamp_from_path(record.source.path) or source_timestamp_from_path(record.source.display_path)
+
+
+def source_timestamp_from_path(path: str | None) -> datetime | None:
+    if not path:
+        return None
+    match = SOURCE_TIMESTAMP_RE.search(path)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def parse_iso_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def source_age_hours(source_timestamp: datetime, reference: datetime) -> float:
+    age_hours = (reference - source_timestamp).total_seconds() / 3600
+    return round(max(0.0, age_hours), 3)
+
+
+def isoformat_utc(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def build_dataset(
     paths: Sequence[str],
     out_dir: Path,
@@ -713,12 +876,16 @@ def build_dataset(
     eval_ratio_value: float = DEFAULT_EVAL_RATIO,
     split_seed: str = "screeps-rl-v1",
     repo_root: Path | None = None,
+    created_at: str | None = None,
+    home_room: str | None = None,
 ) -> JsonObject:
     repo = repo_root or Path.cwd()
     resolved_bot_commit = bot_commit or git_commit(repo)
     resolved_out_dir = out_dir.expanduser()
+    resolved_home_room = home_room or configured_home_room()
     scan = collect_artifact_records(paths, max_file_bytes=max_file_bytes, excluded_roots=[resolved_out_dir])
     filter_incomplete_derived_runtime_records(scan)
+    filter_stale_non_current_console_capture_records(scan, home_room=resolved_home_room, created_at=created_at)
     rows = build_tick_rows(scan.records, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     resolved_run_id = run_id or deterministic_run_id(scan, rows, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     validate_run_id(resolved_run_id)
@@ -783,6 +950,7 @@ def build_dataset(
         "runtimeSummaryArtifactCount": len(scan.records),
         "strategyShadowReportCount": len(scan.strategy_shadow_reports),
         "skippedFileCount": len(scan.skipped_files),
+        **build_skipped_sample_summary(scan),
         "splitCounts": split_counts,
         "files": files,
     }
@@ -1094,6 +1262,40 @@ def runtime_lines_from_records(records: Sequence[ArtifactRecord]) -> list[str]:
     ]
 
 
+def build_skipped_sample_summary(scan: ScanResult) -> JsonObject:
+    skipped_samples = sorted_skipped_samples(scan)
+    return {
+        "skippedSampleCount": len(scan.skipped_samples),
+        "skippedSampleReasons": count_skipped_sample_field(scan, "reason"),
+        "skippedSampleRooms": count_skipped_sample_field(scan, "roomName"),
+        "skippedSampleSources": count_skipped_sample_field(scan, "path"),
+        "skippedSamples": skipped_samples[:SKIPPED_SAMPLE_LOG_LIMIT],
+        "skippedSampleLogLimit": SKIPPED_SAMPLE_LOG_LIMIT,
+        "skippedSamplesTruncated": max(0, len(skipped_samples) - SKIPPED_SAMPLE_LOG_LIMIT),
+    }
+
+
+def sorted_skipped_samples(scan: ScanResult) -> list[JsonObject]:
+    return sorted(
+        scan.skipped_samples,
+        key=lambda item: (
+            str(item.get("reason", "")),
+            str(item.get("path", "")),
+            str(item.get("lineNumber", "")),
+            str(item.get("roomName", "")),
+        ),
+    )
+
+
+def count_skipped_sample_field(scan: ScanResult, field_name: str) -> JsonObject:
+    counts: dict[str, int] = {}
+    for sample in scan.skipped_samples:
+        value = sample.get(field_name)
+        key = value if isinstance(value, str) and value else "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
 def build_source_index(scan: ScanResult) -> JsonObject:
     return {
         "type": "screeps-rl-source-index",
@@ -1113,6 +1315,7 @@ def build_source_index(scan: ScanResult) -> JsonObject:
         ],
         "strategyShadowReports": scan.strategy_shadow_reports,
         "skippedFiles": sorted(scan.skipped_files, key=lambda item: (item.get("path", ""), item.get("reason", ""))),
+        "skippedSamples": sorted_skipped_samples(scan),
     }
 
 
@@ -1201,6 +1404,7 @@ def build_run_manifest(
             "matchedArtifactCount": len(scan.records),
             "strategyShadowReportCount": len(scan.strategy_shadow_reports),
             "skippedFileCount": len(scan.skipped_files),
+            **build_skipped_sample_summary(scan),
         },
         "strategy": {
             "registryPath": "prod/src/strategy/strategyRegistry.ts",

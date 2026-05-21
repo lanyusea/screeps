@@ -258,6 +258,130 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(summary["sampleCount"], 1)
         self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
 
+    def test_stale_non_current_console_capture_sample_is_filtered_with_evidence(self) -> None:
+        stale_payload = {
+            "type": "runtime-summary",
+            "tick": 786180,
+            "rooms": [{"roomName": "E26S48", "resources": {"storedEnergy": 0}}],
+        }
+        current_payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stale_artifact = root / "runtime-summary-console-20260510T173515Z.log"
+            current_artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            stale_artifact.write_text(runtime_line(stale_payload), encoding="utf-8")
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(stale_artifact), str(current_artifact)],
+                out_dir,
+                run_id="stale-filter-run",
+                bot_commit="1" * 40,
+                eval_ratio_value=0,
+                created_at="2026-05-21T03:03:07Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "stale-filter-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "stale-filter-run" / "source_index.json")
+            run_manifest = read_json(out_dir / "stale-filter-run" / "run_manifest.json")
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
+        self.assertEqual(summary["skippedSampleCount"], 1)
+        self.assertEqual(
+            summary["skippedSampleReasons"],
+            {exporter.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON: 1},
+        )
+        self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+        skipped_sample = source_index["skippedSamples"][0]
+        self.assertEqual(skipped_sample["reason"], exporter.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON)
+        self.assertEqual(skipped_sample["roomName"], "E26S48")
+        self.assertEqual(skipped_sample["homeRoom"], "E29N55")
+        self.assertGreater(skipped_sample["sourceAgeHours"], 24)
+        self.assertEqual(run_manifest["source"]["skippedSampleCount"], 1)
+
+    def test_malformed_created_at_uses_console_capture_reference_for_stale_filter(self) -> None:
+        stale_payload = {
+            "type": "runtime-summary",
+            "tick": 786180,
+            "rooms": [{"roomName": "E26S48", "resources": {"storedEnergy": 0}}],
+        }
+        current_payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stale_artifact = root / "runtime-summary-console-20260510T173515Z.log"
+            current_artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            stale_artifact.write_text(runtime_line(stale_payload), encoding="utf-8")
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(stale_artifact), str(current_artifact)],
+                out_dir,
+                run_id="stale-filter-invalid-created-at-run",
+                bot_commit="1" * 40,
+                eval_ratio_value=0,
+                created_at="INVALID_TIMESTAMP",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "stale-filter-invalid-created-at-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "stale-filter-invalid-created-at-run" / "source_index.json")
+            run_manifest = read_json(out_dir / "stale-filter-invalid-created-at-run" / "run_manifest.json")
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["skippedSampleCount"], 1)
+        self.assertEqual(
+            summary["skippedSampleReasons"],
+            {exporter.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON: 1},
+        )
+        self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+        skipped_sample = source_index["skippedSamples"][0]
+        self.assertEqual(skipped_sample["reason"], exporter.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON)
+        self.assertEqual(skipped_sample["roomName"], "E26S48")
+        self.assertEqual(skipped_sample["homeRoom"], "E29N55")
+        self.assertGreater(skipped_sample["sourceAgeHours"], 24)
+        self.assertEqual(skipped_sample["sourceWindowReferenceAt"], "2026-05-21T02:50:00Z")
+        self.assertEqual(run_manifest["source"]["skippedSampleCount"], 1)
+
+    def test_fresh_current_home_console_capture_sample_remains_eligible(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(artifact)],
+                out_dir,
+                run_id="fresh-home-run",
+                bot_commit="2" * 40,
+                eval_ratio_value=0,
+                created_at="2026-05-21T03:03:07Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "fresh-home-run" / "ticks.ndjson")
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["skippedSampleCount"], 0)
+        self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+
     def test_incomplete_postdeploy_monitor_summary_json_is_filtered_from_samples(self) -> None:
         monitor_payload = {
             "ok": True,
