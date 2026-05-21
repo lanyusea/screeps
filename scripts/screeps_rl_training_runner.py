@@ -1513,6 +1513,7 @@ def build_rank_weighted_finite_difference_policy_update(
             **base,
             "skippedReason": "bounded_update_no_parameter_change",
             "candidateCount": len(candidates),
+            "parameterEvidence": parameter_evidence,
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
@@ -1683,6 +1684,7 @@ def build_reinforce_policy_update(
             **base,
             "skippedReason": "bounded_update_no_parameter_change",
             "candidateCount": len(candidates),
+            "parameterEvidence": parameter_evidence,
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
@@ -1871,6 +1873,7 @@ def policy_update_candidate_rows(
     if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
         return []
     require_evaluated_parameters = policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
+    allow_runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
     if not isinstance(raw_candidates, list):
         return []
@@ -1901,6 +1904,7 @@ def policy_update_candidate_rows(
             card_parameters=card_parameters,
             parameter_space=parameter_space,
             require_evaluated_parameters=require_evaluated_parameters,
+            allow_runtime_metadata_fallback=allow_runtime_metadata_fallback,
         )
         if parameters is None:
             continue
@@ -1930,6 +1934,7 @@ def policy_update_evaluated_parameters(
     card_parameters: JsonObject | None,
     parameter_space: dict[str, JsonObject],
     require_evaluated_parameters: bool = False,
+    allow_runtime_metadata_fallback: bool = False,
 ) -> JsonObject | None:
     evaluated: list[JsonObject] = []
     missing_evaluated: list[str] = []
@@ -1970,7 +1975,7 @@ def policy_update_evaluated_parameters(
             )
         return copy.deepcopy(first)
 
-    if require_evaluated_parameters:
+    if require_evaluated_parameters and not allow_runtime_metadata_fallback:
         return None
     return copy.deepcopy(card_parameters) if card_parameters is not None else None
 
@@ -4604,6 +4609,7 @@ def policy_gradient_metadata_with_runner_transport(
     )
     support["runtime_parameter_injection_status"] = status
     support["runtime_parameter_injection_reason"] = runtime_parameter_injection.get("reason")
+    support["runtime_parameter_consumption_status"] = runtime_parameter_injection.get("runtimeParameterConsumptionStatus")
     support["runtime_parameter_injection_mechanism"] = runtime_parameter_injection.get("mechanism")
     if injected:
         support["limitation"] = (
@@ -4688,6 +4694,41 @@ def policy_gradient_requires_runtime_parameter_evidence(policy_gradient: JsonObj
     )
 
 
+def policy_gradient_allows_runtime_metadata_policy_update(policy_gradient: JsonObject) -> bool:
+    support = first_mapping(policy_gradient, ("runner_support", "runnerSupport"))
+    if support is None:
+        return False
+    scope = text_or_none(first_present(support, ("candidate_parameter_scope", "candidateParameterScope")))
+    transport = text_or_none(first_present(support, ("simulator_variant_transport", "simulatorVariantTransport")))
+    status = text_or_none(
+        first_present(support, ("runtime_parameter_injection_status", "runtimeParameterInjectionStatus"))
+    )
+    consumption_status = text_or_none(
+        first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
+    )
+    declared_inline_applied = first_present(
+        support,
+        ("declaredInlineCandidatesAppliedToSimulator", "declared_inline_candidates_applied_to_simulator"),
+    )
+    preserves_parameters = first_present(
+        support,
+        ("report_preserves_candidate_parameters", "reportPreservesCandidateParameters"),
+    )
+    preserves_candidate_policy_id = first_present(
+        support,
+        ("candidate_policy_id_preserved", "candidatePolicyIdPreserved"),
+    )
+    return (
+        scope == "runtime_injected"
+        and transport == "variant_ids_with_runtime_injected_parameters"
+        and status == "not_injected"
+        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+        and declared_inline_applied is True
+        and preserves_parameters is True
+        and preserves_candidate_policy_id is True
+    )
+
+
 def policy_gradient_candidate_vector_count(policy_gradient: JsonObject) -> int:
     candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
     if not isinstance(candidates, list):
@@ -4748,11 +4789,13 @@ def policy_update_runtime_injection_ready_parameter_evidence(
             "inlineCandidatesRuntimeInjected",
         ),
     ) is True
+    runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
+    candidate_count_ready = len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
     eligible = (
-        runtime_injection
-        and scope == "runtime_injected"
+        scope == "runtime_injected"
         and policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
-        and len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
+        and candidate_count_ready
+        and (runtime_injection or runtime_metadata_fallback)
     )
     payload: JsonObject = {
         "candidateParameterScope": scope,
@@ -4760,11 +4803,30 @@ def policy_update_runtime_injection_ready_parameter_evidence(
         "policyUpdateEligible": eligible,
         "candidateCount": len(candidates),
         "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
+        "eligibilityMode": (
+            "evaluated_runtime_parameter_evidence"
+            if runtime_injection
+            else "runtime_injected_metadata_scorecard_ranking"
+            if runtime_metadata_fallback
+            else "blocked_until_runtime_parameter_evidence"
+        ),
     }
+    consumption_status = text_or_none(
+        first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
+    )
+    if consumption_status is not None:
+        payload["runtimeParameterConsumptionStatus"] = consumption_status
     if eligible:
-        payload["reason"] = (
-            "scored candidate rewards were backed by complete evaluated runtime parameter evidence"
-        )
+        if runtime_metadata_fallback and not runtime_injection:
+            payload["reason"] = (
+                "runtime-injected simulator transport and preserved candidate parameter metadata produced "
+                "a scorecarded offline ranking, but the private simulator did not expose consumption-probe "
+                "evidence; the bounded update remains offline/shadow only"
+            )
+        else:
+            payload["reason"] = (
+                "scored candidate rewards were backed by complete evaluated runtime parameter evidence"
+            )
     else:
         payload["reason"] = (
             "policy updates require runtime-injected candidate parameter transport and complete "

@@ -2105,6 +2105,14 @@ def verified_remote_policy_update_fields(
     local_artifact_path = collected_remote_policy_update_artifact_path(artifact_dir, rel_artifact_path)
     if not local_artifact_path.is_file():
         raise BatchRunError(f"remote policy update artifact was not collected: {rel_artifact_path.as_posix()}")
+    updated_parameters = safe_policy_update.get("updatedParameters")
+    if not isinstance(updated_parameters, dict):
+        raise BatchRunError("remote policyUpdate.updatedParameters must be an object when policyUpdateIterations is positive")
+    validate_collected_policy_update_artifact_parameters(
+        local_artifact_path,
+        rel_artifact_path,
+        updated_parameters,
+    )
     return {
         "policyUpdateIterations": iterations,
         "policyUpdateArtifactPath": rel_artifact_path.as_posix(),
@@ -2574,6 +2582,71 @@ def validate_positive_policy_update(raw: Any) -> None:
         raise BatchRunError("remote policyUpdate.nextCandidatePolicy must be an object when policyUpdateIterations is positive")
     require_explicit_false_policy_update_safety_flags(raw, "policyUpdate")
     require_explicit_false_policy_update_safety_flags(next_candidate_policy, "policyUpdate.nextCandidatePolicy")
+    validate_positive_policy_update_parameter_change(raw, next_candidate_policy)
+
+
+def validate_positive_policy_update_parameter_change(
+    raw: dict[str, Any],
+    next_candidate_policy: dict[str, Any],
+) -> None:
+    updated_parameters = raw.get("updatedParameters")
+    if not isinstance(updated_parameters, dict) or not updated_parameters:
+        raise BatchRunError("remote policyUpdate.updatedParameters must be a non-empty object when policyUpdateIterations is positive")
+    next_parameters = next_candidate_policy.get("parameters")
+    if not isinstance(next_parameters, dict) or not next_parameters:
+        raise BatchRunError(
+            "remote policyUpdate.nextCandidatePolicy.parameters must be a non-empty object when policyUpdateIterations is positive"
+        )
+    if next_parameters != updated_parameters:
+        raise BatchRunError("remote policyUpdate.nextCandidatePolicy.parameters disagree with policyUpdate.updatedParameters")
+    validate_policy_update_parameter_values(updated_parameters, "policyUpdate.updatedParameters")
+    validate_policy_update_parameter_values(next_parameters, "policyUpdate.nextCandidatePolicy.parameters")
+    parameter_delta = raw.get("parameterDelta")
+    if not isinstance(parameter_delta, dict) or not parameter_delta:
+        raise BatchRunError("remote policyUpdate.parameterDelta must be a non-empty object when policyUpdateIterations is positive")
+    changed = False
+    for name, delta in parameter_delta.items():
+        if name not in updated_parameters:
+            raise BatchRunError("remote policyUpdate.parameterDelta contains a parameter absent from updatedParameters")
+        if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(float(delta)):
+            raise BatchRunError("remote policyUpdate.parameterDelta values must be finite numbers")
+        if abs(float(delta)) > 0:
+            changed = True
+    if not changed:
+        raise BatchRunError("remote policyUpdate.parameterDelta must include at least one non-zero change")
+
+
+def validate_policy_update_parameter_values(parameters: dict[str, Any], label: str) -> None:
+    for value in parameters.values():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise BatchRunError(f"remote {label} values must be finite numbers")
+
+
+def validate_collected_policy_update_artifact_parameters(
+    local_artifact_path: Path,
+    rel_artifact_path: Path,
+    updated_parameters: dict[str, Any],
+) -> None:
+    try:
+        with local_artifact_path.open(encoding="utf-8") as artifact_file:
+            artifact = json.load(artifact_file)
+    except OSError as exc:
+        raise BatchRunError(f"remote policy update artifact is not readable: {rel_artifact_path.as_posix()}") from exc
+    except json.JSONDecodeError as exc:
+        raise BatchRunError(f"remote policy update artifact is not valid JSON: {rel_artifact_path.as_posix()}") from exc
+    if not isinstance(artifact, dict):
+        raise BatchRunError(f"remote policy update artifact must be a JSON object: {rel_artifact_path.as_posix()}")
+    artifact_parameters = artifact.get("parameters")
+    if not isinstance(artifact_parameters, dict) or not artifact_parameters:
+        raise BatchRunError(
+            f"remote policy update artifact parameters must be a non-empty object: {rel_artifact_path.as_posix()}"
+        )
+    validate_policy_update_parameter_values(artifact_parameters, "policyUpdateArtifactPath.parameters")
+    if artifact_parameters != updated_parameters:
+        raise BatchRunError(
+            "remote policy update artifact parameters disagree with policyUpdate.updatedParameters: "
+            f"{rel_artifact_path.as_posix()}"
+        )
 
 
 def require_explicit_false_policy_update_safety_flags(raw: dict[str, Any], label: str) -> None:
