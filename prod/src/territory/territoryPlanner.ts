@@ -3406,7 +3406,7 @@ function getRecommendedTerritoryIntentAction(
   }
 
   if (
-    isConfiguredScoutOnlyExpansionCandidate(candidate) &&
+    isConfiguredScoutOnlyExpansionTarget(candidate.target) &&
     (recommendation.evidenceStatus !== 'sufficient' ||
       !isAutonomousTerritoryControlAllowedForColonyName(candidate.target.colony))
   ) {
@@ -3448,10 +3448,11 @@ function getRecommendedTerritoryIntentAction(
 }
 
 function isConfiguredScoutOnlyExpansionCandidate(candidate: ScoredTerritoryTarget): boolean {
-  return (
-    candidate.source === 'configuredExpansionScout' &&
-    isConfiguredExpansionScoutOnlyTarget(candidate.target.colony, candidate.target.roomName)
-  );
+  return candidate.source === 'configuredExpansionScout' && isConfiguredScoutOnlyExpansionTarget(candidate.target);
+}
+
+function isConfiguredScoutOnlyExpansionTarget(target: TerritoryTargetMemory): boolean {
+  return isConfiguredExpansionScoutOnlyTarget(target.colony, target.roomName);
 }
 
 function isConfiguredScoutOnlyRemoteConversionCandidate(
@@ -3462,7 +3463,8 @@ function isConfiguredScoutOnlyRemoteConversionCandidate(
     isConfiguredScoutOnlyExpansionCandidate(candidate) &&
     candidate.target.action === 'reserve' &&
     intentAction === 'reserve' &&
-    (candidate.routeDistance === undefined || candidate.routeDistance <= 1)
+    candidate.routeDistance !== undefined &&
+    candidate.routeDistance <= 1
   );
 }
 

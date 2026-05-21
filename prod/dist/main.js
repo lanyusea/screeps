@@ -18836,7 +18836,7 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
   if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
     return candidate.intentAction;
   }
-  if (isConfiguredScoutOnlyExpansionCandidate(candidate) && (recommendation.evidenceStatus !== "sufficient" || !isAutonomousTerritoryControlAllowedForColonyName(candidate.target.colony))) {
+  if (isConfiguredScoutOnlyExpansionTarget(candidate.target) && (recommendation.evidenceStatus !== "sufficient" || !isAutonomousTerritoryControlAllowedForColonyName(candidate.target.colony))) {
     return "scout";
   }
   if (candidate.source === "occupationIntent" && isPersistedControllerFollowUpCandidate(candidate)) {
@@ -18863,10 +18863,13 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
   return recommendation.action === "reserve" ? "reserve" : candidate.intentAction;
 }
 function isConfiguredScoutOnlyExpansionCandidate(candidate) {
-  return candidate.source === "configuredExpansionScout" && isConfiguredExpansionScoutOnlyTarget(candidate.target.colony, candidate.target.roomName);
+  return candidate.source === "configuredExpansionScout" && isConfiguredScoutOnlyExpansionTarget(candidate.target);
+}
+function isConfiguredScoutOnlyExpansionTarget(target) {
+  return isConfiguredExpansionScoutOnlyTarget(target.colony, target.roomName);
 }
 function isConfiguredScoutOnlyRemoteConversionCandidate(candidate, intentAction) {
-  return isConfiguredScoutOnlyExpansionCandidate(candidate) && candidate.target.action === "reserve" && intentAction === "reserve" && (candidate.routeDistance === void 0 || candidate.routeDistance <= 1);
+  return isConfiguredScoutOnlyExpansionCandidate(candidate) && candidate.target.action === "reserve" && intentAction === "reserve" && candidate.routeDistance !== void 0 && candidate.routeDistance <= 1;
 }
 function isUnscoutedAdjacentReservationCandidate(candidate) {
   return isAdjacentRoomReservationReserveSelection(candidate);

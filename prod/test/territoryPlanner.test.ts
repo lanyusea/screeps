@@ -957,9 +957,6 @@ describe('planTerritoryIntent', () => {
     });
     const gameTime = 6_802;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
-      runtime: {
-        currentRoomName: 'E29N55'
-      },
       territory: {
         scoutIntel: {
           'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
@@ -991,10 +988,20 @@ describe('planTerritoryIntent', () => {
     );
 
     expect(plan?.action).toBe('scout');
+    expect(plan?.targetRoom).toBe('E29N56');
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
       (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
     ).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: gameTime
+      }
+    ]);
   });
 
   it.each([
@@ -1038,9 +1045,6 @@ describe('planTerritoryIntent', () => {
     });
     const gameTime = 6_803;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
-      runtime: {
-        currentRoomName: 'E29N55'
-      },
       territory: {
         scoutIntel: {
           'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
@@ -1067,18 +1071,9 @@ describe('planTerritoryIntent', () => {
 
     const plan = planTerritoryIntent(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 4, gameTime);
 
-    expect(plan).not.toEqual(
-      expect.objectContaining({
-        targetRoom: 'E29N56',
-        action: 'reserve'
-      })
-    );
+    expect(plan).toBeNull();
     expect(Memory.territory?.targets).toBeUndefined();
-    expect(
-      (Memory.territory?.intents ?? []).filter(
-        (intent) => intent.targetRoom === 'E29N56' && intent.action === 'reserve'
-      )
-    ).toEqual([]);
+    expect(Memory.territory?.intents).toBeUndefined();
   });
 
   it.each([
