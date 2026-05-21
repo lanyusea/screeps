@@ -768,6 +768,47 @@ def runtime_consumption_parameters_hash(evidence: JsonObject) -> str | None:
     ).hexdigest()
 
 
+def runtime_parameter_record_matches_username(value: Any, username: str | None) -> bool:
+    expected = _non_empty_text(username)
+    if expected is None or not isinstance(value, dict):
+        return True
+    observed = _runtime_parameter_explicit_owner_username(value)
+    return observed is None or observed == expected
+
+
+def _runtime_parameter_explicit_owner_username(value: JsonObject) -> str | None:
+    for field in ("username", "ownerUsername", "owner_username", "userName", "user_name"):
+        observed = _non_empty_text(value.get(field))
+        if observed is not None:
+            return observed
+    for field in ("owner", "user"):
+        nested = value.get(field)
+        if isinstance(nested, dict):
+            observed = _runtime_parameter_nested_owner_username(nested)
+            if observed is not None:
+                return observed
+        elif field == "owner":
+            observed = _runtime_parameter_scalar_owner_username(nested)
+            if observed is not None:
+                return observed
+    return None
+
+
+def _runtime_parameter_nested_owner_username(value: JsonObject) -> str | None:
+    for field in ("username", "ownerUsername", "owner_username", "userName", "user_name", "name"):
+        observed = _non_empty_text(value.get(field))
+        if observed is not None:
+            return observed
+    return None
+
+
+def _runtime_parameter_scalar_owner_username(value: Any) -> str | None:
+    observed = _non_empty_text(value)
+    if observed is None or re.fullmatch(r"[0-9a-fA-F]{24}", observed):
+        return None
+    return observed
+
+
 def collect_runtime_parameter_consumption_evidence(
     smoke: Any,
     compose: Sequence[str] | None,
@@ -853,6 +894,7 @@ def _collect_redis_runtime_parameter_consumption_evidence(
     if compose is None:
         return None
     eval_script = """
+local expectedUsername = tostring(ARGV[1] or "")
 local cursor = "0"
 local candidates = {}
 local seen = {}
@@ -881,8 +923,58 @@ local function decodedRuntimePolicyParameterValue(value)
   end
   return nil
 end
+local function nonEmptyString(value)
+  if type(value) == "string" and value ~= "" then
+    return value
+  end
+  return nil
+end
+local function scalarOwnerUsername(value)
+  local text = nonEmptyString(value)
+  if text == nil then
+    return nil
+  end
+  if string.len(text) == 24 and string.match(text, "^[0-9a-fA-F]+$") then
+    return nil
+  end
+  return text
+end
+local function nestedOwnerUsername(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+  return nonEmptyString(value.username)
+    or nonEmptyString(value.ownerUsername)
+    or nonEmptyString(value.owner_username)
+    or nonEmptyString(value.userName)
+    or nonEmptyString(value.user_name)
+    or nonEmptyString(value.name)
+end
+local function explicitOwnerUsername(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+  return nonEmptyString(value.username)
+    or nonEmptyString(value.ownerUsername)
+    or nonEmptyString(value.owner_username)
+    or nonEmptyString(value.userName)
+    or nonEmptyString(value.user_name)
+    or nestedOwnerUsername(value.owner)
+    or nestedOwnerUsername(value.user)
+    or scalarOwnerUsername(value.owner)
+end
+local function hasDifferentExplicitOwner(value)
+  if expectedUsername == "" or type(value) ~= "table" then
+    return false
+  end
+  local observed = explicitOwnerUsername(value)
+  return observed ~= nil and observed ~= expectedUsername
+end
 local function appendRuntimePolicyParameterCandidate(source, value)
   if #candidates >= candidateLimit then
+    return
+  end
+  if hasDifferentExplicitOwner(value) then
     return
   end
   table.insert(candidates, {source = source, value = value})
@@ -893,6 +985,9 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth)
   end
   local decoded = decodedRuntimePolicyParameterValue(value)
   if decoded == nil then
+    return
+  end
+  if hasDifferentExplicitOwner(decoded) then
     return
   end
   if decoded.type == "screeps-rl-runtime-policy-parameter-consumption" then
@@ -950,7 +1045,8 @@ for _, pattern in ipairs({"*memory*", "*Memory*"}) do
 end
 return cjson.encode({ok = true, candidates = candidates})
 """.strip()
-    command = [*compose, "exec", "-T", "redis", "redis-cli", "--raw", "EVAL", eval_script, "0"]
+    username = text_or_none(getattr(cfg, "username", None)) or ""
+    command = [*compose, "exec", "-T", "redis", "redis-cli", "--raw", "EVAL", eval_script, "0", username]
     result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
     if result.get("returncode") != 0:
         return None
@@ -958,7 +1054,11 @@ return cjson.encode({ok = true, candidates = candidates})
         payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
     except (IndexError, json.JSONDecodeError):
         return None
-    return find_runtime_parameter_consumption_evidence(payload, injection=injection)
+    return find_runtime_parameter_consumption_evidence(
+        payload,
+        injection=injection,
+        owner_username=username,
+    )
 
 
 def _collect_mongo_runtime_parameter_consumption_evidence(
@@ -1030,9 +1130,10 @@ def find_runtime_parameter_consumption_evidence(
     payload: Any,
     *,
     injection: JsonObject | None = None,
+    owner_username: str | None = None,
 ) -> JsonObject | None:
     fallback: JsonObject | None = None
-    for candidate in iter_runtime_parameter_consumption_candidates(payload):
+    for candidate in iter_runtime_parameter_consumption_candidates(payload, owner_username=owner_username):
         if (
             isinstance(candidate, dict)
             and candidate.get("type") == RUNTIME_PARAMETER_CONSUMPTION_TYPE
@@ -1049,13 +1150,24 @@ def find_runtime_parameter_consumption_evidence(
     return fallback
 
 
-def iter_runtime_parameter_consumption_candidates(payload: Any, depth: int = 0) -> Iterable[Any]:
+def iter_runtime_parameter_consumption_candidates(
+    payload: Any,
+    depth: int = 0,
+    *,
+    owner_username: str | None = None,
+) -> Iterable[Any]:
     if depth > 4:
         return
     decoded = decode_runtime_parameter_jsonish(payload)
     if decoded is not payload:
-        yield from iter_runtime_parameter_consumption_candidates(decoded, depth + 1)
+        yield from iter_runtime_parameter_consumption_candidates(
+            decoded,
+            depth + 1,
+            owner_username=owner_username,
+        )
     if isinstance(payload, dict):
+        if not runtime_parameter_record_matches_username(payload, owner_username):
+            return
         yield payload
         for key in (
             RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
@@ -1069,14 +1181,26 @@ def iter_runtime_parameter_consumption_candidates(payload: Any, depth: int = 0) 
             "evidence",
         ):
             if key in payload:
-                yield from iter_runtime_parameter_consumption_candidates(payload[key], depth + 1)
+                yield from iter_runtime_parameter_consumption_candidates(
+                    payload[key],
+                    depth + 1,
+                    owner_username=owner_username,
+                )
         candidates = payload.get("candidates")
         if isinstance(candidates, list):
             for item in candidates:
-                yield from iter_runtime_parameter_consumption_candidates(item, depth + 1)
+                yield from iter_runtime_parameter_consumption_candidates(
+                    item,
+                    depth + 1,
+                    owner_username=owner_username,
+                )
     elif isinstance(payload, list):
         for item in payload:
-            yield from iter_runtime_parameter_consumption_candidates(item, depth + 1)
+            yield from iter_runtime_parameter_consumption_candidates(
+                item,
+                depth + 1,
+                owner_username=owner_username,
+            )
 
 
 def decode_runtime_parameter_jsonish(value: Any) -> Any:
@@ -5263,6 +5387,14 @@ def text_or_none(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     return dataset_export.redact_text(value)[:240]
+
+
+def _non_empty_text(value: Any) -> str | None:
+    text = text_or_none(value)
+    if text is None:
+        return None
+    stripped = text.strip()
+    return stripped or None
 
 
 def string_list(raw: Any, limit: int = 50) -> list[str]:
