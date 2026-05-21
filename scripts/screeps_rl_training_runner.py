@@ -1437,17 +1437,6 @@ def build_rank_weighted_finite_difference_policy_update(
         updated_parameters[name] = updated
         parameter_delta[name] = round_policy_number(float(updated) - anchor_value)
 
-    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
-        return {
-            **base,
-            "skippedReason": "bounded_update_no_parameter_change",
-            "candidateCount": len(candidates),
-            "anchor": policy_update_candidate_summary(anchor),
-            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
-            "learningRate": learning_rate,
-            "gradient": gradient,
-        }
-
     parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
     if parameter_evidence.get("policyUpdateEligible") is not True:
         return {
@@ -1456,6 +1445,17 @@ def build_rank_weighted_finite_difference_policy_update(
             "candidateCount": len(candidates),
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
             "parameterEvidence": parameter_evidence,
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
+        }
+
+    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        return {
+            **base,
+            "skippedReason": "bounded_update_no_parameter_change",
+            "candidateCount": len(candidates),
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
@@ -1606,17 +1606,6 @@ def build_reinforce_policy_update(
         samples=samples,
         baseline=return_baseline,
     )
-    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
-        return {
-            **base,
-            "skippedReason": "bounded_update_no_parameter_change",
-            "candidateCount": len(candidates),
-            "anchor": policy_update_candidate_summary(anchor),
-            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
-            "learningRate": learning_rate,
-            "gradient": gradient,
-        }
-
     parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
     if parameter_evidence.get("policyUpdateEligible") is not True:
         return {
@@ -1630,6 +1619,17 @@ def build_reinforce_policy_update(
             "learningRate": learning_rate,
             "gradient": gradient,
             "returnSummary": return_summary,
+        }
+
+    if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        return {
+            **base,
+            "skippedReason": "bounded_update_no_parameter_change",
+            "candidateCount": len(candidates),
+            "anchor": policy_update_candidate_summary(anchor),
+            "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "learningRate": learning_rate,
+            "gradient": gradient,
         }
 
     candidate_policy_id = updated_candidate_policy_id(

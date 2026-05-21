@@ -2139,6 +2139,120 @@ export const STRATEGY_REGISTRY = [
         self.assertNotIn("updatedParameters", update)
         self.assertNotIn("parameterDelta", update)
 
+    def test_rank_weighted_clamped_noop_without_runtime_transport_reports_incomplete_evidence(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+                "learning_rate": 1,
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 30.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 29.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 30.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 29.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-clamped-noop",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], runner.RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON)
+        self.assertEqual(update["candidateCount"], 2)
+        self.assertEqual(update["metadataCandidateCount"], 2)
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 1})
+        self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertNotIn("returnSummary", update)
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("parameterDelta", update)
+
+    def test_reinforce_clamped_noop_without_runtime_transport_reports_incomplete_evidence(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 1,
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 30.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 29.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 30.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "parameters": {"territorySignalWeight": 29.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-reinforce-clamped-noop",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], runner.RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON)
+        self.assertEqual(update["candidateCount"], 2)
+        self.assertEqual(update["metadataCandidateCount"], 2)
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.008333})
+        self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
+        self.assertEqual(update["returnSummary"]["sampleCount"], 2)
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("parameterDelta", update)
+
     def test_reinforce_small_gradient_preserves_nonzero_continuous_candidate_delta(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
