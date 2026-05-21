@@ -10,6 +10,13 @@ import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
+import {
+  RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL,
+  RUNTIME_POLICY_PARAMETERS_GLOBAL,
+  applyRuntimePolicyParametersToRegistry,
+  createRuntimePolicyParameterConsumptionRecorder,
+  persistRuntimePolicyParameterConsumptionEvidence
+} from '../src/strategy/runtimePolicyParameters';
 
 const TEST_GLOBALS = {
   FIND_STRUCTURES: 101,
@@ -2529,7 +2536,7 @@ describe('runtime telemetry summaries', () => {
     ).toBe(true);
   });
 
-  it('does not report construction-priority runtime use from summary-only scoring', () => {
+  it('reports construction-priority runtime use from runtime summary scoring', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const onStrategyRegistryRuntimeUse = jest.fn();
 
@@ -2538,7 +2545,66 @@ describe('runtime telemetry summaries', () => {
       onStrategyRegistryRuntimeUse
     });
 
-    expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
+    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalledTimes(1);
+    expect(onStrategyRegistryRuntimeUse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'construction-priority.incumbent.v1',
+        family: 'construction-priority'
+      })
+    );
+  });
+
+  it('persists consumed runtime parameter evidence when summary scoring uses patched parameters', () => {
+    const parameters = {
+      baseScoreWeight: 1,
+      territorySignalWeight: 29,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    };
+    const parametersSha256 = '8af0d62c55553bc05b705c43d7388473ddaf8191a1d64b6937f1fb230efb7c2f';
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters,
+      parametersSha256
+    };
+    const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+    const recorder = createRuntimePolicyParameterConsumptionRecorder();
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+
+    emitRuntimeSummary([colony], [], [], {
+      persistOccupationRecommendations: false,
+      strategyRegistry: runtimePolicyParameters.registry,
+      onStrategyRegistryRuntimeUse: recorder.recordStrategyRuntimeUse
+    });
+    persistRuntimePolicyParameterConsumptionEvidence(recorder.buildEvidence());
+
+    expect(
+      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+    ).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: true,
+      parameters,
+      parametersSha256,
+      appliedStrategyIds: ['construction-priority.incumbent.v1'],
+      liveEffect: false,
+      officialMmoWrites: false,
+      officialMmoWritesAllowed: false,
+      tick: RUNTIME_SUMMARY_INTERVAL
+    });
+    expect(
+      (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL]
+    ).toMatchObject({
+      consumed: true,
+      parameters,
+      parametersSha256,
+      appliedStrategyIds: ['construction-priority.incumbent.v1']
+    });
   });
 
   function parseLoggedSummary(): Record<string, unknown> {
@@ -2586,6 +2652,8 @@ function clearRuntimeTelemetryGlobals(): void {
   }
   delete globals.Game;
   delete globals.Memory;
+  delete globals[RUNTIME_POLICY_PARAMETERS_GLOBAL];
+  delete globals[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
 }
 
 function installRuntimeTelemetryMemory(): void {
