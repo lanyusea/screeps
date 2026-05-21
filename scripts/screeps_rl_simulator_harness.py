@@ -809,14 +809,17 @@ def _collect_http_runtime_parameter_consumption_evidence(
         {"shard": cfg.shard},
         {},
     ):
-        result = smoke.http_json(
-            "GET",
-            cfg.server_url,
-            "/api/user/memory",
-            headers=smoke.token_headers(token),
-            params=params,
-            timeout=RUN_PHASE_TIMEOUT_SECONDS,
-        )
+        try:
+            result = smoke.http_json(
+                "GET",
+                cfg.server_url,
+                "/api/user/memory",
+                headers=smoke.token_headers(token),
+                params=params,
+                timeout=RUN_API_TIMEOUT_SECONDS,
+            )
+        except Exception:  # noqa: BLE001 - one degraded memory probe must not block remaining shapes
+            continue
         if result.status != 200:
             continue
         evidence = find_runtime_parameter_consumption_evidence(result.payload, injection=injection)
