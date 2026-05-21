@@ -468,6 +468,46 @@ describe('next expansion scoring', () => {
     });
   });
 
+  it.each([
+    [
+      'home energy buffer',
+      { energyAvailable: 1_300, energyBufferThreshold: 800 },
+      'energyBufferLow'
+    ],
+    ['low CPU bucket', { energyAvailable: 1_800, energyBufferThreshold: 800, cpuBucket: 499 }, 'cpuBucketLow'],
+    ['home alert', { energyAvailable: 1_800, energyBufferThreshold: 800, homeAlertActive: true }, 'homeAlertActive']
+  ] as const)('holds E29N56 scout-only evidence on %s', (_label, inputOverrides, blockReason) => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'E29N56',
+            scoutOnly: true,
+            controllerId: 'controller-E29N56' as Id<StructureController>,
+            sourceCount: 1,
+            sourceAccessPoints: 1
+          })
+        ],
+        {
+          colonyName: 'E29N55',
+          controllerLevel: 5,
+          energyCapacityAvailable: 1_800,
+          ...inputOverrides
+        }
+      )
+    );
+
+    persistExpansionCandidateScores('E29N55', report, 1_285);
+
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason
+    });
+  });
+
   it('discovers visible candidates adjacent to any owned room and reports terrain quality', () => {
     const colony = makeSafeColony();
     const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
