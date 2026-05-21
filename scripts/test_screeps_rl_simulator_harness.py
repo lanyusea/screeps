@@ -1458,6 +1458,43 @@ cli:
         self.assertFalse(config["safety"]["liveEffect"])
         self.assertFalse(config["safety"]["officialMmoWrites"])
 
+    def test_inline_scale_environment_variant_config_preserves_runtime_parameters(self) -> None:
+        base_variant_id = "construction-priority.pg.territory-seed.v1"
+        scale_variant_id = f"{base_variant_id}.scale-env-01"
+        parameters = {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 22,
+            "resourceSignalWeight": 3,
+            "killSignalWeight": 5,
+            "riskPenalty": 4,
+        }
+
+        config = harness.strategy_variant_config_by_id(
+            scale_variant_id,
+            variant_configs={
+                scale_variant_id: {
+                    "id": scale_variant_id,
+                    "title": "Policy-gradient territory seed scale environment 1",
+                    "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+                    "family": "construction-priority",
+                    "parameters": parameters,
+                }
+            },
+        )
+        injection = harness.runtime_parameter_injection_for_variant(scale_variant_id, config)
+
+        self.assertEqual(config["sourceVariantId"], base_variant_id)
+        self.assertEqual(config["scaleEnvironment"]["environmentIndex"], 1)
+        self.assertEqual(config["parameters"], parameters)
+        self.assertEqual(config["defaultValues"], parameters)
+        self.assertEqual(injection["status"], "prepared")
+        self.assertEqual(injection["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(injection["parameters"], parameters)
+        self.assertNotIn("reason", injection)
+        self.assertFalse(injection["liveEffect"])
+        self.assertFalse(injection["officialMmoWrites"])
+        self.assertFalse(injection["officialMmoWritesAllowed"])
+
     def test_runtime_parameter_injection_changes_private_runtime_code_input(self) -> None:
         base_code = (
             '"use strict";\n'

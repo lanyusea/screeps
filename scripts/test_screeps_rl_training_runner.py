@@ -175,7 +175,10 @@ class MockSimulator:
         for variant_id in kwargs["variants"]:
             result = copy.deepcopy(self.results_by_variant[variant_id])
             if self.inject_runtime_parameters:
-                variant_config = kwargs["variant_configs"][variant_id]
+                variant_config = runner.simulator_harness.strategy_variant_config_by_id(
+                    variant_id,
+                    variant_configs=kwargs["variant_configs"],
+                )
                 injection = runner.simulator_harness.runtime_parameter_injection_for_variant(variant_id, variant_config)
                 code_text = runner.simulator_harness.apply_runtime_parameter_injection_to_code(
                     "\n".join(
@@ -194,9 +197,15 @@ class MockSimulator:
                     injection,
                     code_text=code_text,
                 )
-                evaluated_parameters = copy.deepcopy(
-                    self.evaluated_parameters_by_variant.get(variant_id, variant_config["parameters"])
-                )
+                if variant_id in self.evaluated_parameters_by_variant:
+                    evaluated_parameters = copy.deepcopy(self.evaluated_parameters_by_variant[variant_id])
+                else:
+                    parameters = variant_config.get("parameters")
+                    if not isinstance(parameters, dict) or not parameters:
+                        raise AssertionError(
+                            f"runtime injection test expected parameters for {variant_id}, got {variant_config!r}"
+                        )
+                    evaluated_parameters = copy.deepcopy(parameters)
                 consumption_evidence = {
                     "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
                     "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
@@ -2533,6 +2542,96 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
+
+    def test_scaled_policy_gradient_runtime_injection_uses_card_candidate_parameters(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-scaled-injected",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T06:35:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        expanded_ids = runner.simulator_harness.expand_scale_environment_variants(variant_ids, 5)
+        card["simulation"]["workers"] = 5
+        card["simulation"]["scale_environments"] = 5
+        card["simulation"]["min_concurrent_environments"] = 5
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in expanded_ids:
+            base_id = runner.simulator_harness.scale_environment_base_variant_id(variant_id)
+            if base_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif base_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(simulator_results, inject_runtime_parameters=True)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-scaled-injected",
+                generated_at="2026-05-17T06:40:00Z",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["variants"], expanded_ids)
+        expected_parameters_by_base_id = {
+            candidate["strategyVariantId"]: candidate["parameters"]
+            for candidate in card["policy_gradient"]["candidate_parameter_vectors"]
+        }
+        expected_hashes_by_base_id = {
+            base_id: runner.canonical_hash(parameters)
+            for base_id, parameters in expected_parameters_by_base_id.items()
+        }
+        observed_hashes_by_base_id: dict[str, str] = {}
+        for scaled_variant_id in expanded_ids:
+            scaled_config = runner.simulator_harness.strategy_variant_config_by_id(
+                scaled_variant_id,
+                variant_configs=simulator.calls[0]["variant_configs"],
+            )
+            base_variant_id = runner.simulator_harness.scale_environment_base_variant_id(scaled_variant_id)
+            self.assertIn(base_variant_id, expected_parameters_by_base_id)
+            self.assertEqual(scaled_config["parameters"], expected_parameters_by_base_id[base_variant_id])
+            self.assertEqual(
+                runner.canonical_hash(scaled_config["parameters"]),
+                expected_hashes_by_base_id[base_variant_id],
+            )
+            self.assertEqual(scaled_config["scaleEnvironment"]["baseVariantId"], base_variant_id)
+            observed_hashes_by_base_id[base_variant_id] = runner.canonical_hash(
+                scaled_config["parameters"]
+            )
+        self.assertEqual(observed_hashes_by_base_id, expected_hashes_by_base_id)
+        self.assertEqual(len(set(expected_hashes_by_base_id.values())), len(expected_hashes_by_base_id))
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(expanded_ids))
+        self.assertTrue(report["runtimeParameterInjection"]["policyUpdateEligible"])
+        self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
+        self.assertTrue(report["policyUpdate"]["parameterEvidence"]["runtimeParameterInjection"])
+        self.assertTrue(report["policyUpdate"]["parameterEvidence"]["policyUpdateEligible"])
+        self.assertEqual(report["policyUpdateIterations"], 1)
+        self.assertTrue(report["trueGradient"])
+        self.assertFalse(report["policyUpdate"]["liveEffect"])
+        self.assertFalse(report["policyUpdate"]["officialMmoWrites"])
+        self.assertFalse(report["policyUpdate"]["officialMmoWritesAllowed"])
 
     def test_scorecard_materialization_error_blocks_scorecard_without_crashing(self) -> None:
         card = card_helper.build_card(
