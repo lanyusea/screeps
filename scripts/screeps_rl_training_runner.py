@@ -88,6 +88,7 @@ class StrategyVariant:
     parameters: JsonObject
     candidate_policy_id: str | None = None
     family: str | None = None
+    policy_family: str | None = None
     parameter_evidence: JsonObject | None = None
     rollout_status: str | None = None
     source_strategy_id: str | None = None
@@ -105,6 +106,8 @@ class StrategyVariant:
             payload["candidatePolicyId"] = self.candidate_policy_id
         if self.family:
             payload["family"] = self.family
+        if self.policy_family:
+            payload["policyFamily"] = self.policy_family
         if self.parameter_evidence is not None:
             payload["parameterEvidence"] = copy.deepcopy(self.parameter_evidence)
         if self.rollout_status:
@@ -429,6 +432,7 @@ def expand_scale_environment_strategy_variants(
                 parameters=copy.deepcopy(base.parameters),
                 candidate_policy_id=base.candidate_policy_id,
                 family=base.family,
+                policy_family=base.policy_family,
                 parameter_evidence=copy.deepcopy(base.parameter_evidence),
                 rollout_status=base.rollout_status,
                 source_strategy_id=base.source_strategy_id,
@@ -466,6 +470,11 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
     if source_strategy_id is not None:
         validate_strategy_id(source_strategy_id)
     family = text_or_none(raw.get("family")) or (registry_variant.family if registry_variant else None)
+    policy_family = (
+        text_or_none(raw.get("policyFamily"))
+        or text_or_none(raw.get("policy_family"))
+        or (registry_variant.policy_family if registry_variant else None)
+    )
     parameter_evidence = first_mapping(raw, ("parameterEvidence", "parameter_evidence"))
     rollout_status = (
         text_or_none(raw.get("rolloutStatus"))
@@ -478,6 +487,7 @@ def normalize_variant(raw: Any, registry: dict[str, StrategyVariant]) -> Strateg
         parameters=dict(sorted(parameters.items())),
         candidate_policy_id=candidate_policy_id,
         family=family,
+        policy_family=policy_family,
         parameter_evidence=copy.deepcopy(parameter_evidence) if parameter_evidence is not None else None,
         rollout_status=rollout_status,
         source_strategy_id=source_strategy_id,
@@ -507,6 +517,7 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
             id=variant_id,
             parameters=parameters,
             family=regex_group(r"\bfamily:\s*['\"]([^'\"]+)['\"]", block),
+            policy_family=regex_group(r"\bpolicyFamily:\s*['\"]([^'\"]+)['\"]", block),
             rollout_status=regex_group(r"\brolloutStatus:\s*['\"]([^'\"]+)['\"]", block),
             title=regex_group(r"\btitle:\s*['\"]([^'\"]+)['\"]", block),
             source="registry",
@@ -1292,6 +1303,9 @@ def build_training_report(
         "policyUpdateCandidatePolicyId": None,
         "trueGradient": False,
         "modelFamilies": sorted({text for text in (result.get("family") for result in results) if isinstance(text, str)}),
+        "policyFamilies": sorted(
+            {text for text in (result.get("policyFamily") for result in results) if isinstance(text, str)}
+        ),
         "modelReports": model_reports,
         "kpiSummary": build_kpi_summary(scored_results),
         "warnings": warnings,
@@ -3065,6 +3079,8 @@ def summarize_variant(
             for run in runs
         ],
     }
+    if variant.policy_family:
+        summary["policyFamily"] = variant.policy_family
     if variant.candidate_policy_id:
         summary["candidatePolicyId"] = variant.candidate_policy_id
     if variant.source_strategy_id:
@@ -4175,6 +4191,8 @@ def rank_variant_results(results: Sequence[JsonObject]) -> list[JsonObject]:
                 "ok": result["ok"],
             }
         )
+        if isinstance(result.get("policyFamily"), str):
+            ranking[-1]["policyFamily"] = result["policyFamily"]
     return ranking
 
 

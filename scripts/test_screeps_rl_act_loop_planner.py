@@ -387,6 +387,111 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
                     expected_surface,
                 )
 
+    def test_explicit_policy_route_fields_propagate_through_policy_outputs(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Worker-task route should remain machine-readable",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "target_policy_family": "role.worker-task",
+                "routing": {
+                    "topAgent": "top.economy",
+                    "rolePolicy": "role.worker-task",
+                    "level": "role",
+                },
+                "parameterSurface": {
+                    "name": "worker-task",
+                    "bounds": [
+                        {
+                            "name": "repairVsBuildWeight",
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.1,
+                        }
+                    ],
+                },
+            }
+        )
+
+        expected_route = {
+            "policyFamily": "role.worker-task",
+            "topAgent": "top.economy",
+            "rolePolicy": "role.worker-task",
+            "level": "role",
+        }
+        policy_card_delta = plan["nextExperimentCardDelta"]["deltas"]["policy"]
+        feedback_finding = plan["feedbackIngestion"]["finding"]
+        for field, expected in expected_route.items():
+            with self.subTest(field=field):
+                self.assertEqual(plan["finding"][field], expected)
+                self.assertEqual(plan["nextPolicyDelta"][field], expected)
+                self.assertEqual(policy_card_delta[field], expected)
+                self.assertEqual(feedback_finding[field], expected)
+
+    def test_nested_route_object_policy_family_propagates_through_policy_outputs(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Construction route object should remain machine-readable",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "route": {
+                    "policyFamily": "top.construction",
+                    "topAgent": "top.construction",
+                    "level": "top",
+                },
+                "parameterSurface": {
+                    "name": "construction-priority",
+                    "bounds": [
+                        {
+                            "name": "territorySignalWeight",
+                            "min": 0,
+                            "max": 10,
+                            "step": 1,
+                        }
+                    ],
+                },
+            }
+        )
+
+        policy_card_delta = plan["nextExperimentCardDelta"]["deltas"]["policy"]
+        self.assertEqual(plan["finding"]["policyFamily"], "top.construction")
+        self.assertEqual(plan["nextPolicyDelta"]["policyFamily"], "top.construction")
+        self.assertEqual(policy_card_delta["policyFamily"], "top.construction")
+        self.assertEqual(plan["feedbackIngestion"]["finding"]["policyFamily"], "top.construction")
+        self.assertEqual(policy_card_delta["level"], "top")
+
+    def test_construction_priority_falls_back_to_top_construction_policy_family(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Construction-priority should route through the construction top family",
+                "classification": "policy_parameterization_gap",
+                "onlineUtilityStatus": "UNPROVEN",
+                "parameterSurface": {
+                    "name": "construction-priority",
+                    "bounds": [
+                        {
+                            "name": "riskPenalty",
+                            "min": 0,
+                            "max": 10,
+                            "step": 1,
+                        }
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(plan["status"], "ACT_DELTA_READY")
+        self.assertEqual(plan["finding"]["policyFamily"], "top.construction")
+        self.assertEqual(plan["nextPolicyDelta"]["policyFamily"], "top.construction")
+        self.assertEqual(
+            plan["nextExperimentCardDelta"]["deltas"]["policy"]["policyFamily"],
+            "top.construction",
+        )
+        self.assertEqual(plan["feedbackIngestion"]["finding"]["policyFamily"], "top.construction")
+        self.assertIsNone(plan["nextRewardDecision"])
+        self.assertNotIn("rewardDecision", plan["nextExperimentCardDelta"]["deltas"])
+        self.assertNotIn("cron", json.dumps(plan, sort_keys=True).lower())
+
     def test_nested_policy_surface_without_bounds_stays_route_required(self) -> None:
         plan = planner.build_plan(
             {

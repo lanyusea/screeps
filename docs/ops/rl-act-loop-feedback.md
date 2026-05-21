@@ -7,6 +7,7 @@ Primary artifacts:
 - `scripts/screeps_rl_act_loop_planner.py`
 - `scripts/test_screeps_rl_act_loop_planner.py`
 - `scripts/fixtures/rl/act-loop-mixed-unproven-policy-advantage.json`
+- `docs/ops/rl-policy-family-flywheel.md`
 - `docs/ops/rl-reward-decision-registry.md`
 - `docs/ops/rl-training-reward-workflow.md`
 
@@ -35,13 +36,15 @@ The planner only reads JSON and writes JSON. It does not call GitHub, Screeps of
 
 Each plan emits:
 
-- `finding`: stable finding id, title, source artifact, evidence window, primary `classification`, secondary classifications, metric evidence, and missing scenario capabilities when present.
+- `finding`: stable finding id, title, source artifact, evidence window, primary `classification`, secondary classifications, metric evidence, policy-family route metadata, and missing scenario capabilities when present.
 - `nextRewardDecision`: a #907-style reward decision record route when the finding is a `reward_gap`.
 - `nextScenarioDelta`: a private/shadow scenario or fixture delta when the finding is a `scenario_gap`.
 - `nextPolicyDelta`: a named policy parameter surface with explicit bounds when the finding is a `policy_parameterization_gap`.
 - `nextExperimentCardDelta`: the card-helper-compatible shadow training delta that consumes reward/scenario/policy changes.
 - `feedbackIngestion`: current state for finding -> decision -> card -> training -> scorecard -> rollout feedback.
 - `decision`, `status`, and `blockingReasons`: fields that the SQLite/Grafana ingestion path can count through `metric_iteration_decisions`.
+
+Policy-family routing follows `docs/ops/rl-policy-family-flywheel.md`: no new cron lanes, flexible `policyFamily` / `topAgent` / `rolePolicy` fields, and fallback only from known `parameterSurface` names such as `construction-priority -> top.construction`.
 
 Allowed classifications:
 

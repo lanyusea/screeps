@@ -17,6 +17,8 @@ This domain exists to change game strategy, not merely to produce papers. The pa
 
 Canonical current strategy paper: `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md`. The older `docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md` remains the research foundation, but the 2026-05-19 paper is the operational source of truth for active #879 flywheel design, safety gates, observability, scale thresholds, and maintenance expectations.
 
+Canonical policy-family routing contract: `docs/ops/rl-policy-family-flywheel.md`. #879 remains on the existing cron and GitHub Project machinery while findings, Act-loop deltas, Loop A, Loop B, steward decisions, continuation work, scorecards, canaries, and feedback preserve `policyFamily` metadata for the multi-agent hierarchy.
+
 ## Safety boundary
 
 No learned or tuned policy may directly control official MMO creep intents, spawn intents, construction intents, market orders, Memory writes, or RawMemory commands until all gates pass:
@@ -62,6 +64,8 @@ These gates are the active roadmap mapping for the current RL flywheel reset. A 
 | G7 Canonical strategy maintenance | #1241 | RL flywheel | `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md` is published and future strategy changes update it or explicitly state why not | agent continuity |
 
 Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape is smoke-only; validation requires >=200 env rows and >=200k ticks, and #1236 owns the minimum acceptable 8c16g utilization ladder.
+
+Policy-family-aware #879 execution starts with `top.construction` as the existing `construction-priority` bridge and `role.worker-task` as the first lower-level surface. These labels are routing metadata only; reward, scorecard, canary, rollout, and feedback gates remain unchanged.
 
 ## Current issue map
 
