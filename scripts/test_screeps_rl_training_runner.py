@@ -2350,6 +2350,67 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWrites"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
 
+    def test_ready_parameter_evidence_does_not_alias_injection_to_consumption(self) -> None:
+        policy_gradient = {
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "missing_runtime_parameter_consumption",
+            },
+            "candidateParameterVectors": [
+                {"strategyVariantId": "variant-a"},
+                {"strategyVariantId": "variant-b"},
+            ],
+        }
+
+        evidence = runner.policy_update_runtime_injection_ready_parameter_evidence(
+            policy_gradient,
+            [{"strategyVariantId": "variant-a"}, {"strategyVariantId": "variant-b"}],
+        )
+        gate = runner.policy_update_promotion_gate(evidence, policy_update_generated=True)
+
+        self.assertTrue(evidence["runtimeParameterInjection"])
+        self.assertFalse(evidence["runtimeParameterConsumption"])
+        self.assertTrue(evidence["policyUpdateEligible"])
+        self.assertEqual(evidence["runtimeParameterConsumptionStatus"], "missing_runtime_parameter_consumption")
+        self.assertEqual(gate["status"], "blocked_runtime_parameter_consumption_missing")
+        self.assertFalse(gate["runtimeConsumedPromotionEligible"])
+        self.assertFalse(gate["loopAPromotionEligible"])
+        self.assertFalse(gate["loopBPromotionEligible"])
+
+    def test_ready_parameter_evidence_accepts_consumed_runtime_status(self) -> None:
+        policy_gradient = {
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "candidateParameterVectors": [
+                {"strategyVariantId": "variant-a"},
+                {"strategyVariantId": "variant-b"},
+            ],
+        }
+
+        evidence = runner.policy_update_runtime_injection_ready_parameter_evidence(
+            policy_gradient,
+            [{"strategyVariantId": "variant-a"}, {"strategyVariantId": "variant-b"}],
+        )
+        gate = runner.policy_update_promotion_gate(evidence, policy_update_generated=True)
+
+        self.assertTrue(evidence["runtimeParameterInjection"])
+        self.assertTrue(evidence["runtimeParameterConsumption"])
+        self.assertTrue(evidence["policyUpdateEligible"])
+        self.assertEqual(gate["status"], "runtime_consumed_shadow_candidate")
+        self.assertTrue(gate["runtimeConsumedPromotionEligible"])
+        self.assertTrue(gate["loopAPromotionEligible"])
+        self.assertTrue(gate["loopBPromotionEligible"])
+
     def test_reinforce_reward_evidence_without_runtime_transport_stays_noop(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",

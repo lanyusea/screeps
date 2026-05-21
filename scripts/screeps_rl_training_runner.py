@@ -4938,6 +4938,10 @@ def policy_update_runtime_injection_ready_parameter_evidence(
             "inlineCandidatesRuntimeInjected",
         ),
     ) is True
+    consumption_status = text_or_none(
+        first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
+    )
+    runtime_consumption = consumption_status == "consumed"
     runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
     candidate_count_ready = len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
     eligible = (
@@ -4949,7 +4953,7 @@ def policy_update_runtime_injection_ready_parameter_evidence(
     payload: JsonObject = {
         "candidateParameterScope": scope,
         "runtimeParameterInjection": runtime_injection,
-        "runtimeParameterConsumption": runtime_injection,
+        "runtimeParameterConsumption": runtime_consumption,
         "policyUpdateEligible": eligible,
         "candidateCount": len(candidates),
         "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
@@ -4961,9 +4965,6 @@ def policy_update_runtime_injection_ready_parameter_evidence(
             else "blocked_until_runtime_parameter_evidence"
         ),
     }
-    consumption_status = text_or_none(
-        first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
-    )
     if consumption_status is not None:
         payload["runtimeParameterConsumptionStatus"] = consumption_status
     if eligible:
