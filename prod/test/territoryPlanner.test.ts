@@ -844,7 +844,8 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'E29N55',
       targetRoom: 'E29N56',
-      action: 'scout'
+      action: 'scout',
+      blockReason: 'controllerLevelLow'
     });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(
@@ -856,9 +857,17 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
-        updatedAt: gameTime
+        updatedAt: gameTime,
+        blockReason: 'controllerLevelLow'
       }
     ]);
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'controllerLevelLow'
+    });
   });
 
   it('converts fresh safe E29N56 scout-only evidence into a reserve target at RCL5', () => {
@@ -999,9 +1008,17 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'E29N56',
         action: 'scout',
         status: 'planned',
-        updatedAt: gameTime
+        updatedAt: gameTime,
+        blockReason: 'controllerLevelLow'
       }
     ]);
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'controllerLevelLow'
+    });
   });
 
   it.each([
@@ -1009,7 +1026,8 @@ describe('planTerritoryIntent', () => {
       'hostile creep',
       {
         hostileCreepCount: 1
-      }
+      },
+      'targetHostile'
     ],
     [
       'foreign reservation',
@@ -1019,7 +1037,8 @@ describe('planTerritoryIntent', () => {
           my: false,
           reservationUsername: 'enemy'
         }
-      }
+      },
+      'controllerReserved'
     ],
     [
       'foreign ownership',
@@ -1029,9 +1048,10 @@ describe('planTerritoryIntent', () => {
           my: false,
           ownerUsername: 'enemy'
         }
-      }
+      },
+      'controllerOwned'
     ]
-  ] as const)('does not convert E29N56 scout-only evidence when %s is present', (_label, intelOverrides) => {
+  ] as const)('does not convert E29N56 scout-only evidence when %s is present', (_label, intelOverrides, blockReason) => {
     const colony = makeSafeColony({
       roomName: 'E29N55',
       controller: {
@@ -1074,7 +1094,133 @@ describe('planTerritoryIntent', () => {
     expect(plan).toBeNull();
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toBeUndefined();
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      blockReason
+    });
   });
+
+  it.each([
+    [
+      'low home spawn buffer',
+      {
+        energyAvailable: 1_000,
+        energyCapacityAvailable: 1_800,
+        withSpawn: true
+      },
+      {},
+      'energyBufferLow'
+    ],
+    [
+      'low CPU bucket',
+      {
+        energyAvailable: 1_800,
+        energyCapacityAvailable: 1_800
+      },
+      { cpu: { bucket: 499 } },
+      'cpuBucketLow'
+    ],
+    [
+      'active home alert',
+      {
+        energyAvailable: 1_800,
+        energyCapacityAvailable: 1_800
+      },
+      {
+        defense: {
+          colonyThreats: {
+            updatedAt: 6_805,
+            rooms: {
+              E29N55: {
+                roomName: 'E29N55',
+                level: 'hostile_present' as DefenseThreatLevel,
+                updatedAt: 6_805,
+                hostileCreepCount: 1,
+                hostileStructureCount: 0,
+                damagedCriticalStructureCount: 0
+              }
+            }
+          }
+        }
+      },
+      'homeAlertActive'
+    ]
+  ] as const)(
+    'holds E29N56 scout-only conversion on %s with a block reason',
+    (_label, homeState, runtimeState, blockReason) => {
+      const colony = makeSafeColony({
+        roomName: 'E29N55',
+        controller: {
+          my: true,
+          owner: { username: 'me' },
+          level: 5,
+          ticksToDowngrade: 10_000
+        } as StructureController,
+        energyAvailable: homeState.energyAvailable,
+        energyCapacityAvailable: homeState.energyCapacityAvailable
+      });
+      if ('withSpawn' in homeState && homeState.withSpawn === true) {
+        colony.spawns = [
+          {
+            name: 'Spawn1',
+            room: colony.room,
+            spawning: null
+          } as StructureSpawn
+        ];
+      }
+      const gameTime = 6_805;
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        runtime: {
+          currentRoomName: 'E29N55'
+        },
+        ...('defense' in runtimeState ? { defense: runtimeState.defense } : {}),
+        territory: {
+          scoutIntel: {
+            'E29N55>E29N56': makeScoutIntel('E29N56', gameTime - 1, {
+              colony: 'E29N55',
+              controller: { id: 'controller-E29N56' as Id<StructureController>, my: false },
+              sourceIds: ['source1'],
+              sourceCount: 1,
+              sourceAccessPoints: 1
+            })
+          }
+        }
+      };
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        time: gameTime,
+        ...('cpu' in runtimeState ? { cpu: runtimeState.cpu as CPU } : {}),
+        rooms: {
+          E29N55: colony.room
+        },
+        map: {
+          describeExits: jest.fn(() => ({ '1': 'E29N56' })),
+          findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+        } as unknown as GameMap
+      };
+      const cappedScoutRoleCounts = {
+        worker: 4,
+        claimer: 0,
+        scout: 2,
+        scoutsByTargetRoom: { E29N54: 1, E28N55: 1 },
+        claimersByTargetRoom: {}
+      };
+
+      expect(
+        planTerritoryIntent(colony, cappedScoutRoleCounts, 4, gameTime)
+      ).toBeNull();
+      expect(Memory.territory?.targets).toBeUndefined();
+      expect(Memory.territory?.intents).toBeUndefined();
+      expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+        colony: 'E29N55',
+        roomName: 'E29N56',
+        scoutOnly: true,
+        recommendedAction: 'scout',
+        blockReason
+      });
+    }
+  );
 
   it.each([
     [

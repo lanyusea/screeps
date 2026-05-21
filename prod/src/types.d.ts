@@ -693,6 +693,9 @@ declare global {
     | 'controllerRangeMissing'
     | 'terrainMissing'
     | 'energyCapacityLow'
+    | 'energyBufferLow'
+    | 'cpuBucketLow'
+    | 'homeAlertActive'
     | 'controllerLevelLow'
     | 'homeDowngradeGuard'
     | 'postClaimBootstrapActive'
@@ -832,6 +835,7 @@ declare global {
     followUp?: TerritoryFollowUpMemory;
     postClaimBootstrapReserveEnergy?: number;
     suspended?: TerritoryIntentSuspensionMemory;
+    blockReason?: TerritoryExpansionCandidateBlockReason;
   }
 
   interface TerritoryIntentSuspensionMemory {

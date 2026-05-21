@@ -1175,6 +1175,9 @@ function isExpansionCandidateBlockReason(
     reason === 'controllerRangeMissing' ||
     reason === 'terrainMissing' ||
     reason === 'energyCapacityLow' ||
+    reason === 'energyBufferLow' ||
+    reason === 'cpuBucketLow' ||
+    reason === 'homeAlertActive' ||
     reason === 'controllerLevelLow' ||
     reason === 'homeDowngradeGuard' ||
     reason === 'postClaimBootstrapActive' ||
