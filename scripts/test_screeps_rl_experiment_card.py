@@ -414,23 +414,24 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             stdout = io.StringIO()
 
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-policy-gradient-supply",
-                    "--from-latest-accepted-dataset",
-                    "--dataset-gate-root",
-                    str(gate_root),
-                    "--code-commit",
-                    "6" * 40,
-                    "--created-at",
-                    "2026-05-17T02:05:00Z",
-                    "--output-dir",
-                    str(card_dir),
-                ],
-                stdout=stdout,
-                stderr=io.StringIO(),
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-17T03:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-policy-gradient-supply",
+                        "--from-latest-accepted-dataset",
+                        "--dataset-gate-root",
+                        str(gate_root),
+                        "--code-commit",
+                        "6" * 40,
+                        "--created-at",
+                        "2026-05-17T02:05:00Z",
+                        "--output-dir",
+                        str(card_dir),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
             summary = json.loads(stdout.getvalue())
             generated = json.loads(Path(summary["path"]).read_text(encoding="utf-8"))
 
@@ -925,22 +926,23 @@ class RlExperimentCardTest(unittest.TestCase):
 
             selected = card_helper.select_accepted_dataset_gate(runtime_root)
             stdout = io.StringIO()
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-19T08:20:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=stdout,
-                stderr=io.StringIO(),
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-19T08:20:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-19T08:20:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
             summary = json.loads(stdout.getvalue())
             generated = json.loads(output_path.read_text(encoding="utf-8"))
             selected_stdout = io.StringIO()
@@ -1041,22 +1043,23 @@ class RlExperimentCardTest(unittest.TestCase):
 
             selected = card_helper.select_accepted_dataset_gate(runtime_root)
             stdout = io.StringIO()
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-19T08:20:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=stdout,
-                stderr=io.StringIO(),
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-19T08:20:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-19T08:20:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
             summary = json.loads(stdout.getvalue())
 
         self.assertTrue(card_helper.is_degraded_e1_gate_acceptable(fresh_gate_payload, gate_data_gate))
@@ -1106,22 +1109,23 @@ class RlExperimentCardTest(unittest.TestCase):
                 max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
             )
             stdout = io.StringIO()
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-21T14:00:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=stdout,
-                stderr=io.StringIO(),
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-21T14:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-21T14:00:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
             summary = json.loads(stdout.getvalue())
 
         self.assertEqual(selected["gate_id"], gate_id)
@@ -1304,22 +1308,23 @@ class RlExperimentCardTest(unittest.TestCase):
             os.utime(zero_gate, (1_779_100_000, 1_779_100_000))
             stderr = io.StringIO()
 
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-21T14:10:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=io.StringIO(),
-                stderr=stderr,
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-21T14:10:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-21T14:10:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                    repo_root=REPO_ROOT,
+                )
 
         error = stderr.getvalue()
         self.assertEqual(exit_code, 2)
@@ -1334,7 +1339,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertIn("below 95.0%", error)
         self.assertIn("is stale", error)
 
-    def test_loop_a_local_fallback_blocks_stale_accepted_gate_without_fresh_gate(self) -> None:
+    def test_loop_a_local_fallback_blocks_stale_accepted_gate_despite_backdated_created_at(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             runtime_root = root / "runtime-artifacts"
@@ -1365,22 +1370,23 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             stderr = io.StringIO()
 
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-21T14:00:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=io.StringIO(),
-                stderr=stderr,
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-21T14:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-19T01:00:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                    repo_root=REPO_ROOT,
+                )
 
         error = stderr.getvalue()
         self.assertEqual(exit_code, 2)
@@ -1389,6 +1395,50 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertIn("newest accepted gate is stale", error)
         self.assertIn(gate_id, error)
         self.assertIn("classification=accepted", error)
+        self.assertIn("age 62.0h > 36h", error)
+
+    def test_from_latest_accepted_dataset_blocks_stale_gate_despite_backdated_created_at(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260519T000000Z-postmerge1188"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-19T00:00:00Z",
+                        "dataset": {"ok": True, "runId": "rl-stale-from-latest", "sampleCount": 200},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-21T14:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--from-latest-accepted-dataset",
+                        "--dataset-gate-root",
+                        str(gate_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-19T01:00:00Z",
+                    ],
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                    repo_root=REPO_ROOT,
+                )
+
+        error = stderr.getvalue()
+        self.assertEqual(exit_code, 2)
+        self.assertIn("fresh gate required within 36h", error)
+        self.assertIn("newest accepted gate is stale", error)
+        self.assertIn(gate_id, error)
         self.assertIn("age 62.0h > 36h", error)
 
     def test_cli_accepts_explicit_stale_source_gate_for_replay(self) -> None:
@@ -1414,23 +1464,24 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             stdout = io.StringIO()
 
-            exit_code = card_helper.main(
-                [
-                    "--source-gate-id",
-                    gate_id,
-                    "--dataset-gate-root",
-                    str(gate_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-21T14:00:00Z",
-                    "--output-dir",
-                    str(card_dir),
-                ],
-                stdout=stdout,
-                stderr=io.StringIO(),
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-25T00:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--source-gate-id",
+                        gate_id,
+                        "--dataset-gate-root",
+                        str(gate_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-21T14:00:00Z",
+                        "--output-dir",
+                        str(card_dir),
+                    ],
+                    stdout=stdout,
+                    stderr=io.StringIO(),
+                    repo_root=REPO_ROOT,
+                )
             summary = json.loads(stdout.getvalue())
             generated = json.loads(Path(summary["path"]).read_text(encoding="utf-8"))
 
@@ -1542,22 +1593,23 @@ class RlExperimentCardTest(unittest.TestCase):
             )
             stderr = io.StringIO()
 
-            exit_code = card_helper.main(
-                [
-                    "--loop-a-local-fallback",
-                    "--dataset-gate-root",
-                    str(runtime_root),
-                    "--code-commit",
-                    "8" * 40,
-                    "--created-at",
-                    "2026-05-19T08:20:00Z",
-                    "--output",
-                    str(output_path),
-                ],
-                stdout=io.StringIO(),
-                stderr=stderr,
-                repo_root=REPO_ROOT,
-            )
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-19T08:20:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-19T08:20:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                    repo_root=REPO_ROOT,
+                )
 
         self.assertEqual(exit_code, 2)
         self.assertFalse(output_path.exists())

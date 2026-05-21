@@ -2562,12 +2562,11 @@ def main(
         dataset_run_id = args.dataset_run_id
         source_gate = None
         dataset_gate_roots = resolve_dataset_gate_roots(args.dataset_gate_root, repo)
-        dataset_gate_reference_time = args.created_at or utc_now_iso()
-        dataset_gate_max_age_hours = (
-            E1_GATE_FRESHNESS_HOURS
-            if args.source_gate_id is None and (args.from_latest_accepted_dataset or args.loop_a_local_fallback)
-            else None
+        requires_fresh_automatic_gate = args.source_gate_id is None and (
+            args.from_latest_accepted_dataset or args.loop_a_local_fallback
         )
+        dataset_gate_reference_time = utc_now_iso() if requires_fresh_automatic_gate else None
+        dataset_gate_max_age_hours = E1_GATE_FRESHNESS_HOURS if requires_fresh_automatic_gate else None
         if args.from_latest_accepted_dataset and dataset_run_id is not None:
             raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
         if args.source_gate_id is not None:
