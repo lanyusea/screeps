@@ -856,6 +856,18 @@ def _collect_redis_runtime_parameter_consumption_evidence(
 local cursor = "0"
 local candidates = {}
 local seen = {}
+local candidateLimit = 32
+local candidateMaxDepth = 6
+local nestedRuntimePolicyParameterKeys = {
+  "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__",
+  "runtimeParameterConsumption",
+  "runtimePolicyParameterConsumption",
+  "data",
+  "memory",
+  "Memory",
+  "value",
+  "evidence",
+}
 local function decodedRuntimePolicyParameterValue(value)
   if type(value) == "table" then
     return value
@@ -869,18 +881,53 @@ local function decodedRuntimePolicyParameterValue(value)
   end
   return nil
 end
-local function pushRuntimePolicyParameterCandidate(source, value)
+local function appendRuntimePolicyParameterCandidate(source, value)
+  if #candidates >= candidateLimit then
+    return
+  end
+  table.insert(candidates, {source = source, value = value})
+end
+local function pushRuntimePolicyParameterEvidence(source, value, depth)
+  if depth > candidateMaxDepth or #candidates >= candidateLimit then
+    return
+  end
   local decoded = decodedRuntimePolicyParameterValue(value)
   if decoded == nil then
     return
   end
   if decoded.type == "screeps-rl-runtime-policy-parameter-consumption" then
-    table.insert(candidates, {source = source, value = decoded})
+    appendRuntimePolicyParameterCandidate(source, decoded)
+    return
   end
   local runtimePolicyParameters = decodedRuntimePolicyParameterValue(decoded.rlRuntimePolicyParameters)
   if runtimePolicyParameters ~= nil then
-    table.insert(candidates, {source = source .. ".rlRuntimePolicyParameters", value = runtimePolicyParameters})
+    appendRuntimePolicyParameterCandidate(source .. ".rlRuntimePolicyParameters", runtimePolicyParameters)
   end
+  for _, key in ipairs(nestedRuntimePolicyParameterKeys) do
+    if decoded[key] ~= nil then
+      pushRuntimePolicyParameterEvidence(source .. "." .. key, decoded[key], depth + 1)
+    end
+  end
+  local nestedCandidates = decoded.candidates
+  if type(nestedCandidates) == "table" then
+    for index, item in ipairs(nestedCandidates) do
+      pushRuntimePolicyParameterEvidence(source .. ".candidates[" .. tostring(index) .. "]", item, depth + 1)
+      if #candidates >= candidateLimit then
+        return
+      end
+    end
+  end
+  if decoded[1] ~= nil then
+    for index, item in ipairs(decoded) do
+      pushRuntimePolicyParameterEvidence(source .. "[" .. tostring(index) .. "]", item, depth + 1)
+      if #candidates >= candidateLimit then
+        return
+      end
+    end
+  end
+end
+local function pushRuntimePolicyParameterCandidate(source, value)
+  pushRuntimePolicyParameterEvidence(source, value, 0)
 end
 for _, pattern in ipairs({"*memory*", "*Memory*"}) do
   cursor = "0"
