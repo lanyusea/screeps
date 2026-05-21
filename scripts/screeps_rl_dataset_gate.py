@@ -772,6 +772,8 @@ def evaluate_dataset_readiness(
         "sourceArtifactCount": dataset_summary.get("sourceArtifactCount"),
         "runtimeSummaryArtifactCount": dataset_summary.get("runtimeSummaryArtifactCount"),
         "strategyShadowReportCount": dataset_summary.get("strategyShadowReportCount"),
+        "skippedSampleCount": dataset_summary.get("skippedSampleCount"),
+        "skippedSampleReasons": dataset_summary.get("skippedSampleReasons"),
         "splitCounts": dataset_summary.get("splitCounts"),
         "runId": dataset_summary.get("runId"),
         "runDir": dataset_export.display_path(file_paths["runDir"]),
@@ -1062,6 +1064,7 @@ def run_gate(
     repo = (repo_root or Path.cwd()).expanduser().resolve()
     created = created_at or utc_now_iso()
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
+    resolved_home_room = configured_home_room()
     resolved_gate_id = gate_id or default_gate_id(
         created_at=created,
         input_paths=paths,
@@ -1111,6 +1114,8 @@ def run_gate(
         eval_ratio_value=eval_ratio_value,
         split_seed=split_seed,
         repo_root=repo,
+        created_at=created,
+        home_room=resolved_home_room,
     )
     file_paths = dataset_file_paths(resolved_dataset_out_dir, str(dataset_summary["runId"]), dataset_summary["files"])
     run_manifest = load_json(file_paths["runManifest"])
@@ -1125,7 +1130,7 @@ def run_gate(
         ticks_count,
         min_samples=min_samples,
     )
-    quality_checks = evaluate_quality_checks(file_paths["ticks"], created_at=created)
+    quality_checks = evaluate_quality_checks(file_paths["ticks"], home_room=resolved_home_room, created_at=created)
     floors = metric_floors(
         min_reliability=min_reliability,
         min_owned_rooms=min_owned_rooms,

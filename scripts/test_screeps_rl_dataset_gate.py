@@ -296,10 +296,10 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertIn("no_room_energy", report["quality_checks"]["rejection_reasons"])
         self.assertIn("no_harvest_or_upgrade_task", report["quality_checks"]["rejection_reasons"])
 
-    def test_run_classifies_stale_non_current_room_quality_tail_without_passing_gate(self) -> None:
+    def test_run_excludes_stale_non_current_console_capture_before_quality_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            artifact = root / "runtime-summary-console-20260510T173515Z.log"
+            stale_artifact = root / "runtime-summary-console-20260510T173515Z.log"
             stale_room = runtime_payload(786180, stored_energy=0)
             room = stale_room["rooms"][0]
             room["roomName"] = "E26S48"
@@ -308,40 +308,42 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
             room["energyAvailable"] = 0
             room["resources"]["workerCarriedEnergy"] = 0
-            artifact.write_text(runtime_line(stale_room), encoding="utf-8")
+            stale_artifact.write_text(runtime_line(stale_room), encoding="utf-8")
+
+            current_artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            current_room = runtime_payload(1056600, stored_energy=250)
+            current_room["rooms"][0]["roomName"] = "E29N55"
+            current_artifact.write_text(runtime_line(current_room), encoding="utf-8")
 
             report = gate.run_gate(
-                [str(artifact)],
+                [str(stale_artifact), str(current_artifact)],
                 out_dir=root / "gates",
-                gate_id="gate-stale-non-current-tail",
-                created_at="2026-05-18T20:16:17Z",
+                gate_id="gate-stale-non-current-filter",
+                created_at="2026-05-21T03:03:07Z",
                 dataset_out_dir=root / "datasets",
                 skip_shadow_report=True,
                 bot_commit="a" * 40,
                 eval_ratio_value=0,
                 repo_root=Path.cwd(),
             )
+            saved_report = read_json(root / "gates" / "gate-stale-non-current-filter" / "gate_report.json")
 
         quality = report["quality_checks"]
-        tail = quality["tail_classification"]
-        self.assertFalse(report["ok"])
-        self.assertEqual(quality["status"], "fail")
-        self.assertEqual(quality["samples_rejected"], 1)
-        self.assertEqual(quality["acceptance_rate"], 0.0)
-        self.assertEqual(tail["status"], "blocked")
-        self.assertEqual(tail["primary_cause"], "stale_non_current_room_quality_tail")
-        self.assertEqual(tail["blocker"], "dataset_contains_stale_non_current_room_loss_samples")
-        self.assertFalse(tail["parser_or_instrumentation_gap_suspected"])
-        self.assertEqual(tail["stale_source_sample_count"], 1)
-        self.assertEqual(tail["non_current_room_sample_count"], 1)
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(report["dataset"]["skippedSampleCount"], 1)
         self.assertEqual(
-            quality["rejected_sample_classifications"],
-            {"stale_non_current_room_empty_or_lost": 1},
+            report["dataset"]["skippedSampleReasons"],
+            {gate.dataset_export.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON: 1},
         )
-        self.assertGreater(quality["rejected_samples"][0]["sourceAgeHours"], 24)
-        blocking = next(reason for reason in report["blockingReasons"] if reason["gate"] == "quality_checks")
-        self.assertEqual(blocking["tailClassification"]["primary_cause"], "stale_non_current_room_quality_tail")
-        self.assertEqual(blocking["acceptanceRate"], 0.0)
+        skipped_sample = report["dataset"]["skippedSamples"][0]
+        self.assertEqual(skipped_sample["roomName"], "E26S48")
+        self.assertGreater(skipped_sample["sourceAgeHours"], 24)
+        self.assertEqual(quality["status"], "pass")
+        self.assertEqual(quality["samples_accepted"], 1)
+        self.assertEqual(quality["samples_rejected"], 0)
+        self.assertEqual(quality["acceptance_rate"], 1.0)
+        self.assertEqual(saved_report["dataset"]["skippedSamples"][0]["roomName"], "E26S48")
 
     def test_run_filters_incomplete_postdeploy_monitor_artifact_without_quality_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
