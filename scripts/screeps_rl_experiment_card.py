@@ -20,6 +20,7 @@ TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 E1_POSTMERGE_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z-postmerge\d+$")
 E1_CURRENT_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z$")
+E1_HASH_DATASET_GATE_ID_RE = re.compile(r"^rl-gate-[0-9a-f]{12}$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -77,6 +78,7 @@ LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
 LOOP_A_LOCAL_FALLBACK_WORKERS = 5
 DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE = 0.95
 E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL = 1e-9
+E1_GATE_FRESHNESS_HOURS = 36.0
 
 JsonObject = dict[str, Any]
 
@@ -1362,40 +1364,53 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
     return summary
 
 
-def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str | None = None) -> JsonObject:
+def select_accepted_dataset_gate(
+    gate_root: Path | Sequence[Path],
+    gate_id: str | None = None,
+    *,
+    reference_time: str | datetime | None = None,
+    max_age_hours: float | None = None,
+) -> JsonObject:
     if gate_id is not None:
         validate_gate_id(gate_id)
-    candidates: list[tuple[int, str, float, str, str, Path, JsonObject]] = []
+    candidates: list[tuple[int, float, str, str, str, Path, JsonObject]] = []
+    stale_accepted: list[JsonObject] = []
     roots = dataset_gate_roots(gate_root)
     existing_roots = [root for root in roots if root.exists()]
     if not existing_roots:
         raise CardValidationError(
             "dataset gate root does not exist: " + ", ".join(str(root) for root in roots)
         )
-    for path in iter_canonical_dataset_gate_report_paths(existing_roots):
-        try:
-            payload = load_json(path)
-        except CardValidationError:
+    reference_dt = normalize_reference_time(reference_time)
+    if reference_time is not None and reference_dt is None:
+        raise CardValidationError("dataset gate reference time must be an ISO UTC timestamp")
+    if max_age_hours is not None and reference_dt is None:
+        raise CardValidationError("dataset gate freshness requires a reference time")
+    reports = scan_dataset_gate_reports(existing_roots, gate_id=gate_id, reference_time=reference_dt)
+    for report in reports:
+        if not report.get("acceptable"):
             continue
-        if not is_acceptable_dataset_gate_report(payload, path):
-            continue
+        path = report["path"]
+        payload = report["payload"]
         try:
-            selected_gate_id = accepted_dataset_gate_id(payload, path)
-            if gate_id is not None and selected_gate_id != gate_id:
-                continue
-            run_id = accepted_dataset_run_id(payload)
-            if run_id is None:
-                continue
-            created_at = accepted_dataset_created_at(payload)
+            selected_gate_id = str(report["gate_id"])
+            run_id = str(report["dataset_run_id"])
+            created_at = report.get("created_at")
             quality_rank = dataset_gate_quality_rank(payload, path)
-            mtime = path.stat().st_mtime
-        except (CardValidationError, OSError):
+            report_mtime = report.get("mtime")
+            if report_mtime is None:
+                continue
+            mtime = float(report_mtime)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if max_age_hours is not None and dataset_gate_report_is_stale(report, max_age_hours):
+            stale_accepted.append(report)
             continue
         candidates.append(
             (
                 quality_rank,
-                created_at or "",
                 mtime,
+                str(created_at or ""),
                 selected_gate_id,
                 run_id,
                 path,
@@ -1412,17 +1427,233 @@ def select_accepted_dataset_gate(gate_root: Path | Sequence[Path], gate_id: str 
             )
         )
     if not candidates:
-        if gate_id is not None:
-            raise CardValidationError(
-                f"no accepted dataset gate {gate_id} with datasetRunId found under "
-                + ", ".join(str(root) for root in roots)
-            )
-        raise CardValidationError(
-            "no accepted dataset gate with datasetRunId found under "
-            + ", ".join(str(root) for root in roots)
-        )
+        raise CardValidationError(dataset_gate_selection_error(roots, reports, stale_accepted, gate_id, max_age_hours))
     candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], str(item[5])), reverse=True)
     return candidates[0][6]
+
+
+def normalize_reference_time(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return parse_iso_utc_timestamp(value)
+
+
+def parse_iso_utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or ISO_TIMESTAMP_RE.fullmatch(value) is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def scan_dataset_gate_reports(
+    gate_roots: Sequence[Path],
+    *,
+    gate_id: str | None = None,
+    reference_time: datetime | None = None,
+) -> list[JsonObject]:
+    reports: list[JsonObject] = []
+    for path in iter_canonical_dataset_gate_report_paths(gate_roots):
+        try:
+            payload = load_json(path)
+        except CardValidationError:
+            continue
+        info = dataset_gate_report_info(payload, path, reference_time=reference_time)
+        if gate_id is not None and info.get("gate_id") != gate_id:
+            continue
+        reports.append(info)
+    return reports
+
+
+def dataset_gate_report_info(payload: Any, path: Path, *, reference_time: datetime | None = None) -> JsonObject:
+    payload_dict: JsonObject = payload if isinstance(payload, dict) else {}
+    gate_id = dataset_gate_id(payload_dict) or path.parent.name
+    run_id = accepted_dataset_run_id_or_none(payload_dict)
+    created_at = accepted_dataset_created_at(payload_dict)
+    created_dt = parse_iso_utc_timestamp(created_at)
+    mtime = dataset_gate_report_mtime(path)
+    mtime_dt = datetime.fromtimestamp(mtime, tz=timezone.utc) if mtime is not None else None
+    gate_dt = created_dt or mtime_dt
+    age_hours = None
+    if reference_time is not None and gate_dt is not None:
+        age_hours = (reference_time - gate_dt).total_seconds() / 3600
+    sample_count = dataset_gate_sample_count(payload_dict)
+    acceptance_rate = dataset_gate_acceptance_rate(payload_dict)
+    acceptable = False
+    if isinstance(payload, dict):
+        try:
+            acceptable = is_acceptable_dataset_gate_report(payload, path) and run_id is not None
+        except CardValidationError:
+            acceptable = False
+    usable = (
+        isinstance(payload, dict)
+        and payload.get("type") == SOURCE_GATE_TYPE
+        and run_id is not None
+        and isinstance(sample_count, int)
+        and sample_count > 0
+    )
+    return {
+        "path": path,
+        "payload": payload_dict,
+        "gate_id": gate_id,
+        "dataset_run_id": run_id,
+        "created_at": created_at,
+        "mtime": mtime,
+        "mtime_at": display_datetime(mtime_dt),
+        "gate_time": display_datetime(gate_dt),
+        "age_hours": age_hours,
+        "sample_count": sample_count,
+        "acceptance_rate": acceptance_rate,
+        "acceptable": acceptable,
+        "usable": usable,
+        "classification": dataset_gate_report_classification(payload_dict, path, acceptable=acceptable),
+    }
+
+
+def dataset_gate_report_mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def display_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def dataset_gate_report_is_stale(report: JsonObject, max_age_hours: float) -> bool:
+    age = report.get("age_hours")
+    return is_finite_number(age) and float(age) > max_age_hours
+
+
+def dataset_gate_report_classification(payload: JsonObject, path: Path, *, acceptable: bool) -> str:
+    if payload.get("type") != SOURCE_GATE_TYPE:
+        return "not_dataset_gate_report"
+    sample_count = dataset_gate_sample_count(payload)
+    if sample_count == 0:
+        return "zero_sample_gate"
+    if sample_count is None:
+        return "missing_sample_count"
+    if accepted_dataset_run_id_or_none(payload) is None:
+        return "missing_dataset_run_id"
+    if acceptable:
+        return "accepted"
+    acceptance_rate = dataset_gate_acceptance_rate(payload)
+    if acceptance_rate is not None and acceptance_rate < DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE:
+        return "acceptance_below_threshold"
+    dataset_status = dataset_gate_status(payload)
+    if dataset_status is not None and dataset_status != "pass":
+        return f"dataset_gate_{dataset_status}"
+    if not gate_data_current_report_source(payload, path) and not is_e1_postmerge_dataset_gate_report(payload, path):
+        return "not_current_e1_gate_data"
+    return "incomplete_or_unaccepted_gate"
+
+
+def accepted_dataset_run_id_or_none(payload: JsonObject) -> str | None:
+    try:
+        return accepted_dataset_run_id(payload)
+    except CardValidationError:
+        return None
+
+
+def dataset_gate_selection_error(
+    roots: Sequence[Path],
+    reports: Sequence[JsonObject],
+    stale_accepted: Sequence[JsonObject],
+    gate_id: str | None,
+    max_age_hours: float | None,
+) -> str:
+    if gate_id is not None:
+        prefix = f"no accepted dataset gate {gate_id} with datasetRunId found under "
+    elif max_age_hours is not None:
+        prefix = "no accepted dataset gate with datasetRunId found under "
+    else:
+        prefix = "no accepted dataset gate with datasetRunId found under "
+    details = [prefix + ", ".join(str(root) for root in roots)]
+    if max_age_hours is not None:
+        details.append(f"fresh gate required within {max_age_hours:g}h")
+    newest = newest_gate_report_by_mtime(reports)
+    newest_usable = newest_usable_gate_report(reports)
+    newest_stale = newest_gate_report_by_mtime(stale_accepted)
+    if newest is not None:
+        details.append("newest gate by mtime " + format_gate_report_diagnostic(newest))
+    if newest_usable is not None:
+        usable_text = "newest nonzero gate " + format_gate_report_diagnostic(newest_usable)
+        if max_age_hours is not None and dataset_gate_report_is_stale(newest_usable, max_age_hours):
+            usable_text += f" is stale (age {format_hours(newest_usable.get('age_hours'))} > {max_age_hours:g}h)"
+        details.append(usable_text)
+    if newest_stale is not None:
+        details.append(
+            "newest accepted gate is stale "
+            + format_gate_report_diagnostic(newest_stale)
+            + f" (age {format_hours(newest_stale.get('age_hours'))} > {max_age_hours:g}h)"
+        )
+    if max_age_hours is not None:
+        details.append(
+            "regenerate the E1 gate so the newest gate has nonzero samples and "
+            f">={format_percent(DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE)} quality acceptance within {max_age_hours:g}h"
+        )
+    return "; ".join(details)
+
+
+def newest_gate_report_by_mtime(reports: Sequence[JsonObject]) -> JsonObject | None:
+    candidates = [report for report in reports if is_finite_number(report.get("mtime"))]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda report: float(report.get("mtime") or 0.0))
+
+
+def newest_usable_gate_report(reports: Sequence[JsonObject]) -> JsonObject | None:
+    usable = [report for report in reports if report.get("usable") is True and is_finite_number(report.get("mtime"))]
+    if not usable:
+        return None
+    return max(usable, key=lambda report: float(report.get("mtime") or 0.0))
+
+
+def format_gate_report_diagnostic(report: JsonObject) -> str:
+    parts = [
+        str(report.get("gate_id") or "unknown-gate"),
+        f"classification={report.get('classification')}",
+        f"samples={format_optional_number(report.get('sample_count'))}",
+    ]
+    acceptance = report.get("acceptance_rate")
+    if acceptance is not None:
+        parts.append(f"acceptance={format_percent(acceptance)}")
+        if is_finite_number(acceptance) and float(acceptance) < DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE:
+            parts.append(f"below {format_percent(DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE)}")
+    if report.get("gate_time") is not None:
+        parts.append(f"gateTime={report['gate_time']}")
+    if report.get("mtime_at") is not None:
+        parts.append(f"mtime={report['mtime_at']}")
+    path = report.get("path")
+    if isinstance(path, Path):
+        parts.append(f"path={path}")
+    return "(" + ", ".join(parts) + ")"
+
+
+def format_optional_number(value: Any) -> str:
+    if value is None:
+        return "unknown"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def format_hours(value: Any) -> str:
+    if not is_finite_number(value):
+        return "unknown"
+    return f"{float(value):.1f}h"
+
+
+def format_percent(value: Any) -> str:
+    if not is_finite_number(value):
+        return "unknown"
+    return f"{float(value) * 100:.1f}%"
 
 
 def dataset_gate_roots(gate_root: Path | Sequence[Path]) -> list[Path]:
@@ -1485,7 +1716,7 @@ def is_acceptable_dataset_gate_report(payload: Any, path: Path | None = None) ->
         if payload.get("ok") is True:
             return True
         return is_degraded_e1_gate_acceptable(payload, path)
-    if is_e1_current_dataset_gate_report(payload, path):
+    if is_e1_current_dataset_gate_report(payload, path) or is_canonical_e1_current_gate_data_report(payload, path):
         if is_fully_accepted_e1_current_gate(payload):
             return True
         return is_degraded_e1_gate_acceptable(payload, path)
@@ -1580,8 +1811,20 @@ def is_degraded_e1_gate_acceptable(payload: JsonObject, path: Path | None = None
 
 
 def is_canonical_e1_current_gate_data_report(payload: JsonObject, path: Path | None = None) -> bool:
-    if not is_e1_current_dataset_gate_report(payload, path):
+    gate_id = dataset_gate_id(payload)
+    if gate_id is None:
         return False
+    if (
+        E1_CURRENT_DATASET_GATE_ID_RE.fullmatch(gate_id) is None
+        and E1_HASH_DATASET_GATE_ID_RE.fullmatch(gate_id) is None
+    ):
+        return False
+    if not gate_report_path_matches_payload(payload, path):
+        return False
+    return gate_data_current_report_source(payload, path)
+
+
+def gate_data_current_report_source(payload: JsonObject, path: Path | None = None) -> bool:
     if path is not None and "gate-data" in path.parts:
         return True
     outputs = payload.get("outputs")
@@ -2319,10 +2562,20 @@ def main(
         dataset_run_id = args.dataset_run_id
         source_gate = None
         dataset_gate_roots = resolve_dataset_gate_roots(args.dataset_gate_root, repo)
+        requires_fresh_automatic_gate = args.source_gate_id is None and (
+            args.from_latest_accepted_dataset or args.loop_a_local_fallback
+        )
+        dataset_gate_reference_time = utc_now_iso() if requires_fresh_automatic_gate else None
+        dataset_gate_max_age_hours = E1_GATE_FRESHNESS_HOURS if requires_fresh_automatic_gate else None
         if args.from_latest_accepted_dataset and dataset_run_id is not None:
             raise CardValidationError("--from-latest-accepted-dataset cannot be combined with --dataset-run-id")
         if args.source_gate_id is not None:
-            source_gate = select_accepted_dataset_gate(dataset_gate_roots, args.source_gate_id)
+            source_gate = select_accepted_dataset_gate(
+                dataset_gate_roots,
+                args.source_gate_id,
+                reference_time=dataset_gate_reference_time,
+                max_age_hours=dataset_gate_max_age_hours,
+            )
             source_dataset_run_id = str(source_gate["dataset_run_id"])
             if dataset_run_id is not None and dataset_run_id != source_dataset_run_id:
                 raise CardValidationError("--dataset-run-id must match --source-gate-id dataset_run_id")
@@ -2333,7 +2586,11 @@ def main(
                     "--from-latest-accepted-dataset or --loop-a-local-fallback cannot be combined "
                     "with --dataset-run-id"
                 )
-            source_gate = select_accepted_dataset_gate(dataset_gate_roots)
+            source_gate = select_accepted_dataset_gate(
+                dataset_gate_roots,
+                reference_time=dataset_gate_reference_time,
+                max_age_hours=dataset_gate_max_age_hours,
+            )
             dataset_run_id = str(source_gate["dataset_run_id"])
         if dataset_run_id is None:
             if not args.dry_run:
