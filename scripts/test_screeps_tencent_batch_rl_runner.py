@@ -114,6 +114,10 @@ def write_candidate_scorecard_set_artifacts(root: Path, scorecard_set: object) -
             write_text(root / "remote" / artifact_path, "{}\n")
 
 
+def write_policy_update_artifact(root: Path, artifact_path: str, parameters: object) -> None:
+    write_text(root / "remote" / artifact_path, json.dumps({"parameters": parameters}, sort_keys=True) + "\n")
+
+
 def positive_policy_update(artifact_path: str) -> dict[str, object]:
     updated_parameters = {
         "baseScoreWeight": 1,
@@ -899,7 +903,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         policy_update = positive_policy_update(artifact_path)
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            write_text(root / "remote" / artifact_path, "{}\n")
+            write_policy_update_artifact(root, artifact_path, policy_update["updatedParameters"])
 
             self.assertEqual(
                 runner.verified_remote_policy_update_fields(
@@ -917,6 +921,90 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     "policyUpdate": policy_update,
                 },
             )
+
+    def test_verified_remote_policy_update_rejects_non_numeric_policy_parameter_values(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+
+        cases = []
+        for label, value in (
+            ("string", "7"),
+            ("bool", True),
+            ("infinity", float("inf")),
+        ):
+            policy_update = positive_policy_update(artifact_path)
+            updated_parameters = policy_update["updatedParameters"]
+            assert isinstance(updated_parameters, dict)
+            updated_parameters["territorySignalWeight"] = value
+            policy_update["nextCandidatePolicy"] = {
+                **policy_update["nextCandidatePolicy"],
+                "parameters": copy.deepcopy(updated_parameters),
+            }
+            cases.append((label, policy_update, "policyUpdate.updatedParameters values must be finite numbers"))
+
+        next_bool_policy_update = positive_policy_update(artifact_path)
+        next_candidate = next_bool_policy_update["nextCandidatePolicy"]
+        assert isinstance(next_candidate, dict)
+        next_parameters = next_candidate["parameters"]
+        assert isinstance(next_parameters, dict)
+        next_parameters["baseScoreWeight"] = True
+        cases.append(
+            (
+                "next candidate bool",
+                next_bool_policy_update,
+                "policyUpdate.nextCandidatePolicy.parameters values must be finite numbers",
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for label, policy_update, expected_error in cases:
+                with self.subTest(label=label), self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    re.escape(expected_error),
+                ):
+                    runner.verified_remote_policy_update_fields(
+                        {
+                            "policyUpdateIterations": 1,
+                            "policyUpdateArtifactPath": artifact_path,
+                            "policyUpdate": policy_update,
+                        },
+                        top_level_safety,
+                        root,
+                    )
+
+    def test_verified_remote_policy_update_rejects_stale_persisted_artifact_parameters(self) -> None:
+        artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+        top_level_safety = {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+        policy_update = positive_policy_update(artifact_path)
+        stale_parameters = copy.deepcopy(policy_update["updatedParameters"])
+        assert isinstance(stale_parameters, dict)
+        stale_parameters["territorySignalWeight"] = 6
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_policy_update_artifact(root, artifact_path, stale_parameters)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "policy update artifact parameters disagree with policyUpdate.updatedParameters",
+            ):
+                runner.verified_remote_policy_update_fields(
+                    {
+                        "policyUpdateIterations": 1,
+                        "policyUpdateArtifactPath": artifact_path,
+                        "policyUpdate": policy_update,
+                    },
+                    top_level_safety,
+                    root,
+                )
 
     def test_verified_remote_policy_update_rejects_positive_update_without_parameter_change(self) -> None:
         artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
@@ -1181,6 +1269,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             root = Path(temp_dir)
             report = runner.remote_training_report_path(root, "run-test")
             report.parent.mkdir(parents=True, exist_ok=True)
+            policy_artifact_path = "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
+            policy_update = positive_policy_update(policy_artifact_path)
             report.write_text(
                 json.dumps(
                     {
@@ -1222,15 +1312,13 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "scorecardUsable": True,
                         },
                         "policyUpdateIterations": 1,
-                        "policyUpdateArtifactPath": "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json",
-                        "policyUpdate": positive_policy_update(
-                            "runtime-artifacts/rl-training/policy-candidates/run-test-next-policy.json"
-                        ),
+                        "policyUpdateArtifactPath": policy_artifact_path,
+                        "policyUpdate": policy_update,
                     }
                 ),
                 encoding="utf-8",
             )
-            write_text(root / "remote" / "runtime-artifacts" / "rl-training" / "policy-candidates" / "run-test-next-policy.json", "{}\n")
+            write_policy_update_artifact(root, policy_artifact_path, policy_update["updatedParameters"])
             write_ready_runtime_scorecard_artifact(root)
             controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
             controller.verify_remote_training_report()
