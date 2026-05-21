@@ -1882,7 +1882,11 @@ def training_execution(
         episodes = number_value(metrics_feed.get("episodesRun"))
     updates = number_value(iteration.get("policyUpdateIterations"))
     if updates is None:
+        updates = number_value(payload.get("policyUpdateIterations"))
+    if updates is None:
         updates = number_value(metrics_feed.get("policyUpdateIterations"))
+    policy_update = as_dict(payload.get("policyUpdate"))
+    promotion_gate = as_dict(payload.get("policyUpdatePromotionGate")) or as_dict(policy_update.get("promotionGate"))
     card_supply = reconcile_card_supply_for_training(
         payload,
         latest_path=latest_training.path,
@@ -1920,6 +1924,9 @@ def training_execution(
         "trainingDidRun": payload.get("trainingDidRun"),
         "episodes": episodes,
         "policyUpdates": updates,
+        "policyUpdatePromotionGate": promotion_gate or None,
+        "policyUpdatePromotionStatus": text_value(promotion_gate.get("status")),
+        "runtimeConsumedPolicyUpdate": promotion_gate.get("runtimeParameterConsumption") is True,
         "timestamp": latest_training.timestamp,
         "blocker": blocker,
         "latestPath": latest_training.path,

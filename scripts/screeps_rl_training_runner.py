@@ -47,6 +47,13 @@ RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON = "runtime_parameter_injectio
 POLICY_UPDATE_ARTIFACT_DIR = "policy-candidates"
 CANDIDATE_SCORECARD_ARTIFACT_DIR = "candidate-scorecards"
 MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
+POLICY_UPDATE_PROMOTION_GATE_TYPE = "screeps-rl-policy-update-promotion-gate"
+POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED = "runtime_consumed"
+POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED = (
+    "runtime_injected_scorecard_metadata_non_promotional"
+)
+POLICY_UPDATE_CONSUMPTION_MODE_METADATA_ONLY = "metadata_only_non_promotional"
+POLICY_UPDATE_CONSUMPTION_MODE_INCOMPLETE = "runtime_parameter_evidence_incomplete_non_promotional"
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
 MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
@@ -1330,6 +1337,9 @@ def build_training_report(
         next_candidate_policy = policy_update.get("nextCandidatePolicy")
         if isinstance(next_candidate_policy, dict):
             report["policyUpdateCandidatePolicyId"] = text_or_none(next_candidate_policy.get("candidatePolicyId"))
+        promotion_gate = policy_update.get("promotionGate")
+        if isinstance(promotion_gate, dict):
+            report["policyUpdatePromotionGate"] = copy.deepcopy(promotion_gate)
         report["policyUpdate"] = policy_update
     return report
 
@@ -1432,20 +1442,24 @@ def build_rank_weighted_finite_difference_policy_update(
     if not parameter_space:
         return {**base, "skippedReason": "missing_policy_parameter_space"}
     if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
+        parameter_evidence = policy_update_metadata_only_parameter_evidence()
         return {
             **base,
             "skippedReason": METADATA_ONLY_POLICY_UPDATE_SKIP_REASON,
             "candidateCount": 0,
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
-            "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+            "parameterEvidence": parameter_evidence,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
     if policy_gradient_requires_runtime_parameter_evidence(policy_gradient) and len(candidates) < policy_gradient_candidate_vector_count(policy_gradient):
+        parameter_evidence = policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient)
         return {
             **base,
             "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
             "candidateCount": len(candidates),
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
-            "parameterEvidence": policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient),
+            "parameterEvidence": parameter_evidence,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
@@ -1506,6 +1520,7 @@ def build_rank_weighted_finite_difference_policy_update(
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
             "gradient": gradient,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
 
     if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
@@ -1518,6 +1533,7 @@ def build_rank_weighted_finite_difference_policy_update(
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
             "gradient": gradient,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
 
     candidate_policy_id = updated_candidate_policy_id(
@@ -1525,6 +1541,7 @@ def build_rank_weighted_finite_difference_policy_update(
         report_id=report_id,
         parameters=updated_parameters,
     )
+    promotion_gate = policy_update_promotion_gate(parameter_evidence, policy_update_generated=True)
     next_candidate_policy = {
         "type": "screeps-rl-next-candidate-policy",
         "schemaVersion": SCHEMA_VERSION,
@@ -1542,6 +1559,10 @@ def build_rank_weighted_finite_difference_policy_update(
         "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
         "policyUpdateIterations": 1,
         "parameters": updated_parameters,
+        "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+        "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+        "consumptionMode": promotion_gate["consumptionMode"],
+        "promotionGate": copy.deepcopy(promotion_gate),
         "parameterEvidence": {
             "derivation": "rank-weighted bounded finite-difference update from offline simulator rollout rewards",
             "targetFamily": target_family,
@@ -1553,6 +1574,9 @@ def build_rank_weighted_finite_difference_policy_update(
             "candidateCount": len(candidates),
             "policyUpdateAlgorithm": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
             "trueGradient": False,
+            "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+            "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+            "consumptionMode": promotion_gate["consumptionMode"],
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
@@ -1577,6 +1601,10 @@ def build_rank_weighted_finite_difference_policy_update(
         "gradient": gradient,
         "parameterDelta": parameter_delta,
         "updatedParameters": updated_parameters,
+        "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+        "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+        "consumptionMode": promotion_gate["consumptionMode"],
+        "promotionGate": promotion_gate,
         "nextCandidatePolicy": next_candidate_policy,
     }
 
@@ -1595,20 +1623,24 @@ def build_reinforce_policy_update(
     if not parameter_space:
         return {**base, "skippedReason": "missing_policy_parameter_space"}
     if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
+        parameter_evidence = policy_update_metadata_only_parameter_evidence()
         return {
             **base,
             "skippedReason": METADATA_ONLY_POLICY_UPDATE_SKIP_REASON,
             "candidateCount": 0,
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
-            "parameterEvidence": policy_update_metadata_only_parameter_evidence(),
+            "parameterEvidence": parameter_evidence,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
     if policy_gradient_requires_runtime_parameter_evidence(policy_gradient) and len(candidates) < policy_gradient_candidate_vector_count(policy_gradient):
+        parameter_evidence = policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient)
         return {
             **base,
             "skippedReason": RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
             "candidateCount": len(candidates),
             "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
-            "parameterEvidence": policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient),
+            "parameterEvidence": parameter_evidence,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
     if len(candidates) < 2:
         return {**base, "skippedReason": "fewer_than_two_scored_policy_candidates", "candidateCount": len(candidates)}
@@ -1677,6 +1709,7 @@ def build_reinforce_policy_update(
             "learningRate": learning_rate,
             "gradient": gradient,
             "returnSummary": return_summary,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
 
     if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
@@ -1689,6 +1722,7 @@ def build_reinforce_policy_update(
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
             "gradient": gradient,
+            "promotionGate": policy_update_promotion_gate(parameter_evidence, policy_update_generated=False),
         }
 
     candidate_policy_id = updated_candidate_policy_id(
@@ -1696,6 +1730,7 @@ def build_reinforce_policy_update(
         report_id=report_id,
         parameters=updated_parameters,
     )
+    promotion_gate = policy_update_promotion_gate(parameter_evidence, policy_update_generated=True)
     next_candidate_policy = {
         "type": "screeps-rl-next-candidate-policy",
         "schemaVersion": SCHEMA_VERSION,
@@ -1713,6 +1748,10 @@ def build_reinforce_policy_update(
         "sourceAnchorStrategyVariantId": anchor.get("strategyVariantId"),
         "policyUpdateIterations": 1,
         "parameters": updated_parameters,
+        "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+        "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+        "consumptionMode": promotion_gate["consumptionMode"],
+        "promotionGate": copy.deepcopy(promotion_gate),
         "parameterEvidence": {
             "derivation": (
                 "deterministic REINFORCE score-function estimate from offline simulator "
@@ -1731,6 +1770,9 @@ def build_reinforce_policy_update(
             "candidateCount": len(candidates),
             "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
             "trueGradient": True,
+            "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+            "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+            "consumptionMode": promotion_gate["consumptionMode"],
             "liveEffect": False,
             "officialMmoWrites": False,
             "officialMmoWritesAllowed": False,
@@ -1758,6 +1800,10 @@ def build_reinforce_policy_update(
         "selectedRewardTierByParameter": selected_reward_tier_by_parameter,
         "parameterDelta": parameter_delta,
         "updatedParameters": updated_parameters,
+        "runtimeParameterConsumption": promotion_gate["runtimeParameterConsumption"],
+        "runtimeParameterConsumptionStatus": promotion_gate["runtimeParameterConsumptionStatus"],
+        "consumptionMode": promotion_gate["consumptionMode"],
+        "promotionGate": promotion_gate,
         "nextCandidatePolicy": next_candidate_policy,
     }
 
@@ -2428,7 +2474,7 @@ def build_candidate_scorecard_readiness_for_pair(
             "evidence but cannot pass the runtime candidate gate"
         )
         next_action = (
-            "inject candidate parameters into private-simulator runtime inputs before promotion; "
+            f"{candidate_scorecard_runtime_next_action(runtime_parameter_injection)}; "
             "retain this scorecard as offline/private evidence"
         )
     payload: JsonObject = {
@@ -2456,7 +2502,7 @@ def build_candidate_scorecard_readiness_for_pair(
         "safety": safety_metadata(),
     }
     if reason is not None:
-        payload["missingPrerequisite"] = "runtime_parameter_injection"
+        payload["missingPrerequisite"] = candidate_scorecard_runtime_missing_prerequisite(runtime_parameter_injection)
         payload["reason"] = reason
     if next_action is not None:
         payload["nextAction"] = next_action
@@ -2669,6 +2715,8 @@ def candidate_scorecard_runtime_blocker(value: Any) -> str:
         return "runtime_parameter_injection_missing"
     status = text_or_none(value.get("status"))
     scope = runtime_parameter_scope(value)
+    if candidate_scorecard_runtime_consumption_missing(value):
+        return "runtime_parameter_consumption_missing"
     if status == "metadata_only" or scope == "metadata_only":
         return "runtime_parameter_injection_metadata_only"
     if status == "partial" or scope == "partial_runtime_injection":
@@ -2678,6 +2726,8 @@ def candidate_scorecard_runtime_blocker(value: Any) -> str:
 
 def candidate_scorecard_runtime_blocker_reason(value: Any) -> str:
     if isinstance(value, dict):
+        if candidate_scorecard_runtime_consumption_missing(value):
+            return "candidate-vs-baseline scorecard requires tick-time runtime policy parameter consumption evidence"
         reason = text_or_none(value.get("reason"))
         if reason is not None:
             return reason
@@ -2686,6 +2736,28 @@ def candidate_scorecard_runtime_blocker_reason(value: Any) -> str:
         if status == "metadata_only" or scope == "metadata_only":
             return "candidate parameters were metadata-only and were not injected into simulator runtime inputs"
     return "candidate-vs-baseline scorecard requires runtime parameter injection evidence with injectedVariantCount > 0"
+
+
+def candidate_scorecard_runtime_consumption_missing(value: JsonObject) -> bool:
+    scope = runtime_parameter_scope(value)
+    consumption_status = text_or_none(value.get("runtimeParameterConsumptionStatus"))
+    return (
+        scope == "runtime_injected"
+        and value.get("runtimeParameterConsumption") is not True
+        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+    )
+
+
+def candidate_scorecard_runtime_missing_prerequisite(value: Any) -> str:
+    if isinstance(value, dict) and candidate_scorecard_runtime_consumption_missing(value):
+        return "runtime_parameter_consumption"
+    return "runtime_parameter_injection"
+
+
+def candidate_scorecard_runtime_next_action(value: Any) -> str:
+    if isinstance(value, dict) and candidate_scorecard_runtime_consumption_missing(value):
+        return "emit tick-time runtime policy parameter consumption evidence before promotion"
+    return "inject candidate parameters into private-simulator runtime inputs before promotion"
 
 
 def candidate_scorecard_id(report: JsonObject, candidate_id: str, baseline_id: str) -> str:
@@ -4740,12 +4812,88 @@ def policy_update_metadata_only_parameter_evidence() -> JsonObject:
     return {
         "candidateParameterScope": "metadata_only",
         "runtimeParameterInjection": False,
+        "runtimeParameterConsumption": False,
         "policyUpdateEligible": False,
         "reason": (
             "candidate rewards were produced by the shared uploaded bot artifact; inline parameter vectors "
             "were not injected into simulator runtime behavior"
         ),
     }
+
+
+def policy_update_promotion_gate(
+    parameter_evidence: JsonObject,
+    *,
+    policy_update_generated: bool,
+) -> JsonObject:
+    """Classify whether a policy update has tick-time runtime consumption proof."""
+    runtime_injection = parameter_evidence.get("runtimeParameterInjection") is True
+    runtime_consumed = parameter_evidence.get("runtimeParameterConsumption") is True
+    eligibility_mode = text_or_none(parameter_evidence.get("eligibilityMode"))
+    scope = text_or_none(parameter_evidence.get("candidateParameterScope")) or "metadata_only"
+    consumption_status = text_or_none(parameter_evidence.get("runtimeParameterConsumptionStatus"))
+
+    if runtime_consumed:
+        consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
+        status = "runtime_consumed_shadow_candidate"
+        missing_prerequisites: list[str] = []
+        reason = (
+            "tick-time runtime policy parameter consumption proof is present; candidate remains "
+            "offline/shadow and still requires normal scorecard and rollout gates before any live effect"
+        )
+    elif eligibility_mode == "runtime_injected_metadata_scorecard_ranking":
+        consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED
+        status = "blocked_runtime_parameter_consumption_missing"
+        missing_prerequisites = ["runtime_parameter_consumption"]
+        reason = (
+            "#924-compatible scorecard metadata produced an offline true-gradient candidate, but "
+            "#907 change-control semantics block Loop A/Loop B promotion until tick-time runtime "
+            "policy parameter consumption evidence is present"
+        )
+    elif scope == "metadata_only":
+        consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_METADATA_ONLY
+        status = "blocked_runtime_parameter_injection_missing"
+        missing_prerequisites = ["runtime_parameter_injection", "runtime_parameter_consumption"]
+        reason = (
+            "candidate parameters were metadata-only and cannot be promoted or classified as "
+            "runtime-consumed without runtime injection and consumption evidence"
+        )
+    else:
+        consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_INCOMPLETE
+        status = "blocked_runtime_parameter_consumption_missing"
+        missing_prerequisites = ["runtime_parameter_consumption"]
+        reason = (
+            "runtime parameter evidence is incomplete; Loop A/Loop B must not classify the update "
+            "as runtime-consumed or promotional"
+        )
+
+    runtime_consumed_promotion_eligible = runtime_consumed
+    payload: JsonObject = {
+        "type": POLICY_UPDATE_PROMOTION_GATE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": status,
+        "consumptionMode": consumption_mode,
+        "policyUpdateGenerated": policy_update_generated,
+        "runtimeParameterInjection": runtime_injection,
+        "runtimeParameterConsumption": runtime_consumed,
+        "runtimeParameterConsumptionStatus": consumption_status or ("consumed" if runtime_consumed else "missing"),
+        "candidateParameterScope": scope,
+        "runtimeConsumedPromotionEligible": runtime_consumed_promotion_eligible,
+        "loopAPromotionEligible": runtime_consumed_promotion_eligible,
+        "loopBPromotionEligible": runtime_consumed_promotion_eligible,
+        "missingPrerequisites": missing_prerequisites,
+        "reason": reason,
+        "validationText": (
+            "#924 scorecards and #907 change-control require tick-time runtime parameter "
+            "consumption proof before Loop A or Loop B can treat a policy update as "
+            "runtime-consumed or promotional."
+        ),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+    return payload
 
 
 def policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradient: JsonObject) -> JsonObject:
@@ -4763,6 +4911,7 @@ def policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradien
             ),
         )
         is True,
+        "runtimeParameterConsumption": False,
         "policyUpdateEligible": False,
         "reason": (
             "policy-gradient rewards were not backed by complete evaluated runtime parameter evidence "
@@ -4800,6 +4949,7 @@ def policy_update_runtime_injection_ready_parameter_evidence(
     payload: JsonObject = {
         "candidateParameterScope": scope,
         "runtimeParameterInjection": runtime_injection,
+        "runtimeParameterConsumption": runtime_injection,
         "policyUpdateEligible": eligible,
         "candidateCount": len(candidates),
         "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
@@ -4925,6 +5075,7 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "policyUpdateAlgorithm": report.get("policyUpdateAlgorithm"),
         "policyUpdateCandidatePolicyId": report.get("policyUpdateCandidatePolicyId"),
         "policyUpdateArtifactPath": report.get("policyUpdateArtifactPath"),
+        "policyUpdatePromotionGate": copy.deepcopy(report.get("policyUpdatePromotionGate")),
         "trueGradient": report.get("trueGradient", False),
         "runtimeParameterInjection": copy.deepcopy(report.get("runtimeParameterInjection")),
         "scorecardId": report.get("scorecardId"),

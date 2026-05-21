@@ -973,6 +973,19 @@ def zero_iteration_policy_update_from_artifact(
                 "updatedAt": updated_at,
             }
         if isinstance(iterations, (int, float)) and iterations > 0:
+            promotion_gate = None
+            if isinstance(node.get("policyUpdatePromotionGate"), dict):
+                promotion_gate = node.get("policyUpdatePromotionGate")
+            elif isinstance(policy_update, dict) and isinstance(policy_update.get("promotionGate"), dict):
+                promotion_gate = policy_update.get("promotionGate")
+            if isinstance(promotion_gate, dict) and promotion_gate.get("runtimeParameterConsumption") is False:
+                status = text_value(promotion_gate.get("status")) or "blocked_runtime_parameter_consumption_missing"
+                return {
+                    "status": "BLOCKED",
+                    "evidence": f"policy update non-promotional: {status}",
+                    "latestPath": display_path,
+                    "updatedAt": updated_at,
+                }
             return {
                 "status": "N/A",
                 "evidence": f"latest policy update had {iterations} iteration(s)",

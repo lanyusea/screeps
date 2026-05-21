@@ -302,6 +302,42 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertEqual(card_supply["fallbackStatus"], "DEGRADED")
         self.assertIsNone(training["blocker"])
 
+    def test_training_execution_surfaces_non_consumed_policy_update_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            promotion_gate = {
+                "status": "blocked_runtime_parameter_consumption_missing",
+                "runtimeParameterConsumption": False,
+                "loopAPromotionEligible": False,
+                "loopBPromotionEligible": False,
+            }
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN",
+                        "trainingDidRun": True,
+                        "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "policyUpdatePromotionGate": promotion_gate,
+                        "controllerSummary": {
+                            "finalStatus": "completed",
+                            "instanceId": "ins-test",
+                            "environmentsRun": 1,
+                        },
+                    },
+                )
+            )
+
+        self.assertEqual(training["policyUpdates"], 1)
+        self.assertEqual(
+            training["policyUpdatePromotionStatus"],
+            "blocked_runtime_parameter_consumption_missing",
+        )
+        self.assertFalse(training["runtimeConsumedPolicyUpdate"])
+        self.assertEqual(training["policyUpdatePromotionGate"], promotion_gate)
+
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
