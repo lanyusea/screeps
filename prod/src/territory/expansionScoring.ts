@@ -30,6 +30,10 @@ import {
 } from '../intel/adjacentRoomScout';
 import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
+import {
+  getActivePostClaimBootstrapBlockers,
+  type PostClaimBootstrapBlockerSummary
+} from './postClaimBootstrap';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
@@ -110,6 +114,7 @@ export interface ExpansionCandidateScore {
   requiresControllerPressure?: boolean;
   scoutOnly?: boolean;
   blockReason?: TerritoryExpansionCandidateBlockReason;
+  postClaimBootstrapBlocker?: PostClaimBootstrapBlockerSummary;
 }
 
 export interface ExpansionScoringInput {
@@ -125,6 +130,7 @@ export interface ExpansionScoringInput {
   ownedRoomCount?: number;
   ticksToDowngrade?: number;
   activePostClaimBootstrapCount?: number;
+  activePostClaimBootstrapBlockers?: PostClaimBootstrapBlockerSummary[];
   claimedRooms?: ExpansionClaimedRoomInput[];
   candidates: ExpansionCandidateInput[];
 }
@@ -391,7 +397,7 @@ function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionSco
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
-    activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colony.room.name, gameTime),
     claimedRooms: buildRuntimeClaimedRoomSynergyEvidence(
       colony.room,
       getControllerOwnerUsername(colony.room.controller)
@@ -705,6 +711,7 @@ function scoreExpansionCandidate(
 ): ExpansionCandidateScore {
   const rationale: string[] = [];
   const risks: string[] = [];
+  const postClaimBootstrapBlocker = getActivePostClaimBootstrapBlocker(input);
   const preconditions = getExpansionPreconditions(input, candidate);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
   const visible = candidate.visible !== false;
@@ -830,7 +837,8 @@ function scoreExpansionCandidate(
       : {}),
     ...(reservation ? { reservation } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-    ...(candidate.scoutOnly === true ? { scoutOnly: true } : {})
+    ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
+    ...(postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {})
   };
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(scoredCandidate);
   const blockReason = getPersistedExpansionCandidateBlockReason(scoredCandidate, recommendedAction);
@@ -1130,11 +1138,20 @@ function getExpansionPreconditions(
     preconditions.push('stabilize home controller downgrade timer');
   }
 
-  if ((input.activePostClaimBootstrapCount ?? 0) > 0) {
+  if (hasActivePostClaimBootstrapBlocker(input)) {
     preconditions.push('finish active post-claim bootstrap before next expansion');
   }
 
   return preconditions;
+}
+
+function hasActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): boolean {
+  return getActivePostClaimBootstrapBlocker(input) !== null || (input.activePostClaimBootstrapCount ?? 0) > 0;
+}
+
+function getActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): PostClaimBootstrapBlockerSummary | null {
+  const blockers = input.activePostClaimBootstrapBlockers;
+  return Array.isArray(blockers) && blockers.length > 0 ? blockers[0] : null;
 }
 
 function isScoutOnlyRemoteCpuBucketLow(bucket: number | undefined): boolean {
@@ -1292,7 +1309,10 @@ function toPersistedExpansionCandidateMemory(
     ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.risks.length > 0 ? { risks: candidate.risks } : {}),
     ...(candidate.preconditions.length > 0 ? { preconditions: candidate.preconditions } : {}),
-    ...(candidate.rationale.length > 0 ? { rationale: candidate.rationale } : {})
+    ...(candidate.rationale.length > 0 ? { rationale: candidate.rationale } : {}),
+    ...(candidate.postClaimBootstrapBlocker
+      ? { postClaimBootstrapBlocker: candidate.postClaimBootstrapBlocker }
+      : {})
   };
 }
 
@@ -2091,17 +2111,6 @@ function getControllerReservationTicksToEnd(controller: StructureController): nu
   const ticksToEnd = (controller as StructureController & { reservation?: { ticksToEnd?: number } }).reservation
     ?.ticksToEnd;
   return typeof ticksToEnd === 'number' ? ticksToEnd : undefined;
-}
-
-function countActivePostClaimBootstraps(): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  return Object.values(records).filter(
-    (record) => isRecord(record) && record.status !== 'ready'
-  ).length;
 }
 
 function getGameRooms(): Game['rooms'] | undefined {

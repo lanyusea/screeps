@@ -468,6 +468,164 @@ describe('next expansion scoring', () => {
     });
   });
 
+  it('ignores completed stale post-claim bootstrap records when E29N56 scout-only remote is healthy', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controllerLevel: 5,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E29N55',
+            roomName: 'E29N56',
+            nearestOwnedRoom: 'E29N55',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true
+          }
+        ],
+        postClaimBootstraps: {
+          E29N54: {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            status: 'spawningWorkers',
+            claimedAt: 100,
+            updatedAt: 300,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_000,
+      cpu: { bucket: 10_000 } as Game['cpu'],
+      rooms: {
+        E29N55: colony.room,
+        E29N54: makeOwnedRoom('E29N54'),
+        E29N56: makeVisibleExpansionRoom('E29N56', { sourceCount: 1 })
+      },
+      spawns: {
+        BootstrapSpawn: { room: { name: 'E29N54' } as Room } as StructureSpawn
+      },
+      creeps: {
+        Worker1: { memory: { role: 'worker', colony: 'E29N54' } } as Creep,
+        Worker2: { memory: { role: 'worker', colony: 'E29N54' } } as Creep
+      },
+      map: {
+        describeExits: jest.fn(() => ({})),
+        findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+        getRoomLinearDistance: jest.fn(() => 1),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.1))
+      } as unknown as GameMap
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+    persistExpansionCandidateScores('E29N55', report, 1_000);
+
+    expect(getCandidate(report, 'E29N56').preconditions).not.toContain(
+      'finish active post-claim bootstrap before next expansion'
+    );
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'reserve'
+    });
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('blockReason');
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('postClaimBootstrapBlocker');
+  });
+
+  it('keeps a visible active post-claim bootstrap as an actionable E29N56 blocker', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controllerLevel: 5,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E29N55',
+            roomName: 'E29N56',
+            nearestOwnedRoom: 'E29N55',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true
+          }
+        ],
+        postClaimBootstraps: {
+          E29N54: {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            status: 'spawnSitePending',
+            claimedAt: 100,
+            updatedAt: 950,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_000,
+      cpu: { bucket: 10_000 } as Game['cpu'],
+      rooms: {
+        E29N55: colony.room,
+        E29N54: makeOwnedRoom('E29N54'),
+        E29N56: makeVisibleExpansionRoom('E29N56', { sourceCount: 1 })
+      },
+      creeps: {
+        Worker1: { memory: { role: 'worker', colony: 'E29N54' } } as Creep
+      },
+      spawns: {},
+      map: {
+        describeExits: jest.fn(() => ({})),
+        findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+        getRoomLinearDistance: jest.fn(() => 1),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.1))
+      } as unknown as GameMap
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+    persistExpansionCandidateScores('E29N55', report, 1_000);
+
+    expect(getCandidate(report, 'E29N56')).toMatchObject({
+      blockReason: 'postClaimBootstrapActive',
+      postClaimBootstrapBlocker: {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        status: 'spawnSitePending',
+        updatedAt: 950,
+        age: 50,
+        workerTarget: 2,
+        spawnCount: 0,
+        workerCount: 1
+      }
+    });
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'postClaimBootstrapActive',
+      postClaimBootstrapBlocker: {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        status: 'spawnSitePending',
+        updatedAt: 950,
+        age: 50,
+        workerTarget: 2,
+        spawnCount: 0,
+        workerCount: 1
+      }
+    });
+  });
+
   it.each([
     [
       'home energy buffer',
