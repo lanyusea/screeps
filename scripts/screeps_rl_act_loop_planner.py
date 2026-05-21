@@ -47,6 +47,23 @@ POLICY_SURFACE_NAME_ALIASES = (
     "targetFamily",
     "target_family",
 )
+POLICY_ROUTE_FIELDS = ("policyFamily", "topAgent", "rolePolicy", "level")
+POLICY_ROUTE_ALIASES: dict[str, tuple[str, ...]] = {
+    "policyFamily": (
+        "policyFamily",
+        "policy_family",
+        "targetPolicyFamily",
+        "target_policy_family",
+    ),
+    "topAgent": ("topAgent", "top_agent"),
+    "rolePolicy": ("rolePolicy", "role_policy"),
+    "level": ("level",),
+}
+POLICY_FAMILY_FALLBACKS = {
+    "constructionpriority": "top.construction",
+    "workertask": "role.worker-task",
+    "toweraction": "role.tower-action",
+}
 
 JsonObject = dict[str, Any]
 
@@ -524,7 +541,7 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
     return infer_source_scenario_id(raw) or DEFAULT_SCENARIO_ID
 
 
-def infer_policy_surface(raw: JsonObject) -> str:
+def explicit_policy_surface(raw: JsonObject) -> str | None:
     explicit = first_named_text(
         raw,
         (
@@ -556,12 +573,52 @@ def infer_policy_surface(raw: JsonObject) -> str:
     )
     if nested:
         return nested
+    return None
+
+
+def infer_policy_surface(raw: JsonObject) -> str:
+    explicit = explicit_policy_surface(raw)
+    if explicit:
+        return explicit
     blob = text_blob(raw)
     if "construction" in blob or "build" in blob:
         return "construction-priority"
     if "expansion" in blob or "reserve" in blob or "remote" in blob:
         return "expansion-remote"
     return "unspecified-policy-surface"
+
+
+def explicit_policy_route(raw: JsonObject) -> JsonObject:
+    route: JsonObject = {}
+    for field in POLICY_ROUTE_FIELDS:
+        value = first_text(raw, POLICY_ROUTE_ALIASES[field])
+        if value:
+            route[field] = value
+
+    for container_key in ("route", "routing"):
+        container = as_dict(lookup(raw, (container_key,)))
+        if not container:
+            continue
+        for field in POLICY_ROUTE_FIELDS:
+            if field in route:
+                continue
+            value = first_text(container, POLICY_ROUTE_ALIASES[field])
+            if value:
+                route[field] = value
+    return route
+
+
+def infer_policy_route(raw: JsonObject) -> JsonObject:
+    route = explicit_policy_route(raw)
+    if "policyFamily" in route:
+        return route
+    surface = explicit_policy_surface(raw)
+    if not surface:
+        return route
+    policy_family = POLICY_FAMILY_FALLBACKS.get(normalize_key(surface))
+    if policy_family:
+        route["policyFamily"] = policy_family
+    return route
 
 
 def infer_policy_bounds(raw: JsonObject, surface: str) -> list[JsonObject]:
@@ -705,6 +762,7 @@ def build_finding_summary(
     metric_evidence = collect_metric_evidence(raw)
     if metric_evidence:
         finding["metricEvidence"] = metric_evidence
+    finding.update(infer_policy_route(raw))
     return finding
 
 
@@ -797,6 +855,7 @@ def build_policy_delta(raw: JsonObject, *, finding: JsonObject) -> JsonObject | 
     surface = infer_policy_surface(raw)
     bounds = infer_policy_bounds(raw, surface)
     candidate_id = first_text(raw, ("candidatePolicyId", "candidateId", "candidate_id", "strategyVariantId"))
+    policy_route = infer_policy_route(raw)
     delta: JsonObject = {
         "action": "bound_policy_parameter_surface",
         "parameterSurface": surface,
@@ -807,6 +866,7 @@ def build_policy_delta(raw: JsonObject, *, finding: JsonObject) -> JsonObject | 
         "shadowOnly": True,
         "safety": dict(SAFETY_BLOCK),
     }
+    delta.update(policy_route)
     if candidate_id:
         delta["candidatePolicyId"] = candidate_id
     return delta
@@ -852,6 +912,9 @@ def build_experiment_card_delta(
             "parameterSurface": policy_delta["parameterSurface"],
             "bounds": policy_delta["bounds"],
         }
+        for field in POLICY_ROUTE_FIELDS:
+            if field in policy_delta:
+                deltas["policy"][field] = policy_delta[field]
         if "candidatePolicyId" in policy_delta:
             deltas["policy"]["candidatePolicyId"] = policy_delta["candidatePolicyId"]
 
@@ -933,13 +996,18 @@ def build_feedback_state(
     scorecard_state = feedback_link_state(scorecard_id, planned=False)
     rollout_state = feedback_link_state(rollout_id, planned=False)
 
+    finding_state: JsonObject = {
+        "state": "observed",
+        "id": finding["id"],
+        "classification": finding["classification"],
+        "sourceArtifact": finding.get("sourceArtifact"),
+    }
+    for field in POLICY_ROUTE_FIELDS:
+        if field in finding:
+            finding_state[field] = finding[field]
+
     return {
-        "finding": {
-            "state": "observed",
-            "id": finding["id"],
-            "classification": finding["classification"],
-            "sourceArtifact": finding.get("sourceArtifact"),
-        },
+        "finding": finding_state,
         "decision": decision_state,
         "experimentCard": card_state,
         "training": training_state,
