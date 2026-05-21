@@ -405,6 +405,13 @@ def first_present(value: JsonObject, keys: Sequence[str]) -> Any:
     return None
 
 
+def policy_update_evidence_value(payload: JsonObject, policy_update: JsonObject, key: str) -> Any:
+    value = payload.get(key)
+    if value is not None and value != {}:
+        return value
+    return policy_update.get(key)
+
+
 def iter_json_objects(value: Any) -> Iterable[JsonObject]:
     if isinstance(value, dict):
         yield value
@@ -1927,13 +1934,13 @@ def training_execution(
         "policyUpdatePromotionGate": promotion_gate or None,
         "policyUpdatePromotionStatus": text_value(promotion_gate.get("status")),
         "runtimeConsumedPolicyUpdate": promotion_gate.get("runtimeParameterConsumption") is True,
-        "trueGradient": payload.get("trueGradient"),
-        "gradientStable": payload.get("gradientStable"),
-        "trustedGradientUpdate": payload.get("trustedGradientUpdate"),
-        "highVariance": payload.get("highVariance"),
-        "gradientEstimation": payload.get("gradientEstimation"),
-        "gradientMomentum": payload.get("gradientMomentum"),
-        "gradientStability": payload.get("gradientStability"),
+        "trueGradient": policy_update_evidence_value(payload, policy_update, "trueGradient"),
+        "gradientStable": policy_update_evidence_value(payload, policy_update, "gradientStable"),
+        "trustedGradientUpdate": policy_update_evidence_value(payload, policy_update, "trustedGradientUpdate"),
+        "highVariance": policy_update_evidence_value(payload, policy_update, "highVariance"),
+        "gradientEstimation": policy_update_evidence_value(payload, policy_update, "gradientEstimation"),
+        "gradientMomentum": policy_update_evidence_value(payload, policy_update, "gradientMomentum"),
+        "gradientStability": policy_update_evidence_value(payload, policy_update, "gradientStability"),
         "timestamp": latest_training.timestamp,
         "blocker": blocker,
         "latestPath": latest_training.path,

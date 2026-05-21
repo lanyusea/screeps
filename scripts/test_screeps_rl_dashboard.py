@@ -343,6 +343,55 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertIn("Runtime-consumed policy update", html)
         self.assertIn("False", html)
 
+    def test_training_execution_falls_back_to_policy_update_gradient_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gradient_estimation = {
+                "estimator": "scalar_weighted_sum_score_function_reinforce_v1",
+                "normalizedWeightsByRewardTier": {"kills": 1e-9},
+            }
+            gradient_momentum = {"type": "screeps-rl-gradient-momentum-evidence", "momentumConsistent": True}
+            gradient_stability = {
+                "type": "screeps-rl-gradient-stability-gate",
+                "gradientStable": False,
+                "trustedUpdate": False,
+                "highVariance": True,
+            }
+            training = dashboard.training_execution(
+                loaded_artifact(
+                    root / "rl-control-loop" / "training-ledger.json",
+                    {
+                        "type": "screeps-rl-training-execution-ledger",
+                        "status": "RUN",
+                        "trainingDidRun": True,
+                        "artifactCount": 1,
+                        "policyUpdateIterations": 1,
+                        "controllerSummary": {
+                            "finalStatus": "completed",
+                            "instanceId": "ins-test",
+                            "environmentsRun": 1,
+                        },
+                        "policyUpdate": {
+                            "trueGradient": True,
+                            "gradientStable": False,
+                            "trustedGradientUpdate": False,
+                            "highVariance": True,
+                            "gradientEstimation": gradient_estimation,
+                            "gradientMomentum": gradient_momentum,
+                            "gradientStability": gradient_stability,
+                        },
+                    },
+                )
+            )
+
+        self.assertTrue(training["trueGradient"])
+        self.assertFalse(training["gradientStable"])
+        self.assertFalse(training["trustedGradientUpdate"])
+        self.assertTrue(training["highVariance"])
+        self.assertEqual(training["gradientEstimation"], gradient_estimation)
+        self.assertEqual(training["gradientMomentum"], gradient_momentum)
+        self.assertEqual(training["gradientStability"], gradient_stability)
+
     def test_tencent_internal_card_downgrades_standalone_stall_to_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

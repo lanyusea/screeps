@@ -2225,6 +2225,40 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(update["nextCandidatePolicy"]["trustedGradientUpdate"])
         self.assertFalse(update["nextCandidatePolicy"]["liveEffect"])
 
+    def test_policy_gradient_scalar_weights_preserve_kills_precision(self) -> None:
+        weight_evidence = runner.policy_update_scalar_reward_weight_evidence({})
+        weights = weight_evidence["normalizedWeightsByRewardTier"]
+
+        self.assertEqual(weights["reliability"], 1)
+        self.assertEqual(weights["territory"], 0.001)
+        self.assertEqual(weights["resources"], 0.000001)
+        self.assertAlmostEqual(weights["kills"], 1e-9)
+        self.assertGreater(runner.policy_update_scalar_reward([0, 0, 0, 1], weights), 0)
+
+    def test_policy_gradient_scalar_estimator_preserves_kills_only_signal(self) -> None:
+        policy_gradient = {
+            "policyUpdate": {"algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM},
+        }
+        estimation = runner.policy_update_scalar_weighted_gradient_estimation(
+            policy_gradient=policy_gradient,
+            parameter_space={"combatSignalWeight": {"min": 0, "max": 2}},
+            anchor_parameters={"combatSignalWeight": 1},
+            samples=[
+                {
+                    "candidate": {"parameters": {"combatSignalWeight": 0}},
+                    "returnTuple": [0, 0, 0, 0],
+                },
+                {
+                    "candidate": {"parameters": {"combatSignalWeight": 2}},
+                    "returnTuple": [0, 0, 0, 20000],
+                },
+            ],
+        )
+
+        self.assertGreater(estimation["normalizedWeightsByRewardTier"]["kills"], 0)
+        self.assertGreater(estimation["gradient"]["combatSignalWeight"], 0)
+        self.assertGreater(estimation["directionByParameter"]["combatSignalWeight"]["positiveContributionCount"], 0)
+
     def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
         update = runner.build_policy_update(
             policy_gradient=reinforce_stability_policy_gradient(),

@@ -2098,7 +2098,7 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
 
     normalization_factor = max(max(abs(value) for value in source_weights.values()), 1.0)
     normalized = {
-        tier: round_policy_number(source_weights[tier] / normalization_factor)
+        tier: source_weights[tier] / normalization_factor
         for tier in REWARD_TIERS
     }
     return {
