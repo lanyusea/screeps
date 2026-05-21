@@ -315,17 +315,18 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             current_room["rooms"][0]["roomName"] = "E29N55"
             current_artifact.write_text(runtime_line(current_room), encoding="utf-8")
 
-            report = gate.run_gate(
-                [str(stale_artifact), str(current_artifact)],
-                out_dir=root / "gates",
-                gate_id="gate-stale-non-current-filter",
-                created_at="2026-05-21T03:03:07Z",
-                dataset_out_dir=root / "datasets",
-                skip_shadow_report=True,
-                bot_commit="a" * 40,
-                eval_ratio_value=0,
-                repo_root=Path.cwd(),
-            )
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E29N55"}, clear=False):
+                report = gate.run_gate(
+                    [str(stale_artifact), str(current_artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-stale-non-current-filter",
+                    created_at="2026-05-21T03:03:07Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="a" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
             saved_report = read_json(root / "gates" / "gate-stale-non-current-filter" / "gate_report.json")
 
         quality = report["quality_checks"]
@@ -344,6 +345,28 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(quality["samples_rejected"], 0)
         self.assertEqual(quality["acceptance_rate"], 1.0)
         self.assertEqual(saved_report["dataset"]["skippedSamples"][0]["roomName"], "E26S48")
+
+    def test_run_rejects_malformed_created_at_before_stale_age_logic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            artifact.write_text(runtime_line(runtime_payload(1056600)), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                gate.DatasetGateError,
+                "--created-at must be a valid ISO-8601 UTC timestamp",
+            ):
+                gate.run_gate(
+                    [str(artifact)],
+                    out_dir=root / "gates",
+                    gate_id="gate-invalid-created-at",
+                    created_at="INVALID_TIMESTAMP",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="a" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
 
     def test_run_filters_incomplete_postdeploy_monitor_artifact_without_quality_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

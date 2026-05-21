@@ -1063,6 +1063,8 @@ def run_gate(
 ) -> JsonObject:
     repo = (repo_root or Path.cwd()).expanduser().resolve()
     created = created_at or utc_now_iso()
+    if parse_iso_utc_timestamp(created) is None:
+        raise DatasetGateError("--created-at must be a valid ISO-8601 UTC timestamp")
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
     resolved_home_room = configured_home_room()
     resolved_gate_id = gate_id or default_gate_id(

@@ -722,8 +722,12 @@ def filter_stale_non_current_console_capture_records(
     home_room: str,
     created_at: str | None = None,
 ) -> None:
-    reference_at = created_at or latest_console_capture_reference_at(scan.records)
+    fallback_reference_at = latest_console_capture_reference_at(scan.records)
+    reference_at = created_at or fallback_reference_at
     reference = parse_iso_utc_timestamp(reference_at)
+    if reference is None and created_at is not None:
+        reference_at = fallback_reference_at
+        reference = parse_iso_utc_timestamp(reference_at)
     if reference is None:
         return
 
