@@ -457,6 +457,9 @@ describe('expansion executor', () => {
     refreshExpansionExecutorIntent(colony, 968_951);
 
     expect(Memory.territory?.targets).toBeUndefined();
+    expect(
+      (Memory.territory?.intents ?? []).filter((intent) => intent.action === 'claim' || intent.action === 'reserve')
+    ).toEqual([]);
     expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
       colony: 'E29N55',
       roomName: 'E29N56',
