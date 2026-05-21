@@ -319,6 +319,7 @@ interface RuntimeTerritoryScoutOnlyTargetSummary {
   recommendedAction: TerritoryExpansionCandidateRecommendedAction;
   blockReason?: TerritoryExpansionCandidateBlockReason;
   postClaimBootstrapBlocker?: TerritoryPostClaimBootstrapBlockerMemory;
+  ignoredPostClaimBootstrapBlockers?: TerritoryPostClaimBootstrapIgnoredBlockerMemory[];
   gateOpen: boolean;
   status: RuntimeTerritoryScoutOnlyTargetStatus;
   requestedAt?: number;
@@ -888,8 +889,12 @@ function summarizeRoom(
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
+  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(
+    colony,
+    colonyWorkers,
+    territoryExpansion
+  );
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
@@ -1121,6 +1126,9 @@ function buildScoutOnlyTargetSummaries(
         ...(expansionCandidate?.postClaimBootstrapBlocker
           ? { postClaimBootstrapBlocker: expansionCandidate.postClaimBootstrapBlocker }
           : {}),
+        ...(expansionCandidate?.ignoredPostClaimBootstrapBlockers?.length
+          ? { ignoredPostClaimBootstrapBlockers: expansionCandidate.ignoredPostClaimBootstrapBlockers }
+          : {}),
         gateOpen,
         status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
         ...(attempt?.requestedAt !== undefined ? { requestedAt: attempt.requestedAt } : {}),
@@ -1140,7 +1148,13 @@ function getScoutOnlyExpansionCandidatesByRoom(
   colonyName: string
 ): Map<
   string,
-  Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason' | 'postClaimBootstrapBlocker'>
+  Pick<
+    TerritoryExpansionCandidateMemory,
+    | 'recommendedAction'
+    | 'blockReason'
+    | 'postClaimBootstrapBlocker'
+    | 'ignoredPostClaimBootstrapBlockers'
+  >
 > {
   const candidates = Memory.territory?.expansionCandidates;
   if (!Array.isArray(candidates)) {
@@ -1149,7 +1163,13 @@ function getScoutOnlyExpansionCandidatesByRoom(
 
   const candidatesByRoom = new Map<
     string,
-    Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason' | 'postClaimBootstrapBlocker'>
+    Pick<
+      TerritoryExpansionCandidateMemory,
+      | 'recommendedAction'
+      | 'blockReason'
+      | 'postClaimBootstrapBlocker'
+      | 'ignoredPostClaimBootstrapBlockers'
+    >
   >();
   for (const rawCandidate of candidates) {
     if (
@@ -1170,6 +1190,13 @@ function getScoutOnlyExpansionCandidatesByRoom(
         : {}),
       ...(isPostClaimBootstrapBlockerMemory(rawCandidate.postClaimBootstrapBlocker)
         ? { postClaimBootstrapBlocker: rawCandidate.postClaimBootstrapBlocker }
+        : {}),
+      ...(Array.isArray(rawCandidate.ignoredPostClaimBootstrapBlockers)
+        ? {
+            ignoredPostClaimBootstrapBlockers: rawCandidate.ignoredPostClaimBootstrapBlockers.filter(
+              isPostClaimBootstrapIgnoredBlockerMemory
+            )
+          }
         : {})
     });
   }
@@ -1191,6 +1218,23 @@ function isPostClaimBootstrapBlockerMemory(
     isFiniteNumber(value.spawnCount) &&
     isFiniteNumber(value.workerCount)
   );
+}
+
+function isPostClaimBootstrapIgnoredBlockerMemory(
+  value: unknown
+): value is TerritoryPostClaimBootstrapIgnoredBlockerMemory {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const reason = value.reason;
+  return isPostClaimBootstrapBlockerMemory(value) && isPostClaimBootstrapIgnoredBlockerReason(reason);
+}
+
+function isPostClaimBootstrapIgnoredBlockerReason(
+  value: unknown
+): value is TerritoryPostClaimBootstrapIgnoredBlockerReason {
+  return value === 'ready' || value === 'notVisibleOwnedRoom' || value === 'workerTargetSatisfied';
 }
 
 function isPostClaimBootstrapStatus(value: unknown): value is TerritoryPostClaimBootstrapStatus {

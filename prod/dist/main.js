@@ -6950,6 +6950,17 @@ function getActivePostClaimBootstrapBlockers(colonyName, gameTime = getGameTime1
     return blocker ? [blocker] : [];
   }).sort(comparePostClaimBootstrapBlockers);
 }
+function getIgnoredPostClaimBootstrapBlockers(colonyName, gameTime = getGameTime15()) {
+  var _a, _b;
+  const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
+  if (!isNonEmptyString10(colonyName) || !isRecord11(records)) {
+    return [];
+  }
+  return Object.values(records).flatMap((record) => {
+    const blocker = buildIgnoredPostClaimBootstrapBlockerSummary(record, colonyName, gameTime);
+    return blocker ? [blocker] : [];
+  }).sort(compareIgnoredPostClaimBootstrapBlockers);
+}
 function refreshPostClaimDefenseConstruction(colony, options = {}) {
   var _a;
   const roomName = colony.room.name;
@@ -7293,12 +7304,30 @@ function buildPostClaimBootstrapBlockerSummary(record, colonyName, gameTime) {
   if (!isAnyPostClaimBootstrapRecord(record) || record.colony !== colonyName || record.status === "ready" || !getVisibleOwnedRoom2(record.roomName)) {
     return null;
   }
-  const workerTarget = getPostClaimBootstrapWorkerTarget(record);
-  const spawnCount = countOwnedSpawnsInRoom(record.roomName);
-  const workerCount = countRoomWorkers(record.roomName);
-  if (spawnCount > 0 && workerCount >= workerTarget) {
+  const summary = buildPostClaimBootstrapBlockerState(record, gameTime);
+  if (summary.spawnCount > 0 && summary.workerCount >= summary.workerTarget) {
     return null;
   }
+  return summary;
+}
+function buildIgnoredPostClaimBootstrapBlockerSummary(record, colonyName, gameTime) {
+  if (!isAnyPostClaimBootstrapRecord(record) || record.colony !== colonyName) {
+    return null;
+  }
+  const summary = buildPostClaimBootstrapBlockerState(record, gameTime);
+  if (record.status === "ready") {
+    return { ...summary, reason: "ready" };
+  }
+  if (!getVisibleOwnedRoom2(record.roomName)) {
+    return { ...summary, reason: "notVisibleOwnedRoom" };
+  }
+  if (summary.spawnCount > 0 && summary.workerCount >= summary.workerTarget) {
+    return { ...summary, reason: "workerTargetSatisfied" };
+  }
+  return null;
+}
+function buildPostClaimBootstrapBlockerState(record, gameTime) {
+  const workerTarget = getPostClaimBootstrapWorkerTarget(record);
   return {
     colony: record.colony,
     roomName: record.roomName,
@@ -7306,12 +7335,15 @@ function buildPostClaimBootstrapBlockerSummary(record, colonyName, gameTime) {
     updatedAt: record.updatedAt,
     age: Math.max(0, Math.floor(gameTime - record.updatedAt)),
     workerTarget,
-    spawnCount,
-    workerCount
+    spawnCount: countOwnedSpawnsInRoom(record.roomName),
+    workerCount: countRoomWorkers(record.roomName)
   };
 }
 function comparePostClaimBootstrapBlockers(left, right) {
   return right.age - left.age || left.spawnCount - right.spawnCount || left.workerCount - right.workerCount || left.roomName.localeCompare(right.roomName);
+}
+function compareIgnoredPostClaimBootstrapBlockers(left, right) {
+  return comparePostClaimBootstrapBlockers(left, right) || left.reason.localeCompare(right.reason);
 }
 function comparePostClaimBootstrapRecordsForFocus(left, right) {
   return left.claimedAt - right.claimedAt || left.updatedAt - right.updatedAt || left.roomName.localeCompare(right.roomName);
@@ -7834,6 +7866,7 @@ function buildRuntimeExpansionScoringInput(colony) {
     ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername4(colony.room.controller)),
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
     activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colony.room.name, gameTime),
+    ignoredPostClaimBootstrapBlockers: getIgnoredPostClaimBootstrapBlockers(colony.room.name, gameTime),
     claimedRooms: buildRuntimeClaimedRoomSynergyEvidence(
       colony.room,
       getControllerOwnerUsername4(colony.room.controller)
@@ -8069,6 +8102,7 @@ function scoreExpansionCandidate(input, candidate) {
   const rationale = [];
   const risks = [];
   const postClaimBootstrapBlocker = getActivePostClaimBootstrapBlocker(input);
+  const ignoredPostClaimBootstrapBlockers = candidate.scoutOnly === true ? getIgnoredPostClaimBootstrapBlockerSummaries(input) : [];
   const preconditions = getExpansionPreconditions(input, candidate);
   let evidenceStatus = "sufficient";
   const visible = candidate.visible !== false;
@@ -8173,7 +8207,8 @@ function scoreExpansionCandidate(input, candidate) {
     ...reservation ? { reservation } : {},
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.scoutOnly === true ? { scoutOnly: true } : {},
-    ...postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {}
+    ...postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {},
+    ...ignoredPostClaimBootstrapBlockers.length > 0 ? { ignoredPostClaimBootstrapBlockers } : {}
   };
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(scoredCandidate);
   const blockReason = getPersistedExpansionCandidateBlockReason(scoredCandidate, recommendedAction);
@@ -8380,6 +8415,9 @@ function getActivePostClaimBootstrapBlocker(input) {
   const blockers = input.activePostClaimBootstrapBlockers;
   return Array.isArray(blockers) && blockers.length > 0 ? blockers[0] : null;
 }
+function getIgnoredPostClaimBootstrapBlockerSummaries(input) {
+  return Array.isArray(input.ignoredPostClaimBootstrapBlockers) ? input.ignoredPostClaimBootstrapBlockers : [];
+}
 function isScoutOnlyRemoteCpuBucketLow(bucket) {
   return typeof bucket === "number" && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET;
 }
@@ -8424,7 +8462,7 @@ function persistExpansionCandidateScores(colony, report, gameTime) {
   territoryMemory.expansionCandidates = [...existingCandidates, ...nextCandidates];
 }
 function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) {
-  var _a;
+  var _a, _b;
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(candidate);
   const blockReason = (_a = candidate.blockReason) != null ? _a : getPersistedExpansionCandidateBlockReason(candidate, recommendedAction);
   return {
@@ -8454,7 +8492,8 @@ function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) 
     ...candidate.risks.length > 0 ? { risks: candidate.risks } : {},
     ...candidate.preconditions.length > 0 ? { preconditions: candidate.preconditions } : {},
     ...candidate.rationale.length > 0 ? { rationale: candidate.rationale } : {},
-    ...candidate.postClaimBootstrapBlocker ? { postClaimBootstrapBlocker: candidate.postClaimBootstrapBlocker } : {}
+    ...candidate.postClaimBootstrapBlocker ? { postClaimBootstrapBlocker: candidate.postClaimBootstrapBlocker } : {},
+    ...((_b = candidate.ignoredPostClaimBootstrapBlockers) == null ? void 0 : _b.length) ? { ignoredPostClaimBootstrapBlockers: candidate.ignoredPostClaimBootstrapBlockers } : {}
   };
 }
 function getPersistedExpansionCandidateRecommendedAction(candidate) {
@@ -14813,8 +14852,10 @@ var ACTION_SCORE = {
   reserve: 800,
   scout: 420
 };
-function buildRuntimeOccupationRecommendationReport(colony, colonyWorkers) {
-  return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
+function buildRuntimeOccupationRecommendationReport(colony, colonyWorkers, expansionReport = buildPersistedScoutOnlyExpansionCandidateReport(colony.room.name)) {
+  return scoreOccupationRecommendations(
+    buildRuntimeOccupationRecommendationInput(colony, colonyWorkers, expansionReport)
+  );
 }
 function clearOccupationRecommendationFollowUpIntent(report) {
   report.followUpIntent = null;
@@ -15010,7 +15051,7 @@ function attachOccupationRecommendationReportColony(report, colonyName) {
   });
   return report;
 }
-function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
+function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers, expansionReport) {
   var _a, _b;
   const colonyName = colony.room.name;
   return {
@@ -15020,10 +15061,11 @@ function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
     workerCount: colonyWorkers.length,
     ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
-    candidates: buildRuntimeOccupationCandidates(colonyName)
+    candidates: buildRuntimeOccupationCandidates(colony, colonyWorkers, expansionReport)
   };
 }
-function buildRuntimeOccupationCandidates(colonyName) {
+function buildRuntimeOccupationCandidates(colony, colonyWorkers, expansionReport) {
+  const colonyName = colony.room.name;
   const candidatesByRoom = /* @__PURE__ */ new Map();
   const territoryMemory = getTerritoryMemoryRecord6();
   let order = 0;
@@ -15047,6 +15089,12 @@ function buildRuntimeOccupationCandidates(colonyName) {
       order += 1;
     }
   }
+  order = addScoutOnlyExpansionRemoteOccupationCandidates(
+    candidatesByRoom,
+    expansionReport,
+    colonyWorkers.length,
+    order
+  );
   for (const roomName of getAdjacentRoomNames4(colonyName)) {
     if (isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)) {
       continue;
@@ -15065,6 +15113,102 @@ function buildRuntimeOccupationCandidates(colonyName) {
     order += 1;
   }
   return Array.from(candidatesByRoom.values()).map(enrichVisibleOccupationCandidate);
+}
+function addScoutOnlyExpansionRemoteOccupationCandidates(candidatesByRoom, expansionReport, workerCount, order) {
+  var _a, _b;
+  let nextOrder = order;
+  for (const candidate of expansionReport.candidates) {
+    if (!isActionableScoutOnlyExpansionRemoteCandidate(candidate, workerCount)) {
+      continue;
+    }
+    upsertOccupationCandidate(candidatesByRoom, {
+      roomName: candidate.roomName,
+      source: "configured",
+      order: nextOrder,
+      adjacent: candidate.adjacentToOwnedRoom,
+      visible: candidate.visible,
+      ...candidate.visible === false ? { scouted: true } : {},
+      actionHint: "reserve",
+      controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
+      ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
+      ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
+      ...candidate.nearestOwnedRoomDistance !== void 0 ? { roadDistance: candidate.nearestOwnedRoomDistance } : candidate.routeDistance !== void 0 ? { roadDistance: candidate.routeDistance } : {},
+      sourceCount: candidate.sourceCount,
+      hostileCreepCount: (_a = candidate.hostileCreepCount) != null ? _a : 0,
+      hostileStructureCount: (_b = candidate.hostileStructureCount) != null ? _b : 0
+    });
+    nextOrder += 1;
+  }
+  return nextOrder;
+}
+function isActionableScoutOnlyExpansionRemoteCandidate(candidate, workerCount) {
+  var _a, _b;
+  return workerCount >= MIN_READY_WORKERS && candidate.scoutOnly === true && candidate.evidenceStatus === "sufficient" && candidate.blockReason === void 0 && candidate.requiresControllerPressure !== true && candidate.risks.length === 0 && candidate.preconditions.every(isScoutOnlyRemoteCompatibleExpansionPrecondition) && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0 && ((_a = candidate.hostileCreepCount) != null ? _a : 0) === 0 && ((_b = candidate.hostileStructureCount) != null ? _b : 0) === 0 && isAdjacentScoutOnlyExpansionRemoteCandidate(candidate);
+}
+function isAdjacentScoutOnlyExpansionRemoteCandidate(candidate) {
+  return candidate.adjacentToOwnedRoom || typeof candidate.routeDistance === "number" && candidate.routeDistance <= 1 || typeof candidate.nearestOwnedRoomDistance === "number" && candidate.nearestOwnedRoomDistance <= 1;
+}
+function isScoutOnlyRemoteCompatibleExpansionPrecondition(precondition) {
+  return precondition === "wait for GCL capacity to claim another room" || precondition.startsWith("limit expansion to ");
+}
+function buildScoutOnlyExpansionOccupationControllerEvidence(candidate) {
+  const reservation = candidate.reservation;
+  return {
+    ...reservation ? { reservationUsername: reservation.username } : {},
+    ...(reservation == null ? void 0 : reservation.ticksToEnd) !== void 0 ? { reservationTicksToEnd: reservation.ticksToEnd } : {}
+  };
+}
+function buildPersistedScoutOnlyExpansionCandidateReport(colonyName) {
+  var _a;
+  const candidates = getPersistedScoutOnlyExpansionCandidates(colonyName);
+  return {
+    colonyName,
+    candidates,
+    next: (_a = candidates[0]) != null ? _a : null
+  };
+}
+function getPersistedScoutOnlyExpansionCandidates(colonyName) {
+  var _a;
+  const rawCandidates = (_a = getTerritoryMemoryRecord6()) == null ? void 0 : _a.expansionCandidates;
+  if (!Array.isArray(rawCandidates)) {
+    return [];
+  }
+  return rawCandidates.flatMap((rawCandidate) => {
+    const candidate = normalizePersistedScoutOnlyExpansionCandidate(rawCandidate, colonyName);
+    return candidate ? [candidate] : [];
+  });
+}
+function normalizePersistedScoutOnlyExpansionCandidate(rawCandidate, colonyName) {
+  if (!isRecord17(rawCandidate) || rawCandidate.colony !== colonyName || rawCandidate.scoutOnly !== true || !isNonEmptyString14(rawCandidate.roomName) || !isExpansionCandidateEvidenceStatus(rawCandidate.evidenceStatus)) {
+    return null;
+  }
+  return {
+    roomName: rawCandidate.roomName,
+    score: normalizeFiniteNumber(rawCandidate.score, 0),
+    synergyScore: 0,
+    evidenceStatus: rawCandidate.evidenceStatus,
+    visible: rawCandidate.visible === true,
+    rationale: normalizeStringArray(rawCandidate.rationale),
+    preconditions: normalizeStringArray(rawCandidate.preconditions),
+    risks: normalizeStringArray(rawCandidate.risks),
+    adjacentToOwnedRoom: rawCandidate.adjacentToOwnedRoom === true,
+    scoutOnly: true,
+    ...isExpansionCandidateBlockReason(rawCandidate.blockReason) ? { blockReason: rawCandidate.blockReason } : {},
+    ...isFiniteNumber7(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {},
+    ...isNonEmptyString14(rawCandidate.nearestOwnedRoom) ? { nearestOwnedRoom: rawCandidate.nearestOwnedRoom } : {},
+    ...isFiniteNumber7(rawCandidate.nearestOwnedRoomDistance) ? { nearestOwnedRoomDistance: rawCandidate.nearestOwnedRoomDistance } : {},
+    ...isNonEmptyString14(rawCandidate.controllerId) ? { controllerId: rawCandidate.controllerId } : {},
+    ...isFiniteNumber7(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {},
+    ...isFiniteNumber7(rawCandidate.hostileCreepCount) ? { hostileCreepCount: rawCandidate.hostileCreepCount } : {},
+    ...isFiniteNumber7(rawCandidate.hostileStructureCount) ? { hostileStructureCount: rawCandidate.hostileStructureCount } : {},
+    ...rawCandidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}
+  };
+}
+function isExpansionCandidateEvidenceStatus(value) {
+  return value === "sufficient" || value === "insufficient-evidence" || value === "unavailable";
+}
+function isExpansionCandidateBlockReason(value) {
+  return value === "insufficientEvidence" || value === "targetUnavailable" || value === "targetHostile" || value === "controllerMissing" || value === "controllerOwned" || value === "controllerReserved" || value === "sourcesMissing" || value === "controllerRangeMissing" || value === "terrainMissing" || value === "energyCapacityLow" || value === "energyBufferLow" || value === "cpuBucketLow" || value === "homeAlertActive" || value === "controllerLevelLow" || value === "homeDowngradeGuard" || value === "postClaimBootstrapActive" || value === "gclInsufficient" || value === "roomLimitReached" || value === "routeUnavailable";
 }
 function upsertOccupationCandidate(candidatesByRoom, candidate) {
   const existing = candidatesByRoom.get(candidate.roomName);
@@ -15555,6 +15699,12 @@ function isNonEmptyString14(value) {
 }
 function isFiniteNumber7(value) {
   return typeof value === "number" && Number.isFinite(value);
+}
+function normalizeFiniteNumber(value, fallback) {
+  return isFiniteNumber7(value) ? value : fallback;
+}
+function normalizeStringArray(value) {
+  return Array.isArray(value) ? value.filter(isNonEmptyString14) : [];
 }
 
 // src/territory/controllerSigning.ts
@@ -36018,8 +36168,12 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const tick = getGameTime32();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
+  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(
+    colony,
+    colonyWorkers,
+    territoryExpansion
+  );
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
@@ -36174,7 +36328,7 @@ function buildScoutOnlyTargetSummaries(colony, summary) {
   const expansionCandidatesByRoom = getScoutOnlyExpansionCandidatesByRoom(colonyName);
   const seenRooms = /* @__PURE__ */ new Set();
   return getTerritoryExpansionScoutTargets(colonyName).flatMap((target) => {
-    var _a2;
+    var _a2, _b2;
     if (target.colony !== colonyName || target.scoutOnly !== true || seenRooms.has(target.roomName)) {
       return [];
     }
@@ -36190,6 +36344,7 @@ function buildScoutOnlyTargetSummaries(colony, summary) {
         recommendedAction: (_a2 = expansionCandidate == null ? void 0 : expansionCandidate.recommendedAction) != null ? _a2 : "scout",
         ...(expansionCandidate == null ? void 0 : expansionCandidate.blockReason) ? { blockReason: expansionCandidate.blockReason } : {},
         ...(expansionCandidate == null ? void 0 : expansionCandidate.postClaimBootstrapBlocker) ? { postClaimBootstrapBlocker: expansionCandidate.postClaimBootstrapBlocker } : {},
+        ...((_b2 = expansionCandidate == null ? void 0 : expansionCandidate.ignoredPostClaimBootstrapBlockers) == null ? void 0 : _b2.length) ? { ignoredPostClaimBootstrapBlockers: expansionCandidate.ignoredPostClaimBootstrapBlockers } : {},
         gateOpen,
         status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
         ...(attempt == null ? void 0 : attempt.requestedAt) !== void 0 ? { requestedAt: attempt.requestedAt } : {},
@@ -36217,8 +36372,13 @@ function getScoutOnlyExpansionCandidatesByRoom(colonyName) {
     }
     candidatesByRoom.set(rawCandidate.roomName, {
       recommendedAction: isExpansionCandidateRecommendedAction2(rawCandidate.recommendedAction) ? rawCandidate.recommendedAction : "scout",
-      ...isExpansionCandidateBlockReason(rawCandidate.blockReason) ? { blockReason: rawCandidate.blockReason } : {},
-      ...isPostClaimBootstrapBlockerMemory(rawCandidate.postClaimBootstrapBlocker) ? { postClaimBootstrapBlocker: rawCandidate.postClaimBootstrapBlocker } : {}
+      ...isExpansionCandidateBlockReason2(rawCandidate.blockReason) ? { blockReason: rawCandidate.blockReason } : {},
+      ...isPostClaimBootstrapBlockerMemory(rawCandidate.postClaimBootstrapBlocker) ? { postClaimBootstrapBlocker: rawCandidate.postClaimBootstrapBlocker } : {},
+      ...Array.isArray(rawCandidate.ignoredPostClaimBootstrapBlockers) ? {
+        ignoredPostClaimBootstrapBlockers: rawCandidate.ignoredPostClaimBootstrapBlockers.filter(
+          isPostClaimBootstrapIgnoredBlockerMemory
+        )
+      } : {}
     });
   }
   return candidatesByRoom;
@@ -36226,13 +36386,23 @@ function getScoutOnlyExpansionCandidatesByRoom(colonyName) {
 function isPostClaimBootstrapBlockerMemory(value) {
   return isRecord29(value) && isNonEmptyString29(value.colony) && isNonEmptyString29(value.roomName) && isPostClaimBootstrapStatus2(value.status) && isFiniteNumber11(value.updatedAt) && isFiniteNumber11(value.age) && isFiniteNumber11(value.workerTarget) && isFiniteNumber11(value.spawnCount) && isFiniteNumber11(value.workerCount);
 }
+function isPostClaimBootstrapIgnoredBlockerMemory(value) {
+  if (!isRecord29(value)) {
+    return false;
+  }
+  const reason = value.reason;
+  return isPostClaimBootstrapBlockerMemory(value) && isPostClaimBootstrapIgnoredBlockerReason(reason);
+}
+function isPostClaimBootstrapIgnoredBlockerReason(value) {
+  return value === "ready" || value === "notVisibleOwnedRoom" || value === "workerTargetSatisfied";
+}
 function isPostClaimBootstrapStatus2(value) {
   return value === "detected" || value === "spawnSitePending" || value === "spawnSiteBlocked" || value === "spawningWorkers" || value === "ready";
 }
 function isExpansionCandidateRecommendedAction2(action) {
   return action === "claim" || action === "reserve" || action === "scout";
 }
-function isExpansionCandidateBlockReason(reason) {
+function isExpansionCandidateBlockReason2(reason) {
   return reason === "insufficientEvidence" || reason === "targetUnavailable" || reason === "targetHostile" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "sourcesMissing" || reason === "controllerRangeMissing" || reason === "terrainMissing" || reason === "energyCapacityLow" || reason === "energyBufferLow" || reason === "cpuBucketLow" || reason === "homeAlertActive" || reason === "controllerLevelLow" || reason === "homeDowngradeGuard" || reason === "postClaimBootstrapActive" || reason === "gclInsufficient" || reason === "roomLimitReached" || reason === "routeUnavailable";
 }
 function getScoutOnlyTargetStatus(gateOpen, attempt, intel) {
@@ -42908,7 +43078,7 @@ function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime40()) {
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
-    countActivePostClaimBootstraps(),
+    countActivePostClaimBootstraps(colony.room.name, gameTime),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join("|");
@@ -43008,15 +43178,8 @@ function getGclLevel5() {
   const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
   return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
-function countActivePostClaimBootstraps() {
-  var _a, _b;
-  const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord36(records)) {
-    return 0;
-  }
-  return Object.values(records).filter(
-    (record) => isRecord36(record) && record.status !== "ready"
-  ).length;
+function countActivePostClaimBootstraps(colonyName, gameTime) {
+  return getActivePostClaimBootstrapBlockers(colonyName, gameTime).length;
 }
 function getLatestTerritoryScoutIntelUpdatedAt(colony) {
   var _a, _b;
@@ -45792,6 +45955,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
       refreshAdjacentRoomReservationIntent(colony, Game.time, { claimBlocker: "colonyUnstable" });
       return;
     }
+    report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
     const colonyExpansionEvaluation = refreshColonyExpansionIntent(colony, { territoryReady }, Game.time);
     if (colonyExpansionEvaluation.status === "planned") {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);

@@ -2519,6 +2519,394 @@ describe('runtime telemetry summaries', () => {
     ).toEqual([]);
   });
 
+  it('promotes sufficient E29N56 scout-only evidence into reserve intent past a superseded bootstrap record', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
+    const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
+    const controller = room.controller as StructureController & { level: number; ticksToDowngrade: number };
+    const spawn = colony.spawns[0] as StructureSpawn & { my?: boolean; isActive?: jest.Mock };
+    const tower = {
+      id: 'tower1',
+      my: true,
+      structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+      store: makeEnergyStore(500)
+    };
+
+    room.energyAvailable = 1_800;
+    room.energyCapacityAvailable = 1_800;
+    controller.level = 5;
+    controller.ticksToDowngrade = 20_000;
+    colony.energyAvailable = 1_800;
+    colony.energyCapacityAvailable = 1_800;
+    spawn.my = true;
+    spawn.spawning = null;
+    spawn.isActive = jest.fn(() => true);
+    room.find.mockImplementation((findType: number): unknown[] => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_STRUCTURES:
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return [spawn, tower];
+        case TEST_GLOBALS.FIND_SOURCES:
+          return [{ id: 'source-home-a' }, { id: 'source-home-b' }];
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return [];
+        default:
+          return [];
+      }
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        postClaimBootstraps: {
+          E29N54: {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            status: 'spawningWorkers',
+            claimedAt: RUNTIME_SUMMARY_INTERVAL - 1_000,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 200,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    (Game.rooms as Record<string, Room>).E29N54 = makeRemoteRoom('E29N54', {
+      controller: { my: true } as StructureController
+    });
+    (Game.rooms as Record<string, Room>).E29N56 = makeRemoteRoom('E29N56', {
+      controller: {
+        id: 'controller-E29N56' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'E29N56' }
+      } as StructureController,
+      sourceCount: 1
+    });
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({
+        '1': 'E29N56',
+        '3': 'E30N55',
+        '5': 'E29N54',
+        '7': 'E28N55'
+      })),
+      findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
+    (Game.spawns as Record<string, StructureSpawn>).BootstrapSpawn = {
+      room: { name: 'E29N54' } as Room
+    } as StructureSpawn;
+    (Game as Partial<Game>).creeps = {
+      BootstrapWorker1: makeWorker({ role: 'worker', colony: 'E29N54' }, 0, 'BootstrapWorker1'),
+      BootstrapWorker2: makeWorker(
+        {
+          role: 'worker',
+          colony: 'E29N55',
+          spawnSupport: { originRoom: 'E29N55', targetRoom: 'E29N54' }
+        },
+        0,
+        'BootstrapWorker2'
+      )
+    } as unknown as Game['creeps'];
+
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker1'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker2'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker3'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker4')
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const [summaryRoom] = payload.rooms as Array<Record<string, unknown>>;
+    const territoryExpansion = summaryRoom.territoryExpansion as Record<string, unknown>;
+    const expansionCandidate = (territoryExpansion.candidates as Array<Record<string, unknown>>).find(
+      (candidate) => candidate.roomName === 'E29N56'
+    );
+    const recommendation = summaryRoom.territoryRecommendation as Record<string, unknown>;
+
+    expect(expansionCandidate).toMatchObject({
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      sourceCount: 1,
+      hostileCreepCount: 0,
+      ignoredPostClaimBootstrapBlockers: [
+        {
+          colony: 'E29N55',
+          roomName: 'E29N54',
+          status: 'spawningWorkers',
+          reason: 'workerTargetSatisfied',
+          updatedAt: RUNTIME_SUMMARY_INTERVAL - 200,
+          age: 200,
+          workerTarget: 2,
+          spawnCount: 1,
+          workerCount: 2
+        }
+      ]
+    });
+    expect(expansionCandidate).not.toHaveProperty('blockReason');
+    expect(expansionCandidate).not.toHaveProperty('postClaimBootstrapBlocker');
+    expect(recommendation.next).toMatchObject({
+      roomName: 'E29N56',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      source: 'configured',
+      sourceCount: 1,
+      hostileCreepCount: 0,
+      routeDistance: 1
+    });
+    expect(recommendation.followUpIntent).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N56',
+      action: 'reserve',
+      controllerId: 'controller-E29N56'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E29N55',
+        roomName: 'E29N56',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller-E29N56'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E29N56',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller-E29N56'
+      }
+    ]);
+  });
+
+  it('keeps an active post-claim bootstrap as an actionable E29N56 blocker in runtime telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
+    const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
+    const controller = room.controller as StructureController & { level: number; ticksToDowngrade: number };
+    const spawn = colony.spawns[0] as StructureSpawn & { my?: boolean; isActive?: jest.Mock };
+    const tower = {
+      id: 'tower1',
+      my: true,
+      structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+      store: makeEnergyStore(500)
+    };
+
+    room.energyAvailable = 1_800;
+    room.energyCapacityAvailable = 1_800;
+    controller.level = 5;
+    controller.ticksToDowngrade = 20_000;
+    colony.energyAvailable = 1_800;
+    colony.energyCapacityAvailable = 1_800;
+    spawn.my = true;
+    spawn.spawning = null;
+    spawn.isActive = jest.fn(() => true);
+    room.find.mockImplementation((findType: number): unknown[] => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_STRUCTURES:
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return [spawn, tower];
+        case TEST_GLOBALS.FIND_SOURCES:
+          return [{ id: 'source-home-a' }, { id: 'source-home-b' }];
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return [];
+        default:
+          return [];
+      }
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {
+        postClaimBootstraps: {
+          E29N54: {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            status: 'spawnSitePending',
+            claimedAt: RUNTIME_SUMMARY_INTERVAL - 1_000,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 50,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    (Game.rooms as Record<string, Room>).E29N54 = makeRemoteRoom('E29N54', {
+      controller: { my: true } as StructureController
+    });
+    (Game.rooms as Record<string, Room>).E29N56 = makeRemoteRoom('E29N56', {
+      controller: {
+        id: 'controller-E29N56' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'E29N56' }
+      } as StructureController,
+      sourceCount: 1
+    });
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({
+        '1': 'E29N56',
+        '3': 'E30N55',
+        '5': 'E29N54',
+        '7': 'E28N55'
+      })),
+      findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
+    (Game as Partial<Game>).creeps = {
+      BootstrapWorker1: makeWorker({ role: 'worker', colony: 'E29N54' }, 0, 'BootstrapWorker1')
+    } as unknown as Game['creeps'];
+
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker1'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker2'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker3'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker4')
+      ],
+      [],
+      { persistOccupationRecommendations: false }
+    );
+
+    const payload = parseLoggedSummary();
+    const [summaryRoom] = payload.rooms as Array<Record<string, unknown>>;
+    const territoryExpansion = summaryRoom.territoryExpansion as Record<string, unknown>;
+    const expansionCandidate = (territoryExpansion.candidates as Array<Record<string, unknown>>).find(
+      (candidate) => candidate.roomName === 'E29N56'
+    );
+    const recommendation = summaryRoom.territoryRecommendation as Record<string, unknown>;
+
+    expect(expansionCandidate).toMatchObject({
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      blockReason: 'postClaimBootstrapActive',
+      postClaimBootstrapBlocker: {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        status: 'spawnSitePending',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL - 50,
+        age: 50,
+        workerTarget: 2,
+        spawnCount: 0,
+        workerCount: 1
+      }
+    });
+    expect(expansionCandidate).not.toHaveProperty('ignoredPostClaimBootstrapBlockers');
+    expect(recommendation).toMatchObject({
+      candidates: [],
+      next: null,
+      followUpIntent: null
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('keeps E29N56 scout-only evidence out of reserve recommendations when CPU blocks conversion', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
+    const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
+    const controller = room.controller as StructureController & { level: number; ticksToDowngrade: number };
+    const spawn = colony.spawns[0] as StructureSpawn & { my?: boolean; isActive?: jest.Mock };
+    const tower = {
+      id: 'tower1',
+      my: true,
+      structureType: TEST_GLOBALS.STRUCTURE_TOWER,
+      store: makeEnergyStore(500)
+    };
+
+    room.energyAvailable = 1_800;
+    room.energyCapacityAvailable = 1_800;
+    controller.level = 5;
+    controller.ticksToDowngrade = 20_000;
+    colony.energyAvailable = 1_800;
+    colony.energyCapacityAvailable = 1_800;
+    spawn.my = true;
+    spawn.spawning = null;
+    spawn.isActive = jest.fn(() => true);
+    room.find.mockImplementation((findType: number): unknown[] => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_STRUCTURES:
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return [spawn, tower];
+        case TEST_GLOBALS.FIND_SOURCES:
+          return [{ id: 'source-home-a' }, { id: 'source-home-b' }];
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return [];
+        default:
+          return [];
+      }
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      runtime: {
+        currentRoomName: 'E29N55'
+      },
+      territory: {}
+    };
+    (Game.rooms as Record<string, Room>).E29N56 = makeRemoteRoom('E29N56', {
+      controller: {
+        id: 'controller-E29N56' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'E29N56' }
+      } as StructureController,
+      sourceCount: 1
+    });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(4.2),
+      bucket: 499
+    } as unknown as CPU;
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({
+        '1': 'E29N56',
+        '3': 'E30N55',
+        '5': 'E29N54',
+        '7': 'E28N55'
+      })),
+      findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
+
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker1'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker2'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker3'),
+        makeWorker({ role: 'worker', colony: 'E29N55' }, 0, 'Worker4')
+      ],
+      [],
+      { persistOccupationRecommendations: false }
+    );
+
+    const payload = parseLoggedSummary();
+    const [summaryRoom] = payload.rooms as Array<Record<string, unknown>>;
+    const territoryExpansion = summaryRoom.territoryExpansion as Record<string, unknown>;
+    const expansionCandidate = (territoryExpansion.candidates as Array<Record<string, unknown>>).find(
+      (candidate) => candidate.roomName === 'E29N56'
+    );
+    const recommendation = summaryRoom.territoryRecommendation as Record<string, unknown>;
+
+    expect(expansionCandidate).toMatchObject({
+      roomName: 'E29N56',
+      evidenceStatus: 'sufficient',
+      scoutOnly: true,
+      blockReason: 'cpuBucketLow'
+    });
+    expect(recommendation).toMatchObject({
+      candidates: [],
+      next: null,
+      followUpIntent: null
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);

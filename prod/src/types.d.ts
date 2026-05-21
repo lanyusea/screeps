@@ -724,6 +724,10 @@ declare global {
     | 'spawnSiteBlocked'
     | 'spawningWorkers'
     | 'ready';
+  type TerritoryPostClaimBootstrapIgnoredBlockerReason =
+    | 'ready'
+    | 'notVisibleOwnedRoom'
+    | 'workerTargetSatisfied';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
@@ -973,6 +977,7 @@ declare global {
     preconditions?: string[];
     rationale?: string[];
     postClaimBootstrapBlocker?: TerritoryPostClaimBootstrapBlockerMemory;
+    ignoredPostClaimBootstrapBlockers?: TerritoryPostClaimBootstrapIgnoredBlockerMemory[];
   }
 
   interface TerritoryExpansionPipelineMemory {
@@ -1055,6 +1060,10 @@ declare global {
     workerTarget: number;
     spawnCount: number;
     workerCount: number;
+  }
+
+  interface TerritoryPostClaimBootstrapIgnoredBlockerMemory extends TerritoryPostClaimBootstrapBlockerMemory {
+    reason: TerritoryPostClaimBootstrapIgnoredBlockerReason;
   }
 
   interface TerritoryClaimedRoomBootstrapperMemory {
