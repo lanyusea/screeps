@@ -15219,12 +15219,16 @@ function upsertOccupationCandidate(candidatesByRoom, candidate, options = {}) {
     return;
   }
   if (options.preferCandidate === true) {
-    candidatesByRoom.set(candidate.roomName, {
+    const merged = {
       ...existing,
       ...candidate,
       adjacent: existing.adjacent || candidate.adjacent,
       order: Math.min(existing.order, candidate.order)
-    });
+    };
+    if (existing.routeDistance === null && candidate.routeDistance === void 0 && candidate.roadDistance !== void 0) {
+      delete merged.routeDistance;
+    }
+    candidatesByRoom.set(candidate.roomName, merged);
     return;
   }
   if (candidate.source === "configured" && existing.source !== "configured") {

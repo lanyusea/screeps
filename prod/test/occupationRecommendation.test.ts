@@ -362,6 +362,48 @@ describe('occupation recommendation scoring', () => {
     });
   });
 
+  it('uses scout-only nearest-owned distance over stale configured no-route cache', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap,
+      rooms: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        routeDistances: { 'W1N1>W2N1': null }
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(
+      makeRuntimeColony(),
+      [{} as Creep, {} as Creep, {} as Creep],
+      makeScoutOnlyExpansionReport(
+        makeScoutOnlyExpansionCandidate({
+          routeDistance: undefined,
+          nearestOwnedRoomDistance: 1
+        })
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      source: 'configured',
+      roadDistance: 1
+    });
+    expect(report.next).not.toHaveProperty('routeDistance');
+    expect(report.next?.risks).not.toContain('no known route from colony');
+    expect(report.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller-W2N1'
+    });
+  });
+
   it('does not convert scout-only expansion candidates with unknown hostile evidence', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       map: {

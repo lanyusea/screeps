@@ -705,12 +705,16 @@ function upsertOccupationCandidate(
   }
 
   if (options.preferCandidate === true) {
-    candidatesByRoom.set(candidate.roomName, {
+    const merged: OccupationRecommendationCandidateInput = {
       ...existing,
       ...candidate,
       adjacent: existing.adjacent || candidate.adjacent,
       order: Math.min(existing.order, candidate.order)
-    });
+    };
+    if (existing.routeDistance === null && candidate.routeDistance === undefined && candidate.roadDistance !== undefined) {
+      delete merged.routeDistance;
+    }
+    candidatesByRoom.set(candidate.roomName, merged);
     return;
   }
 
