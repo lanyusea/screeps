@@ -142,6 +142,7 @@ export type RuntimeTerritoryClaimTelemetryReason =
   | 'controllerCooldown'
   | 'gclInsufficient'
   | 'suppressed'
+  | 'postClaimBootstrapActive'
   | 'scoutPending'
   | 'sourcesMissing'
   | 'notInRange'
@@ -317,6 +318,7 @@ interface RuntimeTerritoryScoutOnlyTargetSummary {
   roomName: string;
   recommendedAction: TerritoryExpansionCandidateRecommendedAction;
   blockReason?: TerritoryExpansionCandidateBlockReason;
+  postClaimBootstrapBlocker?: TerritoryPostClaimBootstrapBlockerMemory;
   gateOpen: boolean;
   status: RuntimeTerritoryScoutOnlyTargetStatus;
   requestedAt?: number;
@@ -846,6 +848,10 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function buildRefillTargetIdsByRoom(colonies: ColonySnapshot[]): Map<string, Set<string>> {
   const refillTargetIdsByRoom = new Map<string, Set<string>>();
   for (const colony of colonies) {
@@ -1112,6 +1118,9 @@ function buildScoutOnlyTargetSummaries(
         roomName: target.roomName,
         recommendedAction: expansionCandidate?.recommendedAction ?? 'scout',
         ...(expansionCandidate?.blockReason ? { blockReason: expansionCandidate.blockReason } : {}),
+        ...(expansionCandidate?.postClaimBootstrapBlocker
+          ? { postClaimBootstrapBlocker: expansionCandidate.postClaimBootstrapBlocker }
+          : {}),
         gateOpen,
         status: getScoutOnlyTargetStatus(gateOpen, attempt, intel),
         ...(attempt?.requestedAt !== undefined ? { requestedAt: attempt.requestedAt } : {}),
@@ -1129,7 +1138,10 @@ function buildScoutOnlyTargetSummaries(
 
 function getScoutOnlyExpansionCandidatesByRoom(
   colonyName: string
-): Map<string, Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason'>> {
+): Map<
+  string,
+  Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason' | 'postClaimBootstrapBlocker'>
+> {
   const candidates = Memory.territory?.expansionCandidates;
   if (!Array.isArray(candidates)) {
     return new Map();
@@ -1137,7 +1149,7 @@ function getScoutOnlyExpansionCandidatesByRoom(
 
   const candidatesByRoom = new Map<
     string,
-    Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason'>
+    Pick<TerritoryExpansionCandidateMemory, 'recommendedAction' | 'blockReason' | 'postClaimBootstrapBlocker'>
   >();
   for (const rawCandidate of candidates) {
     if (
@@ -1155,11 +1167,40 @@ function getScoutOnlyExpansionCandidatesByRoom(
         : 'scout',
       ...(isExpansionCandidateBlockReason(rawCandidate.blockReason)
         ? { blockReason: rawCandidate.blockReason }
+        : {}),
+      ...(isPostClaimBootstrapBlockerMemory(rawCandidate.postClaimBootstrapBlocker)
+        ? { postClaimBootstrapBlocker: rawCandidate.postClaimBootstrapBlocker }
         : {})
     });
   }
 
   return candidatesByRoom;
+}
+
+function isPostClaimBootstrapBlockerMemory(
+  value: unknown
+): value is TerritoryPostClaimBootstrapBlockerMemory {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.colony) &&
+    isNonEmptyString(value.roomName) &&
+    isPostClaimBootstrapStatus(value.status) &&
+    isFiniteNumber(value.updatedAt) &&
+    isFiniteNumber(value.age) &&
+    isFiniteNumber(value.workerTarget) &&
+    isFiniteNumber(value.spawnCount) &&
+    isFiniteNumber(value.workerCount)
+  );
+}
+
+function isPostClaimBootstrapStatus(value: unknown): value is TerritoryPostClaimBootstrapStatus {
+  return (
+    value === 'detected' ||
+    value === 'spawnSitePending' ||
+    value === 'spawnSiteBlocked' ||
+    value === 'spawningWorkers' ||
+    value === 'ready'
+  );
 }
 
 function isExpansionCandidateRecommendedAction(

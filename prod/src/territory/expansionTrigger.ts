@@ -20,7 +20,10 @@ import {
   type TerritoryScoutValidationResult
 } from './scoutIntel';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
-import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import {
+  getActivePostClaimBootstrapBlockers,
+  recordPostClaimBootstrapClaimSuccess
+} from './postClaimBootstrap';
 import {
   getTerritoryExpansionScoutTargets,
   isConfiguredExpansionScoutOnlyTarget
@@ -942,11 +945,7 @@ function hasBlockingExpansionInProgress(territoryMemory: TerritoryMemory, colony
     return true;
   }
 
-  if (
-    Object.values(territoryMemory.postClaimBootstraps ?? {}).some(
-      (record) => record.colony === colony && record.status !== 'ready'
-    )
-  ) {
+  if (getActivePostClaimBootstrapBlockers(colony).length > 0) {
     return true;
   }
 

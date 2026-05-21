@@ -972,6 +972,7 @@ declare global {
     risks?: string[];
     preconditions?: string[];
     rationale?: string[];
+    postClaimBootstrapBlocker?: TerritoryPostClaimBootstrapBlockerMemory;
   }
 
   interface TerritoryExpansionPipelineMemory {
@@ -1043,6 +1044,17 @@ declare global {
     controllerId?: Id<StructureController>;
     spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
     lastResult?: ScreepsReturnCode;
+  }
+
+  interface TerritoryPostClaimBootstrapBlockerMemory {
+    colony: string;
+    roomName: string;
+    status: TerritoryPostClaimBootstrapStatus;
+    updatedAt: number;
+    age: number;
+    workerTarget: number;
+    spawnCount: number;
+    workerCount: number;
   }
 
   interface TerritoryClaimedRoomBootstrapperMemory {

@@ -807,6 +807,68 @@ describe('autonomous expansion claim executor', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('does not plan an autonomous claim while post-claim bootstrap is active', () => {
+    const colony = makeColony();
+    const bootstrapRoom = makeColony({ roomName: 'W1N2' }).room;
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: colony.room,
+      W1N2: bootstrapRoom,
+      W2N1: makeTargetRoom('W2N1', {
+        controllerId: 'controller2' as Id<StructureController>,
+        sourceCount: 2
+      })
+    };
+    (Game as { spawns?: Record<string, StructureSpawn> }).spawns = {};
+    (Game as { creeps?: Record<string, Creep> }).creeps = {};
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W1N2: {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            status: 'spawnSitePending',
+            claimedAt: 100,
+            updatedAt: 125,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    const events: RuntimeTelemetryEvent[] = [];
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      colony,
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      130,
+      events
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'postClaimBootstrapActive'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(events).toContainEqual({
+      type: 'territoryClaim',
+      roomName: 'W1N1',
+      colony: 'W1N1',
+      phase: 'skip',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      reason: 'postClaimBootstrapActive',
+      score: evaluation.score
+    });
+  });
+
   it('does not record a claim when no adjacent scoring candidate exists', () => {
     const events: RuntimeTelemetryEvent[] = [];
 
