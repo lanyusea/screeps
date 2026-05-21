@@ -2,6 +2,64 @@
   "entries": [
     {
       "card": {
+        "cardId": "rl-exp-rl-5904cecc4259-ab995ab4434b",
+        "cardSupplyState": "available",
+        "codeCommit": "ab995ab4434b0bddec32c90700f839d41f8a8754",
+        "createdAt": "2026-05-21T11:15:00Z",
+        "datasetRunId": "rl-5904cecc4259",
+        "repetitions": 5,
+        "scenarioId": "multi-tier-territory-combat-v0",
+        "status": "shadow",
+        "ticks": 500,
+        "trainingApproach": "policy_gradient",
+        "workers": 5
+      },
+      "cloudSafety": {
+        "interactedWithCloudCompute": false,
+        "launchedPaidRun": false
+      },
+      "conclusionRegistry": {
+        "conclusionId": "issue-1291-local-card-fallback",
+        "status": "ACTIONED",
+        "whyNotClosed": "Fresh local fallback card generation is actioned in ignored runtime artifacts; closure requires the next Loop A ledger or steward audit to discover the standalone card and clear the fallback-card degradation."
+      },
+      "issue": "#1291",
+      "nextVerification": "Next Loop A or RL steward run should discover runtime-artifacts/rl-experiment-cards/experiment_card.json as an unconsumed standalone Loop A fallback card.",
+      "runtimeArtifacts": {
+        "card": "runtime-artifacts/rl-experiment-cards/experiment_card.json",
+        "selection": "runtime-artifacts/rl-experiment-cards/experiment_card.selection.json",
+        "sourceGateReport": "runtime-artifacts/rl-control-loop/gate-20260521T055515Z/gate_report.json",
+        "validation": "runtime-artifacts/rl-experiment-cards/experiment_card.validation.json"
+      },
+      "safety": {
+        "conservative_actions_only": true,
+        "liveEffect": false,
+        "officialMmoWrites": false,
+        "officialMmoWritesAllowed": false,
+        "ood_rejection": true
+      },
+      "selectedGate": {
+        "acceptanceRate": 1.0,
+        "createdAt": "2026-05-21T05:55:15Z",
+        "datasetGateStatus": "pass",
+        "datasetRunId": "rl-5904cecc4259",
+        "gateId": "gate-20260521T055515Z",
+        "sampleCount": 200,
+        "shadowEvaluationStatus": "pass"
+      },
+      "status": "ACTIONED",
+      "trackedManifestReason": "runtime-artifacts/ is ignored; this ledger is the tracked pointer to the generated runtime-only card, validation summary, and selector evidence.",
+      "validation": {
+        "cardValidationCommand": "python3 scripts/screeps_rl_experiment_card.py --validate --input runtime-artifacts/rl-experiment-cards/experiment_card.json --output runtime-artifacts/rl-experiment-cards/experiment_card.validation.json",
+        "loopAAvailableForTraining": true,
+        "multiTierPolicyComparisonSuitable": true,
+        "ok": true,
+        "selectLoopACardCommand": "python3 scripts/screeps_rl_experiment_card.py --select-loop-a-card --card-dir runtime-artifacts/rl-experiment-cards --training-report-dir runtime-artifacts/rl-training --output runtime-artifacts/rl-experiment-cards/experiment_card.selection.json",
+        "selectLoopACardOk": true
+      }
+    },
+    {
+      "card": {
         "cardId": "rl-exp-rl-a9648db451b1-91b17a2a24ba",
         "cardSupplyState": "available",
         "codeCommit": "91b17a2a24ba2eeb2393d3fe512dfe32032b2b28",
@@ -64,5 +122,5 @@
   ],
   "schemaVersion": 1,
   "type": "screeps-rl-experiment-card-supply-ledger",
-  "updatedAt": "2026-05-20T08:23:57Z"
+  "updatedAt": "2026-05-21T11:15:00Z"
 }
