@@ -10,6 +10,7 @@ import {
   buildRuntimeClaimedRoomSynergyEvidence,
   buildVisibleExpansionMineralEvidence,
   NEXT_EXPANSION_TARGET_CREATOR,
+  POST_CLAIM_BOOTSTRAP_PRECONDITION,
   scoreExpansionCandidates,
   type ExpansionCandidateInput,
   type ExpansionCandidateReport,
@@ -36,7 +37,7 @@ import {
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
-import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import { getActivePostClaimBootstrapBlockers, recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import {
   refreshTerritoryExecutionTargets,
   type TerritoryExecutionRefreshOptions,
@@ -330,6 +331,7 @@ function shouldPruneAutonomousExpansionClaimTargets(
     reason === 'controllerMissing' ||
     reason === 'controllerOwned' ||
     reason === 'controllerReserved' ||
+    reason === 'postClaimBootstrapActive' ||
     reason === 'sourcesMissing'
   );
 }
@@ -439,7 +441,9 @@ function evaluateAutonomousExpansionClaim(
   telemetryEvents: RuntimeTelemetryEvent[]
 ): AutonomousExpansionClaimEvaluation {
   const colonyName = colony.room.name;
-  const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
+  const expansionReport = scoreExpansionCandidates(
+    buildAutonomousExpansionScoringInput(colony, report, context, gameTime)
+  );
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport).filter(
     (scoredCandidate) => !isConfiguredExpansionScoutOnlyTarget(colonyName, scoredCandidate.roomName)
   );
@@ -468,6 +472,10 @@ function evaluateAutonomousExpansionClaim(
     score: candidate.score,
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
+
+  if (isPostClaimBootstrapBlockedCandidate(candidate)) {
+    return { ...baseEvaluation, reason: 'postClaimBootstrapActive' };
+  }
 
   if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return { ...baseEvaluation, reason: 'energyCapacityLow' };
@@ -612,10 +620,19 @@ function getScoutValidationClaimSkipReason(
   }
 }
 
+function isPostClaimBootstrapBlockedCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.blockReason === 'postClaimBootstrapActive' ||
+    candidate.postClaimBootstrapBlocker !== undefined ||
+    candidate.preconditions.includes(POST_CLAIM_BOOTSTRAP_PRECONDITION)
+  );
+}
+
 function buildAutonomousExpansionScoringInput(
   colony: ColonySnapshot,
   report: OccupationRecommendationReport,
-  context: AutonomousExpansionClaimTickContext
+  context: AutonomousExpansionClaimTickContext,
+  gameTime: number
 ): ExpansionScoringInput {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
@@ -652,7 +669,7 @@ function buildAutonomousExpansionScoringInput(
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
-    activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colonyName, gameTime),
     claimedRooms,
     candidates
   };
@@ -837,15 +854,6 @@ function getAdjacentRoomNames(
     const exitRoom = exits[direction];
     return isNonEmptyString(exitRoom) ? [exitRoom] : [];
   });
-}
-
-function countActivePostClaimBootstraps(): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  return Object.values(records).filter((record) => isRecord(record) && record.status !== 'ready').length;
 }
 
 function hasSufficientAutonomousExpansionClaimRcl(colony: ColonySnapshot): boolean {

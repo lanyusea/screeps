@@ -51,6 +51,7 @@ import {
 } from './controlGate';
 import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
+import { getActivePostClaimBootstrapBlockers } from './postClaimBootstrap';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -2167,17 +2168,7 @@ function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): b
 }
 
 function hasActivePostClaimBootstrap(colonyName: string): boolean {
-  const records = getTerritoryMemoryRecord()?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return false;
-  }
-
-  return Object.values(records).some(
-    (record) =>
-      isRecord(record) &&
-      record.colony === colonyName &&
-      record.status !== 'ready'
-  );
+  return getActivePostClaimBootstrapBlockers(colonyName).length > 0;
 }
 
 function refreshExpiredPostClaimClaimIntents(
