@@ -7405,11 +7405,11 @@ function countRoomWorkers(roomName) {
   return Object.values(creeps).filter((creep) => isPostClaimRoomWorker(creep, roomName)).length;
 }
 function isPostClaimRoomWorker(creep, roomName) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c;
   if (((_a = creep == null ? void 0 : creep.memory) == null ? void 0 : _a.role) !== "worker") {
     return false;
   }
-  return creep.memory.colony === roomName || ((_b = creep.memory.spawnSupport) == null ? void 0 : _b.targetRoom) === roomName || ((_c = creep.memory.controllerSustain) == null ? void 0 : _c.targetRoom) === roomName || ((_d = creep.room) == null ? void 0 : _d.name) === roomName || ((_e = creep.pos) == null ? void 0 : _e.roomName) === roomName;
+  return creep.memory.colony === roomName || ((_b = creep.memory.spawnSupport) == null ? void 0 : _b.targetRoom) === roomName || ((_c = creep.memory.controllerSustain) == null ? void 0 : _c.targetRoom) === roomName;
 }
 function recordSpawnSitePlacedTelemetry(record, spawnSite, result, telemetryEvents, existing = false) {
   telemetryEvents.push({
@@ -7763,6 +7763,7 @@ var SCOUT_ONLY_REMOTE_MIN_RCL_PRECONDITION = `reach controller level ${AUTONOMOU
 var SCOUT_ONLY_REMOTE_ENERGY_BUFFER_PRECONDITION = "preserve home energy buffer before scout-only remote conversion";
 var SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION = "wait for CPU bucket before scout-only remote conversion";
 var SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION = "clear home alert before scout-only remote conversion";
+var POST_CLAIM_BOOTSTRAP_PRECONDITION = "finish active post-claim bootstrap before next expansion";
 var SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
 var MAX_ROOM_COUNT_BY_RCL = {
   1: 1,
@@ -8368,7 +8369,7 @@ function getExpansionPreconditions(input, candidate) {
     preconditions.push("stabilize home controller downgrade timer");
   }
   if (hasActivePostClaimBootstrapBlocker(input)) {
-    preconditions.push("finish active post-claim bootstrap before next expansion");
+    preconditions.push(POST_CLAIM_BOOTSTRAP_PRECONDITION);
   }
   return preconditions;
 }
@@ -8512,7 +8513,7 @@ function getPersistedExpansionCandidateBlockReason(candidate, recommendedAction)
   if (hasExpansionPrecondition(candidate, "stabilize home controller downgrade timer")) {
     return "homeDowngradeGuard";
   }
-  if (hasExpansionPrecondition(candidate, "finish active post-claim bootstrap before next expansion")) {
+  if (hasExpansionPrecondition(candidate, POST_CLAIM_BOOTSTRAP_PRECONDITION)) {
     return "postClaimBootstrapActive";
   }
   if (((_a = candidate.hostileCreepCount) != null ? _a : 0) > 0 || ((_b = candidate.hostileStructureCount) != null ? _b : 0) > 0) {
@@ -40777,7 +40778,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   return true;
 }
 function shouldPruneAutonomousExpansionClaimTargets(reason) {
-  return reason === "noAdjacentCandidate" || reason === "scoreBelowThreshold" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "sourcesMissing";
+  return reason === "noAdjacentCandidate" || reason === "scoreBelowThreshold" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "postClaimBootstrapActive" || reason === "sourcesMissing";
 }
 function getVisibleOwnedRoomCount() {
   var _a;
@@ -40884,6 +40885,9 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     score: candidate.score,
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
   };
+  if (isPostClaimBootstrapBlockedCandidate(candidate)) {
+    return { ...baseEvaluation, reason: "postClaimBootstrapActive" };
+  }
   if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return { ...baseEvaluation, reason: "energyCapacityLow" };
   }
@@ -41002,6 +41006,9 @@ function getScoutValidationClaimSkipReason(validation) {
     default:
       return "scoutPending";
   }
+}
+function isPostClaimBootstrapBlockedCandidate(candidate) {
+  return candidate.blockReason === "postClaimBootstrapActive" || candidate.postClaimBootstrapBlocker !== void 0 || candidate.preconditions.includes(POST_CLAIM_BOOTSTRAP_PRECONDITION);
 }
 function buildAutonomousExpansionScoringInput(colony, report, context, gameTime) {
   var _a, _b;

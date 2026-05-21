@@ -10,6 +10,7 @@ import {
   buildRuntimeClaimedRoomSynergyEvidence,
   buildVisibleExpansionMineralEvidence,
   NEXT_EXPANSION_TARGET_CREATOR,
+  POST_CLAIM_BOOTSTRAP_PRECONDITION,
   scoreExpansionCandidates,
   type ExpansionCandidateInput,
   type ExpansionCandidateReport,
@@ -330,6 +331,7 @@ function shouldPruneAutonomousExpansionClaimTargets(
     reason === 'controllerMissing' ||
     reason === 'controllerOwned' ||
     reason === 'controllerReserved' ||
+    reason === 'postClaimBootstrapActive' ||
     reason === 'sourcesMissing'
   );
 }
@@ -470,6 +472,10 @@ function evaluateAutonomousExpansionClaim(
     score: candidate.score,
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
+
+  if (isPostClaimBootstrapBlockedCandidate(candidate)) {
+    return { ...baseEvaluation, reason: 'postClaimBootstrapActive' };
+  }
 
   if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return { ...baseEvaluation, reason: 'energyCapacityLow' };
@@ -612,6 +618,14 @@ function getScoutValidationClaimSkipReason(
     default:
       return 'scoutPending';
   }
+}
+
+function isPostClaimBootstrapBlockedCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.blockReason === 'postClaimBootstrapActive' ||
+    candidate.postClaimBootstrapBlocker !== undefined ||
+    candidate.preconditions.includes(POST_CLAIM_BOOTSTRAP_PRECONDITION)
+  );
 }
 
 function buildAutonomousExpansionScoringInput(

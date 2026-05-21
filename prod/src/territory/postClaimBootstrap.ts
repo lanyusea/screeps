@@ -1002,9 +1002,7 @@ function isPostClaimRoomWorker(creep: Creep | undefined, roomName: string): bool
   return (
     creep.memory.colony === roomName ||
     creep.memory.spawnSupport?.targetRoom === roomName ||
-    creep.memory.controllerSustain?.targetRoom === roomName ||
-    creep.room?.name === roomName ||
-    creep.pos?.roomName === roomName
+    creep.memory.controllerSustain?.targetRoom === roomName
   );
 }
 

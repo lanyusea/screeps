@@ -142,6 +142,7 @@ export type RuntimeTerritoryClaimTelemetryReason =
   | 'controllerCooldown'
   | 'gclInsufficient'
   | 'suppressed'
+  | 'postClaimBootstrapActive'
   | 'scoutPending'
   | 'sourcesMissing'
   | 'notInRange'

@@ -578,7 +578,7 @@ describe('next expansion scoring', () => {
     expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('postClaimBootstrapBlocker');
   });
 
-  it('clears post-claim blockers when origin-tagged support workers are in the claimed room', () => {
+  it('clears post-claim blockers when support workers are explicitly assigned to the claimed room', () => {
     const colony = makeSafeColony({
       roomName: 'E29N55',
       controllerLevel: 5,
@@ -623,8 +623,22 @@ describe('next expansion scoring', () => {
         BootstrapSpawn: { room: { name: 'E29N54' } as Room } as StructureSpawn
       },
       creeps: {
-        Worker1: { memory: { role: 'worker', colony: 'E29N55' }, room: claimedRoom } as Creep,
-        Worker2: { memory: { role: 'worker', colony: 'E29N55' }, room: claimedRoom } as Creep
+        Worker1: {
+          memory: {
+            role: 'worker',
+            colony: 'E29N55',
+            spawnSupport: { originRoom: 'E29N55', targetRoom: 'E29N54' }
+          },
+          room: claimedRoom
+        } as Creep,
+        Worker2: {
+          memory: {
+            role: 'worker',
+            colony: 'E29N55',
+            controllerSustain: { homeRoom: 'E29N55', targetRoom: 'E29N54', role: 'upgrader' }
+          },
+          room: claimedRoom
+        } as Creep
       },
       map: {
         describeExits: jest.fn(() => ({})),
@@ -648,6 +662,85 @@ describe('next expansion scoring', () => {
     });
     expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('blockReason');
     expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('postClaimBootstrapBlocker');
+  });
+
+  it('keeps post-claim blockers when only pass-through workers are in the claimed room', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controllerLevel: 5,
+      energyAvailable: 1_800,
+      energyCapacityAvailable: 1_800
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionScoutTargets: [
+          {
+            colony: 'E29N55',
+            roomName: 'E29N56',
+            nearestOwnedRoom: 'E29N55',
+            nearestOwnedRoomDistance: 1,
+            routeDistance: 1,
+            adjacentToOwnedRoom: true,
+            scoutOnly: true
+          }
+        ],
+        postClaimBootstraps: {
+          E29N54: {
+            colony: 'E29N55',
+            roomName: 'E29N54',
+            status: 'spawningWorkers',
+            claimedAt: 100,
+            updatedAt: 950,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    const claimedRoom = makeOwnedRoom('E29N54');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_000,
+      cpu: { bucket: 10_000 } as Game['cpu'],
+      rooms: {
+        E29N55: colony.room,
+        E29N54: claimedRoom,
+        E29N56: makeVisibleExpansionRoom('E29N56', { sourceCount: 1 })
+      },
+      spawns: {
+        BootstrapSpawn: { room: { name: 'E29N54' } as Room } as StructureSpawn
+      },
+      creeps: {
+        Worker1: { memory: { role: 'worker', colony: 'E29N55' }, room: claimedRoom } as Creep,
+        Worker2: { memory: { role: 'worker', colony: 'E29N55' }, pos: { roomName: 'E29N54' } } as Creep
+      },
+      map: {
+        describeExits: jest.fn(() => ({})),
+        findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }]),
+        getRoomLinearDistance: jest.fn(() => 1),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.1))
+      } as unknown as GameMap
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+    persistExpansionCandidateScores('E29N55', report, 1_000);
+
+    expect(getCandidate(report, 'E29N56')).toMatchObject({
+      blockReason: 'postClaimBootstrapActive',
+      postClaimBootstrapBlocker: {
+        colony: 'E29N55',
+        roomName: 'E29N54',
+        status: 'spawningWorkers',
+        workerTarget: 2,
+        spawnCount: 1,
+        workerCount: 0
+      }
+    });
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'E29N55',
+      roomName: 'E29N56',
+      scoutOnly: true,
+      recommendedAction: 'scout',
+      blockReason: 'postClaimBootstrapActive'
+    });
   });
 
   it('keeps a visible active post-claim bootstrap as an actionable E29N56 blocker', () => {

@@ -69,6 +69,8 @@ const SCOUT_ONLY_REMOTE_CPU_BUCKET_PRECONDITION =
   'wait for CPU bucket before scout-only remote conversion';
 const SCOUT_ONLY_REMOTE_HOME_ALERT_PRECONDITION =
   'clear home alert before scout-only remote conversion';
+export const POST_CLAIM_BOOTSTRAP_PRECONDITION =
+  'finish active post-claim bootstrap before next expansion';
 const SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET = 500;
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
@@ -1139,7 +1141,7 @@ function getExpansionPreconditions(
   }
 
   if (hasActivePostClaimBootstrapBlocker(input)) {
-    preconditions.push('finish active post-claim bootstrap before next expansion');
+    preconditions.push(POST_CLAIM_BOOTSTRAP_PRECONDITION);
   }
 
   return preconditions;
@@ -1411,7 +1413,7 @@ function getPersistedExpansionCandidateBlockReason(
     return 'homeDowngradeGuard';
   }
 
-  if (hasExpansionPrecondition(candidate, 'finish active post-claim bootstrap before next expansion')) {
+  if (hasExpansionPrecondition(candidate, POST_CLAIM_BOOTSTRAP_PRECONDITION)) {
     return 'postClaimBootstrapActive';
   }
 
