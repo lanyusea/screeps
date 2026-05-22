@@ -61,7 +61,8 @@ DEFAULT_GRADIENT_EMA_DECAY = 0.8
 GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
 GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
-# Cap only the estimator denominator so lower reward tiers stay observable; promotion remains lexicographic-gated.
+# Cap the estimator evidence denominator, then scale updates back to the source max;
+# promotion remains lexicographic-gated.
 DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP = 10_000.0
 DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS = {
     "reliability": 1000000000.0,
@@ -2157,9 +2158,11 @@ def policy_update_scalar_weighted_gradient_estimation(
 ) -> JsonObject:
     weight_evidence = policy_update_scalar_reward_weight_evidence(policy_gradient)
     weights = weight_evidence["normalizedWeightsByRewardTier"]
+    scalar_reward_scale_factor = float(weight_evidence["scalarRewardScaleFactor"])
     scalar_returns = [policy_update_scalar_reward(sample["returnTuple"], weights) for sample in samples]
     scalar_baseline = statistics.fmean(scalar_returns) if scalar_returns else 0.0
     gradient: JsonObject = {}
+    cap_normalized_gradient: JsonObject = {}
     direction_by_parameter: JsonObject = {}
 
     for name, spec in parameter_space.items():
@@ -2186,11 +2189,14 @@ def policy_update_scalar_weighted_gradient_estimation(
         nonzero_count = positive_count + negative_count
         dominant_count = max(positive_count, negative_count)
         dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
-        gradient[name] = round_policy_number(raw_gradient / len(samples)) if samples else 0
+        cap_normalized_estimate = raw_gradient / len(samples) if samples else 0
+        cap_normalized_gradient[name] = round_policy_number(cap_normalized_estimate)
+        gradient[name] = round_policy_number(cap_normalized_estimate * scalar_reward_scale_factor)
         direction_by_parameter[name] = {
             "gradientReward": "scalar_weighted_sum",
             "gradient": gradient[name],
-            "contributionSum": round_policy_number(contribution_sum),
+            "contributionSum": round_policy_number(contribution_sum * scalar_reward_scale_factor),
+            "capNormalizedContributionSum": round_policy_number(contribution_sum),
             "positiveContributionCount": positive_count,
             "negativeContributionCount": negative_count,
             "zeroContributionCount": zero_count,
@@ -2210,9 +2216,14 @@ def policy_update_scalar_weighted_gradient_estimation(
         "scalarWeightedSumAuthorized": False,
         "sourceComponentWeights": weight_evidence["sourceComponentWeights"],
         "normalizedWeightsByRewardTier": weights,
+        "sourceMaxComponentWeight": weight_evidence["sourceMaxComponentWeight"],
+        "normalizationCap": weight_evidence["normalizationCap"],
         "normalizationFactor": weight_evidence["normalizationFactor"],
+        "scalarRewardScaleFactor": weight_evidence["scalarRewardScaleFactor"],
         "gradient": gradient,
-        "scalarReturnBaseline": round_policy_number(scalar_baseline),
+        "capNormalizedGradient": cap_normalized_gradient,
+        "scalarReturnBaseline": round_policy_number(scalar_baseline * scalar_reward_scale_factor),
+        "capNormalizedScalarReturnBaseline": round_policy_number(scalar_baseline),
         "sampleCount": len(samples),
         "directionByParameter": direction_by_parameter,
         "liveEffect": False,
@@ -2247,6 +2258,7 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
         max_source_weight,
         DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP,
     )
+    scalar_reward_scale_factor = normalization_factor / max_source_weight
     normalized = {
         tier: source_weights[tier] / normalization_factor
         for tier in REWARD_TIERS
@@ -2259,6 +2271,7 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
             DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP
         ),
         "normalizationFactor": round_policy_number(normalization_factor),
+        "scalarRewardScaleFactor": round_policy_number(scalar_reward_scale_factor),
     }
 
 
