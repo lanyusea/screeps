@@ -77,9 +77,11 @@ SSH_CONNECT_OPTIONS = (
     "-o", "ConnectTimeout=10",
     "-o", "ServerAliveInterval=15",
     "-o", "ServerAliveCountMax=8",
-    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "StrictHostKeyChecking=yes",
 )
 KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS = 30
+KNOWN_HOSTS_KEYSCAN_TIMEOUT_SECONDS = 15
+SSH_HOST_KEY_TYPES = ("ed25519", "ecdsa", "rsa")
 HOST_KEY_ALGORITHM_RE = (
     r"(?:ssh-rsa(?:-cert-v01@openssh\.com)?|"
     r"ssh-dss(?:-cert-v01@openssh\.com)?|"
@@ -89,6 +91,17 @@ HOST_KEY_ALGORITHM_RE = (
     r"sk-ecdsa-sha2-nistp256(?:@openssh\.com|-cert-v01@openssh\.com))"
 )
 HOST_KEY_BLOB_RE = re.compile(rf"\b{HOST_KEY_ALGORITHM_RE}\s+[A-Za-z0-9+/=]+")
+HOST_KEY_TYPE_RE = re.compile(rf"^{HOST_KEY_ALGORITHM_RE}$")
+SSH_HOST_KEY_MISMATCH_RE = re.compile(
+    r"(?:REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed|Offending .* key in)",
+    re.IGNORECASE,
+)
+SSH_NETWORK_UNREACHABLE_RE = re.compile(
+    r"(?:Connection refused|Connection timed out|No route to host|Network is unreachable|"
+    r"Operation timed out|Connection reset by peer|Connection closed by remote host|"
+    r"kex_exchange_identification:.*closed|Could not resolve hostname|Name or service not known)",
+    re.IGNORECASE,
+)
 SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b(?:STEAM_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|TENCENTCLOUD_SECRET_KEY|TENCENT_SECRET_KEY)=\S+"
 )
@@ -210,6 +223,15 @@ class StepRecord:
     detail: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class KnownHostPrepareResult:
+    ok: bool
+    status: str
+    retryable: bool = False
+    reason: str = ""
+    host_key_count: int = 0
+
+
 @dataclass
 class Controller:
     args: argparse.Namespace
@@ -221,6 +243,7 @@ class Controller:
     private_ip: str | None = None
     steps: list[StepRecord] = field(default_factory=list)
     known_hosts_cleaned_public_ips: set[str] = field(default_factory=set, repr=False)
+    known_hosts_prepared_public_ips: set[str] = field(default_factory=set, repr=False)
     started_at: str = field(default_factory=lambda: utc_now_iso())
     finished_at: str | None = None
     final_status: str = "unknown"
@@ -360,8 +383,15 @@ class Controller:
         except json.JSONDecodeError as error:
             raise BatchRunError(f"{name} returned non-JSON output: {error}") from error
 
-    def ssh_cmd(self, name: str, remote_command: str, *, check: bool = True, timeout: int | None = 600) -> subprocess.CompletedProcess[str]:
-        self.clear_worker_known_host()
+    def ssh_cmd(
+        self,
+        name: str,
+        remote_command: str,
+        *,
+        check: bool = True,
+        timeout: int | None = 600,
+        prepare_known_host: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         cmd = [
             "ssh",
             "-i", self.args.ssh_key,
@@ -369,10 +399,27 @@ class Controller:
             self.ssh_target,
             remote_command,
         ]
+        if prepare_known_host:
+            prepare_result = self.prepare_worker_known_host()
+            if not prepare_result.ok:
+                cp = ssh_prepare_failure_completed_process(cmd, prepare_result)
+                started = time.time()
+                self.record_step(
+                    name,
+                    started,
+                    False,
+                    cp,
+                    argv=redacted_argv(cmd),
+                    sshFailureClass=prepare_result.status,
+                    retryable=prepare_result.retryable,
+                )
+                if check:
+                    raise BatchRunError(ssh_prepare_failure_message(name, prepare_result))
+                return cp
         return self.run_cp(name, cmd, check=check, timeout=timeout)
 
     def scp_to_worker(self, name: str, local_path: Path, remote_path: str, *, timeout: int = 300) -> None:
-        self.clear_worker_known_host()
+        self.require_worker_known_host_prepared(name)
         self.run_cp(
             name,
             [
@@ -386,7 +433,7 @@ class Controller:
         )
 
     def scp_from_worker(self, name: str, remote_path: str, local_path: Path, *, timeout: int = 900) -> None:
-        self.clear_worker_known_host()
+        self.require_worker_known_host_prepared(name)
         local_path.parent.mkdir(parents=True, exist_ok=True)
         self.run_cp(
             name,
@@ -399,6 +446,180 @@ class Controller:
             ],
             timeout=timeout,
         )
+
+    def require_worker_known_host_prepared(self, operation_name: str) -> None:
+        result = self.prepare_worker_known_host()
+        if result.ok:
+            return
+        raise BatchRunError(ssh_prepare_failure_message(operation_name, result))
+
+    def prepare_worker_known_host(self) -> KnownHostPrepareResult:
+        if not self.public_ip:
+            return KnownHostPrepareResult(True, "skipped_no_public_ip")
+        if self.public_ip in self.known_hosts_prepared_public_ips:
+            return KnownHostPrepareResult(True, "already_prepared")
+
+        scan_result, scanned_lines = self.scan_worker_host_keys()
+        if not scan_result.ok:
+            return scan_result
+
+        known_hosts = self.known_hosts_path
+        started = time.time()
+        try:
+            known_hosts.parent.mkdir(parents=True, exist_ok=True)
+            known_hosts.touch(exist_ok=True)
+            current_lines = known_host_lines_for_host(known_hosts, self.public_ip)
+        except OSError as error:
+            cp = subprocess.CompletedProcess(
+                ["prepare-known-hosts", self.public_ip, str(known_hosts)],
+                127,
+                "",
+                f"{type(error).__name__}: {error}",
+            )
+            self.record_step(
+                "prepare_worker_known_host",
+                started,
+                False,
+                sanitized_known_hosts_completed_process(cp),
+                publicIp=self.public_ip,
+                knownHostsFile=str(known_hosts),
+                status="host_key_self_healing_failed",
+                retryable=False,
+            )
+            return KnownHostPrepareResult(
+                False,
+                "host_key_self_healing_failed",
+                reason=tail_text(str(error)),
+                host_key_count=len(scanned_lines),
+            )
+
+        if set(current_lines) == set(scanned_lines):
+            self.record_step(
+                "prepare_worker_known_host",
+                started,
+                True,
+                None,
+                publicIp=self.public_ip,
+                knownHostsFile=str(known_hosts),
+                status="existing_known_host",
+                hostKeyCount=len(scanned_lines),
+            )
+            self.mark_worker_known_host_prepared()
+            return KnownHostPrepareResult(True, "existing_known_host", host_key_count=len(scanned_lines))
+
+        return self.install_worker_known_host(scanned_lines, had_plain_entry=bool(current_lines))
+
+    def scan_worker_host_keys(self) -> tuple[KnownHostPrepareResult, list[str]]:
+        if not self.public_ip:
+            return KnownHostPrepareResult(True, "skipped_no_public_ip"), []
+        cmd = [
+            "ssh-keyscan",
+            "-T",
+            str(KNOWN_HOSTS_KEYSCAN_TIMEOUT_SECONDS),
+            "-t",
+            ",".join(SSH_HOST_KEY_TYPES),
+            self.public_ip,
+        ]
+        started = time.time()
+        try:
+            cp = subprocess.run(
+                cmd,
+                text=True,
+                capture_output=True,
+                cwd=str(REPO_ROOT),
+                timeout=KNOWN_HOSTS_KEYSCAN_TIMEOUT_SECONDS + 5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            stdout_raw = getattr(error, "stdout", None)
+            if stdout_raw is None:
+                stdout_raw = getattr(error, "output", None)
+            stderr_raw = getattr(error, "stderr", None)
+            stdout = decode_subprocess_text(stdout_raw)
+            stderr = decode_subprocess_text(stderr_raw)
+            stderr = "\n".join(part for part in (f"{type(error).__name__}: {error}", stderr) if part)
+            cp = subprocess.CompletedProcess(cmd, 124, stdout, stderr)
+        except OSError as error:
+            cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
+
+        scanned_lines = normalize_ssh_keyscan_lines(self.public_ip, cp.stdout)
+        result = classify_host_keyscan_result(cp, scanned_lines)
+        self.record_step(
+            "scan_worker_host_key",
+            started,
+            result.ok,
+            sanitized_known_hosts_completed_process(cp),
+            argv=redacted_argv(cmd),
+            publicIp=self.public_ip,
+            knownHostsFile=str(self.known_hosts_path),
+            status=result.status,
+            retryable=result.retryable,
+            hostKeyCount=len(scanned_lines),
+        )
+        return result, scanned_lines
+
+    def install_worker_known_host(self, scanned_lines: Sequence[str], *, had_plain_entry: bool) -> KnownHostPrepareResult:
+        known_hosts = self.known_hosts_path
+        cmd = ["ssh-keygen", "-R", self.public_ip or "", "-f", str(known_hosts)]
+        started = time.time()
+        try:
+            known_hosts.parent.mkdir(parents=True, exist_ok=True)
+            known_hosts.touch(exist_ok=True)
+            cp = subprocess.run(
+                cmd,
+                text=True,
+                capture_output=True,
+                cwd=str(REPO_ROOT),
+                timeout=KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS,
+                check=False,
+            )
+            if cp.returncode == 0:
+                with known_hosts.open("a", encoding="utf-8") as handle:
+                    for line in scanned_lines:
+                        handle.write(line.rstrip("\n") + "\n")
+        except subprocess.TimeoutExpired as error:
+            stdout_raw = getattr(error, "stdout", None)
+            if stdout_raw is None:
+                stdout_raw = getattr(error, "output", None)
+            stderr_raw = getattr(error, "stderr", None)
+            stdout = decode_subprocess_text(stdout_raw)
+            stderr = decode_subprocess_text(stderr_raw)
+            stderr = "\n".join(part for part in (f"{type(error).__name__}: {error}", stderr) if part)
+            cp = subprocess.CompletedProcess(cmd, 124, stdout, stderr)
+        except OSError as error:
+            cp = subprocess.CompletedProcess(cmd, 127, "", f"{type(error).__name__}: {error}")
+
+        ok = cp.returncode == 0
+        status = "rotated_known_host" if had_plain_entry or ssh_keygen_removed_host(cp) else "new_known_host"
+        if not ok:
+            status = "host_key_self_healing_failed"
+        self.record_step(
+            "install_worker_known_host",
+            started,
+            ok,
+            sanitized_known_hosts_completed_process(cp),
+            argv=redacted_argv(cmd),
+            publicIp=self.public_ip,
+            knownHostsFile=str(known_hosts),
+            status=status,
+            retryable=False,
+            hostKeyCount=len(scanned_lines),
+        )
+        if not ok:
+            return KnownHostPrepareResult(
+                False,
+                "host_key_self_healing_failed",
+                reason=tail_text(cp.stderr or cp.stdout),
+                host_key_count=len(scanned_lines),
+            )
+        self.mark_worker_known_host_prepared()
+        return KnownHostPrepareResult(True, status, host_key_count=len(scanned_lines))
+
+    def mark_worker_known_host_prepared(self) -> None:
+        if not self.public_ip:
+            return
+        self.known_hosts_prepared_public_ips.add(self.public_ip)
+        self.known_hosts_cleaned_public_ips.add(self.public_ip)
 
     def clear_worker_known_host(self) -> bool:
         if not self.public_ip:
@@ -798,7 +1019,9 @@ class Controller:
                     self.instance_id = cvm.get("InstanceId")
                     self.public_ip = public_ips[0]
                     self.private_ip = private_ips[0] if private_ips else None
-                    self.clear_worker_known_host()
+                    known_host = self.prepare_worker_known_host()
+                    if not known_host.ok and not known_host.retryable:
+                        raise BatchRunError(ssh_prepare_failure_message("ssh_probe", known_host))
                     if self.wait_for_ssh():
                         self.result["worker"] = {
                             "instanceId": self.instance_id,
@@ -821,6 +1044,13 @@ class Controller:
             cp = self.ssh_cmd("ssh_probe", "true", check=False, timeout=30)
             if cp.returncode == 0:
                 return True
+            failure_class = classify_ssh_process_failure(cp)
+            if failure_class == "host_key_mismatch":
+                if self.public_ip:
+                    self.known_hosts_prepared_public_ips.discard(self.public_ip)
+                    self.known_hosts_cleaned_public_ips.discard(self.public_ip)
+            elif failure_class == "host_key_self_healing_failed":
+                raise BatchRunError(f"SSH known_hosts self-healing failed before probe: {tail_text(cp.stderr or cp.stdout)}")
             time.sleep(10)
         return False
 
@@ -1166,6 +1396,111 @@ def sanitize_known_hosts_cleanup_text(raw: str | bytes | None) -> str:
         return f"{key}=[REDACTED]"
 
     return SECRET_ASSIGNMENT_RE.sub(redact_secret, text)
+
+
+def sanitized_known_hosts_completed_process(cp: subprocess.CompletedProcess[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        cp.args,
+        cp.returncode,
+        sanitize_known_hosts_cleanup_text(cp.stdout),
+        sanitize_known_hosts_cleanup_text(cp.stderr),
+    )
+
+
+def normalize_ssh_keyscan_lines(public_ip: str, raw: str | bytes | None) -> list[str]:
+    text = decode_subprocess_text(raw)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 3 or not HOST_KEY_TYPE_RE.match(parts[1]):
+            continue
+        hosts = parts[0].split(",")
+        if public_ip not in hosts and f"[{public_ip}]:22" not in hosts:
+            continue
+        normalized = f"{public_ip} {parts[1]} {parts[2]}"
+        if normalized not in seen:
+            seen.add(normalized)
+            lines.append(normalized)
+    return lines
+
+
+def known_host_lines_for_host(known_hosts: Path, public_ip: str) -> list[str]:
+    if not known_hosts.is_file():
+        return []
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw_line in known_hosts.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if parts and parts[0].startswith("@"):
+            parts = parts[1:]
+        if len(parts) < 3 or not HOST_KEY_TYPE_RE.match(parts[1]):
+            continue
+        hosts = parts[0].split(",")
+        if public_ip not in hosts and f"[{public_ip}]:22" not in hosts:
+            continue
+        normalized = f"{public_ip} {parts[1]} {parts[2]}"
+        if normalized not in seen:
+            seen.add(normalized)
+            lines.append(normalized)
+    return lines
+
+
+def classify_host_keyscan_result(
+    cp: subprocess.CompletedProcess[str],
+    scanned_lines: Sequence[str],
+) -> KnownHostPrepareResult:
+    if scanned_lines:
+        return KnownHostPrepareResult(True, "host_key_scanned", host_key_count=len(scanned_lines))
+    combined = "\n".join(part for part in (cp.stderr, cp.stdout) if part)
+    if cp.returncode == 124 or SSH_NETWORK_UNREACHABLE_RE.search(combined):
+        return KnownHostPrepareResult(
+            False,
+            "network_unreachable",
+            retryable=True,
+            reason=tail_text(sanitize_known_hosts_cleanup_text(combined)),
+        )
+    status = "host_key_self_healing_failed"
+    reason = tail_text(sanitize_known_hosts_cleanup_text(combined)) or f"ssh-keyscan exited {cp.returncode} without host keys"
+    return KnownHostPrepareResult(False, status, retryable=False, reason=reason)
+
+
+def classify_ssh_process_failure(cp: subprocess.CompletedProcess[str]) -> str:
+    if cp.returncode == 0:
+        return "ok"
+    combined = "\n".join(part for part in (cp.stderr, cp.stdout) if part)
+    if SSH_HOST_KEY_MISMATCH_RE.search(combined):
+        return "host_key_mismatch"
+    if "host_key_self_healing_failed" in combined:
+        return "host_key_self_healing_failed"
+    if SSH_NETWORK_UNREACHABLE_RE.search(combined) or "network_unreachable" in combined:
+        return "network_unreachable"
+    return "ssh_failed"
+
+
+def ssh_keygen_removed_host(cp: subprocess.CompletedProcess[str]) -> bool:
+    combined = "\n".join(part for part in (cp.stdout, cp.stderr) if part).lower()
+    return " found:" in combined or " updated." in combined
+
+
+def ssh_prepare_failure_completed_process(
+    cmd: Sequence[str],
+    result: KnownHostPrepareResult,
+) -> subprocess.CompletedProcess[str]:
+    stderr = f"{result.status}: {result.reason}".strip()
+    return subprocess.CompletedProcess(list(cmd), 255, "", stderr)
+
+
+def ssh_prepare_failure_message(operation_name: str, result: KnownHostPrepareResult) -> str:
+    if result.retryable or result.status == "network_unreachable":
+        return f"{operation_name} skipped: worker network unreachable before SSH host-key verification: {result.reason}"
+    return f"{operation_name} blocked: SSH known_hosts self-healing failed: {result.reason}"
 
 
 def redacted_argv(argv: Sequence[str]) -> list[str]:
