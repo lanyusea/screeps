@@ -1365,14 +1365,16 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
 
 
 def select_accepted_dataset_gate(
-    gate_root: Path | Sequence[Path],
+    gate_root: Path | str | Sequence[Path | str],
     gate_id: str | None = None,
     *,
     reference_time: str | datetime | None = None,
     max_age_hours: float | None = None,
+    dataset_run_ids: Sequence[str] | None = None,
 ) -> JsonObject:
     if gate_id is not None:
         validate_gate_id(gate_id)
+    required_dataset_run_ids = normalize_dataset_run_ids(dataset_run_ids)
     candidates: list[tuple[int, float, str, str, str, Path, JsonObject]] = []
     stale_accepted: list[JsonObject] = []
     roots = dataset_gate_roots(gate_root)
@@ -1387,7 +1389,12 @@ def select_accepted_dataset_gate(
     if max_age_hours is not None and reference_dt is None:
         raise CardValidationError("dataset gate freshness requires a reference time")
     reports = scan_dataset_gate_reports(existing_roots, gate_id=gate_id, reference_time=reference_dt)
-    for report in reports:
+    matching_reports = [
+        report
+        for report in reports
+        if required_dataset_run_ids is None or report.get("dataset_run_id") in required_dataset_run_ids
+    ]
+    for report in matching_reports:
         if not report.get("acceptable"):
             continue
         path = report["path"]
@@ -1427,7 +1434,16 @@ def select_accepted_dataset_gate(
             )
         )
     if not candidates:
-        raise CardValidationError(dataset_gate_selection_error(roots, reports, stale_accepted, gate_id, max_age_hours))
+        raise CardValidationError(
+            dataset_gate_selection_error(
+                roots,
+                matching_reports,
+                stale_accepted,
+                gate_id,
+                max_age_hours,
+                required_dataset_run_ids,
+            )
+        )
     candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], str(item[5])), reverse=True)
     return candidates[0][6]
 
@@ -1567,13 +1583,15 @@ def dataset_gate_selection_error(
     stale_accepted: Sequence[JsonObject],
     gate_id: str | None,
     max_age_hours: float | None,
+    dataset_run_ids: Sequence[str] | None = None,
 ) -> str:
+    dataset_filter = f" with datasetRunId in {', '.join(dataset_run_ids)}" if dataset_run_ids else ""
     if gate_id is not None:
-        prefix = f"no accepted dataset gate {gate_id} with datasetRunId found under "
+        prefix = f"no accepted dataset gate {gate_id}{dataset_filter} found under "
     elif max_age_hours is not None:
-        prefix = "no accepted dataset gate with datasetRunId found under "
+        prefix = f"no accepted dataset gate{dataset_filter} found under "
     else:
-        prefix = "no accepted dataset gate with datasetRunId found under "
+        prefix = f"no accepted dataset gate{dataset_filter} found under "
     details = [prefix + ", ".join(str(root) for root in roots)]
     if max_age_hours is not None:
         details.append(f"fresh gate required within {max_age_hours:g}h")
@@ -1656,10 +1674,32 @@ def format_percent(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
-def dataset_gate_roots(gate_root: Path | Sequence[Path]) -> list[Path]:
-    if isinstance(gate_root, Path):
-        return [gate_root]
-    return [Path(root) for root in gate_root]
+def dataset_gate_roots(gate_root: Path | str | Sequence[Path | str]) -> list[Path]:
+    if isinstance(gate_root, (Path, str)):
+        roots = [Path(gate_root)]
+    else:
+        roots = [Path(root) for root in gate_root]
+
+    expanded: list[Path] = []
+    for root in roots:
+        if root not in expanded:
+            expanded.append(root)
+        if root.name == "rl-dataset-gates":
+            control_loop_root = root.parent / "rl-control-loop"
+            if control_loop_root not in expanded:
+                expanded.append(control_loop_root)
+    return expanded
+
+
+def normalize_dataset_run_ids(dataset_run_ids: Sequence[str] | None) -> tuple[str, ...] | None:
+    if dataset_run_ids is None:
+        return None
+    normalized: list[str] = []
+    for run_id in dataset_run_ids:
+        validate_dataset_run_id(run_id)
+        if run_id not in normalized:
+            normalized.append(run_id)
+    return tuple(normalized)
 
 
 def iter_canonical_dataset_gate_report_paths(gate_roots: Sequence[Path]) -> list[Path]:
@@ -1925,7 +1965,7 @@ def dataset_gate_acceptance_rate(payload: JsonObject) -> float | None:
     return None
 
 
-def latest_accepted_dataset_run_id(gate_root: Path) -> str:
+def latest_accepted_dataset_run_id(gate_root: Path | str) -> str:
     return str(select_accepted_dataset_gate(gate_root)["dataset_run_id"])
 
 
