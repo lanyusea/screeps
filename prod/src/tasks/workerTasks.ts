@@ -83,6 +83,7 @@ import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
+export const EMERGENCY_RAMPART_REPAIR_HITS_CEILING = 10_000;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 121_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
 export const CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
@@ -501,6 +502,22 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       ? createConstructionReservationContext(creep.room)
       : createEmptyConstructionReservationContext();
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
+    creep,
+    spawnOrExtensionEnergySink
+  );
+  if (emergencySpawnOrExtensionRefillTask) {
+    return emergencySpawnOrExtensionRefillTask;
+  }
+
+  const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
+  if (emergencyRampartRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: emergencyRampartRepairTarget.id as Id<Structure>
+    });
+  }
+
   const bootstrapExtensionConstructionSite = selectBootstrapExtensionConstructionSiteBeforeRefill(
     creep,
     constructionSites,
@@ -1244,6 +1261,25 @@ function isUpgraderBoostStoredEnergySource(
 
 function selectFirstEnergySinkByStableId<T extends FillableEnergySink>(energySinks: T[]): T | null {
   return [...energySinks].sort(compareEnergySinkId)[0] ?? null;
+}
+
+function selectEmergencySpawnExtensionRefillTask(
+  creep: Creep,
+  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
+): CreepTaskMemory | null {
+  if (!spawnOrExtensionEnergySink || !hasEmergencySpawnExtensionRefillDemand(creep)) {
+    return null;
+  }
+
+  const refillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
+    type: 'transfer',
+    targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>
+  };
+  if (isCriticalSpawnEnergySink(spawnOrExtensionEnergySink)) {
+    recordSpawnCriticalRefillTelemetry(creep, spawnOrExtensionEnergySink);
+  }
+  recordLowLoadReturnTelemetry(creep, refillTask, 'emergencySpawnExtensionRefill');
+  return refillTask;
 }
 
 function selectBootstrapSurvivalSpendingTask(
@@ -6534,6 +6570,16 @@ function selectCriticalOwnedSpawnRepairTarget(
   return visibleStructures.filter(isCriticalOwnedSpawnRepairTarget).sort(compareRepairTargets)[0] ?? null;
 }
 
+function selectEmergencyOwnedRampartRepairTarget(creep: Creep): StructureRampart | null {
+  if (creep.room.controller?.my !== true) {
+    return null;
+  }
+
+  return findVisibleRoomStructures(creep.room)
+    .filter(isEmergencyOwnedRampartRepairTarget)
+    .sort(compareRepairTargets)[0] ?? null;
+}
+
 function canRepairRemoteCriticalRoadInfrastructure(creep: Creep): boolean {
   if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence(creep.room)) {
     return false;
@@ -6734,6 +6780,15 @@ function isCriticalOwnedSpawnRepairTarget(structure: AnyStructure): structure is
     isOwnedSpawnRepairTarget(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
     getHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO
+  );
+}
+
+function isEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    isOwnedRampart(structure) &&
+    !isWorkerRepairTargetComplete(structure) &&
+    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
   );
 }
 

@@ -3,6 +3,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   CRITICAL_SPAWN_REPAIR_HITS_RATIO,
+  EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   BUILDER_DROPPED_PICKUP_RANGE,
   BUILDER_STORAGE_WITHDRAW_MIN,
@@ -8025,6 +8026,97 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
+  });
+
+  it('repairs unsafe owned ramparts before bootstrap extension construction', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const site = { id: 'extension-site1', my: true, structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-emergency',
+      'rampart' as StructureConstant,
+      301,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300,
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-emergency' });
+  });
+
+  it('keeps emergency spawn refill before unsafe rampart repair', () => {
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 50, 250);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-emergency',
+      'rampart' as StructureConstant,
+      301,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 550,
+        myStructures: [spawn as AnyOwnedStructure],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps normal construction ahead of non-emergency rampart maintenance', () => {
+    const site = { id: 'wall-site1', my: true, structureType: 'constructedWall' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-non-emergency',
+      'rampart' as StructureConstant,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING + 1,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('suppresses remote critical infrastructure repair during bootstrap', () => {
