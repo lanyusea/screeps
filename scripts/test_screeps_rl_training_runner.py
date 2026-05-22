@@ -3288,6 +3288,8 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
         self.assertEqual(report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
         self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], len(variant_ids))
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(variant_ids))
+        self.assertTrue(report["runtimeParameterInjection"]["policyUpdateEligible"])
         self.assertIsNotNone(report["scorecardId"])
         self.assertEqual(report["candidateScorecard"]["status"], "materialized")
         self.assertEqual(
@@ -3295,7 +3297,9 @@ export const STRATEGY_REGISTRY = [
             "gradient_stability_untrusted_scorecard_materialized",
         )
         self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterConsumption"])
         self.assertGreater(report["candidateScorecard"]["injectedVariantCount"], 0)
+        self.assertGreater(report["candidateScorecard"]["consumedVariantCount"], 0)
         self.assertTrue(report["candidateScorecard"]["validationScaleComputeBlocked"])
         self.assertTrue(report["candidateScorecard"]["scorecardUsable"])
         self.assertTrue(scorecard_path_exists)
@@ -3304,7 +3308,18 @@ export const STRATEGY_REGISTRY = [
             scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterInjection"]
         )
         self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_runtime_injected"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_consumption"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
+        self.assertEqual(
+            report["policyGradient"]["runner_support"]["runtime_parameter_injected_variant_count"],
+            len(variant_ids),
+        )
+        self.assertEqual(
+            report["policyGradient"]["runner_support"]["runtime_parameter_consumed_variant_count"],
+            len(variant_ids),
+        )
         self.assertEqual(report["policyUpdateIterations"], 1)
         self.assertTrue(report["trueGradient"])
         self.assertTrue(persisted["trueGradient"])
@@ -3618,9 +3633,13 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=simulator,
             )
 
-        self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
-        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertFalse(report["runtimeParameterInjection"]["policyUpdateEligible"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(variant_ids))
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], 0)
         self.assertEqual(
             report["policyUpdate"]["skippedReason"],
             runner.RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON,
@@ -3682,11 +3701,13 @@ export const STRATEGY_REGISTRY = [
                 simulator_runner=simulator,
             )
 
-        self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
-        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertFalse(report["runtimeParameterInjection"]["policyUpdateEligible"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
-        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], 0)
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(variant_ids))
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], 0)
         self.assertEqual(
             report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"],
             "missing_runtime_parameter_consumption",
@@ -3703,6 +3724,10 @@ export const STRATEGY_REGISTRY = [
             report["policyGradient"]["runner_support"]["policy_update_reward_use"],
             "blocked_until_runtime_parameter_evidence",
         )
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_runtime_injected"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
+        self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_consumption"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["runtimeParameterConsumption"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
@@ -3759,14 +3784,17 @@ export const STRATEGY_REGISTRY = [
             persisted = read_json(out_dir / "policy-gradient-metadata-ranking.json")
             scorecard_payload = read_json(Path(report["scorecardArtifactPath"]))
 
-        self.assertEqual(report["runtimeParameterInjection"]["status"], "not_injected")
-        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertFalse(report["runtimeParameterInjection"]["policyUpdateEligible"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
         self.assertEqual(
             report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"],
             "missing_runtime_parameter_consumption",
         )
+        self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(variant_ids))
+        self.assertFalse(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], 0)
         self.assertEqual(report["policyUpdateIterations"], 0)
         self.assertEqual(persisted["policyUpdateIterations"], 0)
         self.assertFalse(report["trueGradient"])
@@ -3775,11 +3803,17 @@ export const STRATEGY_REGISTRY = [
             report["policyGradient"]["runner_support"]["policy_update_reward_use"],
             "blocked_until_runtime_parameter_evidence",
         )
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_applied_to_simulator"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["inline_candidates_runtime_injected"])
+        self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_injection"])
+        self.assertFalse(report["policyGradient"]["runner_support"]["runtime_parameter_consumption"])
         self.assertEqual(report["candidateScorecard"]["status"], "materialized")
         self.assertEqual(
             report["candidateScorecard"]["classification"],
             "runtime_parameter_consumption_missing_scorecard_materialized",
         )
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterInjection"])
+        self.assertFalse(report["candidateScorecard"]["runtimeParameterConsumption"])
         self.assertEqual(report["candidateScorecard"]["missingPrerequisite"], "runtime_parameter_consumption")
         self.assertEqual(report["candidateScorecard"]["overallGate"]["status"], "HOLD")
         self.assertFalse(report["candidateScorecard"]["overallGate"]["runtimeParameterInjectionProven"])

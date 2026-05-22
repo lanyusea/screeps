@@ -135,9 +135,12 @@ def write_bundle(root: Path, *, candidate: bool, safety_regression: bool = False
                 "type": "screeps-rl-runtime-parameter-injection",
                 "status": "injected",
                 "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": True,
                 "inlineCandidatesRuntimeInjected": True,
                 "candidateParameterScope": "runtime_injected",
                 "policyUpdateEligible": True,
+                "injectedVariantCount": 1,
+                "consumedVariantCount": 1,
                 "liveEffect": False,
                 "officialMmoWrites": False,
                 "officialMmoWritesAllowed": False,
@@ -273,9 +276,12 @@ def test_runtime_injected_loop_b_scorecard_reports_mixed_contract_status(tmp_pat
             "type": "screeps-rl-runtime-parameter-injection",
             "status": "injected",
             "runtimeParameterInjection": True,
+            "runtimeParameterConsumption": True,
             "inlineCandidatesRuntimeInjected": True,
             "candidateParameterScope": "runtime_injected",
             "policyUpdateEligible": True,
+            "injectedVariantCount": 1,
+            "consumedVariantCount": 1,
         },
     )
 
@@ -406,7 +412,11 @@ def test_candidate_scorecard_readiness_uses_selected_candidate_runtime_evidence(
                 "runtimeParameterInjection": {
                     "status": "injected",
                     "runtimeParameterInjection": True,
+                    "runtimeParameterConsumption": True,
                     "candidateParameterScope": "runtime_injected",
+                    "policyUpdateEligible": True,
+                    "injectedVariantCount": 1,
+                    "consumedVariantCount": 1,
                 },
             },
             {"variantId": "baseline.v1"},
@@ -426,7 +436,9 @@ def test_candidate_scorecard_readiness_uses_selected_candidate_runtime_evidence(
     assert readiness["status"] == "ready"
     assert readiness["classification"] == "runtime_injected_candidate_scorecard_ready"
     assert readiness["runtimeParameterInjection"] is True
+    assert readiness["runtimeParameterConsumption"] is True
     assert readiness["injectedVariantCount"] == 1
+    assert readiness["consumedVariantCount"] == 1
     assert readiness["candidateParameterScope"] == "runtime_injected"
     assert readiness["reportRuntimeParameterInjection"] is False
     assert readiness["reportInjectedVariantCount"] == 1
@@ -471,9 +483,12 @@ def test_delta_only_safety_floor_metric_does_not_create_false_rollback(tmp_path:
             "type": "screeps-rl-runtime-parameter-injection",
             "status": "injected",
             "runtimeParameterInjection": True,
+            "runtimeParameterConsumption": True,
             "inlineCandidatesRuntimeInjected": True,
             "candidateParameterScope": "runtime_injected",
             "policyUpdateEligible": True,
+            "injectedVariantCount": 1,
+            "consumedVariantCount": 1,
         },
     )
 
@@ -528,9 +543,12 @@ def test_runtime_scorecard_missing_baseline_metric_is_inconclusive_not_pass(tmp_
             "type": "screeps-rl-runtime-parameter-injection",
             "status": "injected",
             "runtimeParameterInjection": True,
+            "runtimeParameterConsumption": True,
             "inlineCandidatesRuntimeInjected": True,
             "candidateParameterScope": "runtime_injected",
             "policyUpdateEligible": True,
+            "injectedVariantCount": 1,
+            "consumedVariantCount": 1,
         },
     )
 
