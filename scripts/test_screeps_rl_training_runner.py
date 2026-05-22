@@ -2376,10 +2376,13 @@ export const STRATEGY_REGISTRY = [
         weight_evidence = runner.policy_update_scalar_reward_weight_evidence({})
         weights = weight_evidence["normalizedWeightsByRewardTier"]
 
-        self.assertEqual(weights["reliability"], 1)
-        self.assertEqual(weights["territory"], 0.001)
-        self.assertEqual(weights["resources"], 0.000001)
-        self.assertAlmostEqual(weights["kills"], 1e-9)
+        self.assertEqual(weight_evidence["sourceMaxComponentWeight"], 1000000000)
+        self.assertEqual(weight_evidence["normalizationCap"], 10000)
+        self.assertEqual(weight_evidence["normalizationFactor"], 10000)
+        self.assertEqual(weights["reliability"], 100000)
+        self.assertEqual(weights["territory"], 100)
+        self.assertEqual(weights["resources"], 0.1)
+        self.assertAlmostEqual(weights["kills"], 0.0001)
         self.assertGreater(runner.policy_update_scalar_reward([0, 0, 0, 1], weights), 0)
 
     def test_policy_gradient_scalar_estimator_preserves_kills_only_signal(self) -> None:
@@ -2403,7 +2406,8 @@ export const STRATEGY_REGISTRY = [
         )
 
         self.assertGreater(estimation["normalizedWeightsByRewardTier"]["kills"], 0)
-        self.assertGreater(estimation["gradient"]["combatSignalWeight"], 0)
+        self.assertEqual(estimation["normalizationFactor"], 10000)
+        self.assertGreater(estimation["gradient"]["combatSignalWeight"], 0.1)
         self.assertGreater(estimation["directionByParameter"]["combatSignalWeight"]["positiveContributionCount"], 0)
 
     def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
@@ -2420,6 +2424,8 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["gradientStable"])
         self.assertFalse(update["trustedGradientUpdate"])
         self.assertTrue(update["highVariance"])
+        self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
+        self.assertGreater(abs(float(update["gradient"]["territorySignalWeight"])), 0)
         self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
         self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
         self.assertTrue(stability["sampleOnly"])
@@ -2637,6 +2643,12 @@ export const STRATEGY_REGISTRY = [
             "policyUpdate": {
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 1,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
             },
             "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30}],
             "candidateParameterVectors": [
@@ -2694,6 +2706,12 @@ export const STRATEGY_REGISTRY = [
             "policyUpdate": {
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 0.25,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
             },
             "runner_support": {
                 "runtime_parameter_injection": True,

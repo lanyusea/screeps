@@ -61,6 +61,8 @@ DEFAULT_GRADIENT_EMA_DECAY = 0.8
 GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
 GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
+# Cap only the estimator denominator so lower reward tiers stay observable; promotion remains lexicographic-gated.
+DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP = 10_000.0
 DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS = {
     "reliability": 1000000000.0,
     "territory": 1000000.0,
@@ -2240,7 +2242,11 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
         if component_weights is not None:
             source_weights.update(policy_update_component_weights_by_tier(component_weights))
 
-    normalization_factor = max(max(abs(value) for value in source_weights.values()), 1.0)
+    max_source_weight = max(max(abs(value) for value in source_weights.values()), 1.0)
+    normalization_factor = min(
+        max_source_weight,
+        DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP,
+    )
     normalized = {
         tier: source_weights[tier] / normalization_factor
         for tier in REWARD_TIERS
@@ -2248,6 +2254,10 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
     return {
         "sourceComponentWeights": {tier: round_policy_number(source_weights[tier]) for tier in REWARD_TIERS},
         "normalizedWeightsByRewardTier": normalized,
+        "sourceMaxComponentWeight": round_policy_number(max_source_weight),
+        "normalizationCap": round_policy_number(
+            DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP
+        ),
         "normalizationFactor": round_policy_number(normalization_factor),
     }
 
