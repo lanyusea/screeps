@@ -1732,6 +1732,63 @@ cli:
 
         self.assertEqual(extracted, evidence)
 
+    def test_console_runtime_parameter_consumption_collector_reads_tick_time_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["candidatePolicyId"] = "stale-policy"
+        log_output = "\n".join(
+            [
+                "screeps-1  | booted",
+                f"screeps-1  | {harness.RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX}"
+                f"{json.dumps(matching, sort_keys=True)}",
+                f"screeps-1  | {harness.RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX}"
+                f"{json.dumps(stale, sort_keys=True)}",
+            ]
+        )
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": 0, "output_excerpt": log_output}
+
+        extracted = harness._collect_console_runtime_parameter_consumption_evidence(
+            FakeSmoke(),
+            ["docker", "compose"],
+            object(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, matching)
+
+    def test_console_runtime_parameter_consumption_non_consumed_evidence_fails_closed(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["consumed"] = False
+        log_output = (
+            f"{harness.RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX}"
+            f"{json.dumps(evidence, sort_keys=True)}"
+        )
+
+        extracted = harness.runtime_parameter_consumption_evidence_from_console_output(
+            log_output,
+            injection=injection,
+        )
+        consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+
+        self.assertIsNotNone(extracted)
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("did not mark the payload consumed", consumption["reason"])
+
     def test_http_runtime_parameter_consumption_collector_falls_back_to_full_memory(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
@@ -2082,6 +2139,45 @@ cli:
             errors[0],
         )
         self.assertIn("strategyVariantId disagreed", errors[0])
+
+    def test_runtime_parameter_consumption_collection_accepts_console_tick_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_console_runtime_parameter_consumption_evidence",
+                return_value=evidence,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            extracted, errors = harness.collect_runtime_parameter_consumption_evidence(
+                object(),
+                ["docker", "compose"],
+                object(),
+                None,
+                injection,
+            )
+
+        expected = copy.deepcopy(evidence)
+        expected["source"] = "console.runtimePolicyParameterConsumption"
+        self.assertEqual(extracted, expected)
+        self.assertEqual(errors, [])
 
     def test_runtime_parameter_consumption_collection_surfaces_invalid_only_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

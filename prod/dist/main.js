@@ -46641,6 +46641,7 @@ function getGameTime45() {
 var RUNTIME_POLICY_PARAMETERS_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__";
 var RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__";
 var RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1";
+var RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption ";
 function applyRuntimePolicyParametersToRegistry(registry) {
   var _a;
   const clonedRegistry = registry.map(cloneStrategyRegistryEntry);
@@ -46750,6 +46751,7 @@ function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
     tick: runtimeTick()
   };
   publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
+  emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 function readRuntimePolicyParameterPayload() {
   const root = globalThis;
@@ -46824,6 +46826,15 @@ function buildConsumptionEvidence(options) {
 function publishRuntimePolicyParameterConsumptionEvidence(evidence) {
   const root = globalThis;
   root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+function emitRuntimePolicyParameterConsumptionEvidence(evidence) {
+  if (evidence.runtimeParameterInjection !== true) {
+    return;
+  }
+  try {
+    console.log(`${RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX}${JSON.stringify(evidence)}`);
+  } catch (_error) {
+  }
 }
 function stickyRuntimePolicyParameterConsumptionEvidence(evidence, previous) {
   if (evidence.consumed || !shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous)) {

@@ -1,4 +1,5 @@
 import {
+  RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX,
   RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL,
   RUNTIME_POLICY_PARAMETERS_GLOBAL,
   applyRuntimePolicyParametersToRegistry,
@@ -67,6 +68,7 @@ describe('runtime policy parameters', () => {
   });
 
   it('preserves runtime-injected but non-consumed evidence for diagnostics', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -79,18 +81,22 @@ describe('runtime policy parameters', () => {
       parametersSha256: 'miss-sha'
     };
 
-    const result = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
-    persistRuntimePolicyParameterConsumptionEvidence(result.evidence);
+    try {
+      const result = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+      persistRuntimePolicyParameterConsumptionEvidence(result.evidence);
 
-    expect(result.evidence).toMatchObject({
-      runtimeParameterInjection: true,
-      consumed: false,
-      reason: 'runtime policy parameter payload did not match any strategy registry entry',
-      parametersSha256: 'miss-sha'
-    });
-    expect(
-      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
-    ).toMatchObject(result.evidence);
+      expect(result.evidence).toMatchObject({
+        runtimeParameterInjection: true,
+        consumed: false,
+        reason: 'runtime policy parameter payload did not match any strategy registry entry',
+        parametersSha256: 'miss-sha'
+      });
+      expect(
+        (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+      ).toMatchObject(result.evidence);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it('does not fan out explicit candidate payloads to every family sibling', () => {
@@ -189,6 +195,7 @@ describe('runtime policy parameters', () => {
   });
 
   it('keeps consumed evidence sticky across ticks for the same injected payload', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -201,59 +208,107 @@ describe('runtime policy parameters', () => {
       },
       parametersSha256: 'runtime-use-sha'
     };
-    const patched = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY).registry;
-    const usedEntry = patched.find((entry) => entry.id === 'construction-priority.incumbent.v1');
-    const consumedRecorder = createRuntimePolicyParameterConsumptionRecorder();
+    try {
+      const patched = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY).registry;
+      const usedEntry = patched.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+      const consumedRecorder = createRuntimePolicyParameterConsumptionRecorder();
 
-    expect(usedEntry).toBeDefined();
-    consumedRecorder.recordStrategyRuntimeUse(usedEntry!);
-    (globalThis as { Game?: Partial<Game> }).Game = { time: 10 };
-    persistRuntimePolicyParameterConsumptionEvidence(consumedRecorder.buildEvidence());
+      expect(usedEntry).toBeDefined();
+      consumedRecorder.recordStrategyRuntimeUse(usedEntry!);
+      (globalThis as { Game?: Partial<Game> }).Game = { time: 10 };
+      persistRuntimePolicyParameterConsumptionEvidence(consumedRecorder.buildEvidence());
 
-    const missingTickRecorder = createRuntimePolicyParameterConsumptionRecorder();
-    (globalThis as { Game?: Partial<Game> }).Game = { time: 11 };
-    persistRuntimePolicyParameterConsumptionEvidence(missingTickRecorder.buildEvidence());
+      const missingTickRecorder = createRuntimePolicyParameterConsumptionRecorder();
+      (globalThis as { Game?: Partial<Game> }).Game = { time: 11 };
+      persistRuntimePolicyParameterConsumptionEvidence(missingTickRecorder.buildEvidence());
 
-    expect(
-      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
-    ).toMatchObject({
-      runtimeParameterInjection: true,
-      consumed: true,
-      parametersSha256: 'runtime-use-sha',
-      appliedStrategyIds: ['construction-priority.incumbent.v1'],
-      tick: 11
-    });
-    expect(
-      (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL]
-    ).toMatchObject({
-      consumed: true,
-      parametersSha256: 'runtime-use-sha',
-      appliedStrategyIds: ['construction-priority.incumbent.v1']
-    });
+      expect(
+        (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+      ).toMatchObject({
+        runtimeParameterInjection: true,
+        consumed: true,
+        parametersSha256: 'runtime-use-sha',
+        appliedStrategyIds: ['construction-priority.incumbent.v1'],
+        tick: 11
+      });
+      expect(
+        (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL]
+      ).toMatchObject({
+        consumed: true,
+        parametersSha256: 'runtime-use-sha',
+        appliedStrategyIds: ['construction-priority.incumbent.v1']
+      });
 
-    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
-      runtimeParameterInjection: true,
-      candidateParameterScope: 'runtime_injected',
-      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
-      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
-      sourceStrategyId: 'construction-priority.incumbent.v1',
-      family: 'construction-priority',
-      parameters: {
-        territorySignalWeight: 30
-      },
-      parametersSha256: 'runtime-use-sha-2'
-    };
-    (globalThis as { Game?: Partial<Game> }).Game = { time: 12 };
-    persistRuntimePolicyParameterConsumptionEvidence(createRuntimePolicyParameterConsumptionRecorder().buildEvidence());
+      (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+        runtimeParameterInjection: true,
+        candidateParameterScope: 'runtime_injected',
+        strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+        candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+        sourceStrategyId: 'construction-priority.incumbent.v1',
+        family: 'construction-priority',
+        parameters: {
+          territorySignalWeight: 30
+        },
+        parametersSha256: 'runtime-use-sha-2'
+      };
+      (globalThis as { Game?: Partial<Game> }).Game = { time: 12 };
+      persistRuntimePolicyParameterConsumptionEvidence(createRuntimePolicyParameterConsumptionRecorder().buildEvidence());
 
-    expect(
-      (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
-    ).toMatchObject({
-      runtimeParameterInjection: true,
-      consumed: false,
-      parametersSha256: 'runtime-use-sha-2',
-      appliedStrategyIds: [],
-      tick: 12
-    });
+      expect(
+        (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
+      ).toMatchObject({
+        runtimeParameterInjection: true,
+        consumed: false,
+        parametersSha256: 'runtime-use-sha-2',
+        appliedStrategyIds: [],
+        tick: 12
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('emits tick-time consumption evidence only for runtime-injected payloads', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      persistRuntimePolicyParameterConsumptionEvidence({
+        type: 'screeps-rl-runtime-policy-parameter-consumption',
+        consumerMarker: 'screeps-rl-runtime-policy-parameters-consumer-v1',
+        runtimeParameterInjection: false,
+        consumed: false,
+        appliedStrategyIds: [],
+        liveEffect: false,
+        officialMmoWrites: false,
+        officialMmoWritesAllowed: false
+      });
+      expect(logSpy).not.toHaveBeenCalled();
+
+      const evidence = {
+        type: 'screeps-rl-runtime-policy-parameter-consumption' as const,
+        consumerMarker: 'screeps-rl-runtime-policy-parameters-consumer-v1' as const,
+        runtimeParameterInjection: true,
+        consumed: true,
+        strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+        candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+        family: 'construction-priority',
+        parameters: { territorySignalWeight: 29 },
+        parametersSha256: 'runtime-use-sha',
+        appliedStrategyIds: ['construction-priority.incumbent.v1'],
+        liveEffect: false as const,
+        officialMmoWrites: false as const,
+        officialMmoWritesAllowed: false as const
+      };
+
+      persistRuntimePolicyParameterConsumptionEvidence(evidence);
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const line = String(logSpy.mock.calls[0][0]);
+      expect(line.startsWith(RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX)).toBe(true);
+      expect(JSON.parse(line.slice(RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX.length))).toMatchObject(
+        evidence
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

@@ -96,6 +96,7 @@ RUNTIME_PARAMETER_INJECTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__"
 RUNTIME_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__"
 RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consumption"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
+RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
     r"\A(\ufeff?(?:(?:\s+)|(?://[^\r\n]*(?:\r?\n|$))|(?:/\*.*?\*/))*"
     r"(?:(?:['\"]use strict['\"]\s*;?\s*)+))",
@@ -853,6 +854,7 @@ def collect_runtime_parameter_consumption_evidence(
     errors: list[str] = []
     collectors = [
         ("Memory.rlRuntimePolicyParameters", _collect_http_runtime_parameter_consumption_evidence),
+        ("console.runtimePolicyParameterConsumption", _collect_console_runtime_parameter_consumption_evidence),
         ("redis.Memory.rlRuntimePolicyParameters", _collect_redis_runtime_parameter_consumption_evidence),
         ("mongo.Memory.rlRuntimePolicyParameters", _collect_mongo_runtime_parameter_consumption_evidence),
     ]
@@ -915,6 +917,67 @@ def _collect_http_runtime_parameter_consumption_evidence(
         if evidence is not None:
             return evidence
     return None
+
+
+def _collect_console_runtime_parameter_consumption_evidence(
+    smoke: Any,
+    compose: Sequence[str] | None,
+    cfg: Any,
+    token: str | None,
+    injection: JsonObject | None = None,
+) -> JsonObject | None:
+    _ = token
+    if compose is None:
+        return None
+    run_command = getattr(smoke, "run_command", None)
+    if not callable(run_command):
+        return None
+    result = run_command(
+        [*compose, "logs", "--no-color", "--tail", "1200"],
+        cfg,
+        timeout=60,
+        output_limit=200000,
+    )
+    if result.get("returncode") != 0:
+        return None
+    return runtime_parameter_consumption_evidence_from_console_output(
+        result.get("output_excerpt", ""),
+        injection=injection,
+    )
+
+
+def runtime_parameter_consumption_evidence_from_console_output(
+    output: Any,
+    *,
+    injection: JsonObject | None = None,
+) -> JsonObject | None:
+    fallback: JsonObject | None = None
+    for line in reversed(str(output).splitlines()):
+        payload = runtime_parameter_consumption_payload_from_console_line(line)
+        if payload is None:
+            continue
+        evidence = find_runtime_parameter_consumption_evidence(payload, injection=injection)
+        if evidence is None:
+            continue
+        if injection is not None and runtime_parameter_consumption_validation_error(injection, evidence) is None:
+            return evidence
+        if fallback is None:
+            fallback = evidence
+    return fallback
+
+
+def runtime_parameter_consumption_payload_from_console_line(line: str) -> JsonObject | None:
+    marker_index = line.find(RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX)
+    if marker_index < 0:
+        return None
+    json_text = line[marker_index + len(RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX):].strip()
+    if not json_text:
+        return None
+    try:
+        payload = json.loads(json_text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _collect_redis_runtime_parameter_consumption_evidence(
