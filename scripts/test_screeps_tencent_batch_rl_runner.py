@@ -2266,6 +2266,146 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 self.assertFalse(training_report["candidateScorecard"]["trustedGradientUpdate"])
                 self.assertTrue(training_report["candidateScorecard"]["highVariance"])
 
+    def test_verify_remote_training_report_preserves_non_consumed_materialized_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "injected",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": False,
+                "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "runtime_injected",
+                "injectedVariantCount": 5,
+                "consumedVariantCount": 0,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            held_scorecard = {
+                "status": "materialized",
+                "classification": "runtime_parameter_consumption_missing_scorecard_materialized",
+                "scorecardId": "rl-scorecard-run-test",
+                "scorecardArtifactPath": READY_RUNTIME_SCORECARD_PATH,
+                "candidateStrategyId": "candidate",
+                "baselineStrategyId": "baseline",
+                "candidateRank": 1,
+                "baselineRank": 2,
+                "comparisonKey": "candidate::vs::baseline",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": False,
+                "injectedVariantCount": 1,
+                "consumedVariantCount": 0,
+                "candidateParameterScope": "runtime_injected",
+                "reportRuntimeParameterInjection": True,
+                "reportRuntimeParameterConsumption": False,
+                "reportInjectedVariantCount": 5,
+                "reportConsumedVariantCount": 0,
+                "missingPrerequisite": "runtime_parameter_consumption",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+                "overallGate": {
+                    "status": "HOLD",
+                    "runtimeParameterInjectionProven": False,
+                },
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["candidateScorecard"] = copy.deepcopy(held_scorecard)
+            data["candidateScorecards"] = {
+                "type": runner.MULTI_CANDIDATE_SCORECARD_SET_TYPE,
+                "schemaVersion": 1,
+                "status": "materialized",
+                "classification": "multi_candidate_scorecards_materialized",
+                "reportId": "run-test",
+                "comparisonCount": 1,
+                "candidateCount": 1,
+                "baselineCount": 1,
+                "candidateStrategyIds": ["candidate"],
+                "baselineStrategyIds": ["baseline"],
+                "selectedScorecardId": "rl-scorecard-run-test",
+                "materializedScorecardCount": 1,
+                "blockedComparisonCount": 0,
+                "readyComparisonCount": 0,
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+                "missingPrerequisites": ["runtime_parameter_consumption"],
+                "reasonCodes": ["runtime_parameter_consumption_missing_scorecard_materialized"],
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "comparisons": [copy.deepcopy(held_scorecard)],
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        training_report = controller.result["trainingReport"]
+        scorecard = training_report["candidateScorecard"]
+        self.assertEqual(scorecard["status"], "materialized")
+        self.assertEqual(
+            scorecard["classification"],
+            "runtime_parameter_consumption_missing_scorecard_materialized",
+        )
+        self.assertTrue(scorecard["runtimeParameterInjection"])
+        self.assertFalse(scorecard["runtimeParameterConsumption"])
+        self.assertEqual(scorecard["missingPrerequisite"], "runtime_parameter_consumption")
+        self.assertEqual(scorecard["overallGate"]["status"], "HOLD")
+        self.assertEqual(training_report["candidateScorecards"]["status"], "materialized")
+
+    def test_verify_remote_training_report_preserves_metadata_only_zero_count_runtime_injection_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["runtimeParameterInjection"] = {
+                "status": "metadata_only",
+                "runtimeParameterInjection": False,
+                "runtimeParameterConsumption": False,
+                "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                "policyUpdateEligible": False,
+                "candidateParameterScope": "metadata_only",
+                "injectedVariantCount": 0,
+                "consumedVariantCount": 0,
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
+            data["candidateScorecard"] = {
+                "status": "materialized",
+                "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
+                "scorecardId": "rl-scorecard-run-test",
+                "runtimeParameterInjection": False,
+                "runtimeParameterConsumption": False,
+                "injectedVariantCount": 0,
+                "consumedVariantCount": 0,
+                "candidateParameterScope": "metadata_only",
+                "missingPrerequisite": "runtime_parameter_injection",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            controller.verify_remote_training_report()
+
+        runtime_parameter_injection = controller.result["trainingReport"]["runtimeParameterInjection"]
+        self.assertEqual(runtime_parameter_injection["status"], "metadata_only")
+        self.assertFalse(runtime_parameter_injection["runtimeParameterConsumption"])
+        self.assertEqual(runtime_parameter_injection["injectedVariantCount"], 0)
+        self.assertEqual(
+            controller.result["trainingReport"]["candidateScorecard"]["missingPrerequisite"],
+            "runtime_parameter_injection",
+        )
+
     def test_verify_remote_training_report_rejects_gradient_materialized_scorecard_without_runtime_proof(
         self,
     ) -> None:
@@ -2533,6 +2673,25 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     candidate_parameter_scope="partial_runtime_injection",
                     injected_variant_count=0,
                 ),
+                "partial status requires positive injectedVariantCount",
+            ),
+            (
+                "partial zero injected count with explicit consumption gap",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "partial",
+                        "runtimeParameterInjection": False,
+                        "runtimeParameterConsumption": False,
+                        "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "partial_runtime_injection",
+                        "injectedVariantCount": 0,
+                        "consumedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
                 "partial status requires positive injectedVariantCount",
             ),
         )

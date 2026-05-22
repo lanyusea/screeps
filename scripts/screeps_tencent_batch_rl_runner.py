@@ -124,6 +124,17 @@ RUNTIME_PARAMETER_INJECTION_ALLOWED_STATUS_SCOPES = {
 }
 MULTI_CANDIDATE_SCORECARD_SET_TYPE = "screeps-rl-multi-candidate-scorecard-set"
 CANDIDATE_SCORECARD_SET_STATUSES = {"blocked", "materialized", "partial", "planned", "ready"}
+RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES = {
+    "missing",
+    "missing_runtime_parameter_consumption",
+    "missing_evaluated_parameters",
+    "invalid_evaluated_parameters",
+}
+RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES = {
+    "missing",
+    "mixed",
+    *RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES,
+}
 ZERO_ITERATION_POLICY_UPDATE_ALLOWED_KEYS = {
     "algorithm",
     "anchor",
@@ -2284,6 +2295,19 @@ def remote_runtime_parameter_injected_variant_count(raw: dict[str, Any], variant
     return count
 
 
+def remote_runtime_parameter_consumption_blocked(raw: dict[str, Any] | None) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    if text_value(raw.get("candidateParameterScope")) != "runtime_injected":
+        return False
+    if raw.get("runtimeParameterConsumption") is True:
+        return False
+    status = text_value(raw.get("runtimeParameterConsumptionStatus"))
+    if status in RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES:
+        return True
+    return raw.get("runtimeParameterConsumption") is False
+
+
 def verified_remote_candidate_scorecard(
     raw: Any,
     *,
@@ -2319,9 +2343,19 @@ def verified_remote_candidate_scorecard(
     )
     scorecard_usable = required_bool(raw.get("scorecardUsable"), "candidateScorecard.scorecardUsable")
     injected_count = required_non_negative_int(raw.get("injectedVariantCount"), "candidateScorecard.injectedVariantCount")
+    runtime_consumed = None
+    if "runtimeParameterConsumption" in raw:
+        runtime_consumed = required_bool(
+            raw.get("runtimeParameterConsumption"),
+            "candidateScorecard.runtimeParameterConsumption",
+        )
     top_level_runtime_injected = (
         runtime_parameter_injection is not None
         and runtime_parameter_injection.get("runtimeParameterInjection") is True
+    )
+    top_level_runtime_consumed = (
+        runtime_parameter_injection is not None
+        and runtime_parameter_injection.get("runtimeParameterConsumption") is True
     )
     top_level_status = (
         runtime_parameter_injection.get("status")
@@ -2370,6 +2404,10 @@ def verified_remote_candidate_scorecard(
             missing_prerequisite == "gradient_stability"
             or classification == "gradient_stability_untrusted_scorecard_materialized"
         )
+        consumption_blocked = (
+            missing_prerequisite == "runtime_parameter_consumption"
+            or classification == "runtime_parameter_consumption_missing_scorecard_materialized"
+        )
         if (
             missing_prerequisite == "gradient_stability"
             and classification not in (None, "gradient_stability_untrusted_scorecard_materialized")
@@ -2398,11 +2436,40 @@ def verified_remote_candidate_scorecard(
                 raise BatchRunError(
                     "remote candidateScorecard gradient-stability materialized status requires gradient_stability prerequisite"
                 )
+        elif consumption_blocked:
+            if (
+                missing_prerequisite == "runtime_parameter_consumption"
+                and classification not in (None, "runtime_parameter_consumption_missing_scorecard_materialized")
+            ) or (
+                classification == "runtime_parameter_consumption_missing_scorecard_materialized"
+                and missing_prerequisite not in (None, "runtime_parameter_consumption")
+            ):
+                raise BatchRunError(
+                    "remote candidateScorecard runtime-consumption materialized status has mismatched classification"
+                )
+            if runtime_consumed is True or top_level_runtime_consumed:
+                raise BatchRunError(
+                    "remote candidateScorecard runtime-consumption materialized status contradicts consumption proof"
+                )
+            candidate_scope = text_value(raw.get("candidateParameterScope"))
+            if not (
+                (runtime_consumed is False and candidate_scope == "runtime_injected")
+                or remote_runtime_parameter_consumption_blocked(runtime_parameter_injection)
+            ):
+                raise BatchRunError(
+                    "remote candidateScorecard runtime-consumption materialized status requires "
+                    "runtimeParameterConsumption=false proof"
+                )
+            if top_level_runtime_partially_injected and injected_count > top_level_injected_count:
+                raise BatchRunError(
+                    "remote candidateScorecard runtime-consumption materialized status exceeds "
+                    "top-level runtimeParameterInjection injectedVariantCount"
+                )
         elif top_level_runtime_injected or runtime_injected:
             raise BatchRunError(
                 "remote candidateScorecard materialized status requires incomplete runtimeParameterInjection proof"
             )
-        if not gradient_blocked and injected_count != 0:
+        if not gradient_blocked and not consumption_blocked and injected_count != 0:
             raise BatchRunError(
                 "remote candidateScorecard materialized status requires injectedVariantCount=0"
             )
