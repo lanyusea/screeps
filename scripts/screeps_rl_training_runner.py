@@ -2190,10 +2190,10 @@ def policy_update_scalar_weighted_gradient_estimation(
         dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
         cap_normalized_estimate = raw_gradient / len(samples) if samples else 0
         cap_normalized_gradient[name] = round_policy_number(cap_normalized_estimate)
-        gradient[name] = cap_normalized_gradient[name]
+        gradient[name] = cap_normalized_estimate
         direction_by_parameter[name] = {
             "gradientReward": "scalar_weighted_sum",
-            "gradient": gradient[name],
+            "gradient": cap_normalized_gradient[name],
             "contributionSum": round_policy_number(contribution_sum),
             "capNormalizedContributionSum": round_policy_number(contribution_sum),
             "positiveContributionCount": positive_count,
@@ -2329,11 +2329,11 @@ def policy_update_gradient_momentum_evidence(
         momentum_consistent = direction_consistent and ema_consistent
         if not momentum_consistent:
             conflicting_parameters.append(str(name))
-        ema_gradient[name] = round_policy_number(ema_value)
+        ema_gradient[name] = ema_value
         direction_by_parameter[name] = {
             "rawGradient": round_policy_number(raw_value),
             "previousEmaGradient": round_policy_number(previous_value) if previous_present else None,
-            "emaGradient": ema_gradient[name],
+            "emaGradient": round_policy_number(ema_value),
             "previousGradientPresent": previous_present,
             "rawDirection": raw_sign,
             "previousDirection": previous_sign if previous_present else None,
