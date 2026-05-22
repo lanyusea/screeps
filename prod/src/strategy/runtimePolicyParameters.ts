@@ -3,6 +3,7 @@ import type { StrategyKnobValue, StrategyRegistryEntry } from './strategyRegistr
 export const RUNTIME_POLICY_PARAMETERS_GLOBAL = '__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__';
 export const RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = '__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__';
 export const RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = 'screeps-rl-runtime-policy-parameters-consumer-v1';
+export const RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX = '#runtime-parameter-consumption ';
 
 export interface RuntimePolicyParameterConsumptionEvidence {
   type: 'screeps-rl-runtime-policy-parameter-consumption';
@@ -176,6 +177,7 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
     tick: runtimeTick()
   };
   publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
+  emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
@@ -283,6 +285,18 @@ function publishRuntimePolicyParameterConsumptionEvidence(
 ): void {
   const root = globalThis as typeof globalThis & Record<string, unknown>;
   root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+
+function emitRuntimePolicyParameterConsumptionEvidence(evidence: RuntimePolicyParameterConsumptionEvidence): void {
+  if (evidence.runtimeParameterInjection !== true) {
+    return;
+  }
+
+  try {
+    console.log(`${RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX}${JSON.stringify(evidence)}`);
+  } catch (_error) {
+    // Runtime evidence is also persisted to Memory/global; logging must never affect the tick.
+  }
 }
 
 function stickyRuntimePolicyParameterConsumptionEvidence(
