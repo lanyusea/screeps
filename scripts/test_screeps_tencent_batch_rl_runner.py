@@ -2390,6 +2390,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "runtimeParameterInjection.runtimeParameterInjection must be a boolean",
             ),
             (
+                "eligible missing consumption proof",
+                injection_patch(
+                    status="injected",
+                    runtime_parameter_injection=True,
+                    policy_update_eligible=True,
+                    candidate_parameter_scope="runtime_injected",
+                    injected_variant_count=1,
+                ),
+                "policyUpdateEligible requires runtimeParameterConsumption=true",
+            ),
+            (
                 "unknown false status",
                 injection_patch(
                     status="garbage",

@@ -2304,7 +2304,7 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report_summary["policyUpdateEligible"])
 
     def test_candidate_scorecard_readiness_treats_evaluated_parameter_failures_as_consumption_blockers(self) -> None:
-        for status in ("missing_evaluated_parameters", "invalid_evaluated_parameters"):
+        for status in ("missing_evaluated_parameters", "invalid_evaluated_parameters", "mixed"):
             with self.subTest(status=status):
                 runtime_parameter_injection = {
                     "status": "injected",
@@ -2344,6 +2344,64 @@ export const STRATEGY_REGISTRY = [
                 self.assertEqual(readiness["missingPrerequisite"], "runtime_parameter_consumption")
                 self.assertIn("runtime policy parameter consumption evidence", readiness["reason"])
                 self.assertIn("emit tick-time runtime policy parameter consumption evidence", readiness["nextAction"])
+
+    def test_mixed_evaluated_parameter_failures_keep_scorecard_blocked_on_consumption(self) -> None:
+        variant = runner.StrategyVariant(
+            id="candidate",
+            family="test-family",
+            parameters={"knob": 1},
+        )
+        parameters_sha = runner.canonical_hash(variant.parameters)
+        base_attempt = {
+            "variant_id": "candidate",
+            "ok": True,
+            "runtimeParameterInjection": {
+                "status": "injected",
+                "runtimeParameterInjection": True,
+                "candidateParameterScope": "runtime_injected",
+                "parametersSha256": parameters_sha,
+            },
+            "runtimeParameterConsumption": {
+                "status": "consumed",
+                "runtimeParameterConsumption": True,
+                "source": "runtime_policy_parameter_consumption",
+            },
+        }
+        missing_evaluated = copy.deepcopy(base_attempt)
+        invalid_evaluated = copy.deepcopy(base_attempt)
+        invalid_evaluated["evaluatedParameters"] = ["not", "an", "object"]
+        invalid_evaluated["evaluatedParametersSource"] = "runtime_parameter_consumption"
+
+        runtime_parameter_injection = runner.summarize_variant_runtime_parameter_injection(
+            variant,
+            [missing_evaluated, invalid_evaluated],
+        )
+        self.assertEqual(runtime_parameter_injection["status"], "injected")
+        self.assertTrue(runtime_parameter_injection["runtimeParameterInjection"])
+        self.assertFalse(runtime_parameter_injection["runtimeParameterConsumption"])
+        self.assertEqual(runtime_parameter_injection["runtimeParameterConsumptionStatus"], "mixed")
+
+        readiness = runner.build_candidate_scorecard_readiness(
+            {
+                "reportId": "scorecard-mixed-evaluated-parameters",
+                "ranking": [
+                    {"variantId": "candidate", "rank": 1},
+                    {"variantId": "baseline", "rank": 2},
+                ],
+                "incumbentStrategyIds": ["baseline"],
+                "runtimeParameterInjection": runtime_parameter_injection,
+                "variantResults": [
+                    {
+                        "variantId": "candidate",
+                        "runtimeParameterInjection": runtime_parameter_injection,
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(readiness["classification"], "runtime_parameter_consumption_missing_scorecard_materialized")
+        self.assertEqual(readiness["missingPrerequisite"], "runtime_parameter_consumption")
+        self.assertIn("runtime policy parameter consumption evidence", readiness["reason"])
 
     def test_not_attempted_runtime_parameter_status_counts_as_runtime_attempt(self) -> None:
         variant = runner.StrategyVariant(id="candidate", family="test-family", parameters={"knob": 1})
