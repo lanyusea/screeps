@@ -196,6 +196,8 @@ def test_scorecard_passes_when_candidate_improves_without_regression(tmp_path: P
         "INCONCLUSIVE",
     ]
     assert report["overallGate"]["runtimeCandidateGate"]["status"] == "injected"
+    assert report["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumption"] is True
+    assert report["overallGate"]["runtimeCandidateGate"]["policyUpdateEligible"] is True
     assert report["dimensions"]["safety_reliability_floor"]["status"] in {"neutral", "improved"}
     assert report["dimensions"]["territory_expansion"]["status"] == "improved"
     assert report["dimensions"]["resources_economy"]["status"] == "improved"
@@ -203,6 +205,60 @@ def test_scorecard_passes_when_candidate_improves_without_regression(tmp_path: P
     assert report["dimensions"]["creep_efficiency"]["status"] == "improved"
     assert report["dimensions"]["combat"]["status"] == "neutral"
     assert report["overallGate"]["monotonic"]["improvedNonSafetyDimension"] is True
+
+
+def test_scorecard_holds_when_runtime_consumption_evidence_is_omitted(tmp_path: Path) -> None:
+    baseline = write_bundle(tmp_path / "baseline", candidate=False)
+    candidate = write_bundle(tmp_path / "candidate", candidate=True)
+    write_json(
+        candidate.parent / "runtime-parameter-injection.json",
+        {
+            "type": "screeps-rl-runtime-parameter-injection",
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "inlineCandidatesRuntimeInjected": True,
+            "candidateParameterScope": "runtime_injected",
+            "policyUpdateEligible": True,
+            "injectedVariantCount": 1,
+        },
+    )
+
+    report = scorecard.build_scorecard(
+        candidate_path=candidate,
+        baseline_path=baseline,
+        repo_root=tmp_path,
+        timestamp="2026-05-11T00:00:00Z",
+        run_id="scorecard-missing-consumption",
+    )
+
+    runtime_gate = report["overallGate"]["runtimeCandidateGate"]
+    assert report["overallGate"]["status"] == "HOLD"
+    assert runtime_gate["runtimeParameterInjection"] is False
+    assert runtime_gate["runtimeParameterConsumption"] is False
+    assert runtime_gate["policyUpdateEligible"] is False
+    assert "runtime-injected parameter evidence" in report["overallGate"]["rationale"]
+
+
+def test_runtime_injection_extraction_supports_snake_case_consumed_variant_count() -> None:
+    rows = scorecard.extract_runtime_parameter_injection_evidence(
+        {
+            "type": "screeps-rl-runtime-parameter-injection",
+            "status": "injected",
+            "runtimeParameterInjection": True,
+            "runtimeParameterConsumption": True,
+            "candidateParameterScope": "runtime_injected",
+            "policyUpdateEligible": True,
+            "injectedVariantCount": 1,
+            "consumed_variant_count": 0,
+        },
+        "inline",
+    )
+
+    summary = scorecard.summarize_runtime_parameter_injection(rows)
+
+    assert rows[0]["consumedVariantCount"] == 0
+    assert summary["runtimeParameterInjection"] is False
+    assert summary["policyUpdateEligible"] is False
 
 
 def test_scorecard_fails_safety_regression_even_with_gameplay_gain(tmp_path: Path) -> None:

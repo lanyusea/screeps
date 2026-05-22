@@ -2215,8 +2215,6 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
             raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterConsumption=true")
         if runtime_consumed is True and consumed_count == 0:
             raise BatchRunError("remote runtimeParameterInjection consumedVariantCount must be positive when consumption is proven")
-        if runtime_consumed is False and policy_update_eligible:
-            raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires consumed runtime parameters")
     elif policy_update_eligible:
         raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
     elif status == "injected":

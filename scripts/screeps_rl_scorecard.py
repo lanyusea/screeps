@@ -830,7 +830,9 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
             else None,
             "variantCount": number_value(node.get("variantCount")),
             "injectedVariantCount": number_value(node.get("injectedVariantCount")),
-            "consumedVariantCount": number_value(node.get("consumedVariantCount")),
+            "consumedVariantCount": number_value(
+                node.get("consumedVariantCount", node.get("consumed_variant_count"))
+            ),
             "reason": text_value(node.get("reason")) or text_value(node.get("skippedReason")),
         }
         rows.append(row)
@@ -929,7 +931,7 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
 def runtime_injection_row_is_eligible(row: JsonObject) -> bool:
     if row.get("runtimeParameterInjection") is not True:
         return False
-    if row.get("runtimeParameterConsumption") is False:
+    if row.get("runtimeParameterConsumption") is not True:
         return False
     consumed_count = number_value(row.get("consumedVariantCount"))
     if consumed_count is not None and consumed_count <= 0:

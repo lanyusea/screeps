@@ -55,6 +55,15 @@ POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED = (
 )
 POLICY_UPDATE_CONSUMPTION_MODE_METADATA_ONLY = "metadata_only_non_promotional"
 POLICY_UPDATE_CONSUMPTION_MODE_INCOMPLETE = "runtime_parameter_evidence_incomplete_non_promotional"
+RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES = {
+    "missing_runtime_parameter_consumption",
+    "missing_evaluated_parameters",
+    "invalid_evaluated_parameters",
+}
+RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES = {
+    "missing",
+    *RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES,
+}
 DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 DEFAULT_GRADIENT_DIRECTION_CONSISTENCY_THRESHOLD = 0.8
 DEFAULT_GRADIENT_EMA_DECAY = 0.8
@@ -833,6 +842,14 @@ def text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def runtime_parameter_transport_without_consumption_status(value: Any) -> bool:
+    return text_or_none(value) in RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES
+
+
+def runtime_parameter_consumption_blocker_status(value: Any) -> bool:
+    return text_or_none(value) in RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES
+
+
 def reward_options_from_card(card: JsonObject) -> JsonObject:
     reward_model = raw_mapping(card.get("reward_model", card.get("rewardModel", {})), "reward_model")
     weights = reward_model.get("component_weights", reward_model.get("componentWeights"))
@@ -1189,8 +1206,9 @@ def build_report_runtime_parameter_injection_summary(
         complete_runtime_injection
         and consumed_count == 0
         and all(
-            text_or_none(row.get("runtimeParameterConsumptionStatus"))
-            in {"missing_runtime_parameter_consumption", "missing_evaluated_parameters"}
+            runtime_parameter_transport_without_consumption_status(
+                row.get("runtimeParameterConsumptionStatus")
+            )
             for row in rows
         )
     )
@@ -3603,7 +3621,7 @@ def candidate_scorecard_runtime_consumption_missing(value: JsonObject) -> bool:
     return (
         scope == "runtime_injected"
         and value.get("runtimeParameterConsumption") is not True
-        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+        and runtime_parameter_consumption_blocker_status(consumption_status)
     )
 
 
@@ -4271,8 +4289,7 @@ def summarize_variant_runtime_parameter_injection(
         and len(injected) == len(eligible_attempts)
         and consumed_attempt_count == 0
         and all(
-            text_or_none(row.get("status"))
-            in {"missing_runtime_parameter_consumption", "missing_evaluated_parameters"}
+            runtime_parameter_transport_without_consumption_status(row.get("status"))
             for row in eligible_attempts
         )
     )
@@ -5701,7 +5718,7 @@ def policy_gradient_allows_runtime_metadata_policy_update(policy_gradient: JsonO
         scope == "runtime_injected"
         and transport == "variant_ids_with_runtime_injected_parameters"
         and status == "not_injected"
-        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+        and runtime_parameter_consumption_blocker_status(consumption_status)
         and declared_inline_applied is True
         and preserves_parameters is True
         and preserves_candidate_policy_id is True
