@@ -32,6 +32,8 @@ import { getEffectiveRoomEnergyBufferThreshold } from '../economy/energyBuffer';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import {
   getActivePostClaimBootstrapBlockers,
+  getIgnoredPostClaimBootstrapBlockers,
+  type PostClaimBootstrapIgnoredBlockerSummary,
   type PostClaimBootstrapBlockerSummary
 } from './postClaimBootstrap';
 
@@ -117,6 +119,7 @@ export interface ExpansionCandidateScore {
   scoutOnly?: boolean;
   blockReason?: TerritoryExpansionCandidateBlockReason;
   postClaimBootstrapBlocker?: PostClaimBootstrapBlockerSummary;
+  ignoredPostClaimBootstrapBlockers?: PostClaimBootstrapIgnoredBlockerSummary[];
 }
 
 export interface ExpansionScoringInput {
@@ -133,6 +136,7 @@ export interface ExpansionScoringInput {
   ticksToDowngrade?: number;
   activePostClaimBootstrapCount?: number;
   activePostClaimBootstrapBlockers?: PostClaimBootstrapBlockerSummary[];
+  ignoredPostClaimBootstrapBlockers?: PostClaimBootstrapIgnoredBlockerSummary[];
   claimedRooms?: ExpansionClaimedRoomInput[];
   candidates: ExpansionCandidateInput[];
 }
@@ -400,6 +404,7 @@ function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionSco
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
     activePostClaimBootstrapBlockers: getActivePostClaimBootstrapBlockers(colony.room.name, gameTime),
+    ignoredPostClaimBootstrapBlockers: getIgnoredPostClaimBootstrapBlockers(colony.room.name, gameTime),
     claimedRooms: buildRuntimeClaimedRoomSynergyEvidence(
       colony.room,
       getControllerOwnerUsername(colony.room.controller)
@@ -714,6 +719,8 @@ function scoreExpansionCandidate(
   const rationale: string[] = [];
   const risks: string[] = [];
   const postClaimBootstrapBlocker = getActivePostClaimBootstrapBlocker(input);
+  const ignoredPostClaimBootstrapBlockers =
+    candidate.scoutOnly === true ? getIgnoredPostClaimBootstrapBlockerSummaries(input) : [];
   const preconditions = getExpansionPreconditions(input, candidate);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
   const visible = candidate.visible !== false;
@@ -840,7 +847,10 @@ function scoreExpansionCandidate(
     ...(reservation ? { reservation } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.scoutOnly === true ? { scoutOnly: true } : {}),
-    ...(postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {})
+    ...(postClaimBootstrapBlocker ? { postClaimBootstrapBlocker } : {}),
+    ...(ignoredPostClaimBootstrapBlockers.length > 0
+      ? { ignoredPostClaimBootstrapBlockers }
+      : {})
   };
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(scoredCandidate);
   const blockReason = getPersistedExpansionCandidateBlockReason(scoredCandidate, recommendedAction);
@@ -1156,6 +1166,14 @@ function getActivePostClaimBootstrapBlocker(input: ExpansionScoringInput): PostC
   return Array.isArray(blockers) && blockers.length > 0 ? blockers[0] : null;
 }
 
+function getIgnoredPostClaimBootstrapBlockerSummaries(
+  input: ExpansionScoringInput
+): PostClaimBootstrapIgnoredBlockerSummary[] {
+  return Array.isArray(input.ignoredPostClaimBootstrapBlockers)
+    ? input.ignoredPostClaimBootstrapBlockers
+    : [];
+}
+
 function isScoutOnlyRemoteCpuBucketLow(bucket: number | undefined): boolean {
   return typeof bucket === 'number' && Number.isFinite(bucket) && bucket < SCOUT_ONLY_REMOTE_MIN_CPU_BUCKET;
 }
@@ -1314,6 +1332,9 @@ function toPersistedExpansionCandidateMemory(
     ...(candidate.rationale.length > 0 ? { rationale: candidate.rationale } : {}),
     ...(candidate.postClaimBootstrapBlocker
       ? { postClaimBootstrapBlocker: candidate.postClaimBootstrapBlocker }
+      : {}),
+    ...(candidate.ignoredPostClaimBootstrapBlockers?.length
+      ? { ignoredPostClaimBootstrapBlockers: candidate.ignoredPostClaimBootstrapBlockers }
       : {})
   };
 }

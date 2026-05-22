@@ -1,5 +1,6 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { isConfiguredExpansionScoutOnlyTarget } from './expansionConfig';
+import type { ExpansionCandidateReport, ExpansionCandidateScore } from './expansionScoring';
 import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export type OccupationRecommendationAction = 'occupy' | 'reserve' | 'scout';
@@ -100,9 +101,12 @@ const ACTION_SCORE: Record<OccupationRecommendationAction, number> = {
 
 export function buildRuntimeOccupationRecommendationReport(
   colony: ColonySnapshot,
-  colonyWorkers: Creep[]
+  colonyWorkers: Creep[],
+  expansionReport: ExpansionCandidateReport = buildPersistedScoutOnlyExpansionCandidateReport(colony.room.name)
 ): OccupationRecommendationReport {
-  return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
+  return scoreOccupationRecommendations(
+    buildRuntimeOccupationRecommendationInput(colony, colonyWorkers, expansionReport)
+  );
 }
 
 export function clearOccupationRecommendationFollowUpIntent(
@@ -420,7 +424,8 @@ function attachOccupationRecommendationReportColony(
 
 function buildRuntimeOccupationRecommendationInput(
   colony: ColonySnapshot,
-  colonyWorkers: Creep[]
+  colonyWorkers: Creep[],
+  expansionReport: ExpansionCandidateReport
 ): OccupationRecommendationInput {
   const colonyName = colony.room.name;
   return {
@@ -432,11 +437,16 @@ function buildRuntimeOccupationRecommendationInput(
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
-    candidates: buildRuntimeOccupationCandidates(colonyName)
+    candidates: buildRuntimeOccupationCandidates(colony, colonyWorkers, expansionReport)
   };
 }
 
-function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecommendationCandidateInput[] {
+function buildRuntimeOccupationCandidates(
+  colony: ColonySnapshot,
+  colonyWorkers: Creep[],
+  expansionReport: ExpansionCandidateReport
+): OccupationRecommendationCandidateInput[] {
+  const colonyName = colony.room.name;
   const candidatesByRoom = new Map<string, OccupationRecommendationCandidateInput>();
   const territoryMemory = getTerritoryMemoryRecord();
   let order = 0;
@@ -463,6 +473,13 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
     }
   }
 
+  order = addScoutOnlyExpansionRemoteOccupationCandidates(
+    candidatesByRoom,
+    expansionReport,
+    colonyWorkers.length,
+    order
+  );
+
   for (const roomName of getAdjacentRoomNames(colonyName)) {
     if (isConfiguredExpansionScoutOnlyTarget(colonyName, roomName)) {
       continue;
@@ -485,13 +502,219 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
   return Array.from(candidatesByRoom.values()).map(enrichVisibleOccupationCandidate);
 }
 
+function addScoutOnlyExpansionRemoteOccupationCandidates(
+  candidatesByRoom: Map<string, OccupationRecommendationCandidateInput>,
+  expansionReport: ExpansionCandidateReport,
+  workerCount: number,
+  order: number
+): number {
+  let nextOrder = order;
+  for (const candidate of expansionReport.candidates) {
+    if (!isActionableScoutOnlyExpansionRemoteCandidate(candidate, workerCount)) {
+      continue;
+    }
+
+    upsertOccupationCandidate(
+      candidatesByRoom,
+      {
+        roomName: candidate.roomName,
+        source: 'configured',
+        order: nextOrder,
+        adjacent: candidate.adjacentToOwnedRoom,
+        visible: candidate.visible,
+        ...(candidate.visible === false ? { scouted: true } : {}),
+        actionHint: 'reserve',
+        controller: buildScoutOnlyExpansionOccupationControllerEvidence(candidate),
+        ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+        ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+        ...(candidate.nearestOwnedRoomDistance !== undefined
+          ? { roadDistance: candidate.nearestOwnedRoomDistance }
+          : candidate.routeDistance !== undefined
+            ? { roadDistance: candidate.routeDistance }
+            : {}),
+        sourceCount: candidate.sourceCount,
+        hostileCreepCount: candidate.hostileCreepCount,
+        hostileStructureCount: candidate.hostileStructureCount
+      },
+      { preferCandidate: true }
+    );
+    nextOrder += 1;
+  }
+
+  return nextOrder;
+}
+
+function isActionableScoutOnlyExpansionRemoteCandidate(
+  candidate: ExpansionCandidateScore,
+  workerCount: number
+): candidate is ExpansionCandidateScore & {
+  hostileCreepCount: number;
+  hostileStructureCount: number;
+  sourceCount: number;
+} {
+  return (
+    workerCount >= MIN_READY_WORKERS &&
+    candidate.scoutOnly === true &&
+    candidate.evidenceStatus === 'sufficient' &&
+    candidate.blockReason === undefined &&
+    candidate.requiresControllerPressure !== true &&
+    candidate.risks.length === 0 &&
+    candidate.preconditions.every(isScoutOnlyRemoteCompatibleExpansionPrecondition) &&
+    typeof candidate.sourceCount === 'number' &&
+    candidate.sourceCount > 0 &&
+    typeof candidate.hostileCreepCount === 'number' &&
+    typeof candidate.hostileStructureCount === 'number' &&
+    candidate.hostileCreepCount === 0 &&
+    candidate.hostileStructureCount === 0 &&
+    isAdjacentScoutOnlyExpansionRemoteCandidate(candidate)
+  );
+}
+
+function isAdjacentScoutOnlyExpansionRemoteCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.adjacentToOwnedRoom ||
+    (typeof candidate.routeDistance === 'number' && candidate.routeDistance <= 1) ||
+    (typeof candidate.nearestOwnedRoomDistance === 'number' && candidate.nearestOwnedRoomDistance <= 1)
+  );
+}
+
+function isScoutOnlyRemoteCompatibleExpansionPrecondition(precondition: string): boolean {
+  return (
+    precondition === 'wait for GCL capacity to claim another room' ||
+    precondition.startsWith('limit expansion to ')
+  );
+}
+
+function buildScoutOnlyExpansionOccupationControllerEvidence(
+  candidate: ExpansionCandidateScore
+): OccupationControllerEvidence {
+  const reservation = candidate.reservation;
+  return {
+    ...(reservation ? { reservationUsername: reservation.username } : {}),
+    ...(reservation?.ticksToEnd !== undefined ? { reservationTicksToEnd: reservation.ticksToEnd } : {})
+  };
+}
+
+function buildPersistedScoutOnlyExpansionCandidateReport(colonyName: string): ExpansionCandidateReport {
+  const candidates = getPersistedScoutOnlyExpansionCandidates(colonyName);
+  return {
+    colonyName,
+    candidates,
+    next: candidates[0] ?? null
+  };
+}
+
+function getPersistedScoutOnlyExpansionCandidates(colonyName: string): ExpansionCandidateScore[] {
+  const rawCandidates = getTerritoryMemoryRecord()?.expansionCandidates;
+  if (!Array.isArray(rawCandidates)) {
+    return [];
+  }
+
+  return rawCandidates.flatMap((rawCandidate) => {
+    const candidate = normalizePersistedScoutOnlyExpansionCandidate(rawCandidate, colonyName);
+    return candidate ? [candidate] : [];
+  });
+}
+
+function normalizePersistedScoutOnlyExpansionCandidate(
+  rawCandidate: unknown,
+  colonyName: string
+): ExpansionCandidateScore | null {
+  if (
+    !isRecord(rawCandidate) ||
+    rawCandidate.colony !== colonyName ||
+    rawCandidate.scoutOnly !== true ||
+    !isNonEmptyString(rawCandidate.roomName) ||
+    !isExpansionCandidateEvidenceStatus(rawCandidate.evidenceStatus)
+  ) {
+    return null;
+  }
+
+  return {
+    roomName: rawCandidate.roomName,
+    score: normalizeFiniteNumber(rawCandidate.score, 0),
+    synergyScore: 0,
+    evidenceStatus: rawCandidate.evidenceStatus,
+    visible: rawCandidate.visible === true,
+    rationale: normalizeStringArray(rawCandidate.rationale),
+    preconditions: normalizeStringArray(rawCandidate.preconditions),
+    risks: normalizeStringArray(rawCandidate.risks),
+    adjacentToOwnedRoom: rawCandidate.adjacentToOwnedRoom === true,
+    scoutOnly: true,
+    ...(isExpansionCandidateBlockReason(rawCandidate.blockReason)
+      ? { blockReason: rawCandidate.blockReason }
+      : {}),
+    ...(isFiniteNumber(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {}),
+    ...(isNonEmptyString(rawCandidate.nearestOwnedRoom)
+      ? { nearestOwnedRoom: rawCandidate.nearestOwnedRoom }
+      : {}),
+    ...(isFiniteNumber(rawCandidate.nearestOwnedRoomDistance)
+      ? { nearestOwnedRoomDistance: rawCandidate.nearestOwnedRoomDistance }
+      : {}),
+    ...(isNonEmptyString(rawCandidate.controllerId)
+      ? { controllerId: rawCandidate.controllerId as Id<StructureController> }
+      : {}),
+    ...(isFiniteNumber(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {}),
+    ...(isFiniteNumber(rawCandidate.hostileCreepCount)
+      ? { hostileCreepCount: rawCandidate.hostileCreepCount }
+      : {}),
+    ...(isFiniteNumber(rawCandidate.hostileStructureCount)
+      ? { hostileStructureCount: rawCandidate.hostileStructureCount }
+      : {}),
+    ...(rawCandidate.requiresControllerPressure === true ? { requiresControllerPressure: true } : {})
+  };
+}
+
+function isExpansionCandidateEvidenceStatus(value: unknown): value is TerritoryExpansionCandidateEvidenceStatus {
+  return value === 'sufficient' || value === 'insufficient-evidence' || value === 'unavailable';
+}
+
+function isExpansionCandidateBlockReason(value: unknown): value is TerritoryExpansionCandidateBlockReason {
+  return (
+    value === 'insufficientEvidence' ||
+    value === 'targetUnavailable' ||
+    value === 'targetHostile' ||
+    value === 'controllerMissing' ||
+    value === 'controllerOwned' ||
+    value === 'controllerReserved' ||
+    value === 'sourcesMissing' ||
+    value === 'controllerRangeMissing' ||
+    value === 'terrainMissing' ||
+    value === 'energyCapacityLow' ||
+    value === 'energyBufferLow' ||
+    value === 'cpuBucketLow' ||
+    value === 'homeAlertActive' ||
+    value === 'controllerLevelLow' ||
+    value === 'homeDowngradeGuard' ||
+    value === 'postClaimBootstrapActive' ||
+    value === 'gclInsufficient' ||
+    value === 'roomLimitReached' ||
+    value === 'routeUnavailable'
+  );
+}
+
 function upsertOccupationCandidate(
   candidatesByRoom: Map<string, OccupationRecommendationCandidateInput>,
-  candidate: OccupationRecommendationCandidateInput
+  candidate: OccupationRecommendationCandidateInput,
+  options: { preferCandidate?: boolean } = {}
 ): void {
   const existing = candidatesByRoom.get(candidate.roomName);
   if (!existing) {
     candidatesByRoom.set(candidate.roomName, candidate);
+    return;
+  }
+
+  if (options.preferCandidate === true) {
+    const merged: OccupationRecommendationCandidateInput = {
+      ...existing,
+      ...candidate,
+      adjacent: existing.adjacent || candidate.adjacent,
+      order: Math.min(existing.order, candidate.order)
+    };
+    if (existing.routeDistance === null && candidate.routeDistance === undefined && candidate.roadDistance !== undefined) {
+      delete merged.routeDistance;
+    }
+    candidatesByRoom.set(candidate.roomName, merged);
     return;
   }
 
@@ -1211,4 +1434,12 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeFiniteNumber(value: unknown, fallback: number): number {
+  return isFiniteNumber(value) ? value : fallback;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter(isNonEmptyString) : [];
 }

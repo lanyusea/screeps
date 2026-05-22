@@ -26,6 +26,7 @@ import {
 } from './roomScouting';
 import { getTerritoryScoutIntel } from './scoutIntel';
 import { logBestClaimTarget } from './territoryRunner';
+import { getActivePostClaimBootstrapBlockers } from './postClaimBootstrap';
 
 const EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
 const EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -272,7 +273,7 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
     countActiveExpansionExecutorSpawns(colony),
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
-    countActivePostClaimBootstraps(),
+    countActivePostClaimBootstraps(colony.room.name, gameTime),
     getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
@@ -400,15 +401,8 @@ function getGclLevel(): number | null {
   return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 
-function countActivePostClaimBootstraps(): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  return Object.values(records).filter(
-    (record) => isRecord(record) && record.status !== 'ready'
-  ).length;
+function countActivePostClaimBootstraps(colonyName: string, gameTime: number): number {
+  return getActivePostClaimBootstrapBlockers(colonyName, gameTime).length;
 }
 
 function getLatestTerritoryScoutIntelUpdatedAt(colony: string): number {
