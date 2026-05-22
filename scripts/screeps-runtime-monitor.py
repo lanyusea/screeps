@@ -1681,7 +1681,7 @@ def build_extension_count_zero_at_rcl_ge_2_reason(
             f"extensionCount={metrics.extension_count} at RCL {format_energy_value(metrics.rcl_level)} with "
             f"{message_detail}"
         ),
-        "signature": f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND}:{ref.key}",
+        "signature": f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND}:{reason}:{ref.key}",
     }
 
 
@@ -1703,7 +1703,8 @@ def detect_extension_count_zero_at_rcl_ge_2_reason(
 
     current_tick = tick_number(current_tick_value)
     if current_tick is None:
-        return None, 0
+        preserved_state = extension_bootstrap_previous_state(previous_rule_state)
+        return None, preserved_state or 0
 
     state = extension_bootstrap_next_state(
         previous_rule_state,
