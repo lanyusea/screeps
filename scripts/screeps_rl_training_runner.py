@@ -416,6 +416,107 @@ def load_strategy_variants(card: JsonObject, registry_path: Path | None = None) 
     return variants
 
 
+def apply_policy_gradient_candidate_vectors_to_variants(
+    card: JsonObject,
+    variants: Sequence[StrategyVariant],
+) -> list[StrategyVariant]:
+    """Use policy-gradient candidate vectors as the simulator runtime parameter source."""
+    policy_gradient = card.get("policy_gradient", card.get("policyGradient"))
+    if not isinstance(policy_gradient, dict):
+        return list(variants)
+    raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(raw_candidates, list):
+        return list(variants)
+
+    candidates_by_variant_id, candidates_by_policy_id = policy_gradient_candidate_vector_maps(policy_gradient)
+    if not candidates_by_variant_id and not candidates_by_policy_id:
+        return list(variants)
+
+    return [
+        policy_gradient_candidate_vector_variant(
+            variant,
+            candidates_by_variant_id,
+            candidates_by_policy_id,
+        )
+        for variant in variants
+    ]
+
+
+def policy_gradient_candidate_vector_maps(
+    policy_gradient: JsonObject | None,
+) -> tuple[dict[str, JsonObject], dict[str, JsonObject]]:
+    if policy_gradient is None:
+        return {}, {}
+    raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(raw_candidates, list):
+        return {}, {}
+
+    candidates_by_variant_id: dict[str, JsonObject] = {}
+    candidates_by_policy_id: dict[str, JsonObject] = {}
+    for raw_candidate in raw_candidates:
+        if not isinstance(raw_candidate, dict):
+            continue
+        candidate = raw_candidate
+        strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
+        candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
+        if strategy_variant_id is not None:
+            candidates_by_variant_id[strategy_variant_id] = candidate
+        if candidate_policy_id is not None:
+            candidates_by_policy_id.setdefault(candidate_policy_id, candidate)
+    return candidates_by_variant_id, candidates_by_policy_id
+
+
+def policy_gradient_candidate_vector_variant(
+    variant: StrategyVariant,
+    candidates_by_variant_id: dict[str, JsonObject],
+    candidates_by_policy_id: dict[str, JsonObject],
+) -> StrategyVariant:
+    candidate = candidates_by_variant_id.get(variant.id)
+    if candidate is None and variant.candidate_policy_id is not None:
+        candidate = candidates_by_policy_id.get(variant.candidate_policy_id)
+    if candidate is None:
+        return variant
+
+    raw_parameters = candidate.get("parameters")
+    parameters = (
+        dict(sorted(copy.deepcopy(raw_parameters).items()))
+        if isinstance(raw_parameters, dict)
+        else copy.deepcopy(variant.parameters)
+    )
+    parameter_evidence = first_mapping(candidate, ("parameterEvidence", "parameter_evidence"))
+    return StrategyVariant(
+        id=variant.id,
+        parameters=parameters,
+        candidate_policy_id=text_or_none(candidate.get("candidatePolicyId")) or variant.candidate_policy_id,
+        family=text_or_none(candidate.get("family")) or variant.family,
+        policy_family=(
+            text_or_none(candidate.get("policyFamily"))
+            or text_or_none(candidate.get("policy_family"))
+            or variant.policy_family
+        ),
+        parameter_evidence=copy.deepcopy(parameter_evidence)
+        if parameter_evidence is not None
+        else copy.deepcopy(variant.parameter_evidence),
+        rollout_status=(
+            text_or_none(candidate.get("rolloutStatus"))
+            or text_or_none(candidate.get("rollout_status"))
+            or variant.rollout_status
+        ),
+        source_strategy_id=(
+            text_or_none(candidate.get("sourceStrategyId"))
+            or text_or_none(candidate.get("source_strategy_id"))
+            or variant.source_strategy_id
+        ),
+        source=variant.source,
+        title=text_or_none(candidate.get("title")) or variant.title,
+        training_role=(
+            text_or_none(candidate.get("trainingRole"))
+            or text_or_none(candidate.get("training_role"))
+            or variant.training_role
+        ),
+    )
+
+
 def expand_scale_environment_strategy_variants(
     variants: Sequence[StrategyVariant],
     environment_count: int | None,
@@ -775,6 +876,7 @@ def run_training_experiment(
     """Run all card variants through the simulator harness and write a JSON report."""
     card = load_experiment_card(card_path)
     variants = load_strategy_variants(card, registry_path=registry_path)
+    variants = apply_policy_gradient_candidate_vectors_to_variants(card, variants)
     config = simulation_config_from_card(card)
     variants = expand_scale_environment_strategy_variants(variants, config.scale_environments)
     reward_options = reward_options_from_card(card)
@@ -1013,7 +1115,7 @@ def build_report_runtime_parameter_injection_summary(
     variants: Sequence[StrategyVariant],
     policy_gradient: JsonObject | None = None,
 ) -> JsonObject:
-    candidate_match_ids = policy_gradient_candidate_match_ids(policy_gradient)
+    candidate_match_ids = policy_gradient_candidate_match_ids(policy_gradient, variants)
     expected_ids = set(candidate_match_ids.values()) if candidate_match_ids else {variant.id for variant in variants}
     rows: list[JsonObject] = []
     observed_ids: set[str] = set()
@@ -1163,7 +1265,10 @@ def runtime_parameter_consumption_rollup_status(rows: Sequence[JsonObject]) -> s
     return "missing" if any(runtime_parameter_scope_indicates_runtime_attempt(row) for row in rows) else "not_attempted"
 
 
-def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> dict[str, str]:
+def policy_gradient_candidate_match_ids(
+    policy_gradient: JsonObject | None,
+    variants: Sequence[StrategyVariant] = (),
+) -> dict[str, str]:
     if policy_gradient is None:
         return {}
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
@@ -1181,6 +1286,15 @@ def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> d
         match_ids[expected_id] = expected_id
         if candidate_policy_id is not None:
             match_ids[candidate_policy_id] = expected_id
+    for variant in variants:
+        if variant.candidate_policy_id is None:
+            continue
+        expected_id = match_ids.get(variant.candidate_policy_id)
+        if expected_id is None:
+            continue
+        match_ids.setdefault(variant.id, expected_id)
+        base_variant_id = simulator_harness.scale_environment_base_variant_id(variant.id)
+        match_ids.setdefault(base_variant_id, expected_id)
     return match_ids
 
 
@@ -2550,7 +2664,7 @@ def policy_update_candidate_rows(
     if policy_gradient_candidate_parameters_metadata_only(policy_gradient):
         return []
     require_evaluated_parameters = policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
-    allow_runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
+    allow_runtime_metadata_fallback = False
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
     if not isinstance(raw_candidates, list):
         return []
@@ -2560,7 +2674,15 @@ def policy_update_candidate_rows(
         if variant_id is None:
             continue
         base_id = simulator_harness.scale_environment_base_variant_id(variant_id)
-        result_groups.setdefault(base_id, []).append(result)
+        result_keys = {base_id}
+        candidate_policy_id = text_or_none(result.get("candidatePolicyId"))
+        runtime_injection = result.get("runtimeParameterInjection")
+        if candidate_policy_id is None and isinstance(runtime_injection, dict):
+            candidate_policy_id = text_or_none(runtime_injection.get("candidatePolicyId"))
+        if candidate_policy_id is not None:
+            result_keys.add(candidate_policy_id)
+        for result_key in result_keys:
+            result_groups.setdefault(result_key, []).append(result)
 
     rows: list[JsonObject] = []
     for candidate in raw_candidates:
@@ -2568,9 +2690,10 @@ def policy_update_candidate_rows(
             continue
         strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
         candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
-        if strategy_variant_id is None:
+        candidate_match_id = strategy_variant_id or candidate_policy_id
+        if candidate_match_id is None:
             continue
-        summaries = result_groups.get(strategy_variant_id) or result_groups.get(candidate_policy_id or "") or []
+        summaries = result_groups.get(strategy_variant_id or "") or result_groups.get(candidate_policy_id or "") or []
         scored_summaries = [summary for summary in summaries if policy_reward_tuple_values(summary) is not None]
         if not scored_summaries:
             continue
@@ -2589,7 +2712,7 @@ def policy_update_candidate_rows(
         rows.append(
             {
                 "candidatePolicyId": candidate_policy_id,
-                "strategyVariantId": strategy_variant_id,
+                "strategyVariantId": candidate_match_id,
                 "sourceStrategyId": text_or_none(candidate.get("sourceStrategyId")),
                 "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
                 "parameters": parameters,
@@ -5318,6 +5441,8 @@ def policy_gradient_metadata_with_runner_transport(
         return policy_gradient
 
     injected = runtime_parameter_injection.get("runtimeParameterInjection") is True
+    consumed = runtime_parameter_injection.get("runtimeParameterConsumption") is True
+    policy_update_reward_ready = injected and consumed
     status = text_or_none(runtime_parameter_injection.get("status"))
     scope = text_or_none(runtime_parameter_injection.get("candidateParameterScope")) or "metadata_only"
     attempted_runtime_injection = scope in {"runtime_injected", "partial_runtime_injection"} or status in {
@@ -5334,7 +5459,9 @@ def policy_gradient_metadata_with_runner_transport(
     )
     support["candidate_parameter_scope"] = "runtime_injected" if injected else scope
     support["policy_update_reward_use"] = (
-        "eligible_with_evaluated_runtime_parameters" if injected else "blocked_until_runtime_parameter_evidence"
+        "eligible_with_evaluated_runtime_parameters"
+        if policy_update_reward_ready
+        else "blocked_until_runtime_parameter_evidence"
     )
     support["runtime_parameter_injection_status"] = status
     support["runtime_parameter_injection_reason"] = runtime_parameter_injection.get("reason")
@@ -5618,13 +5745,14 @@ def policy_update_runtime_injection_ready_parameter_evidence(
         first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
     )
     runtime_consumption = consumption_status == "consumed"
-    runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
+    runtime_metadata_fallback = False
     candidate_count_ready = len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
     eligible = (
         scope == "runtime_injected"
         and policy_gradient_requires_runtime_parameter_evidence(policy_gradient)
         and candidate_count_ready
-        and (runtime_injection or runtime_metadata_fallback)
+        and runtime_injection
+        and runtime_consumption
     )
     payload: JsonObject = {
         "candidateParameterScope": scope,
@@ -5635,9 +5763,9 @@ def policy_update_runtime_injection_ready_parameter_evidence(
         "metadataCandidateCount": policy_gradient_candidate_vector_count(policy_gradient),
         "eligibilityMode": (
             "evaluated_runtime_parameter_evidence"
+            if runtime_injection and runtime_consumption
+            else "blocked_until_runtime_parameter_consumption_evidence"
             if runtime_injection
-            else "runtime_injected_metadata_scorecard_ranking"
-            if runtime_metadata_fallback
             else "blocked_until_runtime_parameter_evidence"
         ),
     }
