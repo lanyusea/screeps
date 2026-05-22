@@ -114,6 +114,7 @@ ENERGY_BUFFER_UNHEALTHY_ROUTES = [
 CONSTRUCTION_DEADLOCK_KIND = "construction_deadlock_ticks"
 CONSTRUCTION_DEADLOCK_P1_TICKS = 100
 CONSTRUCTION_DEADLOCK_P0_TICKS = 500
+EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS = 100
 CONSTRUCTION_DEADLOCK_ROUTES = [
     {"issue": "#906", "topic": "gameplay_behavior_metric"},
     {"issue": "#1025", "topic": "construction_deadlock_ticks"},
@@ -517,6 +518,8 @@ class RoomSummaryMetrics:
     construction_deadlock_ticks: int | float
     extension_count: int
     extension_capacity_contribution: int | float
+    extension_construction_site_count: int
+    extension_pending_build_progress: int | float
     stored_energy: int | float
     cpu_used: int | float | None
     cpu_bucket: int | float | None
@@ -1571,7 +1574,85 @@ def runtime_worker_assignment_gap_recovery_is_fresh(
     return room_tick + WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE >= current_tick
 
 
-def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any]:
+def extension_bootstrap_previous_state(value: Any) -> dict[str, int | float]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int | float] = {}
+    for key in (
+        "start_tick",
+        "last_tick",
+        "last_progress_tick",
+        "extension_construction_site_count",
+        "extension_pending_build_progress",
+        "stalled_ticks",
+    ):
+        number = number_value(value.get(key))
+        if number is not None:
+            result[key] = number
+    return result
+
+
+def extension_bootstrap_next_state(
+    previous_state: Any,
+    current_tick: int,
+    extension_construction_site_count: int,
+    extension_pending_build_progress: int | float,
+) -> dict[str, int | float]:
+    previous = extension_bootstrap_previous_state(previous_state)
+    previous_last_tick = tick_number(previous.get("last_tick"))
+    previous_progress_tick = tick_number(previous.get("last_progress_tick"))
+    previous_site_count = number_value(previous.get("extension_construction_site_count"))
+    previous_pending_progress = number_value(previous.get("extension_pending_build_progress"))
+
+    reset_state = previous_last_tick is None or current_tick < previous_last_tick
+    progress_observed = (
+        reset_state
+        or previous_site_count is None
+        or previous_pending_progress is None
+        or extension_construction_site_count > previous_site_count
+        or extension_pending_build_progress < previous_pending_progress
+    )
+    last_progress_tick = current_tick if progress_observed else previous_progress_tick or current_tick
+    start_tick = current_tick if reset_state else tick_number(previous.get("start_tick")) or current_tick
+    stalled_ticks = max(0, current_tick - last_progress_tick)
+
+    return {
+        "start_tick": start_tick,
+        "last_tick": current_tick,
+        "last_progress_tick": last_progress_tick,
+        "extension_construction_site_count": extension_construction_site_count,
+        "extension_pending_build_progress": extension_pending_build_progress,
+        "stalled_ticks": stalled_ticks,
+    }
+
+
+def build_extension_count_zero_at_rcl_ge_2_reason(
+    ref: RoomRef,
+    metrics: RoomSummaryMetrics,
+    *,
+    reason: str,
+    state: dict[str, int | float] | None = None,
+) -> dict[str, Any]:
+    extension_site_count = metrics.extension_construction_site_count
+    extension_pending_progress = metrics.extension_pending_build_progress
+    stalled_ticks = number_value(state.get("stalled_ticks")) if state else None
+    state_fields: dict[str, Any] = {}
+    if state:
+        state_fields = {
+            "start_tick": state.get("start_tick"),
+            "current_tick": state.get("last_tick"),
+            "last_progress_tick": state.get("last_progress_tick"),
+            "stalledTicks": stalled_ticks,
+            "stallThresholdTicks": EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS,
+        }
+    message_detail = (
+        "no active extension construction site"
+        if reason == "missing_extension_site"
+        else (
+            f"{extension_site_count} active extension construction site(s), "
+            f"no extension bootstrap progress for {format_energy_value(stalled_ticks)} ticks"
+        )
+    )
     return {
         "kind": EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND,
         "room": ref.key,
@@ -1579,19 +1660,55 @@ def build_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSum
         "severity": "critical",
         "priority": "P0",
         "extensionCount": metrics.extension_count,
+        "extensionConstructionSiteCount": extension_site_count,
+        "extensionPendingBuildProgress": extension_pending_progress,
         "rclLevel": metrics.rcl_level,
+        "bootstrapState": reason,
+        **state_fields,
         "message": (
             f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND} in {ref.key}: "
-            f"extensionCount={metrics.extension_count} at RCL {format_energy_value(metrics.rcl_level)}"
+            f"extensionCount={metrics.extension_count} at RCL {format_energy_value(metrics.rcl_level)} with "
+            f"{message_detail}"
         ),
         "signature": f"{EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND}:{ref.key}",
     }
 
 
-def detect_extension_count_zero_at_rcl_ge_2_reason(ref: RoomRef, metrics: RoomSummaryMetrics) -> dict[str, Any] | None:
-    if metrics.extension_count == 0 and metrics.rcl_level is not None and metrics.rcl_level >= 2:
-        return build_extension_count_zero_at_rcl_ge_2_reason(ref, metrics)
-    return None
+def detect_extension_count_zero_at_rcl_ge_2_reason(
+    ref: RoomRef,
+    metrics: RoomSummaryMetrics,
+    previous_rule_state: Any,
+    current_tick_value: Any,
+) -> tuple[dict[str, Any] | None, dict[str, int | float] | int]:
+    if metrics.extension_count != 0 or metrics.rcl_level is None or metrics.rcl_level < 2:
+        return None, 0
+
+    if metrics.extension_construction_site_count <= 0 or metrics.extension_pending_build_progress <= 0:
+        return build_extension_count_zero_at_rcl_ge_2_reason(
+            ref,
+            metrics,
+            reason="missing_extension_site",
+        ), 0
+
+    current_tick = tick_number(current_tick_value)
+    if current_tick is None:
+        return None, 0
+
+    state = extension_bootstrap_next_state(
+        previous_rule_state,
+        current_tick,
+        metrics.extension_construction_site_count,
+        metrics.extension_pending_build_progress,
+    )
+    stalled_ticks = number_value(state.get("stalled_ticks")) or 0
+    if stalled_ticks >= EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS:
+        return build_extension_count_zero_at_rcl_ge_2_reason(
+            ref,
+            metrics,
+            reason="extension_bootstrap_stalled",
+            state=state,
+        ), state
+    return None, state
 
 
 def worker_assignment_gap_active(
@@ -1907,7 +2024,14 @@ def evaluate_room_alert(
         )
 
     rule_counts = dict(previous_rule_counts)
-    extension_count_zero_candidate = detect_extension_count_zero_at_rcl_ge_2_reason(snapshot.ref, current_metrics)
+    previous_extension_bootstrap_state = rule_counts.get(EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND)
+    extension_count_zero_candidate, extension_bootstrap_state = detect_extension_count_zero_at_rcl_ge_2_reason(
+        snapshot.ref,
+        current_metrics,
+        previous_extension_bootstrap_state,
+        snapshot.tick,
+    )
+    rule_counts[EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND] = extension_bootstrap_state
     if extension_count_zero_candidate is not None:
         detected.append(extension_count_zero_candidate)
 
@@ -3234,6 +3358,8 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
+        "extensionConstructionSiteCount": metrics.extension_construction_site_count,
+        "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
         "workerLoadEfficiency": worker_load_efficiency(metrics.owned_creep_objects),
@@ -3581,6 +3707,19 @@ def construction_site_pending_progress(site: dict[str, Any]) -> int | float:
     if progress_total is None:
         return 0
     return max(0, progress_total - progress)
+
+
+def normalize_structure_type_name(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.lower()
+    if normalized.startswith("structure_"):
+        normalized = normalized[len("structure_") :]
+    return normalized
+
+
+def construction_site_matches_structure_type(site: dict[str, Any], structure_type: str) -> bool:
+    return normalize_structure_type_name(site.get("structureType")) == structure_type
 
 
 def is_owned_construction_site(site: dict[str, Any], snapshot: RoomSnapshot) -> bool:
@@ -4012,6 +4151,9 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         )
     ]
     construction_sites = owned_construction_sites(snapshot)
+    extension_construction_sites = [
+        site for site in construction_sites if construction_site_matches_structure_type(site, "extension")
+    ]
     task_counts = worker_task_counts(owned_creep_objects)
     info = snapshot.info if isinstance(snapshot.info, dict) else {}
     assignment_evidence_available = worker_assignment_evidence_available(
@@ -4020,6 +4162,9 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         explicit_worker_assignment_blocked_detail(info),
     )
     pending_build_progress = sum(construction_site_pending_progress(site) for site in construction_sites)
+    extension_pending_build_progress = sum(
+        construction_site_pending_progress(site) for site in extension_construction_sites
+    )
     build_carried_energy = sum(carried_energy(creep) for creep in owned_creep_objects if creep_has_build_task(creep))
     extension_count, extension_capacity_contribution = room_extension_metrics(structures, snapshot.owner)
     stored_energy = room_stored_energy(snapshot.objects, snapshot.owner)
@@ -4053,6 +4198,8 @@ def compute_room_summary_metrics(snapshot: RoomSnapshot) -> RoomSummaryMetrics:
         ),
         extension_count=extension_count,
         extension_capacity_contribution=extension_capacity_contribution,
+        extension_construction_site_count=len(extension_construction_sites),
+        extension_pending_build_progress=extension_pending_build_progress,
         stored_energy=stored_energy,
         cpu_used=snapshot_cpu_used(snapshot),
         cpu_bucket=snapshot_cpu_bucket(snapshot),
@@ -4114,6 +4261,8 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "buildCarriedEnergy": metrics.build_carried_energy,
         "constructionDeadlockTicks": metrics.construction_deadlock_ticks,
         "constructionSiteCount": len(metrics.construction_sites),
+        "extensionConstructionSiteCount": metrics.extension_construction_site_count,
+        "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "workerAssignmentEvidenceAvailable": metrics.worker_assignment_evidence_available,
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
@@ -4130,6 +4279,8 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "buildBlockedReason": metrics.build_blocked_reason,
         **assignment_blocked_fields,
         "constructionSiteCount": len(metrics.construction_sites),
+        "extensionConstructionSiteCount": metrics.extension_construction_site_count,
+        "extensionPendingBuildProgress": metrics.extension_pending_build_progress,
         "extensionCount": metrics.extension_count,
         "extensionCapacityContribution": metrics.extension_capacity_contribution,
         "cpuUsed": metrics.cpu_used,
@@ -4941,10 +5092,86 @@ def command_self_test(_args: argparse.Namespace) -> int:
             extension_reason = next(reason for reason in emitted if reason["kind"] == EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND)
             self.assertEqual(extension_reason["severity"], "critical")
             self.assertEqual(extension_reason["priority"], "P0")
+            self.assertEqual(extension_reason["bootstrapState"], "missing_extension_site")
             report = build_tactical_response_report({"ok": True, "mode": "alert", "alert": True, "reasons": [extension_reason]})
             self.assertEqual(report["severity"], "critical")
             self.assertEqual(report["priority"], "P0")
             self.assertEqual(report["categories"], [EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND])
+
+        def test_extension_count_zero_with_active_extension_site_tracks_bootstrap_progress(self) -> None:
+            base_objects = {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "ctrl": {
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "level": 2,
+                    "x": 5,
+                    "y": 36,
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 100,
+                    "progressTotal": 3000,
+                    "x": 24,
+                    "y": 24,
+                },
+            }
+            first_snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(base_objects),
+                tick=1000,
+                owner="owner",
+                info={},
+            )
+            second_snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(base_objects),
+                tick=1100,
+                owner="owner",
+                info={},
+            )
+
+            first_emitted, first_suppressed, first_state = evaluate_room_alert(
+                first_snapshot,
+                {"baseline_established": True, "owner": "owner"},
+                now=100,
+                debounce_seconds=300,
+            )
+            self.assertEqual(first_emitted, [])
+            self.assertEqual(first_suppressed, [])
+            self.assertEqual(
+                first_state["rule_counts"][EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND]["extension_pending_build_progress"],
+                2900,
+            )
+
+            second_emitted, second_suppressed, second_state = evaluate_room_alert(
+                second_snapshot,
+                first_state,
+                now=200,
+                debounce_seconds=300,
+            )
+            self.assertEqual(second_suppressed, [])
+            extension_reason = next(reason for reason in second_emitted if reason["kind"] == EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND)
+            self.assertEqual(extension_reason["bootstrapState"], "extension_bootstrap_stalled")
+            self.assertEqual(extension_reason["stalledTicks"], EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS)
+            self.assertEqual(
+                second_state["rule_counts"][EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND]["stalled_ticks"],
+                EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS,
+            )
 
         def test_worker_assignment_gap_sustained_alerts_after_100_ticks(self) -> None:
             base_objects = {
