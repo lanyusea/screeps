@@ -2369,10 +2369,11 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
         self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
         self.assertEqual(update["gradient"], update["gradientMomentum"]["emaGradient"])
-        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.016667})
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.50001})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.50001})
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 1666.666667})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
         self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
+        self.assertEqual(update["gradientEstimation"]["gradient"], update["gradientEstimation"]["capNormalizedGradient"])
         self.assertTrue(update["gradientMomentum"]["momentumConsistent"])
         self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
         self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
@@ -2421,7 +2422,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(estimation["scalarRewardScaleFactor"], 0.00001)
         self.assertGreater(estimation["capNormalizedGradient"]["combatSignalWeight"], 0.1)
         self.assertGreater(estimation["gradient"]["combatSignalWeight"], 0)
-        self.assertLess(estimation["gradient"]["combatSignalWeight"], estimation["capNormalizedGradient"]["combatSignalWeight"])
+        self.assertEqual(estimation["gradient"], estimation["capNormalizedGradient"])
         self.assertGreater(estimation["directionByParameter"]["combatSignalWeight"]["positiveContributionCount"], 0)
 
     def test_policy_gradient_scalar_estimator_preserves_large_source_weight_scale(self) -> None:
@@ -2456,8 +2457,10 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(estimation["normalizationFactor"], 10000)
         self.assertEqual(estimation["scalarRewardScaleFactor"], 0.00000001)
         self.assertEqual(estimation["capNormalizedGradient"], {"territorySignalWeight": 25000000})
-        self.assertEqual(estimation["gradient"], {"territorySignalWeight": 0.25})
-        self.assertGreater(estimation["directionByParameter"]["territorySignalWeight"]["contributionSum"], 0)
+        self.assertEqual(estimation["gradient"], {"territorySignalWeight": 25000000})
+        direction = estimation["directionByParameter"]["territorySignalWeight"]
+        self.assertGreater(direction["contributionSum"], 0)
+        self.assertEqual(direction["contributionSum"], direction["capNormalizedContributionSum"])
 
     def test_reinforce_policy_update_preserves_large_source_weight_scale(self) -> None:
         policy_gradient = {
@@ -2520,12 +2523,12 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(update["iterations"], 1)
         self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00000001)
-        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.125})
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.025})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 1.025})
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 12500000})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 1})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 2})
         self.assertEqual(
             update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
-            {"territorySignalWeight": 0.025},
+            {"territorySignalWeight": 1},
         )
 
     def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
@@ -2545,8 +2548,8 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
         self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
         self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.50001})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.50001})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
         self.assertGreater(abs(float(update["gradient"]["territorySignalWeight"])), 0)
         self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
         self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
