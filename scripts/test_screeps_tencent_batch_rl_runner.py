@@ -2390,6 +2390,35 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "runtimeParameterInjection.runtimeParameterInjection must be a boolean",
             ),
             (
+                "eligible missing consumption proof",
+                injection_patch(
+                    status="injected",
+                    runtime_parameter_injection=True,
+                    policy_update_eligible=True,
+                    candidate_parameter_scope="runtime_injected",
+                    injected_variant_count=1,
+                ),
+                "policyUpdateEligible requires runtimeParameterConsumption=true",
+            ),
+            (
+                "consumed proof missing consumed count",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": True,
+                        "runtimeParameterConsumption": True,
+                        "runtimeParameterConsumptionStatus": "consumed",
+                        "policyUpdateEligible": True,
+                        "candidateParameterScope": "runtime_injected",
+                        "injectedVariantCount": 1,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
+                "consumedVariantCount must be positive when consumption is proven",
+            ),
+            (
                 "unknown false status",
                 injection_patch(
                     status="garbage",

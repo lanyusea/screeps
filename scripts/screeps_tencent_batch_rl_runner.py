@@ -2183,6 +2183,18 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
         raw.get("injectedVariantCount"),
         "runtimeParameterInjection.injectedVariantCount",
     )
+    runtime_consumed = None
+    if "runtimeParameterConsumption" in raw:
+        runtime_consumed = required_bool(
+            raw.get("runtimeParameterConsumption"),
+            "runtimeParameterInjection.runtimeParameterConsumption",
+        )
+    consumed_count = None
+    if "consumedVariantCount" in raw:
+        consumed_count = required_non_negative_int(
+            raw.get("consumedVariantCount"),
+            "runtimeParameterInjection.consumedVariantCount",
+        )
     if "inlineCandidatesRuntimeInjected" in raw:
         required_bool(raw.get("inlineCandidatesRuntimeInjected"), "runtimeParameterInjection.inlineCandidatesRuntimeInjected")
     if "variantCount" in raw:
@@ -2197,10 +2209,12 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
     if runtime_injected:
         if status != "injected":
             raise BatchRunError("remote runtimeParameterInjection status must be injected when runtime injection is proven")
-        if not policy_update_eligible:
-            raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible must be true when runtime injection is proven")
         if injected_count <= 0:
             raise BatchRunError("remote runtimeParameterInjection injectedVariantCount must be positive when runtime injection is proven")
+        if policy_update_eligible and runtime_consumed is not True:
+            raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterConsumption=true")
+        if runtime_consumed is True and (consumed_count is None or consumed_count == 0):
+            raise BatchRunError("remote runtimeParameterInjection consumedVariantCount must be positive when consumption is proven")
     elif policy_update_eligible:
         raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
     elif status == "injected":

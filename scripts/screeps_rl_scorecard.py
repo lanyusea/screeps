@@ -818,6 +818,11 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
             or text_value(node.get("runtimeParameterInjectionStatus"))
             or text_value(node.get("runtime_parameter_injection_status")),
             "runtimeParameterInjection": runtime_injection_bool(node),
+            "runtimeParameterConsumption": node.get("runtimeParameterConsumption")
+            if isinstance(node.get("runtimeParameterConsumption"), bool)
+            else node.get("runtime_parameter_consumption")
+            if isinstance(node.get("runtime_parameter_consumption"), bool)
+            else None,
             "candidateParameterScope": text_value(node.get("candidateParameterScope"))
             or text_value(node.get("candidate_parameter_scope")),
             "policyUpdateEligible": node.get("policyUpdateEligible")
@@ -825,6 +830,9 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
             else None,
             "variantCount": number_value(node.get("variantCount")),
             "injectedVariantCount": number_value(node.get("injectedVariantCount")),
+            "consumedVariantCount": number_value(
+                node.get("consumedVariantCount", node.get("consumed_variant_count"))
+            ),
             "reason": text_value(node.get("reason")) or text_value(node.get("skippedReason")),
         }
         rows.append(row)
@@ -881,6 +889,7 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
             "source": row.get("source"),
             "status": row.get("status"),
             "runtimeParameterInjection": row.get("runtimeParameterInjection"),
+            "runtimeParameterConsumption": row.get("runtimeParameterConsumption"),
             "candidateParameterScope": row.get("candidateParameterScope"),
             "policyUpdateEligible": row.get("policyUpdateEligible"),
             "reason": row.get("reason"),
@@ -907,6 +916,9 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
     payload: JsonObject = {
         "status": status,
         "runtimeParameterInjection": eligible,
+        "runtimeParameterConsumption": any(
+            row.get("runtimeParameterConsumption") is True for row in summary_rows
+        ),
         "policyUpdateEligible": eligible,
         "candidateParameterScope": scope or ("runtime_injected" if eligible else "missing"),
         "evidence": evidence,
@@ -918,6 +930,11 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
 
 def runtime_injection_row_is_eligible(row: JsonObject) -> bool:
     if row.get("runtimeParameterInjection") is not True:
+        return False
+    if row.get("runtimeParameterConsumption") is not True:
+        return False
+    consumed_count = number_value(row.get("consumedVariantCount"))
+    if consumed_count is not None and consumed_count <= 0:
         return False
     if row.get("policyUpdateEligible") is False:
         return False
