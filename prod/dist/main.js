@@ -24987,7 +24987,7 @@ function selectHeuristicWorkerTask(creep) {
     survivalAssessment,
     controller
   );
-  if (bootstrapExtensionConstructionSite && !bootstrapNonCriticalWorkSuppressed && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)) {
+  if (bootstrapExtensionConstructionSite && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && !shouldKeepSpawnExtensionRefillBeforeBootstrapExtension(creep, spawnOrExtensionEnergySink)) {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: "build",
       targetId: bootstrapExtensionConstructionSite.id
