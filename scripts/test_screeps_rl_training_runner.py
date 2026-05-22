@@ -2364,7 +2364,23 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["gradientEstimation"]["scalarWeightedSumUse"], "gradient_estimation_only_non_promotional")
         self.assertTrue(update["gradientEstimation"]["lexicographicRankingPreserved"])
         self.assertFalse(update["gradientEstimation"]["scalarWeightedSumAuthorized"])
-        self.assertEqual(update["gradient"], update["gradientMomentum"]["emaGradient"])
+        self.assertEqual(update["gradientEstimation"]["sourceMaxComponentWeight"], 1000000000)
+        self.assertEqual(update["gradientEstimation"]["normalizationCap"], 10000)
+        self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
+        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
+        self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
+        self.assertEqual(
+            runner.round_policy_number(update["gradient"]["territorySignalWeight"]),
+            update["gradientMomentum"]["emaGradient"]["territorySignalWeight"],
+        )
+        self.assertAlmostEqual(float(update["gradient"]["territorySignalWeight"]), 1666.666667, places=6)
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
+        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
+        self.assertEqual(
+            runner.round_policy_number(update["gradientEstimation"]["gradient"]["territorySignalWeight"]),
+            update["gradientEstimation"]["capNormalizedGradient"]["territorySignalWeight"],
+        )
         self.assertTrue(update["gradientMomentum"]["momentumConsistent"])
         self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
         self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
@@ -2376,10 +2392,14 @@ export const STRATEGY_REGISTRY = [
         weight_evidence = runner.policy_update_scalar_reward_weight_evidence({})
         weights = weight_evidence["normalizedWeightsByRewardTier"]
 
-        self.assertEqual(weights["reliability"], 1)
-        self.assertEqual(weights["territory"], 0.001)
-        self.assertEqual(weights["resources"], 0.000001)
-        self.assertAlmostEqual(weights["kills"], 1e-9)
+        self.assertEqual(weight_evidence["sourceMaxComponentWeight"], 1000000000)
+        self.assertEqual(weight_evidence["normalizationCap"], 10000)
+        self.assertEqual(weight_evidence["normalizationFactor"], 10000)
+        self.assertEqual(weight_evidence["scalarRewardScaleFactor"], 0.00001)
+        self.assertEqual(weights["reliability"], 100000)
+        self.assertEqual(weights["territory"], 100)
+        self.assertEqual(weights["resources"], 0.1)
+        self.assertAlmostEqual(weights["kills"], 0.0001)
         self.assertGreater(runner.policy_update_scalar_reward([0, 0, 0, 1], weights), 0)
 
     def test_policy_gradient_scalar_estimator_preserves_kills_only_signal(self) -> None:
@@ -2403,8 +2423,220 @@ export const STRATEGY_REGISTRY = [
         )
 
         self.assertGreater(estimation["normalizedWeightsByRewardTier"]["kills"], 0)
+        self.assertEqual(estimation["sourceMaxComponentWeight"], 1000000000)
+        self.assertEqual(estimation["normalizationCap"], 10000)
+        self.assertEqual(estimation["normalizationFactor"], 10000)
+        self.assertEqual(estimation["scalarRewardScaleFactor"], 0.00001)
+        self.assertGreater(estimation["capNormalizedGradient"]["combatSignalWeight"], 0.1)
         self.assertGreater(estimation["gradient"]["combatSignalWeight"], 0)
+        self.assertEqual(estimation["gradient"], estimation["capNormalizedGradient"])
         self.assertGreater(estimation["directionByParameter"]["combatSignalWeight"]["positiveContributionCount"], 0)
+
+    def test_policy_gradient_scalar_estimator_preserves_large_source_weight_scale(self) -> None:
+        policy_gradient = {
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "gradient_reward_weights": {
+                    "reliability": 1_000_000_000_000.0,
+                    "territory": 1_000_000.0,
+                    "resources": 1_000.0,
+                    "kills": 1.0,
+                },
+            },
+        }
+        estimation = runner.policy_update_scalar_weighted_gradient_estimation(
+            policy_gradient=policy_gradient,
+            parameter_space={"territorySignalWeight": {"min": 0, "max": 2}},
+            anchor_parameters={"territorySignalWeight": 1},
+            samples=[
+                {
+                    "candidate": {"parameters": {"territorySignalWeight": 0}},
+                    "returnTuple": [0, 0, 0, 0],
+                },
+                {
+                    "candidate": {"parameters": {"territorySignalWeight": 2}},
+                    "returnTuple": [1, 0, 0, 0],
+                },
+            ],
+        )
+
+        self.assertEqual(estimation["sourceMaxComponentWeight"], 1_000_000_000_000)
+        self.assertEqual(estimation["normalizationFactor"], 10000)
+        self.assertEqual(estimation["scalarRewardScaleFactor"], 0.00000001)
+        self.assertEqual(estimation["capNormalizedGradient"], {"territorySignalWeight": 25000000})
+        self.assertEqual(estimation["gradient"], {"territorySignalWeight": 25000000})
+        direction = estimation["directionByParameter"]["territorySignalWeight"]
+        self.assertGreater(direction["contributionSum"], 0)
+        self.assertEqual(direction["contributionSum"], direction["capNormalizedContributionSum"])
+
+    def test_reinforce_policy_update_preserves_large_source_weight_scale(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 0.1,
+                "gradient_reward_weights": {
+                    "reliability": 1_000_000_000_000.0,
+                    "territory": 1_000_000.0,
+                    "resources": 1_000.0,
+                    "kills": 1.0,
+                },
+            },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 2}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 1},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 2},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 1},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 2},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-large-source-weight",
+            generated_at="2026-05-22T00:00:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00000001)
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 12500000})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 1})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 2})
+        self.assertEqual(
+            update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
+            {"territorySignalWeight": 1},
+        )
+
+    def test_reinforce_policy_update_uses_unrounded_scalar_gradient_for_parameter_delta(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 1,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
+            },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "learnableParameters": [{"name": "tinySignalWeight", "min": 0, "max": 10_000_000}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"tinySignalWeight": 0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"tinySignalWeight": 10_000_000},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"tinySignalWeight": 0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [0.000001, 0, 0, 0]},
+                "evaluatedParameters": {"tinySignalWeight": 10_000_000},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-tiny-signal",
+            generated_at="2026-05-22T00:05:00Z",
+        )
+
+        raw_gradient = float(update["rawGradient"]["tinySignalWeight"])
+        self.assertEqual(update["iterations"], 1)
+        self.assertGreater(raw_gradient, 0)
+        self.assertLess(raw_gradient, 0.0000005)
+        self.assertEqual(runner.round_policy_number(raw_gradient), 0)
+        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"tinySignalWeight": 0})
+        self.assertEqual(update["gradientEstimation"]["directionByParameter"]["tinySignalWeight"]["gradient"], 0)
+        self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
+        self.assertEqual(update["gradientMomentum"]["emaGradient"], {"tinySignalWeight": 0})
+        self.assertEqual(update["gradientMomentum"]["directionByParameter"]["tinySignalWeight"]["emaGradient"], 0)
+        self.assertGreater(float(update["gradient"]["tinySignalWeight"]), 0)
+        self.assertGreater(float(update["gradientMomentum"]["rawEmaGradient"]["tinySignalWeight"]), 0)
+        self.assertEqual(update["parameterDelta"], {"tinySignalWeight": 2.5})
+        self.assertEqual(update["updatedParameters"], {"tinySignalWeight": 2.5})
+        self.assertEqual(
+            update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
+            {"tinySignalWeight": 2.5},
+        )
+
+    def test_gradient_momentum_config_prefers_raw_ema_round_trip_state(self) -> None:
+        raw_previous = 0.00000025
+        policy_gradient = {
+            "policyUpdate": {
+                "gradientMomentum": {
+                    "emaDecay": 0.8,
+                    "rawEmaGradient": {"tinySignalWeight": raw_previous},
+                    "emaGradient": {"tinySignalWeight": 0},
+                },
+            },
+        }
+
+        config = runner.policy_update_gradient_momentum_config(policy_gradient)
+        momentum = runner.policy_update_gradient_momentum_evidence(
+            policy_gradient=policy_gradient,
+            raw_gradient={"tinySignalWeight": raw_previous},
+        )
+
+        self.assertAlmostEqual(config["previousEmaGradient"]["tinySignalWeight"], raw_previous, places=12)
+        self.assertEqual(momentum["emaGradient"], {"tinySignalWeight": 0})
+        self.assertAlmostEqual(momentum["rawEmaGradient"]["tinySignalWeight"], raw_previous, places=12)
 
     def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
         update = runner.build_policy_update(
@@ -2420,6 +2652,12 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["gradientStable"])
         self.assertFalse(update["trustedGradientUpdate"])
         self.assertTrue(update["highVariance"])
+        self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
+        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
+        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
+        self.assertGreater(abs(float(update["gradient"]["territorySignalWeight"])), 0)
         self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
         self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
         self.assertTrue(stability["sampleOnly"])
@@ -2637,6 +2875,12 @@ export const STRATEGY_REGISTRY = [
             "policyUpdate": {
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 1,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
             },
             "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30}],
             "candidateParameterVectors": [
@@ -2680,7 +2924,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["skippedReason"], runner.RUNTIME_PARAMETER_INJECTION_INCOMPLETE_SKIP_REASON)
         self.assertEqual(update["candidateCount"], 2)
         self.assertEqual(update["metadataCandidateCount"], 2)
-        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.008333})
+        self.assertAlmostEqual(float(update["gradient"]["territorySignalWeight"]), 0.008333, places=6)
         self.assertFalse(update["parameterEvidence"]["runtimeParameterInjection"])
         self.assertFalse(update["parameterEvidence"]["policyUpdateEligible"])
         self.assertEqual(update["returnSummary"]["sampleCount"], 2)
@@ -2694,6 +2938,12 @@ export const STRATEGY_REGISTRY = [
             "policyUpdate": {
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 0.25,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
             },
             "runner_support": {
                 "runtime_parameter_injection": True,

@@ -61,6 +61,9 @@ DEFAULT_GRADIENT_EMA_DECAY = 0.8
 GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
 GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
+# Cap the estimator reward scale used by the update gradient; promotion remains
+# lexicographic-gated.
+DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP = 10_000.0
 DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS = {
     "reliability": 1000000000.0,
     "territory": 1000000.0,
@@ -1881,7 +1884,7 @@ def build_reinforce_policy_update(
         policy_gradient=policy_gradient,
         raw_gradient=raw_gradient,
     )
-    gradient = gradient_momentum["emaGradient"]
+    gradient = gradient_momentum.get("rawEmaGradient", gradient_momentum["emaGradient"])
     updated_parameters: JsonObject = {}
     parameter_delta: JsonObject = {}
     for name, spec in parameter_space.items():
@@ -2158,6 +2161,7 @@ def policy_update_scalar_weighted_gradient_estimation(
     scalar_returns = [policy_update_scalar_reward(sample["returnTuple"], weights) for sample in samples]
     scalar_baseline = statistics.fmean(scalar_returns) if scalar_returns else 0.0
     gradient: JsonObject = {}
+    cap_normalized_gradient: JsonObject = {}
     direction_by_parameter: JsonObject = {}
 
     for name, spec in parameter_space.items():
@@ -2184,11 +2188,14 @@ def policy_update_scalar_weighted_gradient_estimation(
         nonzero_count = positive_count + negative_count
         dominant_count = max(positive_count, negative_count)
         dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
-        gradient[name] = round_policy_number(raw_gradient / len(samples)) if samples else 0
+        cap_normalized_estimate = raw_gradient / len(samples) if samples else 0
+        cap_normalized_gradient[name] = round_policy_number(cap_normalized_estimate)
+        gradient[name] = cap_normalized_estimate
         direction_by_parameter[name] = {
             "gradientReward": "scalar_weighted_sum",
-            "gradient": gradient[name],
+            "gradient": cap_normalized_gradient[name],
             "contributionSum": round_policy_number(contribution_sum),
+            "capNormalizedContributionSum": round_policy_number(contribution_sum),
             "positiveContributionCount": positive_count,
             "negativeContributionCount": negative_count,
             "zeroContributionCount": zero_count,
@@ -2208,9 +2215,14 @@ def policy_update_scalar_weighted_gradient_estimation(
         "scalarWeightedSumAuthorized": False,
         "sourceComponentWeights": weight_evidence["sourceComponentWeights"],
         "normalizedWeightsByRewardTier": weights,
+        "sourceMaxComponentWeight": weight_evidence["sourceMaxComponentWeight"],
+        "normalizationCap": weight_evidence["normalizationCap"],
         "normalizationFactor": weight_evidence["normalizationFactor"],
+        "scalarRewardScaleFactor": weight_evidence["scalarRewardScaleFactor"],
         "gradient": gradient,
+        "capNormalizedGradient": cap_normalized_gradient,
         "scalarReturnBaseline": round_policy_number(scalar_baseline),
+        "capNormalizedScalarReturnBaseline": round_policy_number(scalar_baseline),
         "sampleCount": len(samples),
         "directionByParameter": direction_by_parameter,
         "liveEffect": False,
@@ -2240,7 +2252,12 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
         if component_weights is not None:
             source_weights.update(policy_update_component_weights_by_tier(component_weights))
 
-    normalization_factor = max(max(abs(value) for value in source_weights.values()), 1.0)
+    max_source_weight = max(max(abs(value) for value in source_weights.values()), 1.0)
+    normalization_factor = min(
+        max_source_weight,
+        DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP,
+    )
+    scalar_reward_scale_factor = normalization_factor / max_source_weight
     normalized = {
         tier: source_weights[tier] / normalization_factor
         for tier in REWARD_TIERS
@@ -2248,7 +2265,12 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
     return {
         "sourceComponentWeights": {tier: round_policy_number(source_weights[tier]) for tier in REWARD_TIERS},
         "normalizedWeightsByRewardTier": normalized,
+        "sourceMaxComponentWeight": round_policy_number(max_source_weight),
+        "normalizationCap": round_policy_number(
+            DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP
+        ),
         "normalizationFactor": round_policy_number(normalization_factor),
+        "scalarRewardScaleFactor": scalar_reward_scale_factor,
     }
 
 
@@ -2287,6 +2309,7 @@ def policy_update_gradient_momentum_evidence(
     decay = float(config["emaDecay"])
     previous_gradient = config["previousEmaGradient"]
     ema_gradient: JsonObject = {}
+    raw_ema_gradient: JsonObject = {}
     conflicting_parameters: list[str] = []
     direction_by_parameter: JsonObject = {}
     for name, value in raw_gradient.items():
@@ -2307,11 +2330,13 @@ def policy_update_gradient_momentum_evidence(
         momentum_consistent = direction_consistent and ema_consistent
         if not momentum_consistent:
             conflicting_parameters.append(str(name))
-        ema_gradient[name] = round_policy_number(ema_value)
+        raw_ema_gradient[name] = ema_value
+        rounded_ema_value = round_policy_number(ema_value)
+        ema_gradient[name] = rounded_ema_value
         direction_by_parameter[name] = {
             "rawGradient": round_policy_number(raw_value),
             "previousEmaGradient": round_policy_number(previous_value) if previous_present else None,
-            "emaGradient": ema_gradient[name],
+            "emaGradient": rounded_ema_value,
             "previousGradientPresent": previous_present,
             "rawDirection": raw_sign,
             "previousDirection": previous_sign if previous_present else None,
@@ -2326,6 +2351,7 @@ def policy_update_gradient_momentum_evidence(
         "previousGradientPresent": bool(previous_gradient),
         "rawGradient": copy.deepcopy(raw_gradient),
         "emaGradient": ema_gradient,
+        "rawEmaGradient": raw_ema_gradient,
         "momentumConsistent": not conflicting_parameters,
         "conflictingParameters": conflicting_parameters,
         "directionByParameter": direction_by_parameter,
@@ -2358,6 +2384,12 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
         raw_previous = first_present(
             raw,
             (
+                "previous_raw_ema_gradient",
+                "previousRawEmaGradient",
+                "previous_raw_gradient_ema",
+                "previousRawGradientEma",
+                "raw_ema_gradient",
+                "rawEmaGradient",
                 "previous_ema_gradient",
                 "previousEmaGradient",
                 "previous_gradient_ema",
@@ -2370,7 +2402,7 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
             for name, value in raw_previous.items():
                 parsed_value = number_or_none(value)
                 if isinstance(name, str) and parsed_value is not None and math.isfinite(float(parsed_value)):
-                    previous_gradient[name] = round_policy_number(float(parsed_value))
+                    previous_gradient[name] = float(parsed_value)
 
     return {
         "emaDecay": decay,
