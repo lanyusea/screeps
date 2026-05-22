@@ -2368,7 +2368,11 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(update["gradientEstimation"]["normalizationCap"], 10000)
         self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
         self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
-        self.assertEqual(update["gradient"], update["gradientMomentum"]["emaGradient"])
+        self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
+        self.assertEqual(
+            runner.round_policy_number(update["gradient"]["territorySignalWeight"]),
+            update["gradientMomentum"]["emaGradient"]["territorySignalWeight"],
+        )
         self.assertAlmostEqual(float(update["gradient"]["territorySignalWeight"]), 1666.666667, places=6)
         self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
         self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
@@ -2600,14 +2604,39 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(runner.round_policy_number(raw_gradient), 0)
         self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"tinySignalWeight": 0})
         self.assertEqual(update["gradientEstimation"]["directionByParameter"]["tinySignalWeight"]["gradient"], 0)
+        self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
+        self.assertEqual(update["gradientMomentum"]["emaGradient"], {"tinySignalWeight": 0})
         self.assertEqual(update["gradientMomentum"]["directionByParameter"]["tinySignalWeight"]["emaGradient"], 0)
         self.assertGreater(float(update["gradient"]["tinySignalWeight"]), 0)
+        self.assertGreater(float(update["gradientMomentum"]["rawEmaGradient"]["tinySignalWeight"]), 0)
         self.assertEqual(update["parameterDelta"], {"tinySignalWeight": 2.5})
         self.assertEqual(update["updatedParameters"], {"tinySignalWeight": 2.5})
         self.assertEqual(
             update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
             {"tinySignalWeight": 2.5},
         )
+
+    def test_gradient_momentum_config_prefers_raw_ema_round_trip_state(self) -> None:
+        raw_previous = 0.00000025
+        policy_gradient = {
+            "policyUpdate": {
+                "gradientMomentum": {
+                    "emaDecay": 0.8,
+                    "rawEmaGradient": {"tinySignalWeight": raw_previous},
+                    "emaGradient": {"tinySignalWeight": 0},
+                },
+            },
+        }
+
+        config = runner.policy_update_gradient_momentum_config(policy_gradient)
+        momentum = runner.policy_update_gradient_momentum_evidence(
+            policy_gradient=policy_gradient,
+            raw_gradient={"tinySignalWeight": raw_previous},
+        )
+
+        self.assertAlmostEqual(config["previousEmaGradient"]["tinySignalWeight"], raw_previous, places=12)
+        self.assertEqual(momentum["emaGradient"], {"tinySignalWeight": 0})
+        self.assertAlmostEqual(momentum["rawEmaGradient"]["tinySignalWeight"], raw_previous, places=12)
 
     def test_reinforce_gradient_stability_marks_low_sample_update_untrusted(self) -> None:
         update = runner.build_policy_update(

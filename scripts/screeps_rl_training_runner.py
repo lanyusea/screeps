@@ -1884,7 +1884,7 @@ def build_reinforce_policy_update(
         policy_gradient=policy_gradient,
         raw_gradient=raw_gradient,
     )
-    gradient = gradient_momentum["emaGradient"]
+    gradient = gradient_momentum.get("rawEmaGradient", gradient_momentum["emaGradient"])
     updated_parameters: JsonObject = {}
     parameter_delta: JsonObject = {}
     for name, spec in parameter_space.items():
@@ -2309,6 +2309,7 @@ def policy_update_gradient_momentum_evidence(
     decay = float(config["emaDecay"])
     previous_gradient = config["previousEmaGradient"]
     ema_gradient: JsonObject = {}
+    raw_ema_gradient: JsonObject = {}
     conflicting_parameters: list[str] = []
     direction_by_parameter: JsonObject = {}
     for name, value in raw_gradient.items():
@@ -2329,11 +2330,13 @@ def policy_update_gradient_momentum_evidence(
         momentum_consistent = direction_consistent and ema_consistent
         if not momentum_consistent:
             conflicting_parameters.append(str(name))
-        ema_gradient[name] = ema_value
+        raw_ema_gradient[name] = ema_value
+        rounded_ema_value = round_policy_number(ema_value)
+        ema_gradient[name] = rounded_ema_value
         direction_by_parameter[name] = {
             "rawGradient": round_policy_number(raw_value),
             "previousEmaGradient": round_policy_number(previous_value) if previous_present else None,
-            "emaGradient": round_policy_number(ema_value),
+            "emaGradient": rounded_ema_value,
             "previousGradientPresent": previous_present,
             "rawDirection": raw_sign,
             "previousDirection": previous_sign if previous_present else None,
@@ -2348,6 +2351,7 @@ def policy_update_gradient_momentum_evidence(
         "previousGradientPresent": bool(previous_gradient),
         "rawGradient": copy.deepcopy(raw_gradient),
         "emaGradient": ema_gradient,
+        "rawEmaGradient": raw_ema_gradient,
         "momentumConsistent": not conflicting_parameters,
         "conflictingParameters": conflicting_parameters,
         "directionByParameter": direction_by_parameter,
@@ -2380,6 +2384,12 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
         raw_previous = first_present(
             raw,
             (
+                "previous_raw_ema_gradient",
+                "previousRawEmaGradient",
+                "previous_raw_gradient_ema",
+                "previousRawGradientEma",
+                "raw_ema_gradient",
+                "rawEmaGradient",
                 "previous_ema_gradient",
                 "previousEmaGradient",
                 "previous_gradient_ema",
@@ -2392,7 +2402,7 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
             for name, value in raw_previous.items():
                 parsed_value = number_or_none(value)
                 if isinstance(name, str) and parsed_value is not None and math.isfinite(float(parsed_value)):
-                    previous_gradient[name] = round_policy_number(float(parsed_value))
+                    previous_gradient[name] = float(parsed_value)
 
     return {
         "emaDecay": decay,
