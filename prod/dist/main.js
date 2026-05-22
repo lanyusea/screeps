@@ -13938,7 +13938,7 @@ function planCapacityBootstrapExtensionForColony(colony, options = {}) {
     energyReserved: 0,
     placements: []
   };
-  if (rcl !== 2 || typeof room.createConstructionSite !== "function" || !hasSpawnCoverage2(colony) || !shouldPrioritizeExtensionBootstrapConstruction(room, rcl, getRoomEnergyCapacityAvailable6(colony))) {
+  if (rcl !== 2 || typeof room.createConstructionSite !== "function" || !hasSpawnCoverage2(colony) || !hasRemainingStructureCapacity(room, "extension")) {
     return result;
   }
   planBootstrapExtension(colony, result, budgetState, options);

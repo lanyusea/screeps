@@ -127,6 +127,44 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(16, 23, STRUCTURE_EXTENSION);
   });
 
+  it('continues seeding deferred RCL2 claimed room extensions after the first extension is built', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N57',
+      controllerLevel: 2,
+      energyAvailable: 350,
+      energyCapacityAvailable: 350,
+      spawnPosition: { x: 17, y: 24 },
+      structures: [makeStructure('extension-1', TEST_GLOBALS.STRUCTURE_EXTENSION, 16, 23, 'E29N57')],
+      sources: []
+    });
+
+    const result = planDeferredClaimedRoomCapacityConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyReserved).toBe(50);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(18, 23, STRUCTURE_EXTENSION);
+  });
+
+  it('stops deferred RCL2 claimed room extension seeding at the RCL2 extension limit', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N57',
+      controllerLevel: 2,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      spawnPosition: { x: 17, y: 24 },
+      structures: makeExtensions(5, 'E29N57'),
+      sources: []
+    });
+
+    const result = planDeferredClaimedRoomCapacityConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+  });
+
   it('does not let deferred capacity construction bypass missing-spawn recovery', () => {
     const { room, colony } = makeColony({
       roomName: 'E29N56',

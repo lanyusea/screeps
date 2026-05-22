@@ -389,7 +389,7 @@ export function planCapacityBootstrapExtensionForColony(
     rcl !== 2 ||
     typeof room.createConstructionSite !== 'function' ||
     !hasSpawnCoverage(colony) ||
-    !shouldPrioritizeExtensionBootstrapConstruction(room, rcl, getRoomEnergyCapacityAvailable(colony))
+    !hasRemainingStructureCapacity(room, 'extension')
   ) {
     return result;
   }
