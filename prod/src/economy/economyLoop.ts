@@ -666,6 +666,7 @@ function refreshExecutableTerritoryRecommendation(
       return;
     }
 
+    report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
     const colonyExpansionEvaluation = refreshColonyExpansionIntent(colony, { territoryReady }, Game.time);
     if (colonyExpansionEvaluation.status === 'planned') {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);

@@ -165,6 +165,7 @@ export interface PostClaimDefenseConstructionRefreshResult {
 }
 
 export type PostClaimBootstrapBlockerSummary = TerritoryPostClaimBootstrapBlockerMemory;
+export type PostClaimBootstrapIgnoredBlockerSummary = TerritoryPostClaimBootstrapIgnoredBlockerMemory;
 
 export function recordPostClaimBootstrapClaimSuccess(
   input: {
@@ -386,6 +387,23 @@ export function getActivePostClaimBootstrapBlockers(
       return blocker ? [blocker] : [];
     })
     .sort(comparePostClaimBootstrapBlockers);
+}
+
+export function getIgnoredPostClaimBootstrapBlockers(
+  colonyName: string,
+  gameTime = getGameTime()
+): PostClaimBootstrapIgnoredBlockerSummary[] {
+  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
+  if (!isNonEmptyString(colonyName) || !isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .flatMap((record) => {
+      const blocker = buildIgnoredPostClaimBootstrapBlockerSummary(record, colonyName, gameTime);
+      return blocker ? [blocker] : [];
+    })
+    .sort(compareIgnoredPostClaimBootstrapBlockers);
 }
 
 export function refreshPostClaimDefenseConstruction(
@@ -854,13 +872,44 @@ function buildPostClaimBootstrapBlockerSummary(
     return null;
   }
 
-  const workerTarget = getPostClaimBootstrapWorkerTarget(record);
-  const spawnCount = countOwnedSpawnsInRoom(record.roomName);
-  const workerCount = countRoomWorkers(record.roomName);
-  if (spawnCount > 0 && workerCount >= workerTarget) {
+  const summary = buildPostClaimBootstrapBlockerState(record, gameTime);
+  if (summary.spawnCount > 0 && summary.workerCount >= summary.workerTarget) {
     return null;
   }
 
+  return summary;
+}
+
+function buildIgnoredPostClaimBootstrapBlockerSummary(
+  record: unknown,
+  colonyName: string,
+  gameTime: number
+): PostClaimBootstrapIgnoredBlockerSummary | null {
+  if (!isAnyPostClaimBootstrapRecord(record) || record.colony !== colonyName) {
+    return null;
+  }
+
+  const summary = buildPostClaimBootstrapBlockerState(record, gameTime);
+  if (record.status === 'ready') {
+    return { ...summary, reason: 'ready' };
+  }
+
+  if (!getVisibleOwnedRoom(record.roomName)) {
+    return { ...summary, reason: 'notVisibleOwnedRoom' };
+  }
+
+  if (summary.spawnCount > 0 && summary.workerCount >= summary.workerTarget) {
+    return { ...summary, reason: 'workerTargetSatisfied' };
+  }
+
+  return null;
+}
+
+function buildPostClaimBootstrapBlockerState(
+  record: TerritoryPostClaimBootstrapMemory,
+  gameTime: number
+): PostClaimBootstrapBlockerSummary {
+  const workerTarget = getPostClaimBootstrapWorkerTarget(record);
   return {
     colony: record.colony,
     roomName: record.roomName,
@@ -868,8 +917,8 @@ function buildPostClaimBootstrapBlockerSummary(
     updatedAt: record.updatedAt,
     age: Math.max(0, Math.floor(gameTime - record.updatedAt)),
     workerTarget,
-    spawnCount,
-    workerCount
+    spawnCount: countOwnedSpawnsInRoom(record.roomName),
+    workerCount: countRoomWorkers(record.roomName)
   };
 }
 
@@ -883,6 +932,13 @@ function comparePostClaimBootstrapBlockers(
     left.workerCount - right.workerCount ||
     left.roomName.localeCompare(right.roomName)
   );
+}
+
+function compareIgnoredPostClaimBootstrapBlockers(
+  left: PostClaimBootstrapIgnoredBlockerSummary,
+  right: PostClaimBootstrapIgnoredBlockerSummary
+): number {
+  return comparePostClaimBootstrapBlockers(left, right) || left.reason.localeCompare(right.reason);
 }
 
 function comparePostClaimBootstrapRecordsForFocus(
