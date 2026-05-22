@@ -596,7 +596,7 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
   });
 
-  it('does not reserve spawn-only bootstrap extension construction below worker spawn energy', () => {
+  it('seeds spawn-only bootstrap extension construction below worker spawn energy without reserving it', () => {
     installOpenTerrain();
     recordBootstrapSurvivalMode();
     const { room, colony } = makeColony({
@@ -611,8 +611,10 @@ describe('owned room construction planner', () => {
 
     const result = planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
 
-    expect(result.placements).toEqual([]);
-    expect(room.createConstructionSite).not.toHaveBeenCalled();
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyReserved).toBe(0);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(9, 9, STRUCTURE_EXTENSION);
   });
 
   it('does not start duplicate extension sites during spawn-only bootstrap', () => {

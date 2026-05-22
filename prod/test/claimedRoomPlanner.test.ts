@@ -108,6 +108,28 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(33, 21, STRUCTURE_EXTENSION);
   });
 
+  it('seeds an E29N56 RCL2 first extension site below the energy reserve without reserving energy', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N56',
+      controllerLevel: 2,
+      energyAvailable: 206,
+      energyCapacityAvailable: 300,
+      spawnPosition: { x: 17, y: 24 },
+      constructionSites: [
+        makeConstructionSite('source-container-site', TEST_GLOBALS.STRUCTURE_CONTAINER, 21, 21, 'E29N56')
+      ],
+      sources: []
+    });
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyReserved).toBe(0);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(16, 23, STRUCTURE_EXTENSION);
+  });
+
   it('seeds a deferred RCL2 claimed room extension when spawn coverage already exists', () => {
     const { room, colony } = makeColony({
       roomName: 'E29N57',
@@ -361,6 +383,7 @@ interface MakeColonyOptions {
   includeSpawn?: boolean;
   sources: Source[];
   structures?: Structure[];
+  constructionSites?: ConstructionSite[];
   pathsByTarget?: Record<string, TestPosition[]>;
 }
 
@@ -378,7 +401,7 @@ class MockCostMatrix {
 }
 
 function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: ColonySnapshot } {
-  const constructionSites: ConstructionSite[] = [];
+  const constructionSites: ConstructionSite[] = [...(options.constructionSites ?? [])];
   const roomName = options.roomName ?? 'W2N1';
   const controller = {
     id: 'controller1',
