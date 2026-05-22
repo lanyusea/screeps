@@ -214,6 +214,8 @@ def make_worker_assignment_gap_metrics() -> monitor.RoomSummaryMetrics:
         construction_deadlock_ticks=1,
         extension_count=1,
         extension_capacity_contribution=50,
+        extension_construction_site_count=0,
+        extension_pending_build_progress=0,
         stored_energy=0,
         cpu_used=None,
         cpu_bucket=None,
@@ -2727,6 +2729,388 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(reason["buildBlockedReason"], monitor.WORKER_ASSIGNMENT_GAP_BLOCKED_REASON)
         self.assertEqual(reason["constructionSiteCount"], 1)
         self.assertEqual(next_state["consecutive_ticks"], 150)
+
+    def test_extension_bootstrap_state_preserves_zero_last_progress_tick_without_progress(self) -> None:
+        state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 0,
+                "last_tick": 10,
+                "last_progress_tick": 0,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 10,
+            },
+            current_tick=25,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(state["last_progress_tick"], 0)
+        self.assertEqual(state["stalled_ticks"], 25)
+
+    def test_extension_bootstrap_state_preserves_zero_start_tick_without_reset(self) -> None:
+        state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 0,
+                "last_tick": 10,
+                "last_progress_tick": 5,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 5,
+            },
+            current_tick=25,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(state["start_tick"], 0)
+        self.assertEqual(state["last_progress_tick"], 5)
+        self.assertEqual(state["stalled_ticks"], 20)
+
+    def test_extension_bootstrap_state_progress_and_reset_behavior_is_unchanged(self) -> None:
+        progress_state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 100,
+                "last_tick": 110,
+                "last_progress_tick": 100,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 10,
+            },
+            current_tick=120,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2800,
+        )
+        reset_state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 100,
+                "last_tick": 130,
+                "last_progress_tick": 100,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 30,
+            },
+            current_tick=120,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(progress_state["start_tick"], 100)
+        self.assertEqual(progress_state["last_progress_tick"], 120)
+        self.assertEqual(progress_state["stalled_ticks"], 0)
+        self.assertEqual(reset_state["start_tick"], 120)
+        self.assertEqual(reset_state["last_progress_tick"], 120)
+        self.assertEqual(reset_state["stalled_ticks"], 0)
+
+    def test_rcl2_zero_extension_active_site_tracks_bootstrap_without_p0(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "ctrl": {
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "level": 2,
+                    "x": 5,
+                    "y": 36,
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 100,
+                    "progressTotal": 3000,
+                    "x": 24,
+                    "y": 24,
+                },
+            },
+            tick=1000,
+        )
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND, [reason["kind"] for reason in emitted])
+        state = next_state["rule_counts"][monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND]
+        self.assertEqual(state["extension_construction_site_count"], 1)
+        self.assertEqual(state["extension_pending_build_progress"], 2900)
+        self.assertEqual(state["start_tick"], 1000)
+        self.assertEqual(state["last_progress_tick"], 1000)
+        self.assertEqual(state["stalled_ticks"], 0)
+
+    def test_rcl2_zero_extension_recent_extension_progress_clears_stall_window(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "ctrl": {
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "level": 2,
+                    "x": 5,
+                    "y": 36,
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 200,
+                    "progressTotal": 3000,
+                    "x": 24,
+                    "y": 24,
+                },
+            },
+            tick=1200,
+        )
+        previous_state = {
+            "baseline_established": True,
+            "owner": "owner",
+            "rule_counts": {
+                monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: {
+                    "start_tick": 1000,
+                    "last_tick": 1100,
+                    "last_progress_tick": 1000,
+                    "extension_construction_site_count": 1,
+                    "extension_pending_build_progress": 2900,
+                    "stalled_ticks": 100,
+                }
+            },
+        }
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous_state,
+            now=200,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertNotIn(monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND, [reason["kind"] for reason in emitted])
+        state = next_state["rule_counts"][monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND]
+        self.assertEqual(state["last_progress_tick"], 1200)
+        self.assertEqual(state["extension_pending_build_progress"], 2800)
+        self.assertEqual(state["extension_construction_site_count"], 1)
+        self.assertEqual(state["stalled_ticks"], 0)
+
+    def test_rcl2_zero_extension_missing_tick_preserves_bootstrap_state(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "ctrl": {
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "level": 2,
+                    "x": 5,
+                    "y": 36,
+                },
+                "site1": {
+                    "type": "constructionSite",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "structureType": "extension",
+                    "progress": 100,
+                    "progressTotal": 3000,
+                    "x": 24,
+                    "y": 24,
+                },
+            },
+            tick=None,
+        )
+        previous_bootstrap_state = {
+            "start_tick": 1000,
+            "last_tick": 1050,
+            "last_progress_tick": 1000,
+            "extension_construction_site_count": 1,
+            "extension_pending_build_progress": 2900,
+            "stalled_ticks": 50,
+        }
+        expected_bootstrap_state = copy.deepcopy(previous_bootstrap_state)
+
+        emitted, suppressed, next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {
+                "baseline_established": True,
+                "owner": "owner",
+                "rule_counts": {monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: previous_bootstrap_state},
+            },
+            now=200,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(suppressed, [])
+        self.assertEqual(
+            next_state["rule_counts"][monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
+            expected_bootstrap_state,
+        )
+        self.assertEqual(previous_bootstrap_state, expected_bootstrap_state)
+
+    def test_rcl2_zero_extension_bootstrap_states_have_separate_debounce_signatures(self) -> None:
+        base_objects = {
+            "spawn1": {
+                "type": "spawn",
+                "my": True,
+                "owner": {"username": "owner"},
+                "x": 25,
+                "y": 25,
+                "hits": 5000,
+                "hitsMax": 5000,
+            },
+            "ctrl": {
+                "type": "controller",
+                "my": True,
+                "owner": {"username": "owner"},
+                "level": 2,
+                "x": 5,
+                "y": 36,
+            },
+        }
+        missing_site_snapshot = make_snapshot(base_objects, tick=1000)
+        missing_site_reason = monitor.build_extension_count_zero_at_rcl_ge_2_reason(
+            missing_site_snapshot.ref,
+            monitor.compute_room_summary_metrics(missing_site_snapshot),
+            reason="missing_extension_site",
+        )
+        stalled_objects = {
+            **base_objects,
+            "site1": {
+                "type": "constructionSite",
+                "my": True,
+                "owner": {"username": "owner"},
+                "structureType": "extension",
+                "progress": 100,
+                "progressTotal": 3000,
+                "x": 24,
+                "y": 24,
+            },
+        }
+        threshold = monitor.EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS
+        stalled_snapshot = make_snapshot(stalled_objects, tick=1000 + threshold)
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            stalled_snapshot,
+            {
+                "baseline_established": True,
+                "owner": "owner",
+                "alerts": {missing_site_reason["signature"]: 190},
+                "rule_counts": {
+                    monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND: {
+                        "start_tick": 1000,
+                        "last_tick": 1000,
+                        "last_progress_tick": 1000,
+                        "extension_construction_site_count": 1,
+                        "extension_pending_build_progress": 2900,
+                        "stalled_ticks": 0,
+                    }
+                },
+            },
+            now=200,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(suppressed, [])
+        reason = next(
+            reason for reason in emitted if reason["kind"] == monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND
+        )
+        self.assertEqual(reason["bootstrapState"], "extension_bootstrap_stalled")
+        self.assertNotEqual(reason["signature"], missing_site_reason["signature"])
+
+    def test_rcl2_zero_extension_active_site_alerts_when_progress_stalls(self) -> None:
+        threshold = monitor.EXTENSION_BOOTSTRAP_PROGRESS_STALL_TICKS
+        self.assertGreaterEqual(threshold, 50)
+        self.assertLessEqual(threshold, 200)
+        base_objects = {
+            "spawn1": {
+                "type": "spawn",
+                "my": True,
+                "owner": {"username": "owner"},
+                "x": 25,
+                "y": 25,
+                "hits": 5000,
+                "hitsMax": 5000,
+            },
+            "ctrl": {
+                "type": "controller",
+                "my": True,
+                "owner": {"username": "owner"},
+                "level": 2,
+                "x": 5,
+                "y": 36,
+            },
+            "site1": {
+                "type": "constructionSite",
+                "my": True,
+                "owner": {"username": "owner"},
+                "structureType": "extension",
+                "progress": 100,
+                "progressTotal": 3000,
+                "x": 24,
+                "y": 24,
+            },
+        }
+        first_snapshot = make_snapshot(base_objects, tick=1000)
+        second_snapshot = make_snapshot(base_objects, tick=1000 + threshold)
+
+        first_emitted, _first_suppressed, first_state = monitor.evaluate_room_alert(
+            first_snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+        )
+        self.assertNotIn(monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND, [reason["kind"] for reason in first_emitted])
+
+        second_emitted, second_suppressed, second_state = monitor.evaluate_room_alert(
+            second_snapshot,
+            first_state,
+            now=200,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(second_suppressed, [])
+        reason = next(
+            reason for reason in second_emitted if reason["kind"] == monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND
+        )
+        self.assertEqual(reason["priority"], "P0")
+        self.assertEqual(reason["bootstrapState"], "extension_bootstrap_stalled")
+        self.assertEqual(reason["extensionConstructionSiteCount"], 1)
+        self.assertEqual(reason["extensionPendingBuildProgress"], 2900)
+        self.assertEqual(reason["stalledTicks"], threshold)
+        self.assertEqual(
+            second_state["rule_counts"][monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND]["stalled_ticks"],
+            threshold,
+        )
 
     def test_live_productive_energy_worker_assignment_gap_stays_active_with_other_tasks(self) -> None:
         runtime_room = {
