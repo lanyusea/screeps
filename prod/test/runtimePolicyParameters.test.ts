@@ -126,7 +126,7 @@ describe('runtime policy parameters', () => {
     ).toBe(true);
   });
 
-  it('marks consumption only after a patched strategy entry is used during a tick', () => {
+  it('marks consumption after runtime-injected parameters are materialized into the tick registry', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -149,8 +149,13 @@ describe('runtime policy parameters', () => {
 
     expect(recorder.buildEvidence()).toMatchObject({
       runtimeParameterInjection: true,
-      consumed: false,
-      reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
+      consumed: true,
+      reason: 'runtime policy parameter payload was materialized into the tick runtime strategy registry',
+      parametersSha256: 'runtime-use-sha',
+      appliedStrategyIds: ['construction-priority.incumbent.v1'],
+      parameters: {
+        territorySignalWeight: 29
+      }
     });
 
     expect(usedEntry).toBeDefined();
@@ -164,6 +169,43 @@ describe('runtime policy parameters', () => {
       parameters: {
         territorySignalWeight: 29
       }
+    });
+  });
+
+  it('does not carry materialized registry evidence across a different injected payload', () => {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        territorySignalWeight: 29
+      },
+      parametersSha256: 'runtime-use-sha'
+    };
+    applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        territorySignalWeight: 30
+      },
+      parametersSha256: 'runtime-use-sha-2'
+    };
+
+    expect(createRuntimePolicyParameterConsumptionRecorder().buildEvidence()).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: false,
+      appliedStrategyIds: [],
+      parametersSha256: 'runtime-use-sha-2',
+      reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
     });
   });
 

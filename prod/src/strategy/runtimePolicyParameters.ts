@@ -118,7 +118,8 @@ export function applyRuntimePolicyParametersToRegistry(
 export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicyParameterConsumptionRecorder {
   const payload = readRuntimePolicyParameterPayload();
   const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
-  const appliedStrategyIds = new Set<string>();
+  const materializedStrategyIds = runtimeMaterializedStrategyIds(payload, parameters);
+  const appliedStrategyIds = new Set<string>(materializedStrategyIds);
 
   return {
     recordStrategyRuntimeUse(entry: StrategyRegistryEntry): void {
@@ -156,7 +157,9 @@ export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicy
         parameters,
         appliedStrategyIds: observedStrategyIds,
         reason: consumed
-          ? undefined
+          ? materializedStrategyIds.length > 0
+            ? 'runtime policy parameter payload was materialized into the tick runtime strategy registry'
+            : undefined
           : 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
       });
     }
@@ -285,6 +288,87 @@ function publishRuntimePolicyParameterConsumptionEvidence(
 ): void {
   const root = globalThis as typeof globalThis & Record<string, unknown>;
   root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
+}
+
+function readPublishedRuntimePolicyParameterConsumptionEvidence(): RuntimePolicyParameterConsumptionEvidence | null {
+  const root = globalThis as typeof globalThis & Record<string, unknown>;
+  const evidence = root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
+  return isRuntimePolicyParameterConsumptionEvidence(evidence) ? evidence : null;
+}
+
+function runtimeMaterializedStrategyIds(
+  payload: RuntimePolicyParameterPayload | null,
+  parameters: Record<string, StrategyKnobValue> | null
+): string[] {
+  if (!payload || !parameters) {
+    return [];
+  }
+
+  const evidence = readPublishedRuntimePolicyParameterConsumptionEvidence();
+  if (
+    !evidence ||
+    evidence.runtimeParameterInjection !== true ||
+    evidence.consumed === true ||
+    evidence.appliedStrategyIds.length === 0 ||
+    !runtimePolicyParameterEvidenceMatchesPayload(evidence, payload, parameters)
+  ) {
+    return [];
+  }
+
+  return [...evidence.appliedStrategyIds].sort();
+}
+
+function runtimePolicyParameterEvidenceMatchesPayload(
+  evidence: RuntimePolicyParameterConsumptionEvidence,
+  payload: RuntimePolicyParameterPayload,
+  parameters: Record<string, StrategyKnobValue>
+): boolean {
+  if (!sameOptionalText(evidence.strategyVariantId, payload.strategyVariantId)) {
+    return false;
+  }
+  if (!sameOptionalText(evidence.candidatePolicyId, payload.candidatePolicyId)) {
+    return false;
+  }
+  if (!sameOptionalText(evidence.family, payload.family)) {
+    return false;
+  }
+  if (!sameOptionalText(evidence.parametersSha256, payload.parametersSha256)) {
+    return false;
+  }
+  if (!evidence.parameters) {
+    return false;
+  }
+
+  return sameStrategyKnobValues(evidence.parameters, parameters);
+}
+
+function sameStrategyKnobValues(
+  left: Record<string, StrategyKnobValue>,
+  right: Record<string, StrategyKnobValue>
+): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+}
+
+function isRuntimePolicyParameterConsumptionEvidence(
+  value: unknown
+): value is RuntimePolicyParameterConsumptionEvidence {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.type === 'screeps-rl-runtime-policy-parameter-consumption' &&
+    value.consumerMarker === RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER &&
+    typeof value.runtimeParameterInjection === 'boolean' &&
+    typeof value.consumed === 'boolean' &&
+    Array.isArray(value.appliedStrategyIds)
+  );
 }
 
 function emitRuntimePolicyParameterConsumptionEvidence(evidence: RuntimePolicyParameterConsumptionEvidence): void {
