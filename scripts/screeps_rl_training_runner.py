@@ -55,6 +55,16 @@ POLICY_UPDATE_CONSUMPTION_MODE_SCORECARD_NON_CONSUMED = (
 )
 POLICY_UPDATE_CONSUMPTION_MODE_METADATA_ONLY = "metadata_only_non_promotional"
 POLICY_UPDATE_CONSUMPTION_MODE_INCOMPLETE = "runtime_parameter_evidence_incomplete_non_promotional"
+RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES = {
+    "missing_runtime_parameter_consumption",
+    "missing_evaluated_parameters",
+    "invalid_evaluated_parameters",
+}
+RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES = {
+    "missing",
+    "mixed",
+    *RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES,
+}
 DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 DEFAULT_GRADIENT_DIRECTION_CONSISTENCY_THRESHOLD = 0.8
 DEFAULT_GRADIENT_EMA_DECAY = 0.8
@@ -833,6 +843,14 @@ def text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def runtime_parameter_transport_without_consumption_status(value: Any) -> bool:
+    return text_or_none(value) in RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES
+
+
+def runtime_parameter_consumption_blocker_status(value: Any) -> bool:
+    return text_or_none(value) in RUNTIME_PARAMETER_CONSUMPTION_BLOCKER_STATUSES
+
+
 def reward_options_from_card(card: JsonObject) -> JsonObject:
     reward_model = raw_mapping(card.get("reward_model", card.get("rewardModel", {})), "reward_model")
     weights = reward_model.get("component_weights", reward_model.get("componentWeights"))
@@ -1183,11 +1201,29 @@ def build_report_runtime_parameter_injection_summary(
         if row.get("status") == "partial" or row.get("candidateParameterScope") == "partial_runtime_injection"
     )
     attempted_runtime_count = sum(1 for row in rows if runtime_parameter_scope_indicates_runtime_attempt(row))
-    complete_runtime_evidence = bool(rows) and injected_count == len(rows) and consumed_count == len(rows)
-    if complete_runtime_evidence:
+    complete_runtime_injection = bool(rows) and injected_count == len(rows)
+    complete_runtime_consumption = complete_runtime_injection and consumed_count == len(rows)
+    complete_transport_without_consumption = (
+        complete_runtime_injection
+        and consumed_count == 0
+        and all(
+            runtime_parameter_transport_without_consumption_status(
+                row.get("runtimeParameterConsumptionStatus")
+            )
+            for row in rows
+        )
+    )
+    if complete_runtime_consumption:
         status = "injected"
         reason = None
+        runtime_injected = True
         eligible = True
+        scope = "runtime_injected"
+    elif complete_transport_without_consumption:
+        status = "injected"
+        reason = "runtime-injected candidate parameters were uploaded, but not every candidate reported consumption"
+        runtime_injected = True
+        eligible = False
         scope = "runtime_injected"
     elif injected_count > 0 or partial_count > 0:
         status = "partial"
@@ -1196,18 +1232,21 @@ def build_report_runtime_parameter_injection_summary(
             if injected_count == len(rows)
             else "not every candidate variant had runtime-injected parameter evidence"
         )
+        runtime_injected = False
         eligible = False
         scope = "partial_runtime_injection"
     elif attempted_runtime_count > 0:
         status = "not_injected"
         first_reason = next((row.get("reason") for row in rows if row.get("reason")), None)
         reason = str(first_reason) if first_reason else "runtime-injected candidate parameters had no successful evidence"
+        runtime_injected = False
         eligible = False
         scope = "runtime_injected"
     else:
         status = "metadata_only"
         first_reason = next((row.get("reason") for row in rows if row.get("reason")), None)
         reason = str(first_reason) if first_reason else "candidate parameters were not injected into simulator runtime inputs"
+        runtime_injected = False
         eligible = False
         scope = "metadata_only"
 
@@ -1216,13 +1255,13 @@ def build_report_runtime_parameter_injection_summary(
         "schemaVersion": SCHEMA_VERSION,
         "status": status,
         "mechanism": simulator_harness.RUNTIME_PARAMETER_INJECTION_MECHANISM,
-        "runtimeParameterInjection": eligible,
-        "inlineCandidatesRuntimeInjected": eligible,
+        "runtimeParameterInjection": runtime_injected,
+        "inlineCandidatesRuntimeInjected": runtime_injected,
         "candidateParameterScope": scope,
         "policyUpdateEligible": eligible,
         "variantCount": len(rows),
         "injectedVariantCount": injected_count,
-        "runtimeParameterConsumption": consumed_count > 0,
+        "runtimeParameterConsumption": complete_runtime_consumption,
         "runtimeParameterConsumptionStatus": runtime_parameter_consumption_rollup_status(rows),
         "consumedVariantCount": consumed_count,
         "variants": rows,
@@ -3146,7 +3185,9 @@ def mark_candidate_scorecard_materialization_failed(report: JsonObject, error: E
     )
     payload["nextAction"] = "inspect and repair candidate scorecard materialization before validation-scale compute"
     payload["runtimeParameterInjection"] = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    payload["runtimeParameterConsumption"] = scorecard_runtime_consumption_ready(runtime_parameter_injection)
     payload["injectedVariantCount"] = runtime_injected_variant_count(runtime_parameter_injection)
+    payload["consumedVariantCount"] = runtime_consumed_variant_count(runtime_parameter_injection)
     payload["candidateParameterScope"] = runtime_parameter_scope(runtime_parameter_injection)
     if isinstance(previous_readiness, dict):
         for field in ("candidateStrategyId", "baselineStrategyId", "candidateRank", "baselineRank"):
@@ -3244,18 +3285,22 @@ def build_candidate_scorecard_readiness_for_pair(
     scorecard_id = candidate_scorecard_id(report, candidate_id, baseline_id)
     runtime_parameter_injection = candidate_scorecard_runtime_parameter_injection(report, candidate_id)
     runtime_ready = scorecard_runtime_injection_ready(runtime_parameter_injection)
+    runtime_consumed = scorecard_runtime_consumption_ready(runtime_parameter_injection)
+    runtime_gate_ready = runtime_ready and runtime_consumed
     gradient_stability = report.get("gradientStability")
     gradient_gate_present = isinstance(gradient_stability, dict)
     trusted_gradient_update = report.get("trustedGradientUpdate") is True if gradient_gate_present else True
     injected_count = runtime_injected_variant_count(runtime_parameter_injection)
     report_injected_count = runtime_injected_variant_count(report_runtime_parameter_injection)
-    if runtime_ready and trusted_gradient_update:
+    consumed_count = runtime_consumed_variant_count(runtime_parameter_injection)
+    report_consumed_count = runtime_consumed_variant_count(report_runtime_parameter_injection)
+    if runtime_gate_ready and trusted_gradient_update:
         status = "ready"
         classification = "runtime_injected_candidate_scorecard_ready"
         reason = None
         next_action = None
         missing_prerequisite = None
-    elif runtime_ready:
+    elif runtime_gate_ready:
         status = "materialized"
         classification = "gradient_stability_untrusted_scorecard_materialized"
         missing_prerequisite = "gradient_stability"
@@ -3291,12 +3336,16 @@ def build_candidate_scorecard_readiness_for_pair(
         "baselineRank": baseline_rank,
         "comparisonKey": f"{candidate_id}::vs::{baseline_id}",
         "runtimeParameterInjection": runtime_ready,
+        "runtimeParameterConsumption": runtime_consumed,
         "injectedVariantCount": injected_count,
+        "consumedVariantCount": consumed_count,
         "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
         "reportRuntimeParameterInjection": scorecard_runtime_injection_ready(report_runtime_parameter_injection),
+        "reportRuntimeParameterConsumption": scorecard_runtime_consumption_ready(report_runtime_parameter_injection),
         "reportInjectedVariantCount": report_injected_count,
+        "reportConsumedVariantCount": report_consumed_count,
         "scorecardUsable": True,
-        "validationScaleComputeBlocked": not (runtime_ready and trusted_gradient_update),
+        "validationScaleComputeBlocked": not (runtime_gate_ready and trusted_gradient_update),
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -3430,7 +3479,9 @@ def candidate_scorecard_blocked_payload(
         "scorecardId": None,
         "scorecardArtifactPath": None,
         "runtimeParameterInjection": False,
+        "runtimeParameterConsumption": False,
         "injectedVariantCount": runtime_injected_variant_count(runtime_parameter_injection),
+        "consumedVariantCount": runtime_consumed_variant_count(runtime_parameter_injection),
         "candidateParameterScope": runtime_parameter_scope(runtime_parameter_injection),
         "scorecardUsable": False,
         "validationScaleComputeBlocked": True,
@@ -3493,6 +3544,12 @@ def scorecard_runtime_injection_ready(value: Any) -> bool:
     return value.get("runtimeParameterInjection") is True and runtime_injected_variant_count(value) > 0
 
 
+def scorecard_runtime_consumption_ready(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return value.get("runtimeParameterConsumption") is True and runtime_consumed_variant_count(value) > 0
+
+
 def runtime_injected_variant_count(value: Any) -> int:
     if not isinstance(value, dict):
         return 0
@@ -3507,6 +3564,22 @@ def runtime_injected_variant_count(value: Any) -> int:
             if isinstance(row, dict) and row.get("runtimeParameterInjection") is True
         )
     return 1 if value.get("runtimeParameterInjection") is True else 0
+
+
+def runtime_consumed_variant_count(value: Any) -> int:
+    if not isinstance(value, dict):
+        return 0
+    count = int_or_none(value.get("consumedVariantCount"))
+    if count is not None and count >= 0:
+        return count
+    variants = value.get("variants")
+    if isinstance(variants, list):
+        return sum(
+            1
+            for row in variants
+            if isinstance(row, dict) and row.get("runtimeParameterConsumption") is True
+        )
+    return 1 if value.get("runtimeParameterConsumption") is True else 0
 
 
 def runtime_parameter_scope(value: Any) -> str | None:
@@ -3549,7 +3622,7 @@ def candidate_scorecard_runtime_consumption_missing(value: JsonObject) -> bool:
     return (
         scope == "runtime_injected"
         and value.get("runtimeParameterConsumption") is not True
-        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+        and runtime_parameter_consumption_blocker_status(consumption_status)
     )
 
 
@@ -4061,6 +4134,8 @@ def summarize_runtime_parameter_injection_attempt(
         )
         return {key: value for key, value in row.items() if value is not None}
 
+    row["runtimeParameterInjection"] = True
+
     consumption = runtime_parameter_consumption_from_run(run)
     if isinstance(consumption, dict):
         row["runtimeParameterConsumption"] = consumption.get("runtimeParameterConsumption") is True
@@ -4084,6 +4159,8 @@ def summarize_runtime_parameter_injection_attempt(
 
     source = runtime_evaluated_parameter_source(run)
     if source is None:
+        row["runtimeParameterConsumption"] = False
+        row["runtimeParameterConsumptionStatus"] = "missing_evaluated_parameters"
         if isinstance(consumption, dict) and text_or_none(consumption.get("reason")):
             row["status"] = text_or_none(consumption.get("status")) or "missing_evaluated_parameters"
             row["reason"] = text_or_none(consumption.get("reason"))
@@ -4094,6 +4171,8 @@ def summarize_runtime_parameter_injection_attempt(
 
     field, raw_parameters = source
     if not isinstance(raw_parameters, dict):
+        row["runtimeParameterConsumption"] = False
+        row["runtimeParameterConsumptionStatus"] = "invalid_evaluated_parameters"
         row["status"] = "invalid_evaluated_parameters"
         row["reason"] = f"successful simulator attempt reported non-object evaluated parameters in {field}"
         return {key: value for key, value in row.items() if value is not None}
@@ -4103,17 +4182,22 @@ def summarize_runtime_parameter_injection_attempt(
     injected_hash = text_or_none(injection.get("parametersSha256"))
     card_hash = canonical_hash(variant.parameters)
     if injected_hash is not None and evaluated_hash != injected_hash:
+        row["runtimeParameterInjection"] = False
+        row["runtimeParameterConsumption"] = False
+        row["runtimeParameterConsumptionStatus"] = "evaluated_parameter_mismatch"
         row["status"] = "evaluated_parameter_mismatch"
         row["reason"] = "successful simulator attempt evaluatedParameters disagreed with injected parameters"
         row["evaluatedParametersSha256"] = evaluated_hash
         return {key: value for key, value in row.items() if value is not None}
     if evaluated_hash != card_hash:
+        row["runtimeParameterInjection"] = False
+        row["runtimeParameterConsumption"] = False
+        row["runtimeParameterConsumptionStatus"] = "evaluated_parameter_mismatch"
         row["status"] = "evaluated_parameter_mismatch"
         row["reason"] = "successful simulator attempt evaluatedParameters disagreed with the strategy variant parameters"
         row["evaluatedParametersSha256"] = evaluated_hash
         return {key: value for key, value in row.items() if value is not None}
 
-    row["runtimeParameterInjection"] = True
     row["status"] = "injected"
     row["evaluatedParameters"] = evaluated_parameters
     row["evaluatedParametersSource"] = field
@@ -4201,15 +4285,36 @@ def summarize_variant_runtime_parameter_injection(
         for row in eligible_attempts
         if row.get("runtimeParameterInjection") is True and row.get("runtimeParameterConsumption") is True
     )
-    if eligible_attempts and len(injected) == len(eligible_attempts):
+    complete_transport_without_consumption = (
+        eligible_attempts
+        and len(injected) == len(eligible_attempts)
+        and consumed_attempt_count == 0
+        and all(
+            runtime_parameter_transport_without_consumption_status(row.get("status"))
+            for row in eligible_attempts
+        )
+    )
+    if eligible_attempts and len(injected) == len(eligible_attempts) and consumed_attempt_count == len(eligible_attempts):
         status = "injected"
-        reason = None
         runtime_injected = True
         scope = "runtime_injected"
         evaluated_parameters = copy.deepcopy(injected[0].get("evaluatedParameters"))
+        reason = None
+    elif complete_transport_without_consumption:
+        status = "injected"
+        runtime_injected = True
+        scope = "runtime_injected"
+        evaluated_parameters = None
+        reason = (
+            "runtime-injected parameters were uploaded, but successful simulator attempts did not all "
+            "report consumed runtime policy parameter evidence"
+        )
     elif injected:
         status = "partial"
-        reason = "not every successful simulator attempt included runtime parameter injection evidence"
+        first_reason = next((row.get("reason") for row in eligible_attempts if row.get("reason")), None)
+        reason = str(first_reason) if first_reason else (
+            "not every successful simulator attempt included consumed runtime parameter evidence"
+        )
         runtime_injected = False
         scope = "partial_runtime_injection"
         evaluated_parameters = None
@@ -4247,6 +4352,7 @@ def summarize_variant_runtime_parameter_injection(
         "runtimeParameterConsumption": runtime_injected and consumed_attempt_count == len(eligible_attempts),
         "runtimeParameterConsumptionStatus": runtime_parameter_consumption_rollup_status(eligible_attempts),
         "consumedAttemptCount": consumed_attempt_count,
+        "policyUpdateEligible": runtime_injected and consumed_attempt_count == len(eligible_attempts),
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -5498,6 +5604,9 @@ def policy_gradient_metadata_with_runner_transport(
     support["runtime_parameter_injection_status"] = status
     support["runtime_parameter_injection_reason"] = runtime_parameter_injection.get("reason")
     support["runtime_parameter_consumption_status"] = runtime_parameter_injection.get("runtimeParameterConsumptionStatus")
+    support["runtime_parameter_consumption"] = consumed
+    support["runtime_parameter_injected_variant_count"] = runtime_injected_variant_count(runtime_parameter_injection)
+    support["runtime_parameter_consumed_variant_count"] = runtime_consumed_variant_count(runtime_parameter_injection)
     support["runtime_parameter_injection_mechanism"] = runtime_parameter_injection.get("mechanism")
     if injected:
         support["limitation"] = (
@@ -5610,7 +5719,7 @@ def policy_gradient_allows_runtime_metadata_policy_update(policy_gradient: JsonO
         scope == "runtime_injected"
         and transport == "variant_ids_with_runtime_injected_parameters"
         and status == "not_injected"
-        and consumption_status in {"missing", "missing_runtime_parameter_consumption"}
+        and runtime_parameter_consumption_blocker_status(consumption_status)
         and declared_inline_applied is True
         and preserves_parameters is True
         and preserves_candidate_policy_id is True
@@ -5736,7 +5845,8 @@ def policy_update_runtime_injection_incomplete_parameter_evidence(policy_gradien
     return {
         "candidateParameterScope": first_present(support, ("candidate_parameter_scope", "candidateParameterScope"))
         or "runtime_injected",
-        "runtimeParameterInjection": first_present(
+        "runtimeParameterInjection": False,
+        "runtimeParameterTransport": first_present(
             support,
             (
                 "runtime_parameter_injection",
@@ -5776,7 +5886,10 @@ def policy_update_runtime_injection_ready_parameter_evidence(
     consumption_status = text_or_none(
         first_present(support, ("runtime_parameter_consumption_status", "runtimeParameterConsumptionStatus"))
     )
-    runtime_consumption = consumption_status == "consumed"
+    runtime_consumption = (
+        consumption_status == "consumed"
+        or first_present(support, ("runtime_parameter_consumption", "runtimeParameterConsumption")) is True
+    )
     runtime_metadata_fallback = False
     candidate_count_ready = len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
     eligible = (
