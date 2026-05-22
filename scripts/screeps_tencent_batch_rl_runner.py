@@ -1005,7 +1005,10 @@ tar -czf remote-artifacts.tar.gz \
         scale_validation = data.get("scaleValidation")
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
-        runtime_parameter_injection = verified_remote_runtime_parameter_injection(data.get("runtimeParameterInjection"))
+        runtime_parameter_injection = verified_remote_runtime_parameter_injection(
+            data.get("runtimeParameterInjection"),
+            variant_results=data.get("variantResults"),
+        )
         policy_update_fields = verified_remote_policy_update_fields(
             data,
             safety_flags,
@@ -2169,36 +2172,58 @@ def verified_remote_policy_update_fields(
     }
 
 
-def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | None:
+def verified_remote_runtime_parameter_injection(
+    raw: Any,
+    *,
+    variant_results: Any = None,
+) -> dict[str, Any] | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise BatchRunError("remote runtimeParameterInjection must be an object when present")
-    require_explicit_false_fields(raw, "runtimeParameterInjection", POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS)
-    status = required_non_empty_text(raw.get("status"), "runtimeParameterInjection.status")
-    runtime_injected = required_bool(raw.get("runtimeParameterInjection"), "runtimeParameterInjection.runtimeParameterInjection")
-    policy_update_eligible = required_bool(raw.get("policyUpdateEligible"), "runtimeParameterInjection.policyUpdateEligible")
-    scope = required_non_empty_text(raw.get("candidateParameterScope"), "runtimeParameterInjection.candidateParameterScope")
+    normalized = copy.deepcopy(raw)
+    require_explicit_false_fields(normalized, "runtimeParameterInjection", POSITIVE_POLICY_UPDATE_REQUIRED_FALSE_FIELDS)
+    status = required_non_empty_text(normalized.get("status"), "runtimeParameterInjection.status")
+    raw_injected_count = normalized.get("injectedVariantCount")
+    if status == "partial" and type(raw_injected_count) is int and raw_injected_count == 0:
+        aggregated_count = remote_runtime_parameter_injected_variant_count(normalized, variant_results)
+        if aggregated_count > 0:
+            normalized["injectedVariantCount"] = aggregated_count
+    runtime_injected = required_bool(
+        normalized.get("runtimeParameterInjection"),
+        "runtimeParameterInjection.runtimeParameterInjection",
+    )
+    policy_update_eligible = required_bool(
+        normalized.get("policyUpdateEligible"),
+        "runtimeParameterInjection.policyUpdateEligible",
+    )
+    scope = required_non_empty_text(
+        normalized.get("candidateParameterScope"),
+        "runtimeParameterInjection.candidateParameterScope",
+    )
     injected_count = required_non_negative_int(
-        raw.get("injectedVariantCount"),
+        normalized.get("injectedVariantCount"),
         "runtimeParameterInjection.injectedVariantCount",
     )
     runtime_consumed = None
-    if "runtimeParameterConsumption" in raw:
+    if "runtimeParameterConsumption" in normalized:
         runtime_consumed = required_bool(
-            raw.get("runtimeParameterConsumption"),
+            normalized.get("runtimeParameterConsumption"),
             "runtimeParameterInjection.runtimeParameterConsumption",
         )
     consumed_count = None
-    if "consumedVariantCount" in raw:
+    if "consumedVariantCount" in normalized:
         consumed_count = required_non_negative_int(
-            raw.get("consumedVariantCount"),
+            normalized.get("consumedVariantCount"),
             "runtimeParameterInjection.consumedVariantCount",
         )
-    if "inlineCandidatesRuntimeInjected" in raw:
-        required_bool(raw.get("inlineCandidatesRuntimeInjected"), "runtimeParameterInjection.inlineCandidatesRuntimeInjected")
-    if "variantCount" in raw:
-        required_non_negative_int(raw.get("variantCount"), "runtimeParameterInjection.variantCount")
+    if "inlineCandidatesRuntimeInjected" in normalized:
+        required_bool(
+            normalized.get("inlineCandidatesRuntimeInjected"),
+            "runtimeParameterInjection.inlineCandidatesRuntimeInjected",
+        )
+    if "variantCount" in normalized:
+        required_non_negative_int(normalized.get("variantCount"), "runtimeParameterInjection.variantCount")
     expected_scope = RUNTIME_PARAMETER_INJECTION_ALLOWED_STATUS_SCOPES.get(status)
     if expected_scope is None:
         raise BatchRunError(f"remote runtimeParameterInjection.status invalid: {status!r}")
@@ -2225,7 +2250,38 @@ def verified_remote_runtime_parameter_injection(raw: Any) -> dict[str, Any] | No
         raise BatchRunError(
             f"remote runtimeParameterInjection {status} status requires injectedVariantCount=0"
         )
-    return copy.deepcopy(raw)
+    return normalized
+
+
+def remote_runtime_parameter_injected_variant_count(raw: dict[str, Any], variant_results: Any) -> int:
+    variants = raw.get("variants")
+    if isinstance(variants, list):
+        count = sum(
+            1
+            for row in variants
+            if isinstance(row, dict) and row.get("runtimeParameterInjection") is True
+        )
+        if count > 0:
+            return count
+    if not isinstance(variant_results, list):
+        return 0
+    count = 0
+    for result in variant_results:
+        if not isinstance(result, dict):
+            continue
+        injection = result.get("runtimeParameterInjection")
+        if not isinstance(injection, dict):
+            continue
+        if injection.get("runtimeParameterInjection") is True:
+            count += 1
+            continue
+        attempts = injection.get("attempts")
+        if isinstance(attempts, list) and any(
+            isinstance(attempt, dict) and attempt.get("runtimeParameterInjection") is True
+            for attempt in attempts
+        ):
+            count += 1
+    return count
 
 
 def verified_remote_candidate_scorecard(
