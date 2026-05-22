@@ -1365,7 +1365,7 @@ def loop_a_selection_summary(path: Path, card: JsonObject, consumed_card_ids: se
 
 
 def select_accepted_dataset_gate(
-    gate_root: Path | Sequence[Path],
+    gate_root: Path | str | Sequence[Path | str],
     gate_id: str | None = None,
     *,
     reference_time: str | datetime | None = None,
@@ -1674,9 +1674,9 @@ def format_percent(value: Any) -> str:
     return f"{float(value) * 100:.1f}%"
 
 
-def dataset_gate_roots(gate_root: Path | Sequence[Path]) -> list[Path]:
-    if isinstance(gate_root, Path):
-        roots = [gate_root]
+def dataset_gate_roots(gate_root: Path | str | Sequence[Path | str]) -> list[Path]:
+    if isinstance(gate_root, (Path, str)):
+        roots = [Path(gate_root)]
     else:
         roots = [Path(root) for root in gate_root]
 
@@ -1699,7 +1699,7 @@ def normalize_dataset_run_ids(dataset_run_ids: Sequence[str] | None) -> tuple[st
         validate_dataset_run_id(run_id)
         if run_id not in normalized:
             normalized.append(run_id)
-    return tuple(normalized) if normalized else None
+    return tuple(normalized)
 
 
 def iter_canonical_dataset_gate_report_paths(gate_roots: Sequence[Path]) -> list[Path]:
@@ -1965,7 +1965,7 @@ def dataset_gate_acceptance_rate(payload: JsonObject) -> float | None:
     return None
 
 
-def latest_accepted_dataset_run_id(gate_root: Path) -> str:
+def latest_accepted_dataset_run_id(gate_root: Path | str) -> str:
     return str(select_accepted_dataset_gate(gate_root)["dataset_run_id"])
 
 

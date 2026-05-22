@@ -33,6 +33,29 @@ class RlExperimentCardTest(unittest.TestCase):
         else:
             self.assertIsNone(smoke_map_source_file)
 
+    def write_current_accepted_gate(self, path: Path, *, gate_id: str, dataset_run_id: str) -> None:
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "type": card_helper.SOURCE_GATE_TYPE,
+                    "ok": True,
+                    "gateId": gate_id,
+                    "createdAt": "2026-05-22T18:31:50Z",
+                    "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                    "datasetGate": {"status": "pass", "sampleCount": 200},
+                    "quality_checks": {
+                        "status": "pass",
+                        "samples_accepted": 200,
+                        "samples_rejected": 0,
+                        "acceptance_rate": 1.0,
+                    },
+                    "shadowEvaluation": {"status": "pass", "ok": True},
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_generated_card_is_training_runner_valid(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-3d29e8b9397d",
@@ -1301,6 +1324,40 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(selected["gate_id"], "gate-20260522T183117Z")
         self.assertEqual(selected["dataset_run_id"], "rl-2e60b187e8a4")
         self.assertTrue(selected["gate_report_path"].endswith("rl-control-loop/gate-20260522T183117Z/gate_report.json"))
+
+    def test_dataset_gate_selection_accepts_string_gate_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260522T183117Z"
+            dataset_run_id = "rl-string-root"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            self.write_current_accepted_gate(gate_path, gate_id=gate_id, dataset_run_id=dataset_run_id)
+
+            selected = card_helper.select_accepted_dataset_gate(
+                str(gate_root),
+                reference_time="2026-05-22T21:20:47Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+
+        self.assertEqual(selected["gate_id"], gate_id)
+        self.assertEqual(selected["dataset_run_id"], dataset_run_id)
+
+    def test_dataset_gate_selection_empty_dataset_run_ids_match_no_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            gate_root = root / "gates"
+            gate_id = "gate-20260522T183117Z"
+            gate_path = gate_root / gate_id / "gate_report.json"
+            self.write_current_accepted_gate(gate_path, gate_id=gate_id, dataset_run_id="rl-active-training")
+
+            with self.assertRaisesRegex(card_helper.CardValidationError, "no accepted dataset gate"):
+                card_helper.select_accepted_dataset_gate(
+                    gate_root,
+                    reference_time="2026-05-22T21:20:47Z",
+                    max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+                    dataset_run_ids=[],
+                )
 
     def test_dataset_gate_selection_reports_missing_requested_training_dataset(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
