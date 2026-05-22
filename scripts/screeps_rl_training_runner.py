@@ -428,7 +428,31 @@ def apply_policy_gradient_candidate_vectors_to_variants(
     if not isinstance(raw_candidates, list):
         return list(variants)
 
-    candidates_by_id: dict[str, JsonObject] = {}
+    candidates_by_variant_id, candidates_by_policy_id = policy_gradient_candidate_vector_maps(policy_gradient)
+    if not candidates_by_variant_id and not candidates_by_policy_id:
+        return list(variants)
+
+    return [
+        policy_gradient_candidate_vector_variant(
+            variant,
+            candidates_by_variant_id,
+            candidates_by_policy_id,
+        )
+        for variant in variants
+    ]
+
+
+def policy_gradient_candidate_vector_maps(
+    policy_gradient: JsonObject | None,
+) -> tuple[dict[str, JsonObject], dict[str, JsonObject]]:
+    if policy_gradient is None:
+        return {}, {}
+    raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
+    if not isinstance(raw_candidates, list):
+        return {}, {}
+
+    candidates_by_variant_id: dict[str, JsonObject] = {}
+    candidates_by_policy_id: dict[str, JsonObject] = {}
     for raw_candidate in raw_candidates:
         if not isinstance(raw_candidate, dict):
             continue
@@ -436,25 +460,20 @@ def apply_policy_gradient_candidate_vectors_to_variants(
         strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
         candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
         if strategy_variant_id is not None:
-            candidates_by_id[strategy_variant_id] = candidate
+            candidates_by_variant_id[strategy_variant_id] = candidate
         if candidate_policy_id is not None:
-            candidates_by_id.setdefault(candidate_policy_id, candidate)
-    if not candidates_by_id:
-        return list(variants)
-
-    return [
-        policy_gradient_candidate_vector_variant(variant, candidates_by_id)
-        for variant in variants
-    ]
+            candidates_by_policy_id.setdefault(candidate_policy_id, candidate)
+    return candidates_by_variant_id, candidates_by_policy_id
 
 
 def policy_gradient_candidate_vector_variant(
     variant: StrategyVariant,
-    candidates_by_id: dict[str, JsonObject],
+    candidates_by_variant_id: dict[str, JsonObject],
+    candidates_by_policy_id: dict[str, JsonObject],
 ) -> StrategyVariant:
-    candidate = candidates_by_id.get(variant.id)
+    candidate = candidates_by_variant_id.get(variant.id)
     if candidate is None and variant.candidate_policy_id is not None:
-        candidate = candidates_by_id.get(variant.candidate_policy_id)
+        candidate = candidates_by_policy_id.get(variant.candidate_policy_id)
     if candidate is None:
         return variant
 
@@ -1096,7 +1115,7 @@ def build_report_runtime_parameter_injection_summary(
     variants: Sequence[StrategyVariant],
     policy_gradient: JsonObject | None = None,
 ) -> JsonObject:
-    candidate_match_ids = policy_gradient_candidate_match_ids(policy_gradient)
+    candidate_match_ids = policy_gradient_candidate_match_ids(policy_gradient, variants)
     expected_ids = set(candidate_match_ids.values()) if candidate_match_ids else {variant.id for variant in variants}
     rows: list[JsonObject] = []
     observed_ids: set[str] = set()
@@ -1246,7 +1265,10 @@ def runtime_parameter_consumption_rollup_status(rows: Sequence[JsonObject]) -> s
     return "missing" if any(runtime_parameter_scope_indicates_runtime_attempt(row) for row in rows) else "not_attempted"
 
 
-def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> dict[str, str]:
+def policy_gradient_candidate_match_ids(
+    policy_gradient: JsonObject | None,
+    variants: Sequence[StrategyVariant] = (),
+) -> dict[str, str]:
     if policy_gradient is None:
         return {}
     raw_candidates = first_present(policy_gradient, ("candidate_parameter_vectors", "candidateParameterVectors"))
@@ -1264,6 +1286,15 @@ def policy_gradient_candidate_match_ids(policy_gradient: JsonObject | None) -> d
         match_ids[expected_id] = expected_id
         if candidate_policy_id is not None:
             match_ids[candidate_policy_id] = expected_id
+    for variant in variants:
+        if variant.candidate_policy_id is None:
+            continue
+        expected_id = match_ids.get(variant.candidate_policy_id)
+        if expected_id is None:
+            continue
+        match_ids.setdefault(variant.id, expected_id)
+        base_variant_id = simulator_harness.scale_environment_base_variant_id(variant.id)
+        match_ids.setdefault(base_variant_id, expected_id)
     return match_ids
 
 
@@ -2643,7 +2674,15 @@ def policy_update_candidate_rows(
         if variant_id is None:
             continue
         base_id = simulator_harness.scale_environment_base_variant_id(variant_id)
-        result_groups.setdefault(base_id, []).append(result)
+        result_keys = {base_id}
+        candidate_policy_id = text_or_none(result.get("candidatePolicyId"))
+        runtime_injection = result.get("runtimeParameterInjection")
+        if candidate_policy_id is None and isinstance(runtime_injection, dict):
+            candidate_policy_id = text_or_none(runtime_injection.get("candidatePolicyId"))
+        if candidate_policy_id is not None:
+            result_keys.add(candidate_policy_id)
+        for result_key in result_keys:
+            result_groups.setdefault(result_key, []).append(result)
 
     rows: list[JsonObject] = []
     for candidate in raw_candidates:
@@ -2651,9 +2690,10 @@ def policy_update_candidate_rows(
             continue
         strategy_variant_id = text_or_none(candidate.get("strategyVariantId"))
         candidate_policy_id = text_or_none(candidate.get("candidatePolicyId"))
-        if strategy_variant_id is None:
+        candidate_match_id = strategy_variant_id or candidate_policy_id
+        if candidate_match_id is None:
             continue
-        summaries = result_groups.get(strategy_variant_id) or result_groups.get(candidate_policy_id or "") or []
+        summaries = result_groups.get(strategy_variant_id or "") or result_groups.get(candidate_policy_id or "") or []
         scored_summaries = [summary for summary in summaries if policy_reward_tuple_values(summary) is not None]
         if not scored_summaries:
             continue
@@ -2672,7 +2712,7 @@ def policy_update_candidate_rows(
         rows.append(
             {
                 "candidatePolicyId": candidate_policy_id,
-                "strategyVariantId": strategy_variant_id,
+                "strategyVariantId": candidate_match_id,
                 "sourceStrategyId": text_or_none(candidate.get("sourceStrategyId")),
                 "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
                 "parameters": parameters,

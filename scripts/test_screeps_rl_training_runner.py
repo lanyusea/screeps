@@ -228,6 +228,7 @@ class MockSimulator:
 
     def __call__(self, **kwargs: Any) -> JsonObject:
         self.calls.append(dict(kwargs))
+        self.last_uploaded_code_by_variant = {}
         variants: list[JsonObject] = []
         for variant_id in kwargs["variants"]:
             result = copy.deepcopy(self.results_by_variant[variant_id])
@@ -319,6 +320,35 @@ class RequiredSteamKeySimulator(MockSimulator):
 
 
 class RlTrainingRunnerTest(unittest.TestCase):
+    def test_mock_simulator_resets_uploaded_code_evidence_per_call(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator = MockSimulator(
+            {
+                "candidate": variant_result("candidate", [start]),
+                "control": variant_result("control", [start]),
+            },
+            inject_runtime_parameters=True,
+        )
+        variant_configs = {
+            "candidate": runner.StrategyVariant(
+                id="candidate",
+                family="test-family",
+                parameters={"knob": 1},
+            ).to_json(),
+            "control": runner.StrategyVariant(
+                id="control",
+                family="test-family",
+                parameters={"knob": 0},
+            ).to_json(),
+        }
+
+        simulator(run_id="first", variants=["candidate"], variant_configs=variant_configs)
+        self.assertIn("candidate", simulator.last_uploaded_code_by_variant)
+
+        simulator.inject_runtime_parameters = False
+        simulator(run_id="second", variants=["control"], variant_configs=variant_configs)
+        self.assertEqual(simulator.last_uploaded_code_by_variant, {})
+
     def test_experiment_card_validation_requires_conservative_and_ood_safety_flags(self) -> None:
         for field in ("conservative_actions_only", "ood_rejection"):
             with self.subTest(field=field):
@@ -2060,6 +2090,121 @@ export const STRATEGY_REGISTRY = [
                 ],
                 parameter_space,
             )
+
+    def test_policy_gradient_candidate_vector_lookup_keeps_variant_and_policy_ids_separate(self) -> None:
+        variants = [
+            runner.StrategyVariant(
+                id="foo",
+                candidate_policy_id="foo-policy",
+                family="test-family",
+                parameters={"knob": 1},
+            ),
+            runner.StrategyVariant(
+                id="bar",
+                candidate_policy_id="bar-policy",
+                family="test-family",
+                parameters={"knob": 2},
+            ),
+        ]
+        updated = runner.apply_policy_gradient_candidate_vectors_to_variants(
+            {
+                "policy_gradient": {
+                    "candidate_parameter_vectors": [
+                        {
+                            "candidatePolicyId": "foo",
+                            "strategyVariantId": "bar",
+                            "parameters": {"knob": 99},
+                        },
+                        {
+                            "candidatePolicyId": "foo-policy",
+                            "parameters": {"knob": 11},
+                        },
+                    ],
+                }
+            },
+            variants,
+        )
+
+        updated_by_id = {variant.id: variant for variant in updated}
+        self.assertEqual(updated_by_id["foo"].parameters, {"knob": 11})
+        self.assertEqual(updated_by_id["foo"].candidate_policy_id, "foo-policy")
+        self.assertEqual(updated_by_id["bar"].parameters, {"knob": 99})
+
+    def test_runtime_parameter_report_summary_matches_candidate_policy_only_vectors(self) -> None:
+        summary = runner.build_report_runtime_parameter_injection_summary(
+            [
+                {
+                    "variantId": "variant-a",
+                    "candidatePolicyId": "candidate-a",
+                    "runtimeParameterInjection": {
+                        "status": "injected",
+                        "runtimeParameterInjection": True,
+                        "runtimeParameterConsumption": True,
+                        "runtimeParameterConsumptionStatus": "consumed",
+                        "candidateParameterScope": "runtime_injected",
+                        "parametersSha256": "candidate-sha",
+                    },
+                },
+            ],
+            [
+                runner.StrategyVariant(
+                    id="variant-a",
+                    candidate_policy_id="candidate-a",
+                    family="test-family",
+                    parameters={"knob": 1},
+                )
+            ],
+            {
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate-a",
+                        "parameters": {"knob": 1},
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(summary["status"], "injected")
+        self.assertTrue(summary["runtimeParameterInjection"])
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["variantCount"], 1)
+        self.assertEqual([row["variantId"] for row in summary["variants"]], ["variant-a"])
+
+    def test_policy_update_candidate_rows_accepts_candidate_policy_id_only_vectors(self) -> None:
+        parameter_space = {"knob": {"min": 0, "max": 10}}
+        rows = runner.policy_update_candidate_rows(
+            {
+                "runner_support": {
+                    "runtime_parameter_injection": True,
+                    "inline_candidates_runtime_injected": True,
+                    "candidate_parameter_scope": "runtime_injected",
+                    "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                    "runtime_parameter_consumption_status": "consumed",
+                },
+                "candidate_parameter_vectors": [
+                    {
+                        "candidatePolicyId": "candidate-a",
+                        "parameters": {"knob": 4.2},
+                    },
+                ],
+            },
+            [
+                {
+                    "variantId": "variant-a",
+                    "candidatePolicyId": "candidate-a",
+                    "sampleCount": 1,
+                    "evaluatedParameters": {"knob": 4.2},
+                    "reward": {"tuple": [1, 0, 0, 0]},
+                }
+            ],
+            parameter_space,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["candidatePolicyId"], "candidate-a")
+        self.assertEqual(rows[0]["strategyVariantId"], "candidate-a")
+        self.assertEqual(rows[0]["parameters"], {"knob": 4.2})
+        self.assertEqual(rows[0]["resultVariantIds"], ["variant-a"])
 
     def test_runtime_parameter_report_summary_uses_policy_gradient_candidate_ids(self) -> None:
         summary = runner.build_report_runtime_parameter_injection_summary(
