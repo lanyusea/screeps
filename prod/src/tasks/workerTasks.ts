@@ -502,8 +502,12 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       ? createConstructionReservationContext(creep.room)
       : createEmptyConstructionReservationContext();
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  const ownedSpawnCount = getOwnedSpawnCount(creep.room);
+  const hasMissingSpawnRecoveryConstructionSite =
+    ownedSpawnCount === 0 && constructionSites.some(isSpawnConstructionSite);
   const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery =
-    !bootstrapNonCriticalWorkSuppressed || (getOwnedSpawnCount(creep.room) ?? 0) > 0;
+    !hasMissingSpawnRecoveryConstructionSite &&
+    (!bootstrapNonCriticalWorkSuppressed || (ownedSpawnCount ?? 0) > 0);
   if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
     const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
       creep,

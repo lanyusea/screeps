@@ -8060,6 +8060,38 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
+  it('keeps missing spawn construction before emergency rampart repair outside bootstrap', () => {
+    recordSurvivalMode('LOCAL_STABLE');
+    const spawnSite = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-emergency',
+      'rampart' as StructureConstant,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [spawnSite],
+        controller,
+        energyAvailable: 650,
+        energyCapacityAvailable: 650,
+        myStructures: [],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('keeps missing spawn construction before emergency extension refill during bootstrap', () => {
     recordSurvivalMode('BOOTSTRAP');
     const spawnSite = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;

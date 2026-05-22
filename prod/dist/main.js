@@ -24833,7 +24833,7 @@ function selectWorkerTask(creep) {
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
 }
 function selectHeuristicWorkerTask(creep) {
-  var _a, _b;
+  var _a;
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
   const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
@@ -24981,7 +24981,9 @@ function selectHeuristicWorkerTask(creep) {
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const constructionReservationContext = constructionSites.length > 0 ? createConstructionReservationContext(creep.room) : createEmptyConstructionReservationContext();
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery = !bootstrapNonCriticalWorkSuppressed || ((_b = getOwnedSpawnCount(creep.room)) != null ? _b : 0) > 0;
+  const ownedSpawnCount = getOwnedSpawnCount(creep.room);
+  const hasMissingSpawnRecoveryConstructionSite = ownedSpawnCount === 0 && constructionSites.some(isSpawnConstructionSite);
+  const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery = !hasMissingSpawnRecoveryConstructionSite && (!bootstrapNonCriticalWorkSuppressed || (ownedSpawnCount != null ? ownedSpawnCount : 0) > 0);
   if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
     const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
       creep,
