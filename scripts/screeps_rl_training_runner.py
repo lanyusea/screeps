@@ -1695,12 +1695,34 @@ def build_reinforce_policy_update(
 
     samples = policy_update_return_sample_rows(candidates)
     if len(samples) < 2:
+        return_baseline = mean_policy_return_tuple([sample["returnTuple"] for sample in samples])
+        gradient_stability = policy_update_gradient_stability_gate(
+            policy_gradient=policy_gradient,
+            parameter_space=parameter_space,
+            candidates=candidates,
+            samples=samples,
+            anchor_parameters=anchor["parameters"],
+            return_baseline=return_baseline,
+            gradient={},
+            selected_reward_tier_by_parameter={},
+        )
+        parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
         return {
             **base,
             "skippedReason": "fewer_than_two_monte_carlo_return_samples",
             "candidateCount": len(candidates),
+            "parameterEvidence": parameter_evidence,
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
+            "gradientStability": gradient_stability,
+            "gradientStable": False,
+            "trustedGradientUpdate": False,
+            "highVariance": True,
+            "promotionGate": policy_update_promotion_gate(
+                parameter_evidence,
+                policy_update_generated=False,
+                gradient_stability=gradient_stability,
+            ),
         }
 
     return_baseline = mean_policy_return_tuple([sample["returnTuple"] for sample in samples])
@@ -5508,7 +5530,7 @@ def policy_update_promotion_gate(
             "as runtime-consumed or promotional"
         )
 
-    runtime_consumed_promotion_eligible = runtime_consumed and trusted_gradient_update
+    runtime_consumed_promotion_eligible = policy_update_generated and runtime_consumed and trusted_gradient_update
     payload: JsonObject = {
         "type": POLICY_UPDATE_PROMOTION_GATE_TYPE,
         "schemaVersion": SCHEMA_VERSION,

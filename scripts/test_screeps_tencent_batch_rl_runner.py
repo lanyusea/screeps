@@ -1894,6 +1894,38 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(training_report["candidateScorecard"]["injectedVariantCount"], 1)
         self.assertTrue(training_report["candidateScorecard"]["validationScaleComputeBlocked"])
 
+    def test_verify_remote_training_report_rejects_gradient_materialized_scorecard_mismatched_classification(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data = training_report_with_ready_runtime_scorecard()
+            data["candidateScorecard"] = {
+                "status": "materialized",
+                "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
+                "scorecardId": "rl-scorecard-run-test",
+                "runtimeParameterInjection": True,
+                "injectedVariantCount": 1,
+                "candidateParameterScope": "runtime_injected",
+                "validationScaleComputeBlocked": True,
+                "scorecardUsable": True,
+                "missingPrerequisite": "gradient_stability",
+                "gradientStable": False,
+                "trustedGradientUpdate": False,
+                "highVariance": True,
+            }
+            report = runner.remote_training_report_path(root, "run-test")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(data), encoding="utf-8")
+            write_ready_runtime_scorecard_artifact(root)
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=root)
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "gradient-stability materialized status has mismatched classification",
+            ):
+                controller.verify_remote_training_report()
+
     def test_verify_remote_training_report_accepts_ready_scorecard_with_candidate_scoped_partial_runtime_evidence(
         self,
     ) -> None:

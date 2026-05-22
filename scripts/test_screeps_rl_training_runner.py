@@ -2311,6 +2311,39 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["promotionGate"]["liveEffect"])
         self.assertFalse(update["gradientStability"]["officialMmoWritesAllowed"])
 
+    def test_reinforce_too_few_return_samples_marks_update_untrusted(self) -> None:
+        update = runner.build_policy_update(
+            policy_gradient=reinforce_stability_policy_gradient(),
+            results=[
+                {
+                    "variantId": "variant-a",
+                    "sampleCount": 0,
+                    "reward": {"tuple": [1, 0, 0, 0]},
+                    "evaluatedParameters": {"territorySignalWeight": 6.0},
+                },
+                {
+                    "variantId": "variant-b",
+                    "sampleCount": 1,
+                    "reward": {"tuple": [2, 0, 0, 0]},
+                    "evaluatedParameters": {"territorySignalWeight": 8.0},
+                },
+            ],
+            report_id="policy-gradient-too-few-return-samples",
+            generated_at="2026-05-21T21:32:30Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], "fewer_than_two_monte_carlo_return_samples")
+        self.assertEqual(update["gradientStability"]["classification"], "insufficient_sample_high_variance")
+        self.assertEqual(update["gradientStability"]["totalReturnSampleCount"], 1)
+        self.assertFalse(update["trustedGradientUpdate"])
+        self.assertTrue(update["highVariance"])
+        self.assertTrue(update["promotionGate"]["runtimeParameterConsumption"])
+        self.assertFalse(update["promotionGate"]["runtimeConsumedPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertIn("gradient_stability", update["promotionGate"]["missingPrerequisites"])
+
     def test_reinforce_gradient_stability_marks_momentum_conflict_untrusted(self) -> None:
         policy_gradient = reinforce_stability_policy_gradient()
         policy_gradient["policyUpdate"]["gradient_momentum"] = {
@@ -2637,6 +2670,38 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(gate["runtimeConsumedPromotionEligible"])
         self.assertTrue(gate["loopAPromotionEligible"])
         self.assertTrue(gate["loopBPromotionEligible"])
+
+    def test_policy_update_promotion_gate_requires_generated_update_for_eligibility(self) -> None:
+        policy_gradient = {
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "candidateParameterVectors": [
+                {"strategyVariantId": "variant-a"},
+                {"strategyVariantId": "variant-b"},
+            ],
+        }
+
+        evidence = runner.policy_update_runtime_injection_ready_parameter_evidence(
+            policy_gradient,
+            [{"strategyVariantId": "variant-a"}, {"strategyVariantId": "variant-b"}],
+        )
+        gate = runner.policy_update_promotion_gate(
+            evidence,
+            policy_update_generated=False,
+            gradient_stability={"trustedUpdate": True, "gradientStable": True, "highVariance": False},
+        )
+
+        self.assertFalse(gate["policyUpdateGenerated"])
+        self.assertTrue(gate["runtimeParameterConsumption"])
+        self.assertFalse(gate["runtimeConsumedPromotionEligible"])
+        self.assertFalse(gate["loopAPromotionEligible"])
+        self.assertFalse(gate["loopBPromotionEligible"])
 
     def test_reinforce_reward_evidence_without_runtime_transport_stays_noop(self) -> None:
         policy_gradient = {

@@ -2294,10 +2294,22 @@ def verified_remote_candidate_scorecard(
                 f"{rel_scorecard_artifact_path.as_posix()}"
             )
     elif status == "materialized":
+        classification = raw.get("classification")
+        missing_prerequisite = raw.get("missingPrerequisite")
         gradient_blocked = (
-            raw.get("missingPrerequisite") == "gradient_stability"
-            or raw.get("classification") == "gradient_stability_untrusted_scorecard_materialized"
+            missing_prerequisite == "gradient_stability"
+            or classification == "gradient_stability_untrusted_scorecard_materialized"
         )
+        if (
+            missing_prerequisite == "gradient_stability"
+            and classification not in (None, "gradient_stability_untrusted_scorecard_materialized")
+        ) or (
+            classification == "gradient_stability_untrusted_scorecard_materialized"
+            and missing_prerequisite not in (None, "gradient_stability")
+        ):
+            raise BatchRunError(
+                "remote candidateScorecard gradient-stability materialized status has mismatched classification"
+            )
         if gradient_blocked:
             if not (top_level_runtime_injected or top_level_runtime_partially_injected) or not runtime_injected:
                 raise BatchRunError(
@@ -2312,7 +2324,7 @@ def verified_remote_candidate_scorecard(
                     "remote candidateScorecard gradient-stability materialized status exceeds "
                     "top-level runtimeParameterInjection injectedVariantCount"
                 )
-            if raw.get("missingPrerequisite") != "gradient_stability":
+            if missing_prerequisite != "gradient_stability":
                 raise BatchRunError(
                     "remote candidateScorecard gradient-stability materialized status requires gradient_stability prerequisite"
                 )
