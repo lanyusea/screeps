@@ -1707,6 +1707,14 @@ def build_reinforce_policy_update(
             selected_reward_tier_by_parameter={},
         )
         parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
+        parameter_evidence = {
+            **parameter_evidence,
+            "policyUpdateEligible": False,
+            "reason": (
+                "policy-gradient rewards had runtime parameter evidence, but fewer than two "
+                "Monte Carlo return samples makes the update untrusted and non-eligible"
+            ),
+        }
         return {
             **base,
             "skippedReason": "fewer_than_two_monte_carlo_return_samples",
