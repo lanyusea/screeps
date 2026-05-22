@@ -502,20 +502,24 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       ? createConstructionReservationContext(creep.room)
       : createEmptyConstructionReservationContext();
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
-    creep,
-    spawnOrExtensionEnergySink
-  );
-  if (emergencySpawnOrExtensionRefillTask) {
-    return emergencySpawnOrExtensionRefillTask;
-  }
+  const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery =
+    !bootstrapNonCriticalWorkSuppressed || (getOwnedSpawnCount(creep.room) ?? 0) > 0;
+  if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
+    const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
+      creep,
+      spawnOrExtensionEnergySink
+    );
+    if (emergencySpawnOrExtensionRefillTask) {
+      return emergencySpawnOrExtensionRefillTask;
+    }
 
-  const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
-  if (emergencyRampartRepairTarget) {
-    return applyMinimumUsefulLoadPolicy(creep, {
-      type: 'repair',
-      targetId: emergencyRampartRepairTarget.id as Id<Structure>
-    });
+    const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
+    if (emergencyRampartRepairTarget) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: 'repair',
+        targetId: emergencyRampartRepairTarget.id as Id<Structure>
+      });
+    }
   }
 
   const bootstrapExtensionConstructionSite = selectBootstrapExtensionConstructionSiteBeforeRefill(
@@ -548,7 +552,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
   }
 
-  if (spawnOrExtensionEnergySink) {
+  if (spawnOrExtensionEnergySink && canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
     const spawnOrExtensionRefillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
       type: 'transfer',
       targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>

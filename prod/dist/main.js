@@ -24833,7 +24833,7 @@ function selectWorkerTask(creep) {
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
 }
 function selectHeuristicWorkerTask(creep) {
-  var _a;
+  var _a, _b;
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
   const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
@@ -24981,19 +24981,22 @@ function selectHeuristicWorkerTask(creep) {
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const constructionReservationContext = constructionSites.length > 0 ? createConstructionReservationContext(creep.room) : createEmptyConstructionReservationContext();
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
-    creep,
-    spawnOrExtensionEnergySink
-  );
-  if (emergencySpawnOrExtensionRefillTask) {
-    return emergencySpawnOrExtensionRefillTask;
-  }
-  const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
-  if (emergencyRampartRepairTarget) {
-    return applyMinimumUsefulLoadPolicy(creep, {
-      type: "repair",
-      targetId: emergencyRampartRepairTarget.id
-    });
+  const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery = !bootstrapNonCriticalWorkSuppressed || ((_b = getOwnedSpawnCount(creep.room)) != null ? _b : 0) > 0;
+  if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
+    const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
+      creep,
+      spawnOrExtensionEnergySink
+    );
+    if (emergencySpawnOrExtensionRefillTask) {
+      return emergencySpawnOrExtensionRefillTask;
+    }
+    const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
+    if (emergencyRampartRepairTarget) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: emergencyRampartRepairTarget.id
+      });
+    }
   }
   const bootstrapExtensionConstructionSite = selectBootstrapExtensionConstructionSiteBeforeRefill(
     creep,
@@ -25019,7 +25022,7 @@ function selectHeuristicWorkerTask(creep) {
       return applyMinimumUsefulLoadPolicy(creep, productiveTaskBeforeIdleRefill);
     }
   }
-  if (spawnOrExtensionEnergySink) {
+  if (spawnOrExtensionEnergySink && canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
     const spawnOrExtensionRefillTask = {
       type: "transfer",
       targetId: spawnOrExtensionEnergySink.id

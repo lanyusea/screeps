@@ -8028,9 +8028,67 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
   });
 
+  it('keeps missing spawn construction before emergency rampart repair during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const spawnSite = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'rampart-emergency',
+      'rampart' as StructureConstant,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [spawnSite],
+        controller,
+        energyAvailable: 0,
+        energyCapacityAvailable: 650,
+        myStructures: [],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
+  it('keeps missing spawn construction before emergency extension refill during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const spawnSite = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const extension = makeEnergySinkWithEnergy('extension1', 'extension' as StructureConstant, 0, 50);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [spawnSite],
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 650,
+        myStructures: [extension as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('repairs unsafe owned ramparts before bootstrap extension construction', () => {
     recordSurvivalMode('BOOTSTRAP');
     const site = { id: 'extension-site1', my: true, structureType: 'extension' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const controller = {
       id: 'controller1',
       my: true,
@@ -8040,7 +8098,7 @@ describe('selectWorkerTask', () => {
     const rampart = makeStructure(
       'rampart-emergency',
       'rampart' as StructureConstant,
-      301,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
       300_000,
       { my: true }
     );
@@ -8052,6 +8110,7 @@ describe('selectWorkerTask', () => {
         controller,
         energyAvailable: 300,
         energyCapacityAvailable: 300,
+        myStructures: [fullSpawn as AnyOwnedStructure],
         structures: [rampart]
       })
     } as unknown as Creep;
@@ -8060,6 +8119,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('keeps emergency spawn refill before unsafe rampart repair', () => {
+    recordSurvivalMode('BOOTSTRAP');
     const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 50, 250);
     const controller = {
       id: 'controller1',
@@ -8070,7 +8130,7 @@ describe('selectWorkerTask', () => {
     const rampart = makeStructure(
       'rampart-emergency',
       'rampart' as StructureConstant,
-      301,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
       300_000,
       { my: true }
     );
