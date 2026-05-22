@@ -10496,6 +10496,46 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('builds the first RCL2 bootstrap extension once another worker covers the spawn refill reserve', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 250, 50);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: 250,
+      energyCapacityAvailable: 300,
+      myStructures: [spawn as AnyOwnedStructure]
+    });
+    const reservedRefiller = {
+      name: 'AReservedRefiller',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 5 : 99)) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'ZBootstrapBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 4)) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AReservedRefiller: reservedRefiller, ZBootstrapBuilder: creep });
+    recordSurvivalMode('BOOTSTRAP');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
   it('keeps extension refill active when urgent threshold has cleared before controller progress', () => {
     const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 100);
     const controller = {
