@@ -2179,6 +2179,52 @@ cli:
         self.assertEqual(extracted, expected)
         self.assertEqual(errors, [])
 
+    def test_runtime_parameter_consumption_collection_records_console_probe_error(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": 17, "output_excerpt": "compose logs failed"}
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                FakeSmoke(),
+                ["docker", "compose"],
+                object(),
+                None,
+                injection,
+            )
+
+        self.assertIsNone(evidence)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("console.runtimePolicyParameterConsumption failed", errors[0])
+        self.assertIn("console runtime-parameter probe failed: exit=17", errors[0])
+        self.assertIn("compose logs failed", errors[0])
+
     def test_runtime_parameter_consumption_collection_surfaces_invalid_only_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         stale = self.runtime_parameter_consumption_evidence(injection)

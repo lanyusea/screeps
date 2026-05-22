@@ -939,7 +939,14 @@ def _collect_console_runtime_parameter_consumption_evidence(
         output_limit=200000,
     )
     if result.get("returncode") != 0:
-        return None
+        output = result.get("output_excerpt")
+        if not output:
+            output = "\n".join(str(part) for part in (result.get("stdout"), result.get("stderr")) if part)
+        raise RuntimeError(
+            "console runtime-parameter probe failed: "
+            f"exit={result.get('returncode')} "
+            f"output={_safe_text(output, 240)}"
+        )
     return runtime_parameter_consumption_evidence_from_console_output(
         result.get("output_excerpt", ""),
         injection=injection,
