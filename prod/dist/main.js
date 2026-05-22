@@ -13948,15 +13948,25 @@ function planBootstrapExtension(colony, result, budgetState, options) {
   if (countPendingConstructionSites(colony.room, "extension") > 0) {
     return false;
   }
-  if (!canReserveBootstrapExtensionEnergy(colony.room, budgetState, options)) {
+  const canReserveEnergy = canReserveBootstrapExtensionEnergy(colony.room, budgetState, options);
+  if (!canReserveEnergy && !shouldSeedFirstRcl2ExtensionSiteWithoutReservation(colony)) {
     return false;
   }
   const extensionResult = planExtensionConstruction(colony);
   if (extensionResult !== null) {
-    recordPlacement(result, budgetState, "extension", extensionResult, options);
+    recordPlacement(
+      result,
+      budgetState,
+      "extension",
+      extensionResult,
+      canReserveEnergy ? options : { ...options, siteEnergyReservation: 0 }
+    );
     return true;
   }
   return false;
+}
+function shouldSeedFirstRcl2ExtensionSiteWithoutReservation(colony) {
+  return getOwnedRoomRcl6(colony.room) === 2 && hasOwnedSpawn(colony) && countExistingStructures(colony.room, "extension") <= 0 && hasRemainingStructureCapacity(colony.room, "extension");
 }
 function canReserveBootstrapExtensionEnergy(room, budgetState, options) {
   const reservation = getConstructionEnergyReservation("extension", options);
@@ -13965,6 +13975,9 @@ function canReserveBootstrapExtensionEnergy(room, budgetState, options) {
   }
   if (budgetState.energyReserved + reservation > budgetState.energyBudget) {
     return false;
+  }
+  if (options.respectRoomEnergyBuffer !== true) {
+    return true;
   }
   return checkEnergyBufferForExtensionConstruction(room, budgetState.energyReserved + reservation);
 }
@@ -14349,10 +14362,13 @@ function hasBlockingPlacementFailure(result) {
   return lastPlacement !== void 0 && lastPlacement.result !== getOkCode5();
 }
 function hasSpawnCoverage2(colony) {
+  return hasOwnedSpawn(colony) || countPendingConstructionSites(colony.room, "spawn") > 0;
+}
+function hasOwnedSpawn(colony) {
   return colony.spawns.some((spawn) => {
     var _a;
     return ((_a = spawn.room) == null ? void 0 : _a.name) === colony.room.name;
-  }) || countExistingStructures(colony.room, "spawn") > 0 || countPendingConstructionSites(colony.room, "spawn") > 0;
+  }) || countExistingStructures(colony.room, "spawn") > 0;
 }
 function hasCompleteSourceContainerCoverage(room) {
   const sources = getSortedSources3(room);
@@ -22017,7 +22033,7 @@ function isSourceHarvestSufficient(source, harvestCoverageRatio) {
   return normalizeNonNegativeNumber2(source.harvestEnergyPerTick) >= regenEnergyPerTick * harvestCoverageRatio;
 }
 function hasSpawnCollapseRisk(room, threshold) {
-  if (threshold <= 0 || !hasOwnedSpawn(room)) {
+  if (threshold <= 0 || !hasOwnedSpawn2(room)) {
     return false;
   }
   const energyCapacity = normalizeNonNegativeInteger8(room.energyCapacityAvailable);
@@ -22027,7 +22043,7 @@ function hasSpawnCollapseRisk(room, threshold) {
 function hasUnmetSpawnEnergyReservation(room) {
   return getRoomSpawnEnergyReservationState(room).unmetReservedEnergy > 0;
 }
-function hasOwnedSpawn(room) {
+function hasOwnedSpawn2(room) {
   return findOwnedRoomStructures(room).some(
     (structure) => matchesStructureType14(structure.structureType, "STRUCTURE_SPAWN", "spawn")
   );
@@ -22687,7 +22703,7 @@ function hasPostClaimSpawnConstructionImportPressure(roomName) {
   if (!record || record.status !== "spawnSitePending" || ((_d = record.spawnSite) == null ? void 0 : _d.roomName) !== roomName) {
     return false;
   }
-  return !hasOwnedSpawn2(getVisibleRoom7(roomName));
+  return !hasOwnedSpawn3(getVisibleRoom7(roomName));
 }
 function getSpawnSupportExportableEnergy(state) {
   if (state.capacity <= 0 || state.importDemand > 0) {
@@ -22794,7 +22810,7 @@ function hasCriticalSpawnEnergyPressure(roomName) {
   if (!room) {
     return false;
   }
-  return hasOwnedSpawn2(room) && getRoomSpawnEnergyBufferNeed(room).criticalDeficit > 0;
+  return hasOwnedSpawn3(room) && getRoomSpawnEnergyBufferNeed(room).criticalDeficit > 0;
 }
 function selectPlannedTransferReason(importer) {
   if (importer.spawnEnergyBufferDeficit > 0) {
@@ -22802,7 +22818,7 @@ function selectPlannedTransferReason(importer) {
   }
   return hasPostClaimSpawnConstructionImportPressure(importer.roomName) ? "post-claim-spawn-construction" : "storage-balance";
 }
-function hasOwnedSpawn2(room) {
+function hasOwnedSpawn3(room) {
   var _a, _b;
   if (!room) {
     return false;

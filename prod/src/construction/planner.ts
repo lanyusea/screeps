@@ -408,17 +408,33 @@ function planBootstrapExtension(
     return false;
   }
 
-  if (!canReserveBootstrapExtensionEnergy(colony.room, budgetState, options)) {
+  const canReserveEnergy = canReserveBootstrapExtensionEnergy(colony.room, budgetState, options);
+  if (!canReserveEnergy && !shouldSeedFirstRcl2ExtensionSiteWithoutReservation(colony)) {
     return false;
   }
 
   const extensionResult = planExtensionConstruction(colony);
   if (extensionResult !== null) {
-    recordPlacement(result, budgetState, 'extension', extensionResult, options);
+    recordPlacement(
+      result,
+      budgetState,
+      'extension',
+      extensionResult,
+      canReserveEnergy ? options : { ...options, siteEnergyReservation: 0 }
+    );
     return true;
   }
 
   return false;
+}
+
+function shouldSeedFirstRcl2ExtensionSiteWithoutReservation(colony: ColonySnapshot): boolean {
+  return (
+    getOwnedRoomRcl(colony.room) === 2 &&
+    hasOwnedSpawn(colony) &&
+    countExistingStructures(colony.room, 'extension') <= 0 &&
+    hasRemainingStructureCapacity(colony.room, 'extension')
+  );
 }
 
 function canReserveBootstrapExtensionEnergy(
@@ -433,6 +449,10 @@ function canReserveBootstrapExtensionEnergy(
 
   if (budgetState.energyReserved + reservation > budgetState.energyBudget) {
     return false;
+  }
+
+  if (options.respectRoomEnergyBuffer !== true) {
+    return true;
   }
 
   return checkEnergyBufferForExtensionConstruction(room, budgetState.energyReserved + reservation);
@@ -1005,9 +1025,15 @@ function hasBlockingPlacementFailure(result: RoomConstructionPlannerResult): boo
 
 function hasSpawnCoverage(colony: ColonySnapshot): boolean {
   return (
-    colony.spawns.some((spawn) => spawn.room?.name === colony.room.name) ||
-    countExistingStructures(colony.room, 'spawn') > 0 ||
+    hasOwnedSpawn(colony) ||
     countPendingConstructionSites(colony.room, 'spawn') > 0
+  );
+}
+
+function hasOwnedSpawn(colony: ColonySnapshot): boolean {
+  return (
+    colony.spawns.some((spawn) => spawn.room?.name === colony.room.name) ||
+    countExistingStructures(colony.room, 'spawn') > 0
   );
 }
 
