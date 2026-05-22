@@ -365,6 +365,39 @@ export function planConstructionForColony(
   return result;
 }
 
+export function planCapacityBootstrapExtensionForColony(
+  colony: ColonySnapshot,
+  options: ConstructionPlannerOptions = {}
+): RoomConstructionPlannerResult {
+  const room = colony.room;
+  const rcl = getOwnedRoomRcl(room);
+  const energyAvailable = getRoomEnergyAvailable(colony);
+  const budgetState: ConstructionBudgetState = {
+    energyBudget: Math.floor(energyAvailable * resolveEnergyBudgetRatio(options.energyBudgetRatio)),
+    energyReserved: 0
+  };
+  const result: RoomConstructionPlannerResult = {
+    roomName: room.name,
+    rcl,
+    energyAvailable,
+    energyBudget: budgetState.energyBudget,
+    energyReserved: 0,
+    placements: []
+  };
+
+  if (
+    rcl !== 2 ||
+    typeof room.createConstructionSite !== 'function' ||
+    !hasSpawnCoverage(colony) ||
+    !hasRemainingStructureCapacity(room, 'extension')
+  ) {
+    return result;
+  }
+
+  planBootstrapExtension(colony, result, budgetState, options);
+  return result;
+}
+
 function planBootstrapExtension(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,

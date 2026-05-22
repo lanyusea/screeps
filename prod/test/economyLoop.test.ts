@@ -3127,6 +3127,177 @@ describe('runEconomy', () => {
     });
   });
 
+  it('seeds RCL2 extensions in a deferred post-claim room that already has a spawn', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_MY_STRUCTURES: number;
+      FIND_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      STRUCTURE_SPAWN: StructureConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 5;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          E29N56: {
+            colony: 'E29N55',
+            roomName: 'E29N56',
+            status: 'detected',
+            claimedAt: 970_100,
+            updatedAt: 970_100,
+            workerTarget: 2
+          },
+          E29N57: {
+            colony: 'E29N55',
+            roomName: 'E29N57',
+            status: 'spawningWorkers',
+            claimedAt: 970_200,
+            updatedAt: 970_200,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+
+    const focusedConstructionSites: ConstructionSite[] = [];
+    const focusedRoom = {
+      name: 'E29N56',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller-e29n56',
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName: 'E29N56' }
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'e29n56-source', pos: { x: 21, y: 21, roomName: 'E29N56' } } as Source];
+        }
+
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+          return focusedConstructionSites;
+        }
+
+        return [];
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        focusedConstructionSites.push({
+          id: `e29n56-site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'E29N56' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room & { createConstructionSite: jest.Mock };
+
+    const deferredConstructionSites: ConstructionSite[] = [];
+    let deferredSpawn = {} as StructureSpawn;
+    const deferredRoom = {
+      name: 'E29N57',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: {
+        id: 'controller-e29n57',
+        my: true,
+        level: 2,
+        ticksToDowngrade: 10_000,
+        pos: { x: 25, y: 25, roomName: 'E29N57' }
+      } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (target: unknown) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'e29n57-source', pos: { x: 20, y: 20, roomName: 'E29N57' } } as Source];
+        }
+
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structures = [deferredSpawn as unknown as Structure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+          return deferredConstructionSites;
+        }
+
+        return [];
+      }),
+      lookForAtArea: jest.fn((lookType: LookConstant, top: number, left: number, bottom: number, right: number) => {
+        if (lookType === LOOK_STRUCTURES) {
+          return [{ x: 17, y: 24, structure: deferredSpawn }];
+        }
+
+        if (lookType === LOOK_CONSTRUCTION_SITES) {
+          return deferredConstructionSites.flatMap((site) =>
+            site.pos.x >= left && site.pos.x <= right && site.pos.y >= top && site.pos.y <= bottom
+              ? [{ x: site.pos.x, y: site.pos.y, constructionSite: site }]
+              : []
+          );
+        }
+
+        return [];
+      }),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        deferredConstructionSites.push({
+          id: `e29n57-site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'E29N57' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room & { createConstructionSite: jest.Mock };
+    deferredSpawn = {
+      id: 'spawn-e29n57',
+      name: 'SpawnE29N57',
+      room: deferredRoom,
+      structureType: 'spawn',
+      pos: { x: 17, y: 24, roomName: 'E29N57' } as RoomPosition,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 970_250,
+      rooms: { E29N56: focusedRoom, E29N57: deferredRoom },
+      spawns: { SpawnE29N57: deferredSpawn },
+      creeps: {},
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) }),
+        findRoute: jest.fn(() => [{ exit: 1, room: 'E29N56' }])
+      } as unknown as GameMap,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(focusedRoom.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
+    expect(deferredRoom.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(deferredRoom.createConstructionSite).toHaveBeenCalledWith(16, 23, STRUCTURE_EXTENSION);
+    expect(Memory.territory?.postClaimBootstraps?.E29N56).toMatchObject({
+      status: 'spawnSitePending',
+      updatedAt: 970_250
+    });
+    expect(Memory.territory?.postClaimBootstraps?.E29N57).toMatchObject({
+      status: 'spawningWorkers',
+      updatedAt: 970_250
+    });
+  });
+
   it('emits spawn-site telemetry when a claimed room already has an active spawn site', () => {
     (globalThis as unknown as {
       FIND_MY_CONSTRUCTION_SITES: number;

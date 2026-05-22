@@ -1,5 +1,6 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import {
+  planCapacityBootstrapExtensionForColony,
   planConstructionForColony,
   type ConstructionPlannerOptions,
   type ConstructionPlannerResult,
@@ -59,6 +60,29 @@ export function planClaimedRoomConstruction(
   }
 
   const result = planConstructionForColony(colony, buildClaimedRoomConstructionOptions(colony, options));
+  return {
+    ...result,
+    active: true,
+    yielded: false
+  };
+}
+
+export function planDeferredClaimedRoomCapacityConstruction(
+  colony: ColonySnapshot,
+  options: ClaimedRoomConstructionPlannerOptions = {}
+): ClaimedRoomConstructionResult {
+  if (!isClaimedRoomConstructionActive(colony.room)) {
+    return createEmptyClaimedRoomConstructionResult(colony, 'inactive');
+  }
+
+  if (shouldYieldForUnavailableBuildResources(colony, options)) {
+    return createEmptyClaimedRoomConstructionResult(colony, 'noEnergyOrCreeps');
+  }
+
+  const result = planCapacityBootstrapExtensionForColony(
+    colony,
+    buildClaimedRoomConstructionOptions(colony, options)
+  );
   return {
     ...result,
     active: true,

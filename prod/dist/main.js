@@ -13922,6 +13922,28 @@ function planConstructionForColony(colony, options = {}) {
   planStorage(colony, result, budgetState, options);
   return result;
 }
+function planCapacityBootstrapExtensionForColony(colony, options = {}) {
+  const room = colony.room;
+  const rcl = getOwnedRoomRcl6(room);
+  const energyAvailable = getRoomEnergyAvailable8(colony);
+  const budgetState = {
+    energyBudget: Math.floor(energyAvailable * resolveEnergyBudgetRatio(options.energyBudgetRatio)),
+    energyReserved: 0
+  };
+  const result = {
+    roomName: room.name,
+    rcl,
+    energyAvailable,
+    energyBudget: budgetState.energyBudget,
+    energyReserved: 0,
+    placements: []
+  };
+  if (rcl !== 2 || typeof room.createConstructionSite !== "function" || !hasSpawnCoverage2(colony) || !hasRemainingStructureCapacity(room, "extension")) {
+    return result;
+  }
+  planBootstrapExtension(colony, result, budgetState, options);
+  return result;
+}
 function planBootstrapExtension(colony, result, budgetState, options) {
   if (countPendingConstructionSites(colony.room, "extension") > 0) {
     return false;
@@ -14739,6 +14761,23 @@ function planClaimedRoomConstruction(colony, options = {}) {
     return createEmptyClaimedRoomConstructionResult(colony, "noEnergyOrCreeps");
   }
   const result = planConstructionForColony(colony, buildClaimedRoomConstructionOptions(colony, options));
+  return {
+    ...result,
+    active: true,
+    yielded: false
+  };
+}
+function planDeferredClaimedRoomCapacityConstruction(colony, options = {}) {
+  if (!isClaimedRoomConstructionActive(colony.room)) {
+    return createEmptyClaimedRoomConstructionResult(colony, "inactive");
+  }
+  if (shouldYieldForUnavailableBuildResources(colony, options)) {
+    return createEmptyClaimedRoomConstructionResult(colony, "noEnergyOrCreeps");
+  }
+  const result = planCapacityBootstrapExtensionForColony(
+    colony,
+    buildClaimedRoomConstructionOptions(colony, options)
+  );
   return {
     ...result,
     active: true,
@@ -45601,13 +45640,18 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
-    if (postClaimBootstrapRefresh.deferred !== true) {
+    const constructionOptions = {
+      respectRoomEnergyBuffer: true,
+      creeps,
+      strategyRegistry: options.strategyRegistry,
+      runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+      onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+    };
+    if (postClaimBootstrapRefresh.deferred === true) {
+      planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+    } else {
       planClaimedRoomConstruction(colony, {
-        respectRoomEnergyBuffer: true,
-        creeps,
-        strategyRegistry: options.strategyRegistry,
-        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
-        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+        ...constructionOptions
       });
     }
     if (survivalAssessment.mode === "TERRITORY_READY") {
