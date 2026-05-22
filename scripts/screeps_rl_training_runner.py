@@ -2271,7 +2271,7 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
             DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP
         ),
         "normalizationFactor": round_policy_number(normalization_factor),
-        "scalarRewardScaleFactor": round_policy_number(scalar_reward_scale_factor),
+        "scalarRewardScaleFactor": scalar_reward_scale_factor,
     }
 
 
