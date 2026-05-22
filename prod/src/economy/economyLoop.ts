@@ -6,7 +6,10 @@ import {
   persistColonyStageAssessment,
   recordColonySurvivalAssessment
 } from '../colony/colonyStage';
-import { planClaimedRoomConstruction } from '../construction/claimed-room-planner';
+import {
+  planClaimedRoomConstruction,
+  planDeferredClaimedRoomCapacityConstruction
+} from '../construction/claimed-room-planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { runUpgraderCreep, UPGRADER_ROLE } from '../creeps/upgraderRunner';
@@ -204,13 +207,18 @@ export function runEconomy(
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
     refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
-    if (postClaimBootstrapRefresh.deferred !== true) {
+    const constructionOptions = {
+      respectRoomEnergyBuffer: true,
+      creeps,
+      strategyRegistry: options.strategyRegistry,
+      runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
+      onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+    };
+    if (postClaimBootstrapRefresh.deferred === true) {
+      planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+    } else {
       planClaimedRoomConstruction(colony, {
-        respectRoomEnergyBuffer: true,
-        creeps,
-        strategyRegistry: options.strategyRegistry,
-        runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
-        onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
+        ...constructionOptions
       });
     }
     if (survivalAssessment.mode === 'TERRITORY_READY') {

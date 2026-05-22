@@ -1,5 +1,8 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
-import { planClaimedRoomConstruction } from '../src/construction/claimed-room-planner';
+import {
+  planClaimedRoomConstruction,
+  planDeferredClaimedRoomCapacityConstruction
+} from '../src/construction/claimed-room-planner';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
@@ -103,6 +106,41 @@ describe('claimed room construction planner', () => {
     expect(result.energyAvailable - result.energyReserved).toBe(200);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(33, 21, STRUCTURE_EXTENSION);
+  });
+
+  it('seeds a deferred RCL2 claimed room extension when spawn coverage already exists', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N57',
+      controllerLevel: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      spawnPosition: { x: 17, y: 24 },
+      sources: []
+    });
+
+    const result = planDeferredClaimedRoomCapacityConstruction(colony);
+
+    expect(result.yielded).toBe(false);
+    expect(result.placements.map((placement) => placement.priority)).toEqual(['extension']);
+    expect(result.energyReserved).toBe(50);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(16, 23, STRUCTURE_EXTENSION);
+  });
+
+  it('does not let deferred capacity construction bypass missing-spawn recovery', () => {
+    const { room, colony } = makeColony({
+      roomName: 'E29N56',
+      controllerLevel: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      includeSpawn: false,
+      sources: []
+    });
+
+    const result = planDeferredClaimedRoomCapacityConstruction(colony);
+
+    expect(result.placements).toEqual([]);
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
 
   it('plans source containers before source-to-spawn roads in claimed rooms', () => {
