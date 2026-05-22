@@ -2255,7 +2255,7 @@ def verified_remote_runtime_parameter_injection(
         raise BatchRunError("remote runtimeParameterInjection policyUpdateEligible requires runtimeParameterInjection=true")
     elif status == "injected":
         raise BatchRunError("remote runtimeParameterInjection status injected requires runtimeParameterInjection=true")
-    elif status == "partial" and injected_count == 0 and runtime_consumed is not False:
+    elif status == "partial" and injected_count == 0:
         raise BatchRunError("remote runtimeParameterInjection partial status requires positive injectedVariantCount")
     elif status in {"metadata_only", "not_injected"} and injected_count != 0:
         raise BatchRunError(

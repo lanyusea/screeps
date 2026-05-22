@@ -2359,17 +2359,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(scorecard["overallGate"]["status"], "HOLD")
         self.assertEqual(training_report["candidateScorecards"]["status"], "materialized")
 
-    def test_verify_remote_training_report_preserves_partial_zero_count_consumption_gap(self) -> None:
+    def test_verify_remote_training_report_preserves_metadata_only_zero_count_runtime_injection_gap(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             data = training_report_with_ready_runtime_scorecard()
             data["runtimeParameterInjection"] = {
-                "status": "partial",
+                "status": "metadata_only",
                 "runtimeParameterInjection": False,
                 "runtimeParameterConsumption": False,
                 "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
                 "policyUpdateEligible": False,
-                "candidateParameterScope": "partial_runtime_injection",
+                "candidateParameterScope": "metadata_only",
                 "injectedVariantCount": 0,
                 "consumedVariantCount": 0,
                 "liveEffect": False,
@@ -2378,13 +2378,13 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             }
             data["candidateScorecard"] = {
                 "status": "materialized",
-                "classification": "runtime_parameter_injection_partial_scorecard_materialized",
+                "classification": "runtime_parameter_injection_metadata_only_scorecard_materialized",
                 "scorecardId": "rl-scorecard-run-test",
                 "runtimeParameterInjection": False,
                 "runtimeParameterConsumption": False,
                 "injectedVariantCount": 0,
                 "consumedVariantCount": 0,
-                "candidateParameterScope": "partial_runtime_injection",
+                "candidateParameterScope": "metadata_only",
                 "missingPrerequisite": "runtime_parameter_injection",
                 "validationScaleComputeBlocked": True,
                 "scorecardUsable": True,
@@ -2398,7 +2398,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             controller.verify_remote_training_report()
 
         runtime_parameter_injection = controller.result["trainingReport"]["runtimeParameterInjection"]
-        self.assertEqual(runtime_parameter_injection["status"], "partial")
+        self.assertEqual(runtime_parameter_injection["status"], "metadata_only")
         self.assertFalse(runtime_parameter_injection["runtimeParameterConsumption"])
         self.assertEqual(runtime_parameter_injection["injectedVariantCount"], 0)
         self.assertEqual(
@@ -2673,6 +2673,25 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     candidate_parameter_scope="partial_runtime_injection",
                     injected_variant_count=0,
                 ),
+                "partial status requires positive injectedVariantCount",
+            ),
+            (
+                "partial zero injected count with explicit consumption gap",
+                {
+                    "runtimeParameterInjection": {
+                        "status": "partial",
+                        "runtimeParameterInjection": False,
+                        "runtimeParameterConsumption": False,
+                        "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                        "policyUpdateEligible": False,
+                        "candidateParameterScope": "partial_runtime_injection",
+                        "injectedVariantCount": 0,
+                        "consumedVariantCount": 0,
+                        "liveEffect": False,
+                        "officialMmoWrites": False,
+                        "officialMmoWritesAllowed": False,
+                    }
+                },
                 "partial status requires positive injectedVariantCount",
             ),
         )
