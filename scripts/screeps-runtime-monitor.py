@@ -1612,8 +1612,19 @@ def extension_bootstrap_next_state(
         or extension_construction_site_count > previous_site_count
         or extension_pending_build_progress < previous_pending_progress
     )
-    last_progress_tick = current_tick if progress_observed else previous_progress_tick or current_tick
-    start_tick = current_tick if reset_state else tick_number(previous.get("start_tick")) or current_tick
+    if progress_observed:
+        last_progress_tick = current_tick
+    elif previous_progress_tick is not None:
+        last_progress_tick = previous_progress_tick
+    else:
+        last_progress_tick = current_tick
+    previous_start_tick = tick_number(previous.get("start_tick"))
+    if reset_state:
+        start_tick = current_tick
+    elif previous_start_tick is not None:
+        start_tick = previous_start_tick
+    else:
+        start_tick = current_tick
     stalled_ticks = max(0, current_tick - last_progress_tick)
 
     return {

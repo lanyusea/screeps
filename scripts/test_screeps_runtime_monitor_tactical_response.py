@@ -2730,6 +2730,78 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(reason["constructionSiteCount"], 1)
         self.assertEqual(next_state["consecutive_ticks"], 150)
 
+    def test_extension_bootstrap_state_preserves_zero_last_progress_tick_without_progress(self) -> None:
+        state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 0,
+                "last_tick": 10,
+                "last_progress_tick": 0,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 10,
+            },
+            current_tick=25,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(state["last_progress_tick"], 0)
+        self.assertEqual(state["stalled_ticks"], 25)
+
+    def test_extension_bootstrap_state_preserves_zero_start_tick_without_reset(self) -> None:
+        state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 0,
+                "last_tick": 10,
+                "last_progress_tick": 5,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 5,
+            },
+            current_tick=25,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(state["start_tick"], 0)
+        self.assertEqual(state["last_progress_tick"], 5)
+        self.assertEqual(state["stalled_ticks"], 20)
+
+    def test_extension_bootstrap_state_progress_and_reset_behavior_is_unchanged(self) -> None:
+        progress_state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 100,
+                "last_tick": 110,
+                "last_progress_tick": 100,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 10,
+            },
+            current_tick=120,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2800,
+        )
+        reset_state = monitor.extension_bootstrap_next_state(
+            {
+                "start_tick": 100,
+                "last_tick": 130,
+                "last_progress_tick": 100,
+                "extension_construction_site_count": 1,
+                "extension_pending_build_progress": 2900,
+                "stalled_ticks": 30,
+            },
+            current_tick=120,
+            extension_construction_site_count=1,
+            extension_pending_build_progress=2900,
+        )
+
+        self.assertEqual(progress_state["start_tick"], 100)
+        self.assertEqual(progress_state["last_progress_tick"], 120)
+        self.assertEqual(progress_state["stalled_ticks"], 0)
+        self.assertEqual(reset_state["start_tick"], 120)
+        self.assertEqual(reset_state["last_progress_tick"], 120)
+        self.assertEqual(reset_state["stalled_ticks"], 0)
+
     def test_rcl2_zero_extension_active_site_tracks_bootstrap_without_p0(self) -> None:
         snapshot = make_snapshot(
             {
