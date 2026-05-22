@@ -2956,6 +2956,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             "extension_pending_build_progress": 2900,
             "stalled_ticks": 50,
         }
+        expected_bootstrap_state = copy.deepcopy(previous_bootstrap_state)
 
         emitted, suppressed, next_state = monitor.evaluate_room_alert(
             snapshot,
@@ -2972,8 +2973,9 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertEqual(suppressed, [])
         self.assertEqual(
             next_state["rule_counts"][monitor.EXTENSION_COUNT_ZERO_AT_RCL_GE_2_KIND],
-            previous_bootstrap_state,
+            expected_bootstrap_state,
         )
+        self.assertEqual(previous_bootstrap_state, expected_bootstrap_state)
 
     def test_rcl2_zero_extension_bootstrap_states_have_separate_debounce_signatures(self) -> None:
         base_objects = {
