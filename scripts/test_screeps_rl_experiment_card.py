@@ -1247,6 +1247,101 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(selected["dataset_run_id"], "rl-full-quality")
         self.assertEqual(selected["quality_acceptance_rate"], 1.0)
 
+    def test_dataset_gate_selection_expands_legacy_root_and_prefers_requested_training_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            legacy_gate_root = runtime_root / "rl-dataset-gates"
+            legacy_gate_root.mkdir(parents=True)
+            active_gate = runtime_root / "rl-control-loop" / "gate-20260522T183117Z" / "gate_report.json"
+            newer_non_training_gate = (
+                runtime_root / "rl-control-loop" / "gate-20260522T190000Z" / "gate_report.json"
+            )
+            active_gate.parent.mkdir(parents=True)
+            newer_non_training_gate.parent.mkdir(parents=True)
+            active_payload = {
+                "type": card_helper.SOURCE_GATE_TYPE,
+                "ok": True,
+                "gateId": "gate-20260522T183117Z",
+                "createdAt": "2026-05-22T18:31:50Z",
+                "dataset": {"ok": True, "runId": "rl-2e60b187e8a4", "sampleCount": 200},
+                "datasetGate": {"status": "pass", "sampleCount": 200},
+                "quality_checks": {
+                    "status": "pass",
+                    "samples_accepted": 200,
+                    "samples_rejected": 0,
+                    "acceptance_rate": 1.0,
+                },
+                "shadowEvaluation": {"status": "pass", "ok": True},
+            }
+            non_training_payload = {
+                **active_payload,
+                "gateId": "gate-20260522T190000Z",
+                "createdAt": "2026-05-22T19:00:00Z",
+                "dataset": {"ok": True, "runId": "rl-newer-non-training", "sampleCount": 200},
+            }
+            active_gate.write_text(json.dumps(active_payload), encoding="utf-8")
+            newer_non_training_gate.write_text(json.dumps(non_training_payload), encoding="utf-8")
+            os.utime(active_gate, (1_779_474_752, 1_779_474_752))
+            os.utime(newer_non_training_gate, (1_779_476_400, 1_779_476_400))
+
+            unfiltered = card_helper.select_accepted_dataset_gate(
+                legacy_gate_root,
+                reference_time="2026-05-22T21:20:47Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+            selected = card_helper.select_accepted_dataset_gate(
+                legacy_gate_root,
+                reference_time="2026-05-22T21:20:47Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+                dataset_run_ids=["rl-2e60b187e8a4"],
+            )
+
+        self.assertEqual(unfiltered["dataset_run_id"], "rl-newer-non-training")
+        self.assertEqual(selected["gate_id"], "gate-20260522T183117Z")
+        self.assertEqual(selected["dataset_run_id"], "rl-2e60b187e8a4")
+        self.assertTrue(selected["gate_report_path"].endswith("rl-control-loop/gate-20260522T183117Z/gate_report.json"))
+
+    def test_dataset_gate_selection_reports_missing_requested_training_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            legacy_gate_root = runtime_root / "rl-dataset-gates"
+            other_gate = runtime_root / "rl-control-loop" / "gate-20260522T190000Z" / "gate_report.json"
+            legacy_gate_root.mkdir(parents=True)
+            other_gate.parent.mkdir(parents=True)
+            other_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": "gate-20260522T190000Z",
+                        "createdAt": "2026-05-22T19:00:00Z",
+                        "dataset": {"ok": True, "runId": "rl-other-training", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                card_helper.CardValidationError,
+                "datasetRunId in rl-missing-active",
+            ):
+                card_helper.select_accepted_dataset_gate(
+                    legacy_gate_root,
+                    reference_time="2026-05-22T21:20:47Z",
+                    max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+                    dataset_run_ids=["rl-missing-active"],
+                )
+
     def test_loop_a_local_fallback_reports_zero_sample_newest_gate_and_stale_nonzero_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
