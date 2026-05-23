@@ -4367,7 +4367,6 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(
             [step.name for step in controller.steps],
             [
-                "clear_worker_known_host",
                 "scan_worker_host_key",
                 "scan_worker_host_key",
                 "scan_worker_host_key",
@@ -4375,6 +4374,69 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             ],
         )
         self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
+
+    def test_ssh_cmd_mismatch_blocks_accept_new_when_keyscan_unavailable(self) -> None:
+        stale_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIstale"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = controller_args()
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            known_hosts = Path(args.known_hosts_path)
+            known_hosts.write_text(stale_key + "\n", encoding="utf-8")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            controller.public_ip = "203.0.113.10"
+            controller.known_hosts_prepared_public_ips.add("203.0.113.10")
+            keyscan_calls = 0
+            operation_commands: list[list[str]] = []
+
+            def fake_run_cp(
+                name: str,
+                cmd: list[str],
+                *,
+                check: bool = True,
+                timeout: int | None = None,
+                cwd: Path | None = None,
+                input_text: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                self.assertIs(check, False)
+                operation_commands.append(cmd)
+                stderr = "REMOTE HOST IDENTIFICATION HAS CHANGED!\nOffending ED25519 key in known_hosts:1\n"
+                return subprocess.CompletedProcess(cmd, 255, "", stderr)
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal keyscan_calls
+                if cmd[0] == "ssh-keyscan":
+                    keyscan_calls += 1
+                    return subprocess.CompletedProcess(cmd, 1, "", "")
+                raise AssertionError(cmd)
+
+            with (
+                mock.patch.object(controller, "run_cp", side_effect=fake_run_cp),
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None) as sleep,
+            ):
+                cp = controller.ssh_cmd("ssh_probe", "true", check=False)
+
+            self.assertEqual(cp.returncode, 255)
+            self.assertIn("host_key_self_healing_failed", cp.stderr)
+            self.assertIn("host-key mismatch remains blocked", cp.stderr)
+            self.assertEqual(known_hosts.read_text(encoding="utf-8"), stale_key + "\n")
+
+        self.assertEqual(keyscan_calls, 3)
+        sleep.assert_has_calls([mock.call(2.0), mock.call(5.0)])
+        self.assertEqual([cmd[0] for cmd in operation_commands], ["ssh"])
+        self.assertEqual(
+            [step.name for step in controller.steps],
+            [
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "ssh_probe",
+            ],
+        )
+        self.assertEqual(controller.steps[-1].detail["sshFailureClass"], "host_key_self_healing_failed")
+        self.assertFalse(controller.steps[-1].detail["retryable"])
+        self.assertNotIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
 
     def test_scp_to_worker_self_heals_mismatched_known_host_then_retries_strictly(self) -> None:
         stale_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIstale"
@@ -4432,7 +4494,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 self.assertNotIn("StrictHostKeyChecking=accept-new", cmd)
         self.assertEqual(
             [step.name for step in controller.steps],
-            ["clear_worker_known_host", "scan_worker_host_key", "install_worker_known_host"],
+            ["scan_worker_host_key", "install_worker_known_host"],
         )
         self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
 

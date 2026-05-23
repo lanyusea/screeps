@@ -530,14 +530,13 @@ class Controller:
             return KnownHostPrepareResult(False, "host_key_self_healing_failed", reason="public IP is not known")
         self.known_hosts_prepared_public_ips.discard(self.public_ip)
         self.known_hosts_cleaned_public_ips.discard(self.public_ip)
-        if not self.clear_worker_known_host():
-            return KnownHostPrepareResult(
-                False,
-                "host_key_self_healing_failed",
-                reason="ssh-keygen failed while clearing stale known_hosts after host-key mismatch",
-            )
-        self.known_hosts_prepared_public_ips.discard(self.public_ip)
-        return self.prepare_worker_known_host()
+        scan_result, scanned_lines = self.scan_worker_host_keys()
+        if not scan_result.ok:
+            reason = "host-key mismatch remains blocked because ssh-keyscan could not verify replacement keys"
+            if scan_result.reason:
+                reason = f"{reason}: {scan_result.reason}"
+            return KnownHostPrepareResult(False, "host_key_self_healing_failed", reason=reason)
+        return self.install_worker_known_host(scanned_lines, had_plain_entry=False)
 
     def scp_to_worker(self, name: str, local_path: Path, remote_path: str, *, timeout: int = 300) -> None:
         self.require_worker_known_host_prepared(name)
