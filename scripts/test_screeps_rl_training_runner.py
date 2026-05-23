@@ -3478,6 +3478,151 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWrites"])
         self.assertFalse(update["nextCandidatePolicy"]["officialMmoWritesAllowed"])
 
+    def test_reinforce_bounded_integer_step_emits_one_step_from_clear_scorecard_advantage(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 1,
+                "bounded_integer_step": True,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
+            },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "inline_candidates_applied_to_simulator": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 6.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 7.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 6.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [1.02, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 7.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-bounded-step",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 1)
+        self.assertTrue(update["boundedIntegerStep"])
+        self.assertEqual(update["learningRate"], 1)
+        self.assertGreater(float(update["gradient"]["territorySignalWeight"]), 0)
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 1})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 7})
+        self.assertEqual(update["nextCandidatePolicy"]["parameters"], {"territorySignalWeight": 7})
+        self.assertEqual(
+            update["nextCandidatePolicy"]["parameterEvidence"]["boundedIntegerStep"],
+            True,
+        )
+        self.assertEqual(
+            update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
+            {"territorySignalWeight": 1},
+        )
+
+    def test_reinforce_bounded_integer_step_clamps_at_parameter_bounds(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 1,
+                "bounded_integer_step": True,
+                "gradient_reward_weights": {
+                    "reliability": 1,
+                    "territory": 1,
+                    "resources": 1,
+                    "kills": 1,
+                },
+            },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "inline_candidates_applied_to_simulator": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-a",
+                    "strategyVariantId": "variant-a",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {"territorySignalWeight": 30.0},
+                },
+                {
+                    "candidatePolicyId": "candidate-b",
+                    "strategyVariantId": "variant-b",
+                    "rolloutStatus": "shadow",
+                    "parameters": {"territorySignalWeight": 29.0},
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-a",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 30.0},
+            },
+            {
+                "variantId": "variant-b",
+                "sampleCount": 1,
+                "reward": {"tuple": [0, 0, 0, 0]},
+                "evaluatedParameters": {"territorySignalWeight": 29.0},
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-bounded-step-clamped",
+            generated_at="2026-05-17T03:30:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], "bounded_update_no_parameter_change")
+        self.assertGreater(float(update["gradient"]["territorySignalWeight"]), 0)
+        self.assertNotIn("nextCandidatePolicy", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("parameterDelta", update)
+
     def test_ready_parameter_evidence_does_not_alias_injection_to_consumption(self) -> None:
         policy_gradient = {
             "runner_support": {
@@ -3633,6 +3778,9 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(runner.bounded_policy_parameter_value(6.06375, spec), 6.06375)
         self.assertEqual(runner.bounded_policy_parameter_value(-0.25, spec), 0)
         self.assertEqual(runner.bounded_policy_parameter_value(30.25, spec), 30)
+        self.assertEqual(runner.bounded_policy_parameter_step_value(6.06375, spec), 6)
+        self.assertEqual(runner.bounded_policy_parameter_step_value(6.51, spec), 7)
+        self.assertEqual(runner.bounded_policy_parameter_step_value(30.25, spec), 30)
 
     def test_reinforce_metadata_only_parameters_skip_candidate_update_artifact(self) -> None:
         card = card_helper.build_card(
@@ -4440,6 +4588,12 @@ export const STRATEGY_REGISTRY = [
         self.assertGreater(len(report["ranking"]), 1)
         self.assertIn("policyUpdateArtifactPath", report)
         update = report["policyUpdate"]
+        step_by_parameter = {
+            item["name"]: item.get("step", 1)
+            for item in report["policyGradient"]["learnable_parameters"]
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+        self.assertTrue(update["boundedIntegerStep"])
         self.assertFalse(update["liveEffect"])
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
@@ -4463,7 +4617,12 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
         self.assertEqual(update["promotionGate"]["missingPrerequisites"], ["runtime_parameter_consumption"])
         self.assertTrue(any(abs(float(value)) > 0 for value in update["parameterDelta"].values()))
+        for name, delta in update["parameterDelta"].items():
+            step = float(step_by_parameter[name])
+            if abs(float(delta)) > 0:
+                self.assertAlmostEqual(abs(float(delta)) / step, round(abs(float(delta)) / step), places=9)
         self.assertEqual(artifact["parameters"], update["updatedParameters"])
+        self.assertTrue(artifact["parameterEvidence"]["boundedIntegerStep"])
         self.assertEqual(artifact["promotionGate"], update["promotionGate"])
         self.assertEqual(update["nextCandidatePolicy"]["promotionGate"], update["promotionGate"])
 
