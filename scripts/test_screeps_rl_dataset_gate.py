@@ -507,6 +507,12 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
                             "status": "OPEN",
                             "statement": "Previous E1 gate failed.",
                         },
+                        "E1-SHADOW-EVAL-STATUS": {
+                            "conclusionId": "E1-SHADOW-EVAL-STATUS",
+                            "ownerCron": gate.E1_OWNER_CRON,
+                            "status": "OPEN",
+                            "statement": "Previous E1 shadow eval failed.",
+                        },
                     },
                 },
             )
@@ -537,6 +543,7 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(conclusions["LOOP-B-ACTIONED"]["ownerCron"], "01609968392a")
         self.assertNotEqual(conclusions["E1-GATE-STATUS"]["statement"], "Previous E1 gate failed.")
         self.assertEqual(conclusions["E1-GATE-STATUS"]["ownerCron"], gate.E1_OWNER_CRON)
+        self.assertNotIn("E1-SHADOW-EVAL-STATUS", conclusions)
         self.assertIn("E1-CONSOLE-CAPTURE-FLOWING", conclusions)
         self.assertEqual(saved_registry["summary"]["total"], len(conclusions))
 

@@ -125,7 +125,11 @@ def merge_registry_payload(
     existing_records = normalize_conclusions(existing_payload.get("conclusions"))
     incoming_records = normalize_conclusions(producer_conclusions)
 
-    merged = dict(existing_records)
+    merged = {
+        conclusion_id: record
+        for conclusion_id, record in existing_records.items()
+        if conclusion_id in incoming_records or record.get("ownerCron") != owner_cron
+    }
     new_count = 0
     closed_this_window = 0
     for conclusion_id, incoming in incoming_records.items():

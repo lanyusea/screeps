@@ -77,6 +77,51 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(merged["summary"]["closedThisWindow"], 1)
         self.assertEqual(merged["summary"]["actioned"], 1)
 
+    def test_merge_prunes_omitted_records_owned_by_current_owner_only(self) -> None:
+        existing = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "E1-STALE-OMITTED": {
+                    "conclusionId": "E1-STALE-OMITTED",
+                    "ownerCron": "d6cff532edd4",
+                    "status": "OPEN",
+                    "statement": "Previous E1 conditional conclusion no longer emitted.",
+                },
+                "LOOP-B-OMITTED": {
+                    "conclusionId": "LOOP-B-OMITTED",
+                    "ownerCron": "01609968392a",
+                    "status": "ACTIONED",
+                    "statement": "Different owner conclusion remains active.",
+                },
+                "LEGACY-UNOWNED-OMITTED": {
+                    "conclusionId": "LEGACY-UNOWNED-OMITTED",
+                    "status": "OPEN",
+                    "statement": "Legacy unowned conclusion is preserved until explicitly claimed.",
+                },
+            },
+        }
+
+        merged = registry.merge_registry_payload(
+            existing,
+            [
+                {
+                    "conclusionId": "E1-GATE-STATUS",
+                    "status": "CLOSED",
+                    "statement": "Current E1 gate passed.",
+                },
+            ],
+            owner_cron="d6cff532edd4",
+            updated_at="2026-05-23T00:00:00Z",
+        )
+
+        conclusions = merged["conclusions"]
+        self.assertNotIn("E1-STALE-OMITTED", conclusions)
+        self.assertEqual(conclusions["LOOP-B-OMITTED"]["ownerCron"], "01609968392a")
+        self.assertNotIn("ownerCron", conclusions["LEGACY-UNOWNED-OMITTED"])
+        self.assertEqual(conclusions["E1-GATE-STATUS"]["ownerCron"], "d6cff532edd4")
+        self.assertEqual(merged["summary"]["total"], 3)
+
     def test_merge_allows_updating_legacy_records_missing_owner_cron(self) -> None:
         existing = {
             "schemaVersion": 1,
