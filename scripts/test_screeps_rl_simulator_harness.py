@@ -1703,6 +1703,46 @@ cli:
         self.assertTrue(updated["runtimeParameterConsumption"])
         self.assertEqual(updated["runtimeParameterConsumptionStatus"], "consumed")
 
+    def test_runtime_parameter_consumption_accepts_javascript_numeric_canonicalization(self) -> None:
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1.0,
+                "territorySignalWeight": 22.0,
+                "resourceSignalWeight": 3.0,
+                "killSignalWeight": 5.0,
+                "riskPenalty": 4.0,
+            },
+        }
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() { return 1; };\n"
+        )
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        injection = harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["parameters"] = {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 22,
+            "resourceSignalWeight": 3,
+            "killSignalWeight": 5,
+            "riskPenalty": 4,
+        }
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+
+        self.assertEqual(injection["parameters"], evidence["parameters"])
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+        self.assertFalse(consumption["liveEffect"])
+        self.assertFalse(consumption["officialMmoWrites"])
+        self.assertFalse(consumption["officialMmoWritesAllowed"])
+
     def test_runtime_parameter_consumption_rejects_parameter_drift(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)

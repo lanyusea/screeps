@@ -215,6 +215,7 @@ class MockSimulator:
         include_runtime_consumption_evidence: bool = True,
         include_runtime_consumption_parameters: bool = True,
         evaluated_parameters_by_variant: dict[str, JsonObject] | None = None,
+        js_runtime_numeric_canonicalization: bool = False,
     ) -> None:
         self.results_by_variant = results_by_variant
         self.inject_runtime_parameters = inject_runtime_parameters
@@ -222,6 +223,7 @@ class MockSimulator:
         self.include_runtime_consumption_evidence = include_runtime_consumption_evidence
         self.include_runtime_consumption_parameters = include_runtime_consumption_parameters
         self.evaluated_parameters_by_variant = evaluated_parameters_by_variant or {}
+        self.js_runtime_numeric_canonicalization = js_runtime_numeric_canonicalization
         self.calls: list[JsonObject] = []
         self.last_variants: list[JsonObject] = []
         self.last_uploaded_code_by_variant: dict[str, str] = {}
@@ -265,6 +267,10 @@ class MockSimulator:
                             f"runtime injection test expected parameters for {variant_id}, got {variant_config!r}"
                         )
                     evaluated_parameters = copy.deepcopy(parameters)
+                if self.js_runtime_numeric_canonicalization:
+                    evaluated_parameters = runner.simulator_harness.canonical_runtime_parameter_value(
+                        evaluated_parameters
+                    )
                 consumption_evidence = {
                     "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
                     "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
@@ -3709,6 +3715,80 @@ export const STRATEGY_REGISTRY = [
             "eligible_with_evaluated_runtime_parameters",
         )
 
+    def test_runtime_injected_reinforce_consumes_js_canonical_numeric_parameters(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-js-canonical-consumed",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-23T02:45:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        for candidate in card["policy_gradient"]["candidate_parameter_vectors"]:
+            candidate["parameters"] = {
+                key: float(value) if isinstance(value, int) and not isinstance(value, bool) else value
+                for key, value in candidate["parameters"].items()
+            }
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(
+            simulator_results,
+            inject_runtime_parameters=True,
+            js_runtime_numeric_canonicalization=True,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="policy-gradient-js-canonical-consumed",
+                generated_at="2026-05-23T02:50:00Z",
+                simulator_runner=simulator,
+            )
+
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertGreater(report["runtimeParameterInjection"]["consumedVariantCount"], 0)
+        self.assertEqual(report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_consumption"])
+        self.assertTrue(report["policyUpdate"]["runtimeParameterConsumption"])
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
+        self.assertTrue(
+            all(
+                result["runtimeParameterInjection"]["runtimeParameterConsumption"]
+                for result in report["variantResults"]
+            )
+        )
+        self.assertTrue(
+            all(
+                result["runtimeParameterInjection"]["evaluatedParameters"]
+                == runner.simulator_harness.canonical_runtime_parameter_value(result["parameters"])
+                for result in report["variantResults"]
+            )
+        )
+
     def test_scorecard_materialization_error_blocks_scorecard_without_crashing(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-scorecard-error",
@@ -3923,6 +4003,14 @@ export const STRATEGY_REGISTRY = [
             report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"],
             "missing_runtime_parameter_consumption",
         )
+        self.assertIn("not every candidate reported consumption", report["runtimeParameterInjection"]["reason"])
+        self.assertTrue(
+            all(
+                "did not all report consumed runtime policy parameter evidence"
+                in result["runtimeParameterInjection"]["reason"]
+                for result in report["variantResults"]
+            )
+        )
         self.assertEqual(report["policyUpdateIterations"], 0)
         self.assertEqual(
             report["policyUpdate"]["skippedReason"],
@@ -3948,6 +4036,12 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
         self.assertNotIn("policyUpdateArtifactPath", report)
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
+        self.assertFalse(report["policyUpdate"]["liveEffect"])
+        self.assertFalse(report["policyUpdate"]["officialMmoWrites"])
+        self.assertFalse(report["policyUpdate"]["officialMmoWritesAllowed"])
         self.assertTrue(all("evaluatedParameters" in result for result in simulator.last_variants))
         self.assertTrue(all("runtimeParameterConsumption" not in result for result in simulator.last_variants))
 
