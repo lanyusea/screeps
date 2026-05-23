@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -10,6 +11,7 @@ import time
 import urllib.error
 import unittest
 import urllib.request
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +160,26 @@ def count_rows(db_path: Path, table: str) -> int:
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
+def count_metric_rows_excluding_refresh(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as conn:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM metric_observations WHERE metric_name != ?",
+                ("source.rl_metrics_refresh.completed",),
+            ).fetchone()[0]
+        )
+
+
+def count_refresh_observations(db_path: Path) -> int:
+    with sqlite3.connect(db_path) as conn:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM metric_observations WHERE metric_name = ?",
+                ("source.rl_metrics_refresh.completed",),
+            ).fetchone()[0]
+        )
+
+
 def read_json_url(url: str, timeout: float = 1.0) -> JsonObject:
     with urllib.request.urlopen(url, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
@@ -290,14 +312,17 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
 
             first_refresh = live.refresh_metrics(db_path, artifact_root)
             first_counts = {
-                table: count_rows(db_path, table)
-                for table in ("metric_observations", "rl_dataset_gate_metrics", "metric_coverage_gaps")
+                "metric_observations_without_refresh": count_metric_rows_excluding_refresh(db_path),
+                "rl_dataset_gate_metrics": count_rows(db_path, "rl_dataset_gate_metrics"),
+                "metric_coverage_gaps": count_rows(db_path, "metric_coverage_gaps"),
             }
             second_refresh = live.refresh_metrics(db_path, artifact_root)
             second_counts = {
-                table: count_rows(db_path, table)
-                for table in ("metric_observations", "rl_dataset_gate_metrics", "metric_coverage_gaps")
+                "metric_observations_without_refresh": count_metric_rows_excluding_refresh(db_path),
+                "rl_dataset_gate_metrics": count_rows(db_path, "rl_dataset_gate_metrics"),
+                "metric_coverage_gaps": count_rows(db_path, "metric_coverage_gaps"),
             }
+            refresh_observation_count = count_refresh_observations(db_path)
             summary = live.build_live_summary(
                 repo_root,
                 artifact_root,
@@ -312,6 +337,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(first_refresh["ok"])
         self.assertTrue(second_refresh["ok"])
         self.assertEqual(second_counts, first_counts)
+        self.assertEqual(refresh_observation_count, 2)
         self.assertTrue(summary["health"]["ok"])
         self.assertEqual(summary["e1Gate"]["acceptanceRate"], 0.95)
         self.assertEqual(summary["loopA"]["environment"]["ticksRun"], 1400)
@@ -706,6 +732,98 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertGreaterEqual(len(observed_locked_reads), 2)
         self.assertTrue(all(observed_locked_reads))
 
+    def test_summary_endpoint_uses_cache_until_refresh_invalidates_it(self) -> None:
+        original_build_live_summary = live.build_live_summary
+        calls: list[str] = []
+
+        def cached_build_live_summary(*args: Any, **kwargs: Any) -> JsonObject:
+            calls.append(str(kwargs.get("dashboard_url")))
+            return {
+                "type": "screeps-rl-live-dashboard",
+                "generatedAt": f"call-{len(calls)}",
+                "dashboardUrl": kwargs.get("dashboard_url"),
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                summary_cache_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.build_live_summary = cached_build_live_summary
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                first = read_json_url(f"http://{host}:{port}/api/summary")
+                second = read_json_url(f"http://{host}:{port}/api/summary")
+                server.record_refresh({"ok": True, "files_scanned": 1}, refreshed_at="2026-05-18T10:09:00Z")
+                third = read_json_url(f"http://{host}:{port}/api/summary")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.build_live_summary = original_build_live_summary
+
+        self.assertEqual(first["generatedAt"], "call-1")
+        self.assertEqual(second["generatedAt"], "call-1")
+        self.assertEqual(third["generatedAt"], "call-2")
+        self.assertEqual(len(calls), 2)
+
+    def test_artifact_evidence_summary_scan_is_bounded_to_newest_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            for index in range(5):
+                path = control_root / f"old-{index}.json"
+                write_json(path, {"createdAt": f"2026-05-18T09:0{index}:00Z", "irrelevant": True})
+                os.utime(path, (1_771_000_000 + index, 1_771_000_000 + index))
+            newest = control_root / "new-runtime-blocked.json"
+            write_json(
+                newest,
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+            os.utime(newest, (1_771_001_000, 1_771_001_000))
+
+            injection, zero_iteration = live.artifact_evidence_summaries(
+                artifact_root,
+                repo_root,
+                max_files_per_root=1,
+            )
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertEqual(injection["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(injection["latestPath"].endswith("new-runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "N/A")
+
+    def test_write_json_suppresses_client_disconnect(self) -> None:
+        class BrokenWriter:
+            def write(self, _body: bytes) -> None:
+                raise BrokenPipeError("client disconnected")
+
+        handler = object.__new__(live.LiveDashboardRequestHandler)
+        handler.wfile = BrokenWriter()
+        handler.close_connection = False
+        handler.send_response = lambda _status: None  # type: ignore[method-assign]
+        handler.send_header = lambda _name, _value: None  # type: ignore[method-assign]
+        handler.end_headers = lambda: None  # type: ignore[method-assign]
+
+        handler.write_json(HTTPStatus.OK, {"ok": True})
+
+        self.assertTrue(handler.close_connection)
+
     def test_auto_refresh_state_is_exposed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -784,7 +902,12 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
     def test_refresh_endpoint_propagates_soft_refresh_failure(self) -> None:
         original_refresh_metrics = live.refresh_metrics
 
-        def failing_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+        def failing_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
             return {"ok": False, "error": "ingestor soft failure"}
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -825,7 +948,12 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
     def test_refresh_endpoint_records_successful_refresh_state(self) -> None:
         original_refresh_metrics = live.refresh_metrics
 
-        def successful_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+        def successful_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
             return {"ok": True, "files_scanned": 7}
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -864,7 +992,12 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
     def test_refresh_on_start_returns_failure_when_refresh_reports_not_ok(self) -> None:
         original_refresh_metrics = live.refresh_metrics
 
-        def failing_refresh_metrics(db_path: Path, artifact_root: Path, paths: Any = None) -> JsonObject:
+        def failing_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
             return {"ok": False, "error": "ingestor soft failure"}
 
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -2,7 +2,7 @@
 
 Status: issue #1237 live observability surface for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation without reopening it.
 
-This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the checked-in live surface is a dependency-light local service so it does not require a Grafana SQLite plugin, external network access, or secrets.
+This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the owner-facing operational surface is the dependency-light local live service. The static HTML artifact remains the roadmap fanout attachment surface. Neither path requires a Grafana SQLite plugin, external network access, or secrets.
 
 ## Operator Commands
 
@@ -12,10 +12,20 @@ Metrics database:
 runtime-artifacts/rl-metrics/rl_metrics.sqlite
 ```
 
-Refresh the SQLite store with the existing ingestor:
+Refresh the SQLite store through the bounded live-dashboard refresh wrapper:
 
 ```bash
 npm run rl-metrics-refresh
+```
+
+The npm refresh command uses the live-dashboard bounded refresh path. With no explicit paths it ingests the newest files from each default runtime/RL source root so a large artifact corpus cannot make routine dashboard refresh unbounded. For full one-off audits, run the ingestor directly with explicit paths:
+
+```bash
+python3 scripts/screeps_rl_metrics_ingestor.py ingest-artifacts \
+  runtime-artifacts/runtime-summary-console \
+  runtime-artifacts/rl-dataset-gates \
+  runtime-artifacts/rl-control-loop \
+  runtime-artifacts/rl-training
 ```
 
 Start the live dashboard. The npm command refreshes once before serving and then refreshes SQLite every 300 seconds while the process is running:
@@ -57,6 +67,8 @@ python3 scripts/screeps_rl_live_dashboard.py serve \
   --refresh-on-start \
   --auto-refresh-seconds 300
 ```
+
+The live server precomputes and caches generated `/api/summary` and HTML summary data, invalidates that cache after each refresh, and bounds newest-artifact evidence scans. The standard local service therefore keeps health checks and summary reads fast while still refreshing SQLite on start and every 300 seconds while running.
 
 Trigger a local refresh through the running service only after starting it with `--enable-refresh-endpoint`:
 
@@ -105,6 +117,8 @@ That writes:
 runtime-artifacts/rl-dashboard.html
 ```
 
+Roadmap fanout job `92ca290f7996` must run this static command before rendering/sending the roadmap update and attach the generated HTML artifact together with the roadmap image.
+
 ## Health Semantics
 
 `/healthz` returns HTTP 200 only when:
@@ -112,6 +126,7 @@ runtime-artifacts/rl-dashboard.html
 - `runtime-artifacts/rl-metrics/rl_metrics.sqlite` exists;
 - all required ingestor tables exist;
 - SQLite can be opened and queried.
+- when the service is in auto-refresh mode, at least one successful refresh has completed.
 
 It returns HTTP 503 with JSON failure details when the database is missing, unreadable, or schema-incomplete. Missing E1/Loop A/Loop B/Tencent evidence is shown as dashboard data quality rather than process health, because the server can be healthy while the RL pipeline is blocked.
 

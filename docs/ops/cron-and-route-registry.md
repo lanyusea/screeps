@@ -1,6 +1,6 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-18
+Last updated: 2026-05-23
 Tracking issues: https://github.com/lanyusea/screeps/issues/620, https://github.com/lanyusea/screeps/issues/1122, https://github.com/lanyusea/screeps/issues/1170, https://github.com/lanyusea/screeps/issues/1178
 
 This registry is the expected-state contract for Screeps/Hermes cron jobs and Discord delivery routes. It is not passive documentation: P0 monitor, scheduler, and acceptance checks must compare live cron metadata against this file with `scripts/check_cron_registry.py`.
@@ -105,7 +105,7 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 - Tencent Cloud cost monitoring is owned by P0 agent operations monitor `75cedbb77150`; standalone billing-guard cron jobs are retired and must not be recreated.
 - Tencent RL batch utilization is owned by RL training execution ledger `5c869e7d8a1d`; standalone utilization-controller cron jobs are retired and must not deliver directly to Discord.
 - Incident/postdeploy/Project-field follow-ups should reuse runtime alert/summary, continuation worker, P0 monitor, or RL ledger mechanisms instead of creating ad-hoc temporary crons unless the owner explicitly approves a non-spamming new surface.
-- Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must include the generated `runtime-artifacts/rl-dashboard.html` file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
+- Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must state that the command wrote `runtime-artifacts/rl-dashboard.html` and include that generated file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
 - Gameplay Evolution cadence is 8h, not 12h.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
 - When scanning cron output, ignore prompt/system/skill sections unless explicitly auditing historical prompt drift.

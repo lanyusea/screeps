@@ -9,6 +9,7 @@ import json
 import sqlite3
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -30,6 +31,9 @@ DEFAULT_PORT = 8790
 DEFAULT_REFRESH_SECONDS = 60
 DEFAULT_AUTO_REFRESH_SECONDS = 300
 DEFAULT_HEALTHCHECK_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/healthz"
+DEFAULT_SUMMARY_CACHE_SECONDS = DEFAULT_AUTO_REFRESH_SECONDS
+DEFAULT_SUMMARY_SCAN_FILE_LIMIT = 200
+DEFAULT_INGEST_FILE_LIMIT_PER_ROOT = 250
 REQUIRED_TABLES = (
     "metric_definitions",
     "metric_observations",
@@ -83,6 +87,7 @@ TENCENT_TIMEOUT_COMPONENT_KEY_GROUPS = (
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
+ClientDisconnectError = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,9 @@ class LiveDashboardConfig:
     refresh_seconds: int = DEFAULT_REFRESH_SECONDS
     enable_refresh_endpoint: bool = False
     auto_refresh_seconds: int = 0
+    summary_cache_seconds: float = DEFAULT_SUMMARY_CACHE_SECONDS
+    summary_scan_file_limit: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT
+    ingest_file_limit_per_root: int = DEFAULT_INGEST_FILE_LIMIT_PER_ROOT
 
 
 class LiveDashboardHTTPServer(ThreadingHTTPServer):
@@ -110,8 +118,12 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.config = config
         self.refresh_lock = threading.Lock()
         self.refresh_state_lock = threading.Lock()
+        self.summary_lock = threading.Lock()
         self.refresh_stop = threading.Event()
         self.refresh_thread: threading.Thread | None = None
+        self.summary_cache: JsonObject | None = None
+        self.summary_cache_dashboard_url: str | None = None
+        self.summary_cache_until = 0.0
         self.refresh_state: JsonObject = {
             "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
             "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
@@ -136,6 +148,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 if self.config.auto_refresh_seconds > 0
                 else None
             )
+        self.invalidate_summary_cache()
 
     def refresh_snapshot(self) -> JsonObject:
         with self.refresh_state_lock:
@@ -149,13 +162,63 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             while not self.refresh_stop.wait(self.config.auto_refresh_seconds):
                 with self.refresh_lock:
                     try:
-                        refresh = refresh_metrics(self.config.db_path, self.config.artifact_root)
+                        refresh = refresh_metrics(
+                            self.config.db_path,
+                            self.config.artifact_root,
+                            max_files_per_root=self.config.ingest_file_limit_per_root,
+                        )
                     except Exception as error:  # pragma: no cover - defensive background loop boundary
                         refresh = {"ok": False, "error": str(error)}
-                    self.record_refresh(refresh)
+                self.record_refresh(refresh)
+                try:
+                    self.prime_summary_cache()
+                except Exception:
+                    pass
 
         self.refresh_thread = threading.Thread(target=refresh_loop, daemon=True, name="rl-dashboard-refresh")
         self.refresh_thread.start()
+
+    def dashboard_url(self) -> str:
+        host, port = self.server_address[:2]
+        return format_dashboard_url(str(host), int(port))
+
+    def invalidate_summary_cache(self) -> None:
+        with self.summary_lock:
+            self.summary_cache = None
+            self.summary_cache_dashboard_url = None
+            self.summary_cache_until = 0.0
+
+    def prime_summary_cache(self) -> JsonObject:
+        return self.summary_snapshot(self.dashboard_url())
+
+    def summary_snapshot(self, dashboard_url: str) -> JsonObject:
+        cache_ttl = max(0.0, float(self.config.summary_cache_seconds))
+        current_monotonic = time.monotonic()
+        with self.summary_lock:
+            if (
+                cache_ttl > 0
+                and self.summary_cache is not None
+                and self.summary_cache_dashboard_url == dashboard_url
+                and current_monotonic < self.summary_cache_until
+            ):
+                return self.summary_cache
+
+            with self.refresh_lock:
+                db = sqlite_summary(self.config.db_path, self.config.repo_root)
+                refresh = self.refresh_snapshot()
+            summary = build_live_summary(
+                self.config.repo_root,
+                self.config.artifact_root,
+                self.config.db_path,
+                dashboard_url=dashboard_url,
+                refresh=refresh,
+                db_summary=db,
+                scan_file_limit=self.config.summary_scan_file_limit,
+            )
+            self.summary_cache = summary
+            self.summary_cache_dashboard_url = dashboard_url
+            self.summary_cache_until = time.monotonic() + cache_ttl
+            return summary
 
     def server_close(self) -> None:
         self.refresh_stop.set()
@@ -338,18 +401,60 @@ def artifact_timestamp(path: Path, payload: JsonObject) -> datetime:
         return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
-def latest_json_artifact(root: Path, patterns: Sequence[str]) -> tuple[Path, JsonObject, datetime] | None:
-    candidates: list[tuple[Path, JsonObject, datetime]] = []
+def file_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def newest_matching_files(
+    root: Path,
+    patterns: Sequence[str],
+    *,
+    recursive: bool = False,
+    limit: int | None = None,
+) -> tuple[list[Path], int]:
     if not root.exists():
-        return None
+        return [], 0
+    paths: list[Path] = []
+    seen: set[Path] = set()
     for pattern in patterns:
-        for path in root.glob(pattern):
-            if not path.is_file():
-                continue
-            payload = load_json_object(path)
-            if payload is None:
-                continue
-            candidates.append((path, payload, artifact_timestamp(path, payload)))
+        try:
+            matches = root.rglob(pattern) if recursive else root.glob(pattern)
+            for path in matches:
+                if not path.is_file():
+                    continue
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    resolved = path
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                paths.append(path)
+        except OSError:
+            continue
+    ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+    bounded_limit = max(0, limit) if limit is not None else None
+    if bounded_limit is not None:
+        return ordered[:bounded_limit], len(ordered)
+    return ordered, len(ordered)
+
+
+def latest_json_artifact(
+    root: Path,
+    patterns: Sequence[str],
+    *,
+    max_files: int | None = None,
+) -> tuple[Path, JsonObject, datetime] | None:
+    candidates: list[tuple[Path, JsonObject, datetime]] = []
+    paths, _total = newest_matching_files(root, patterns, limit=max_files)
+    for path in paths:
+        payload = load_json_object(path)
+        if payload is None:
+            continue
+        candidates.append((path, payload, artifact_timestamp(path, payload)))
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[2])
@@ -450,10 +555,82 @@ def default_ingest_paths(artifact_root: Path) -> list[Path]:
     return [artifact_root / subdir for subdir in DEFAULT_ARTIFACT_SUBDIRS]
 
 
-def refresh_metrics(db_path: Path, artifact_root: Path, paths: Sequence[Path] | None = None) -> JsonObject:
-    ingest_paths = list(paths) if paths is not None and len(paths) > 0 else default_ingest_paths(artifact_root)
+def bounded_ingest_paths(artifact_root: Path, *, max_files_per_root: int) -> list[Path]:
+    ingest_paths: list[Path] = []
+    for root in default_ingest_paths(artifact_root):
+        selected, total = newest_matching_files(
+            root,
+            ("*",),
+            recursive=True,
+            limit=max_files_per_root,
+        )
+        if selected:
+            ingest_paths.extend(selected)
+        elif total == 0:
+            ingest_paths.append(root)
+    return ingest_paths
+
+
+def record_refresh_observation(db_path: Path, ingest_paths: Sequence[Path], result: JsonObject, *, bounded: bool) -> None:
+    refreshed_at = utc_now_iso()
+    refresh_key = f"{refreshed_at}:{time.time_ns()}"
+    evidence = {
+        "bounded": bounded,
+        "filesScanned": result.get("files_scanned"),
+        "filesSkipped": result.get("files_skipped"),
+        "runtimeSummaries": result.get("runtime_summaries"),
+        "datasetGateArtifacts": result.get("dataset_gate_artifacts"),
+        "trainingArtifacts": result.get("training_artifacts"),
+        "iterationDecisions": result.get("iteration_decisions"),
+        "coverageGaps": result.get("coverage_gaps"),
+        "paths": [str(path) for path in ingest_paths[:20]],
+        "pathCount": len(ingest_paths),
+    }
+    with sqlite3.connect(str(db_path.expanduser())) as conn:
+        conn.execute(
+            """
+            INSERT INTO metric_observations (
+              metric_name, observed_at, value, value_text, unit, source_artifact, evidence_json, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "source.rl_metrics_refresh.completed",
+                refreshed_at,
+                static_dashboard.number_value(result.get("files_scanned")),
+                "bounded" if bounded else "explicit",
+                "files",
+                f"scripts/screeps_rl_live_dashboard.py refresh {refresh_key}",
+                json.dumps(evidence, sort_keys=True, ensure_ascii=True),
+                f"rl-dashboard-refresh:{refresh_key}",
+            ),
+        )
+        conn.commit()
+
+
+def refresh_metrics(
+    db_path: Path,
+    artifact_root: Path,
+    paths: Sequence[Path] | None = None,
+    *,
+    max_files_per_root: int = DEFAULT_INGEST_FILE_LIMIT_PER_ROOT,
+) -> JsonObject:
+    bounded = paths is None or len(paths) == 0
+    ingest_paths = (
+        bounded_ingest_paths(artifact_root, max_files_per_root=max_files_per_root)
+        if bounded
+        else list(paths or [])
+    )
     result = metrics_ingestor.ingest_artifacts(db_path, ingest_paths)
-    return {"ok": True, "db": str(db_path), "paths": [str(path) for path in ingest_paths], **result}
+    record_refresh_observation(db_path, ingest_paths, result, bounded=bounded)
+    return {
+        "ok": True,
+        "db": str(db_path),
+        "paths": [str(path) for path in ingest_paths],
+        "bounded": bounded,
+        "fileLimitPerRoot": max_files_per_root if bounded else None,
+        **result,
+    }
 
 
 def refresh_succeeded(refresh: JsonObject) -> bool:
@@ -471,10 +648,16 @@ def collect_values_by_key(value: Any, key_names: set[str], *, limit: int = 12) -
     return found
 
 
-def latest_scorecard_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
+def latest_scorecard_summary(
+    artifact_root: Path,
+    repo_root: Path,
+    *,
+    max_files: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> JsonObject:
     latest = latest_json_artifact(
         artifact_root / "rl-control-loop" / "scorecards",
         ("*.json",),
+        max_files=max_files,
     )
     if latest is None:
         return {
@@ -511,40 +694,46 @@ def tencent_batch_summary(artifact_root: Path, repo_root: Path) -> JsonObject:
     return tencent_batch_summary_at(artifact_root, repo_root, now=None)
 
 
-def tencent_batch_summary_at(artifact_root: Path, repo_root: Path, *, now: Any | None) -> JsonObject:
+def tencent_batch_summary_at(
+    artifact_root: Path,
+    repo_root: Path,
+    *,
+    now: Any | None,
+    max_runs: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> JsonObject:
     root = artifact_root / "tencent-cloud" / "batch-runs"
     runs: list[JsonObject] = []
-    if root.exists():
-        for path in sorted(root.glob("*/controller-summary.json")):
-            payload = load_json_object(path)
-            if payload is None:
-                continue
-            compute_evidence = static_dashboard.compute_evidence_summary(payload)
-            batch_scale = tencent_batch_scale(payload)
-            runner_state = classify_tencent_batch_run_state(payload, now=now)
-            runs.append(
-                {
-                    "runId": payload.get("runId") or path.parent.name,
-                    "finalStatus": payload.get("finalStatus") or "unknown",
-                    "partial": payload.get("partial"),
-                    "startedAt": payload.get("startedAt"),
-                    "finishedAt": payload.get("finishedAt"),
-                    "instanceId": payload.get("instanceId"),
-                    "workerUser": payload.get("workerUser"),
-                    "inputs": payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {},
-                    "safety": payload.get("safety") if isinstance(payload.get("safety"), dict) else {},
-                    "computeEvidence": compute_evidence,
-                    "computeClassification": compute_evidence.get("classification"),
-                    "batchScale": batch_scale,
-                    "runnerState": runner_state,
-                    "stateClassification": runner_state.get("status"),
-                    "activeAgeSeconds": runner_state.get("ageSeconds"),
-                    "declaredTimeoutSeconds": runner_state.get("timeoutSeconds"),
-                    "handoffRequired": runner_state.get("handoffRequired"),
-                    "blocker": compute_evidence.get("blocker"),
-                    "path": safe_display_path(path, repo_root),
-                    "timestamp": display_timestamp(artifact_timestamp(path, payload)),
-                }
+    paths, total_paths = newest_matching_files(root, ("*/controller-summary.json",), limit=max_runs)
+    for path in paths:
+        payload = load_json_object(path)
+        if payload is None:
+            continue
+        compute_evidence = static_dashboard.compute_evidence_summary(payload)
+        batch_scale = tencent_batch_scale(payload)
+        runner_state = classify_tencent_batch_run_state(payload, now=now)
+        runs.append(
+            {
+                "runId": payload.get("runId") or path.parent.name,
+                "finalStatus": payload.get("finalStatus") or "unknown",
+                "partial": payload.get("partial"),
+                "startedAt": payload.get("startedAt"),
+                "finishedAt": payload.get("finishedAt"),
+                "instanceId": payload.get("instanceId"),
+                "workerUser": payload.get("workerUser"),
+                "inputs": payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {},
+                "safety": payload.get("safety") if isinstance(payload.get("safety"), dict) else {},
+                "computeEvidence": compute_evidence,
+                "computeClassification": compute_evidence.get("classification"),
+                "batchScale": batch_scale,
+                "runnerState": runner_state,
+                "stateClassification": runner_state.get("status"),
+                "activeAgeSeconds": runner_state.get("ageSeconds"),
+                "declaredTimeoutSeconds": runner_state.get("timeoutSeconds"),
+                "handoffRequired": runner_state.get("handoffRequired"),
+                "blocker": compute_evidence.get("blocker"),
+                "path": safe_display_path(path, repo_root),
+                "timestamp": display_timestamp(artifact_timestamp(path, payload)),
+            }
             )
     latest = max(runs, key=lambda item: item["timestamp"]) if runs else None
     active = [run for run in runs if as_dict(run.get("runnerState")).get("active") is True]
@@ -554,6 +743,10 @@ def tencent_batch_summary_at(artifact_root: Path, repo_root: Path, *, now: Any |
     return {
         "hasData": bool(runs),
         "runCount": len(runs),
+        "runsDiscovered": total_paths,
+        "runsScanned": len(paths),
+        "truncated": total_paths > len(paths),
+        "fileLimit": max_runs,
         "activeRunCount": len(active),
         "completedRunCount": len(completed),
         "computeConfirmedRunCount": len(compute_confirmed),
@@ -814,7 +1007,11 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
     }
 
 
-def scan_artifact_json(artifact_root: Path) -> Iterator[ArtifactJson]:
+def scan_artifact_json(
+    artifact_root: Path,
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> Iterator[ArtifactJson]:
     roots = (
         artifact_root / "rl-control-loop",
         artifact_root / "rl-training",
@@ -822,13 +1019,14 @@ def scan_artifact_json(artifact_root: Path) -> Iterator[ArtifactJson]:
     )
     paths: list[Path] = []
     for root in roots:
-        if not root.exists():
-            continue
-        for path in root.rglob("*.json"):
-            if not path.is_file():
-                continue
-            paths.append(path)
-    for path in sorted(paths, key=lambda candidate: candidate.as_posix()):
+        selected, _total = newest_matching_files(
+            root,
+            ("*.json",),
+            recursive=True,
+            limit=max_files_per_root,
+        )
+        paths.extend(selected)
+    for path in sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True):
         payload = load_json_object(path)
         if payload is None:
             continue
@@ -1016,10 +1214,15 @@ def zero_iteration_policy_update_summary(artifact_root: Path, repo_root: Path) -
     return zero_iteration_policy_update_summary_from_artifacts(scan_artifact_json(artifact_root), repo_root)
 
 
-def artifact_evidence_summaries(artifact_root: Path, repo_root: Path) -> tuple[JsonObject, JsonObject]:
+def artifact_evidence_summaries(
+    artifact_root: Path,
+    repo_root: Path,
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> tuple[JsonObject, JsonObject]:
     injection: JsonObject | None = None
     zero_iteration: JsonObject | None = None
-    for path, payload, timestamp in scan_artifact_json(artifact_root):
+    for path, payload, timestamp in scan_artifact_json(artifact_root, max_files_per_root=max_files_per_root):
         injection = newest_summary(injection, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
         zero_iteration = newest_summary(
             zero_iteration,
@@ -1175,6 +1378,7 @@ def build_live_summary(
     dashboard_url: str | None = None,
     refresh: JsonObject | None = None,
     db_summary: JsonObject | None = None,
+    scan_file_limit: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
 ) -> JsonObject:
     generated = generated_at or utc_now_iso()
     refresh_summary: JsonObject = refresh or {
@@ -1189,10 +1393,14 @@ def build_live_summary(
     health = health_with_refresh(health_from_db_summary(db), refresh_summary)
     raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
-    scorecard = latest_scorecard_summary(artifact_root, repo_root)
-    tencent = tencent_batch_summary_at(artifact_root, repo_root, now=generated)
+    scorecard = latest_scorecard_summary(artifact_root, repo_root, max_files=scan_file_limit)
+    tencent = tencent_batch_summary_at(artifact_root, repo_root, now=generated, max_runs=scan_file_limit)
     safety = safety_summary(dashboard, tencent, scorecard)
-    injection, zero_iteration = artifact_evidence_summaries(artifact_root, repo_root)
+    injection, zero_iteration = artifact_evidence_summaries(
+        artifact_root,
+        repo_root,
+        max_files_per_root=scan_file_limit,
+    )
     flywheel_stages = flywheel_stage_summary(db=db, dashboard=dashboard, scorecard=scorecard, safety=safety)
     project_gates = project_gate_summary(
         flywheel_stages=flywheel_stages,
@@ -1603,11 +1811,15 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         refresh_raised = False
         with self.server.refresh_lock:
             try:
-                refresh = refresh_metrics(self.server.config.db_path, self.server.config.artifact_root)
+                refresh = refresh_metrics(
+                    self.server.config.db_path,
+                    self.server.config.artifact_root,
+                    max_files_per_root=self.server.config.ingest_file_limit_per_root,
+                )
             except Exception as error:  # pragma: no cover - defensive handler boundary
                 refresh = {"ok": False, "error": str(error)}
                 refresh_raised = True
-            self.server.record_refresh(refresh)
+        self.server.record_refresh(refresh)
         if refresh_raised:
             self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, refresh)
             return
@@ -1623,35 +1835,27 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
 
     def summary(self) -> JsonObject:
-        config = self.server.config
-        host, port = self.server.server_address[:2]
-        with self.server.refresh_lock:
-            db = sqlite_summary(config.db_path, config.repo_root)
-            refresh = self.server.refresh_snapshot()
-        return build_live_summary(
-            config.repo_root,
-            config.artifact_root,
-            config.db_path,
-            dashboard_url=format_dashboard_url(str(host), int(port)),
-            refresh=refresh,
-            db_summary=db,
-        )
+        return self.server.summary_snapshot(self.server.dashboard_url())
 
     def write_json(self, status: HTTPStatus, payload: JsonObject) -> None:
         body = (json.dumps(payload, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
-        self.send_response(status.value)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.write_response(status, "application/json; charset=utf-8", body)
 
     def write_html(self, status: HTTPStatus, body_text: str) -> None:
         body = body_text.encode("utf-8")
-        self.send_response(status.value)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.write_response(status, "text/html; charset=utf-8", body)
+
+    def write_response(self, status: HTTPStatus, content_type: str, body: bytes) -> bool:
+        try:
+            self.send_response(status.value)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+        except ClientDisconnectError:
+            self.close_connection = True
+            return False
 
 
 def make_server(host: str, port: int, config: LiveDashboardConfig) -> LiveDashboardHTTPServer:
@@ -1669,6 +1873,12 @@ def build_config(args: argparse.Namespace) -> LiveDashboardConfig:
         refresh_seconds=args.refresh_seconds,
         enable_refresh_endpoint=bool(getattr(args, "enable_refresh_endpoint", False)),
         auto_refresh_seconds=max(0, int(getattr(args, "auto_refresh_seconds", 0) or 0)),
+        summary_cache_seconds=max(0.0, float(getattr(args, "summary_cache_seconds", DEFAULT_SUMMARY_CACHE_SECONDS))),
+        summary_scan_file_limit=max(0, int(getattr(args, "summary_scan_file_limit", DEFAULT_SUMMARY_SCAN_FILE_LIMIT))),
+        ingest_file_limit_per_root=max(
+            0,
+            int(getattr(args, "ingest_file_limit_per_root", DEFAULT_INGEST_FILE_LIMIT_PER_ROOT)),
+        ),
     )
 
 
@@ -1691,6 +1901,18 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=DEFAULT_REFRESH_SECONDS,
         help="HTML meta-refresh interval in seconds.",
+    )
+    parser.add_argument(
+        "--summary-scan-file-limit",
+        type=int,
+        default=DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+        help="Newest JSON/controller files to inspect per live-summary source.",
+    )
+    parser.add_argument(
+        "--ingest-file-limit-per-root",
+        type=int,
+        default=DEFAULT_INGEST_FILE_LIMIT_PER_ROOT,
+        help="Newest artifact files to ingest per default source root when no explicit paths are supplied.",
     )
 
 
@@ -1716,6 +1938,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--enable-refresh-endpoint",
         action="store_true",
         help="Enable POST /refresh. Disabled by default because it mutates the local SQLite metrics store.",
+    )
+    serve.add_argument(
+        "--summary-cache-seconds",
+        type=float,
+        default=DEFAULT_SUMMARY_CACHE_SECONDS,
+        help="Seconds to cache /api/summary and HTML summary data. Use 0 to disable.",
     )
 
     refresh = subparsers.add_parser("refresh", help="refresh the SQLite metrics database with the ingestor")
@@ -1757,16 +1985,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = build_config(args)
     if args.command == "refresh":
         paths = [resolve_path(path, config.repo_root) for path in args.paths]
-        result = refresh_metrics(config.db_path, config.artifact_root, paths)
+        result = refresh_metrics(
+            config.db_path,
+            config.artifact_root,
+            paths,
+            max_files_per_root=config.ingest_file_limit_per_root,
+        )
         print(json.dumps(result, sort_keys=True))
         return 0 if refresh_succeeded(result) else 1
     if args.command == "summary":
-        print(json.dumps(build_live_summary(config.repo_root, config.artifact_root, config.db_path), sort_keys=True))
+        print(
+            json.dumps(
+                build_live_summary(
+                    config.repo_root,
+                    config.artifact_root,
+                    config.db_path,
+                    scan_file_limit=config.summary_scan_file_limit,
+                ),
+                sort_keys=True,
+            )
+        )
         return 0
     if args.command == "serve":
         initial_refresh: JsonObject | None = None
         if args.refresh_on_start:
-            refresh = refresh_metrics(config.db_path, config.artifact_root)
+            refresh = refresh_metrics(
+                config.db_path,
+                config.artifact_root,
+                max_files_per_root=config.ingest_file_limit_per_root,
+            )
             if not refresh_succeeded(refresh):
                 print(
                     json.dumps({"ok": False, "error": "refresh-on-start failed", "refresh": refresh}, sort_keys=True),
@@ -1777,8 +2024,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         server = make_server(args.host, args.port, config)
         if initial_refresh is not None:
             server.record_refresh(initial_refresh)
-        host, port = server.server_address
-        print(f"Serving Screeps RL live dashboard at {format_dashboard_url(str(host), int(port))}")
+        server.prime_summary_cache()
+        print(f"Serving Screeps RL live dashboard at {server.dashboard_url()}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
