@@ -2,7 +2,7 @@
 
 Last updated: 2026-04-27T01:20:00+08:00
 
-This roadmap is the durable explanatory counterpart to Discord `#roadmap` and the GitHub roadmap controls. **GitHub Issues, Milestones, and Project `screeps` are now the source of truth for active roadmap work**; this markdown file records the vision, current snapshot, decisions, and reporting behavior for main-agent/subagent work.
+This roadmap is the durable explanatory counterpart to the GitHub roadmap controls and public Pages report. **GitHub Issues, Milestones, Project `screeps`, and GitHub Pages at https://lanyusea.github.io/screeps/ are now the source of truth for active roadmap work**; this markdown file records the vision, current snapshot, decisions, and reporting behavior for main-agent/subagent work.
 
 Active roadmap management contract: `docs/ops/github-roadmap-management.md`. Issue/PR template and defect-tracking contract: `docs/ops/github-issue-management.md`.
 
@@ -27,7 +27,7 @@ All roadmap decomposition and priority evaluation must tie back to this ordered 
 - Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room; a committed, review-hardened harness now automates that pinned path for fresh local reruns and passes 22 offline self-tests
 - Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S29` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
-- Latest project-management milestone: roadmap snapshots now include next-point completion percentages, and a six-hour development report is scheduled for `discord:1497587260835758222:1497833662241181746`
+- Latest project-management milestone: roadmap snapshots now include next-point completion percentages, GitHub Pages is the owner-facing roadmap surface, and a six-hour development report is scheduled for `discord:1497587260835758222:1497833662241181746`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority contract: P0 automation-health blockers remain highest priority; after those are clear, game-result work outranks non-blocking foundation work in the ordered vision chain `territory → resources → enemy kills`; every roadmap line must still keep active or queued worker coverage so gameplay and foundation tracks progress in parallel.
 
@@ -62,7 +62,7 @@ Artifacts:
 
 Outcome:
 
-- Discord is the coordination contract for research, decisions, roadmap, task queue, development logs, runtime summaries, and alerts.
+- Discord is the coordination contract for research, decisions, task queue, development logs, runtime summaries, and alerts; active roadmap state is published through GitHub Pages.
 - The server is intentionally minimal because only two people participate.
 - Autonomous work must remain observable through the correct project channels.
 
@@ -259,7 +259,7 @@ Requirement:
 - home channel remains the owner command/proactive-report surface;
 - main agent decomposes and delegates minimal subagent/Codex tasks;
 - subagent conclusions return to main agent for review;
-- main agent routes summaries to `#decisions`, `#roadmap`, `#task-queue`, `#research-notes`, `#dev-log`, `#runtime-summary`, and `#runtime-alerts` as appropriate;
+- main agent routes summaries to `#decisions`, `#task-queue`, `#research-notes`, `#dev-log`, `#runtime-summary`, and `#runtime-alerts` as appropriate, and refreshes the GitHub Pages roadmap when roadmap state changes;
 - monitoring scheduled-worker health and communication flow is higher priority than normal development slices.
 
 Immediate operating change:
@@ -278,7 +278,7 @@ Current evidence update:
 - `docs/process/2026-04-26-scheduler-cadence-audit-1832.md` reconfirmed the blocker again: alert job `1c093252ab70` remained overdue 80 seconds after its `18:30:55+08:00` due time, P0 monitor and typed fanout jobs had far-future `next_run_at` gaps, and all inspected delivery/workdir/status fields remained healthy. The remaining defect is scheduler cadence/rescheduling, not runtime monitor command behavior.
 - `docs/process/2026-04-26-scheduler-cadence-audit-1924.md` reconfirmed the blocker with fresh mixed evidence: runtime-alert job `1c093252ab70` produced healthy `[SILENT]` finals at 19:05 and 19:17, but did not advance after its `19:22:06+08:00` due time by the 19:24 checkpoint; the continuation job was also stale relative to `19:21:50`, while P0 monitor and typed fanout jobs recovered one run. The defect remains intermittent scheduler dispatcher/cadence health, not no-alert monitor logic or delivery routing.
 - `docs/process/2026-04-26-scheduler-cadence-audit-1948.md` reconfirmed the blocker again: runtime-alert job `1c093252ab70` was due at `19:48:49+08:00` and still had not advanced by `19:50:38+08:00`; no new alert session appeared after `session_cron_1c093252ab70_20260426_194332.json`, while the continuation worker session was active and alert `last_status`/delivery metadata remained healthy.
-- `docs/process/2026-04-26-p0-scheduler-recovery.md` recorded a short recovery around `21:03+08:00`, but `docs/process/2026-04-26-scheduler-cadence-regression-2156.md` found renewed multi-job cadence regression by `21:56+08:00`: runtime-alert, P0 monitor, continuation, roadmap fanout, and dev-log fanout were overdue without new sessions or `last_run_at` advancement, while last delivery metadata stayed healthy.
+- `docs/process/2026-04-26-p0-scheduler-recovery.md` recorded a short recovery around `21:03+08:00`, but `docs/process/2026-04-26-scheduler-cadence-regression-2156.md` found renewed multi-job cadence regression by `21:56+08:00`: runtime-alert, P0 monitor, continuation, the retired roadmap Discord reporter, and dev-log reporter were overdue without new sessions or `last_run_at` advancement, while last delivery metadata stayed healthy.
 - `docs/process/2026-04-26-p0-scheduler-recovery-2259.md` recorded a later recovery window around `22:59+08:00`: the 4h checkpoint, P0 operations monitor, and runtime-alert job all advanced/finalized; the latest runtime-alert output was `[SILENT]`, and the last four runtime-alert sessions were consecutive `[SILENT]` no-alert finals.
 - `docs/process/2026-04-26-p0-repair-completion-2320.md` recorded repair completion around `23:20+08:00`: after simplifying the 4h checkpoint, bounding/rescheduling the continuation worker, and updating P0 monitor classification, the 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, and resumed continuation worker all produced fresh finalized output artifacts. Treat the current incident as repaired/watch-only; future stale metadata/output regressions should reopen/escalate the P0 issue with fresh evidence.
 
@@ -353,12 +353,12 @@ Scope:
 - Refresh `docs/ops/roadmap.md`.
 - Refresh `docs/README.md` document index.
 - Clarify subagent completion reporting rules in the Discord operating spec.
-- Report updated roadmap and decision items to Discord.
+- Refresh GitHub Pages roadmap artifacts and report decision/task/dev-log items to the relevant Discord channels.
 
 Exit criteria:
 
 - Durable docs reflect completed milestones, blockers, next slices, and reporting policy.
-- Discord `#roadmap`, `#task-queue`, `#dev-log`, and `#decisions` receive the relevant summaries.
+- GitHub Pages receives the roadmap refresh, and Discord `#task-queue`, `#dev-log`, and `#decisions` receive the relevant non-roadmap summaries.
 
 ### Phase B — Spawn lifecycle / worker replacement hardening
 
@@ -455,7 +455,7 @@ Whenever a subagent finishes a task, the main agent must:
 3. post the relevant summary to the corresponding Discord channel(s):
    - `#task-queue` — task status, blockers, done criteria, next task;
    - `#dev-log` — implementation/test/build/file/commit results;
-   - `#roadmap` — milestone or phase changes;
+   - GitHub Pages roadmap — milestone or phase changes;
    - `#research-notes` — new factual findings and source-derived conclusions;
    - `#decisions` — final decision requests or direction-changing tradeoffs;
    - `#runtime-summary` — routine runtime state after a runtime exists;

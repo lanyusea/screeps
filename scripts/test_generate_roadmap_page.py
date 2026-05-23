@@ -13,6 +13,11 @@ from typing import Any
 from unittest.mock import patch
 
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+
 def load_roadmap_module() -> Any:
     module_path = Path(__file__).with_name("generate-roadmap-page.py")
     spec = importlib.util.spec_from_file_location("generate_roadmap_page", module_path)
@@ -380,6 +385,87 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(owned_rooms["values"], [1, 1, 1, 1, 1, 1, 1])
         self.assertEqual(territory["history"]["status"], "complete")
         self.assertIn("reducer-backed KPI history", territory["footer"])
+
+    def test_runtime_history_default_input_paths_are_repo_local_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            paths = roadmap.runtime_history_input_paths(repo_root)
+
+        self.assertEqual(paths, [str(repo_root / "runtime-artifacts")])
+        self.assertNotIn("/root/.hermes/cron/output", paths)
+
+    def test_runtime_history_host_global_paths_require_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            paths = roadmap.runtime_history_input_paths(
+                repo_root,
+                explicit_paths=["/root/.hermes/cron/output"],
+            )
+
+        self.assertEqual(paths[0], str(repo_root / "runtime-artifacts"))
+        self.assertIn("/root/.hermes/cron/output", paths)
+
+    def test_cron_output_root_uses_existing_host_default_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            host_root = repo_root / "host-cron-output"
+            host_root.mkdir()
+
+            with (
+                patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+            ):
+                path = roadmap.roadmap_cron_output_root(repo_root)
+
+        self.assertEqual(path, host_root)
+
+    def test_cron_output_root_defaults_to_repo_local_path_when_host_default_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            host_root = repo_root / "missing-host-cron-output"
+
+            with (
+                patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+            ):
+                path = roadmap.roadmap_cron_output_root(repo_root)
+
+        self.assertEqual(path, repo_root / "runtime-artifacts" / "cron-output")
+
+    def test_cron_output_root_explicit_root_overrides_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            path = roadmap.roadmap_cron_output_root(repo_root, "/root/.hermes/cron/output")
+
+        self.assertEqual(path, Path("/root/.hermes/cron/output"))
+
+    def test_runtime_kpi_report_invokes_bridge_with_scoped_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            script_path = repo_root / "scripts" / "screeps_runtime_kpi_artifact_bridge.py"
+            script_path.parent.mkdir(parents=True)
+            script_path.write_text("# bridge placeholder\n", encoding="utf-8")
+            captured: dict[str, Any] = {}
+
+            def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[dict[str, Any], None]:
+                captured["command"] = command
+                captured["cwd"] = cwd
+                captured["timeout"] = timeout
+                return {"type": "runtime-kpi-report", "source": {"inputPaths": command[5:]}}, None
+
+            with patch.object(roadmap, "run_json", side_effect=fake_run_json):
+                report = roadmap.load_runtime_kpi_report(repo_root)
+
+        command = captured["command"]
+        self.assertEqual(command[:4], [sys.executable, str(script_path), "--format", "json"])
+        self.assertEqual(command[4:], ["--", str(repo_root / "runtime-artifacts")])
+        self.assertEqual(captured["cwd"], repo_root)
+        self.assertEqual(captured["timeout"], 45)
+        self.assertEqual(report["source"]["inputPaths"], [str(repo_root / "runtime-artifacts")])
+        self.assertNotIn("/root/.hermes/cron/output", command)
 
     def test_runtime_artifact_history_blanks_not_observed_resource_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -894,6 +980,46 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(cards_by_label["Longest Codex run"]["value"], "30m")
         self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
         self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
+
+    def test_cron_run_delta_resets_when_source_root_changes(self) -> None:
+        window_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 8, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            current_provenance = roadmap.automation_run_metric_provenance(
+                roadmap.AutomationRunMetrics(
+                    5,
+                    2,
+                    True,
+                    window_start=window_start,
+                    window_end=window_end,
+                    source_root=repo_root / "cron-output-a",
+                    source_exists=True,
+                )
+            )
+            prior_provenance = roadmap.automation_run_metric_provenance(
+                roadmap.AutomationRunMetrics(
+                    3,
+                    1,
+                    True,
+                    window_start=window_start,
+                    window_end=window_end,
+                    source_root=repo_root / "cron-output-b",
+                    source_exists=True,
+                )
+            )
+
+        changed_root_cache = [{"label": "Cron runs", "rawValue": 3, "provenance": prior_provenance}]
+        same_root_cache = [{"label": "Cron runs", "rawValue": 3, "provenance": current_provenance}]
+
+        self.assertEqual(
+            roadmap.process_card_delta(changed_root_cache, "Cron runs", 5, current_provenance),
+            "no prior snapshot",
+        )
+        self.assertEqual(
+            roadmap.process_card_delta(same_root_cache, "Cron runs", 5, current_provenance),
+            "+2",
+        )
 
     def test_report_process_cards_hide_cached_issue_pr_counts_when_github_unavailable(self) -> None:
         cached_page_data = {

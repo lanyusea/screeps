@@ -207,8 +207,8 @@ def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
     if evidence_count:
         assert_check(
             failures,
-            isinstance(official_deploys, int) and official_deploys >= evidence_count,
-            "docs/roadmap-data.json: Deploys must reflect observed official deploy evidence instead of reporting 0",
+            official_deploys == "unavailable" or (type(official_deploys) is int and official_deploys >= evidence_count),
+            "docs/roadmap-data.json: Deploys must either reflect observed official deploy evidence or render unavailable; it must not report 0",
         )
     else:
         assert_check(

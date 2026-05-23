@@ -158,3 +158,41 @@ jobs:
 
       - name: Verify build artifact
         run: test -f dist/main.js
+
+  verify-roadmap-pages-contract:
+    name: Verify roadmap Pages contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Report Python toolchain
+        run: python3 --version
+
+      - name: Compile roadmap support scripts
+        run: |
+          python3 -m py_compile \
+            scripts/generate-roadmap-page.py \
+            scripts/screeps_runtime_kpi_artifact_bridge.py \
+            scripts/check_cron_registry.py \
+            scripts/check-roadmap-pages-freshness.py
+
+      - name: Run roadmap Pages contract tests
+        run: |
+          python3 -m unittest \
+            scripts/test_generate_roadmap_page.py \
+            scripts/test_check_cron_registry.py \
+            scripts/test_roadmap_pages_contract.py \
+            scripts/test_check_roadmap_pages_freshness.py
+
+      - name: Verify committed roadmap Pages freshness
+        run: |
+          python3 scripts/check-roadmap-pages-freshness.py \
+            . \
+            --max-age-hours 168 \
+            --require-live-github

@@ -2643,7 +2643,7 @@ def render_html(dashboard: JsonObject) -> str:
 
   <div class="grid two">
     {render_training(dashboard["training"], repo_root)}
-    <section class="panel"><h2>Auto-Refresh Contract</h2><p class="meta">Run <code>npm run rl-dashboard</code> before roadmap fanout. The cron output should include this generated HTML artifact for the roadmap surface.</p></section>
+    <section class="panel"><h2>Auto-Refresh Contract</h2><p class="meta">Run <code>npm run rl-dashboard</code> before refreshing GitHub Pages roadmap evidence at https://lanyusea.github.io/screeps/. The command writes this HTML artifact for local review.</p></section>
   </div>
 
   {render_policy(dashboard["policy"], repo_root)}

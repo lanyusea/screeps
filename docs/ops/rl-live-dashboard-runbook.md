@@ -2,7 +2,7 @@
 
 Status: issue #1237 live observability surface for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation without reopening it.
 
-This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the owner-facing operational surface is the dependency-light local live service. The static HTML artifact remains the roadmap fanout attachment surface. Neither path requires a Grafana SQLite plugin, external network access, or secrets.
+This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the owner-facing operational surface is the dependency-light local live service. The canonical roadmap surface is GitHub Pages at https://lanyusea.github.io/screeps/; the static HTML artifact is supporting evidence, not a Discord roadmap attachment. Neither path requires a Grafana SQLite plugin, external network access, or secrets.
 
 ## Operator Commands
 
@@ -117,7 +117,7 @@ That writes:
 runtime-artifacts/rl-dashboard.html
 ```
 
-Roadmap fanout job `92ca290f7996` must run this static command before rendering/sending the roadmap update and attach the generated HTML artifact together with the roadmap image.
+Use this static command when refreshing local RL evidence for the GitHub Pages roadmap. Do not schedule or attach a Discord roadmap update for this artifact.
 
 ## Health Semantics
 

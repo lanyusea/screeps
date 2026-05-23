@@ -75,14 +75,14 @@ QA output must be evidence-based and use this verdict model:
 After reviewing subagent outputs, the main agent must post the distilled, channel-appropriate information:
 
 - `#decisions` — final decisions, decision requests, direction-changing tradeoffs;
-- `#roadmap` — phase/milestone/priority changes;
+- GitHub Pages roadmap — phase/milestone/priority changes at https://lanyusea.github.io/screeps/;
 - `#task-queue` — active tasks, blockers, done criteria, next task;
 - `#research-notes` — factual findings, sources, experiments;
 - `#dev-log` — implementation, verification, files, tests, commits;
 - `#runtime-summary` — routine runtime state;
 - `#runtime-alerts` — urgent runtime or deployment problems.
 
-Main-agent fanout is mandatory for significant subagent outcomes.
+Main-agent reporting is mandatory for significant subagent outcomes. Roadmap state changes must refresh the GitHub Pages roadmap artifacts rather than posting to a roadmap Discord channel.
 
 ### R4 — Subagent process details are available in detail channels, but subagents stay narrow
 
@@ -93,7 +93,7 @@ Allowed detail-reporting modes:
 1. **Delegated subagent mode** — the subagent returns a final result to the main agent. The main agent posts relevant details to `#research-notes` or `#dev-log`.
 2. **Spawned/long-running agent mode** — if a spawned agent has messaging ability and a single obvious detail channel, it may post low-level progress only to that channel, e.g. research worker → `#research-notes`, development worker → `#dev-log`. The main agent still owns summaries, decisions, roadmap, and task queue updates.
 
-Subagents must not independently update `#decisions`, `#roadmap`, or `#task-queue` as authoritative state unless explicitly instructed by the main agent.
+Subagents must not independently update `#decisions`, GitHub Pages roadmap artifacts, or `#task-queue` as authoritative state unless explicitly instructed by the main agent.
 
 ### R5 — Internal operations monitoring is highest priority
 
@@ -204,7 +204,7 @@ The scheduler runs these phases in order on every invocation:
 3. **Handle completed dev agents.** For each finished dev/Codex process, verify commit/authorship, run required checks, push, create or update the PR, add the PR to Project `screeps`, set issue/PR status to `In review`, and dispatch on-demand QA.
 4. **Handle QA results.** If QA returns `PASS`, update the PR/issue Evidence and move the PR to merge-gate watch. If QA returns `REQUEST_CHANGES`, dispatch a review-fix dev/Codex agent and record the blocker.
 5. **Maximize safe parallelism without starvation.** Claim executable `Ready` issues up to capacity using the anti-starvation scheduling contract above: hard P0 incidents first; otherwise the guarded weighted cycle, P2 credit, 24-hour forced-P2 rule, and P1 domain-fairness layer. A 24-hour forced-P2 promotion is subordinate only to hard P0 and cannot be deferred by same-domain P1 gating, normal P1 sequencing, or PR-drain preference when the P2 item has an executable action. For P1, compute oldest executable Ready issue by Domain and serve an aged non-gameplay/owner-visible P1 before creating another new same-domain gameplay lane when the gameplay floor is already satisfied. Within each eligible priority bucket, prefer game-goal work in the order territory > resources > kills, then non-blocking foundation. Default assumption: different roadmap submodules are non-conflicting and should run in parallel via separate worktrees unless a concrete file/runtime/resource conflict is observed.
-6. **Refresh owner-visible state.** Update Issue/Project `Evidence` and `Next action`, write concise scheduler checkpoint output, and trigger/allow typed reporters to refresh roadmap/task views from GitHub state.
+6. **Refresh owner-visible state.** Update Issue/Project `Evidence` and `Next action`, write concise scheduler checkpoint output, trigger/allow typed reporters to refresh task/detail views from GitHub state, and keep the GitHub Pages roadmap current when roadmap data changes.
 
 Before the scheduler reports a run complete, run the PM defect tripwire against the final report/checkpoint text:
 
@@ -336,17 +336,16 @@ Behavior:
 - Delivery target: `discord:1497820688843800776`.
 - Purpose: keep P0 health output separate from owner-task/home-channel conversation while still escalating to home if owner action is urgently required.
 
-### Typed-channel fanout reporters
+### Typed-channel reporters and Pages roadmap
 
-Purpose: prevent typed channels from going stale when the continuation worker only delivers one final response to `#task-queue`.
+Purpose: prevent typed detail channels from going stale when the continuation worker only delivers one final response to `#task-queue`. Roadmap reporting is handled by the committed GitHub Pages artifacts at https://lanyusea.github.io/screeps/.
 
 Configured reporters use `docs/ops/cron-and-route-registry.md` as the only cadence source of truth. Current registry-backed schedules are:
 
 - `Screeps dev-log fanout reporter` → `discord:#dev-log`, `25,55 * * * *`;
-- `Screeps roadmap fanout reporter` → `discord:#roadmap`, `34 * * * *`;
 - `Screeps research-notes fanout reporter` → `discord:#research-notes`, `10,40 * * * *`.
 
-If live cadence or routing changes, update the cron registry first, then this summary if it is kept as a convenience copy.
+If live cadence or routing changes, update the cron registry first, then this summary if it is kept as a convenience copy. Do not create or restore recurring Discord delivery for roadmap/page reporting.
 
 Behavior:
 
@@ -356,7 +355,7 @@ Behavior:
 - return exactly `[SILENT]` when there is nothing new;
 - never implement code or create/modify cron jobs.
 
-These reporters are not authoritative decision-makers. They are narrow visibility bridges. The main agent remains accountable for reviewing subagent conclusions and routing final decisions, roadmap changes, blockers, and owner-facing escalations.
+These reporters are not authoritative decision-makers. They are narrow visibility bridges. The main agent remains accountable for reviewing subagent conclusions, routing final decisions, refreshing Pages roadmap changes, blockers, and owner-facing escalations.
 
 ## Discord routing matrix
 
@@ -368,7 +367,7 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 | Subagent development result | main agent review first, then QA gate when deliverable-significant | `#dev-log` | no, unless blocker/decision needed |
 | QA acceptance result | main agent review first | `#task-queue` for PASS/REQUEST_CHANGES; `#dev-log` for verification evidence | no, unless blocker/decision needed |
 | Decision needed/finalized | `#decisions` | home if owner action needed | yes |
-| Roadmap/priorities changed | `#roadmap` | home only if major | maybe |
+| Roadmap/priorities changed | GitHub Pages roadmap | home only if major | maybe |
 | Active task/blocker | `#task-queue` | home if owner action needed | maybe |
 | Routine runtime status | `#runtime-summary` | none | no |
 | Urgent runtime/deploy alert | `#runtime-alerts` | home channel | yes |

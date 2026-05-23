@@ -12,6 +12,8 @@ Turn Discord into the operational backbone for the Screeps project so that all f
 - runtime monitoring
 - deployment tracking
 
+Roadmap status is published through GitHub Pages at https://lanyusea.github.io/screeps/, not a Discord roadmap channel.
+
 This guide defines the initial server structure and the configuration rules that should be followed consistently.
 
 ---
@@ -63,25 +65,23 @@ Create these channels first:
    - Working findings from docs, experiments, and references
    - No final conclusions here
 
-4. `#roadmap`
-   - Milestones and phase planning
-   - Stage gates and exit criteria
-
-5. `#task-queue`
+4. `#task-queue`
    - Current tasks and ownership
    - Short actionable task items
 
-6. `#dev-log`
+5. `#dev-log`
    - Implementation progress
    - What changed, what was tested, what still needs work
 
-7. `#runtime-summary`
+6. `#runtime-summary`
    - Periodic bot health snapshots
    - Tick / CPU / bucket / creep / room state summaries
 
-8. `#runtime-alerts`
+7. `#runtime-alerts`
    - Error-only channel
    - Exceptions, CPU spikes, deadlocks, missing resources, hostile events
+
+Roadmap status is published through GitHub Pages at https://lanyusea.github.io/screeps/ rather than a Discord roadmap channel.
 
 ---
 
@@ -101,10 +101,6 @@ Create these channels first:
 #### `#research-notes`
 - Everyone can read
 - Posting allowed for working contributors
-
-#### `#roadmap`
-- Everyone can read
-- Posting allowed for Owner / Architect
 
 #### `#task-queue`
 - Everyone can read
@@ -153,12 +149,6 @@ Use this format:
 ```text
 Use this channel for source findings, experiments, and working notes.
 Do not post final decisions here.
-```
-
-### `#roadmap`
-```text
-Use this channel for phases, milestones, and exit criteria.
-Keep the roadmap short and actionable.
 ```
 
 ### `#task-queue`
@@ -259,7 +249,6 @@ Alert messages should include severity, shard, room, issue, impact, and action.
 - `#project-vision`
 - `#decisions`
 - `#research-notes`
-- `#roadmap`
 - `#task-queue`
 - `#dev-log`
 - `#runtime-summary`
@@ -312,7 +301,7 @@ The bot should keep inline messages short and attach detailed diagnostics only w
 If you want the lightest acceptable setup, create only:
 
 - roles: `Owner`, `Architect`, `Developer`, `Observer`, `Bot`
-- channels: the 8-channel minimal set above
+- channels: the 7-channel minimal set above
 - pinned templates in each channel
 
 That is enough to start the project cleanly without over-engineering the Discord side.

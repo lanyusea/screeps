@@ -38,11 +38,9 @@ Seasonal World reporting is also separate from the persistent/general Discord ro
 | --- | --- | --- |
 | Owner command / main thread | current Discord thread/home | Main-agent command and owner-facing summary surface. |
 | Rules archive | `discord:1499621566164504766` | Final rules standards are archived here. |
-| Roadmap/image sync | `discord:1497586803841040504` | Domain/roadmap visual sync target requested by owner. |
 | Task queue | `discord:#task-queue` | Continuation/RL scheduling and active task state. |
 | Research notes | `discord:#research-notes` | Factual findings and RL/research progress. |
 | Dev log | `discord:#dev-log` | Implementation, verification, commits, files changed. |
-| Roadmap | `discord:#roadmap` | Roadmap snapshots and Pages/report updates. |
 | Runtime summary | `discord:1497588267057680385` | Routine room summary images/reports. |
 | Runtime alerts | `discord:1497588512436785284` | P0 runtime alert/tactical response. |
 | P0 operations | `discord:1497820688843800776` | Owner-action and autonomous-system health blockers. |
@@ -55,6 +53,8 @@ Seasonal World reporting is also separate from the persistent/general Discord ro
 | Seasonal runtime alerts | `discord:1504889421655314512` | Urgent Seasonal runtime alerts only, using severity/evidence/impact/action/owner-need/next-check fields. |
 
 When using raw IDs and named channels together, this registry is the comparison source. Do not downgrade a thread target to a bare channel. Do not route Seasonal World routine/status/alert traffic into persistent MMO routes unless the message is an explicit cross-link to the Seasonal channel.
+
+Roadmap reporting is not a Discord route. The canonical owner-facing roadmap surface is GitHub Pages: https://lanyusea.github.io/screeps/. Refresh `docs/index.html` and `docs/roadmap-data.json` with `scripts/generate-roadmap-page.py` and commit those artifacts when roadmap data changes.
 
 ## Expected recurring cron jobs
 
@@ -78,7 +78,6 @@ Repeat policy values:
 | Screeps console capture (live energy telemetry) | `7ee147327ba6` | `*/30 * * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Local bounded console/energy telemetry collector. |
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Research/RL progress fanout. |
-| Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Roadmap/Pages image fanout; uses explicit `cd /root/screeps` in its prompt rather than a durable cron workdir. |
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
 | Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
@@ -90,7 +89,7 @@ Repeat policy values:
 
 ## Transient and retired cron jobs
 
-Transient one-shot jobs must have an expiry condition and tracking issue. They should be removed after execution or after the condition is superseded. A live transient job not listed in the recurring table is still drift unless its issue explicitly says it is active.
+Transient one-shot jobs must have an expiry condition and tracking issue. They should be removed after execution or after the condition is superseded. The strict recurring-job verifier ignores live jobs whose repeat policy is one-shot so an unrelated scheduled migration does not fail recurring drift checks, but active one-shots still need explicit owner/controller tracking outside this recurring table.
 
 | Job | ID | Status | Action |
 | --- | --- | --- | --- |
@@ -105,7 +104,7 @@ Transient one-shot jobs must have an expiry condition and tracking issue. They s
 - Tencent Cloud cost monitoring is owned by P0 agent operations monitor `75cedbb77150`; standalone billing-guard cron jobs are retired and must not be recreated.
 - Tencent RL batch utilization is owned by RL training execution ledger `5c869e7d8a1d`; standalone utilization-controller cron jobs are retired and must not deliver directly to Discord.
 - Incident/postdeploy/Project-field follow-ups should reuse runtime alert/summary, continuation worker, P0 monitor, or RL ledger mechanisms instead of creating ad-hoc temporary crons unless the owner explicitly approves a non-spamming new surface.
-- Roadmap fanout job `92ca290f7996` must run `npm run rl-dashboard` from `/root/screeps` before rendering the roadmap image. Its final output must state that the command wrote `runtime-artifacts/rl-dashboard.html` and include that generated file in addition to the roadmap snapshot image, using the scheduler's native media attachment directive for the HTML artifact path.
+- Roadmap Pages are the canonical roadmap surface at https://lanyusea.github.io/screeps/. Do not create or restore scheduled Discord delivery for roadmap/page reporting; refresh the committed Pages artifacts instead.
 - Gameplay Evolution cadence is 8h, not 12h.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
 - When scanning cron output, ignore prompt/system/skill sections unless explicitly auditing historical prompt drift.
