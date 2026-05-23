@@ -1351,8 +1351,6 @@ return cjson.encode({
         and not _runtime_parameter_consumption_matches_injection(evidence, injection)
         and isinstance(payload, dict)
         and payload.get("genericScanRan") is False
-        and payload.get("candidateLimitReached") is not True
-        and payload.get("hashScanBudgetExhausted") is not True
     ):
         generic_payload = _collect_redis_runtime_parameter_payload(
             smoke,

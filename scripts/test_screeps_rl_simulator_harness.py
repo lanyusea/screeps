@@ -2975,7 +2975,7 @@ cli:
         self.assertIn("skipExpectedUsernameKeys", eval_script)
         self.assertIn("genericScanRan", eval_script)
 
-    def test_redis_runtime_parameter_consumption_collector_skips_generic_after_lua_scan_stop(self) -> None:
+    def test_redis_runtime_parameter_consumption_collector_scans_generic_after_lua_scan_stop(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         stale = self.runtime_parameter_consumption_evidence(injection)
         stale["owner"] = "bot"
@@ -3039,9 +3039,88 @@ cli:
                     injection,
                 )
 
-                self.assertEqual(extracted, stale)
-                self.assertEqual(len(smoke.commands), 1)
+                self.assertEqual(extracted, matching)
+                self.assertEqual(len(smoke.commands), 2)
                 self.assertEqual(smoke.commands[0][-2:], ["0", "bot"])
+                self.assertEqual(smoke.commands[1][-3:], ["0", "bot", "generic"])
+
+    def test_redis_runtime_parameter_consumption_collector_limits_generic_after_noisy_lua_scan_stop(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale_candidates = []
+        for index in range(32):
+            stale = self.runtime_parameter_consumption_evidence(injection)
+            stale["owner"] = "bot"
+            stale["strategyVariantId"] = f"stale-variant-{index}"
+            stale_candidates.append({
+                "source": f"redis.memory:bot.rlRuntimePolicyParameters.{index}",
+                "value": stale,
+            })
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            commands: list[list[str]]
+
+            def __init__(self, stop_flag: str) -> None:
+                self.commands = []
+                self.stop_flag = stop_flag
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.commands.append(command)
+                if command[-1] == "generic":
+                    return {
+                        "returncode": 0,
+                        "output_excerpt": json.dumps({
+                            "ok": True,
+                            "genericScanRan": True,
+                            "candidateLimitReached": True,
+                            "hashScanBudgetExhausted": False,
+                            "candidates": [],
+                        }),
+                    }
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "genericScanRan": False,
+                        "candidateLimitReached": self.stop_flag == "candidateLimitReached",
+                        "hashScanBudgetExhausted": self.stop_flag == "hashScanBudgetExhausted",
+                        "hashScanStats": {"scannedFields": 256, "skippedFields": 1024},
+                        "candidates": stale_candidates,
+                    }),
+                }
+
+        for stop_flag in ("candidateLimitReached", "hashScanBudgetExhausted"):
+            with self.subTest(stop_flag=stop_flag):
+                smoke = FakeSmoke(stop_flag)
+
+                extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+                    smoke,
+                    ["docker", "compose"],
+                    FakeConfig(),
+                    None,
+                    injection,
+                )
+
+                self.assertEqual(extracted, stale_candidates[0]["value"])
+                self.assertEqual(len(smoke.commands), 2)
+                self.assertEqual(smoke.commands[0][-2:], ["0", "bot"])
+                self.assertEqual(smoke.commands[1][-3:], ["0", "bot", "generic"])
+                eval_script = smoke.commands[1][smoke.commands[1].index("EVAL") + 1]
+                self.assertIn("local candidateLimit = 32", eval_script)
+                self.assertIn("local maxHashHscanCalls = 8", eval_script)
+                self.assertIn("local maxHashFields = 256", eval_script)
+                self.assertIn('scanMode == "generic"', eval_script)
 
     def test_redis_runtime_parameter_consumption_collector_fails_closed_without_proof(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
