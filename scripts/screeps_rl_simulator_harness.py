@@ -777,14 +777,13 @@ def canonical_runtime_parameter_value(value: Any) -> Any:
     if isinstance(value, bool):
         return value
     if isinstance(value, float) and math.isfinite(value):
-        rounded = round(value)
-        if abs(value - rounded) < 1e-9:
-            return int(rounded)
+        if value.is_integer():
+            return int(value)
         return value
     if isinstance(value, dict):
         return {
             key: canonical_runtime_parameter_value(item)
-            for key, item in sorted(value.items())
+            for key, item in value.items()
             if isinstance(key, str)
         }
     if isinstance(value, list):

@@ -355,6 +355,29 @@ class RlTrainingRunnerTest(unittest.TestCase):
         simulator(run_id="second", variants=["control"], variant_configs=variant_configs)
         self.assertEqual(simulator.last_uploaded_code_by_variant, {})
 
+    def test_runtime_parameter_hash_preserves_tiny_floats_and_mixed_keys(self) -> None:
+        parameters = {
+            "tinyNonZeroWeight": 1e-10,
+            "integralWeight": 6.0,
+            "nested": [{"tinyNonZeroWeight": -1e-10, "integralWeight": 7.0, 8: "ignored"}],
+            9: "ignored",
+        }
+
+        canonical = runner.simulator_harness.canonical_runtime_parameter_value(parameters)
+        parameters_hash = runner.runtime_parameter_parameters_hash(parameters)
+
+        self.assertEqual(canonical["tinyNonZeroWeight"], 1e-10)
+        self.assertNotEqual(canonical["tinyNonZeroWeight"], 0)
+        self.assertIs(type(canonical["integralWeight"]), int)
+        self.assertEqual(canonical["integralWeight"], 6)
+        self.assertEqual(canonical["nested"][0]["tinyNonZeroWeight"], -1e-10)
+        self.assertNotEqual(canonical["nested"][0]["tinyNonZeroWeight"], 0)
+        self.assertIs(type(canonical["nested"][0]["integralWeight"]), int)
+        self.assertEqual(canonical["nested"][0]["integralWeight"], 7)
+        self.assertNotIn(9, canonical)
+        self.assertNotIn(8, canonical["nested"][0])
+        self.assertIsInstance(parameters_hash, str)
+
     def test_experiment_card_validation_requires_conservative_and_ood_safety_flags(self) -> None:
         for field in ("conservative_actions_only", "ood_rejection"):
             with self.subTest(field=field):
