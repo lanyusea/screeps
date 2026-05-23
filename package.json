@@ -4,7 +4,7 @@
     "rl-dashboard": "python3 scripts/screeps_rl_dashboard.py",
     "rl-dashboard-live": "python3 scripts/screeps_rl_live_dashboard.py serve --refresh-on-start --auto-refresh-seconds 300",
     "rl-dashboard-live:health": "python3 scripts/screeps_rl_live_dashboard.py healthcheck",
-    "rl-metrics-refresh": "python3 scripts/screeps_rl_metrics_ingestor.py ingest-artifacts"
+    "rl-metrics-refresh": "python3 scripts/screeps_rl_live_dashboard.py refresh"
   },
   "devDependencies": {
     "playwright": "1.59.1"

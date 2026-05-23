@@ -211,6 +211,16 @@ METRIC_DEFINITIONS = [
         "promotion_rule": "Repeated absence during active training work promotes to an RL experiment evidence issue.",
     },
     {
+        "metric_name": "source.rl_metrics_refresh.completed",
+        "category": "metric coverage",
+        "purpose": "Record live-dashboard bounded refresh completions so SQLite freshness is observable.",
+        "source_artifacts": "scripts/screeps_rl_live_dashboard.py refresh",
+        "directionality": "higher is better",
+        "interpretation": "The observed_at timestamp is the durable proof that a dashboard refresh completed.",
+        "missing_coverage_behavior": "Absence means the live-dashboard refresh path has not completed for this database.",
+        "promotion_rule": "If stale during active RL work, restore npm run rl-metrics-refresh or live dashboard auto-refresh.",
+    },
+    {
         "metric_name": "survival.owned_rooms",
         "category": "survival/ownership",
         "purpose": "Count claimed rooms visible in runtime summary evidence.",
