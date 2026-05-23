@@ -2615,9 +2615,9 @@ cli:
         self.assertIsNone(extracted)
         self.assertIsNotNone(smoke.command)
         eval_script = smoke.command[-3] if smoke.command is not None else ""
-        self.assertIn('string.find(fieldLower, "runtime", 1, true) ~= nil', eval_script)
-        self.assertIn('or fieldText == "data"', eval_script)
-        self.assertIn('or fieldText == "value"', eval_script)
+        self.assertIn('string.find(keyLower, "runtime", 1, true) ~= nil', eval_script)
+        self.assertIn('or keyText == "data"', eval_script)
+        self.assertIn('or keyText == "value"', eval_script)
         self.assertIn("fieldMatchesExpectedUsername = keyMatchesExpectedUsername(fieldText)", eval_script)
         self.assertIn(
             "if hashFieldMayContainRuntimePolicyParameters(fieldText) or fieldMatchesExpectedUsername then",
@@ -2626,6 +2626,112 @@ cli:
         self.assertNotIn('string.find(fieldLower, "memory"', eval_script)
         self.assertNotIn("keyMayContainMemory", eval_script)
         self.assertNotIn("or ownerMatched or fieldOwnerMatched", eval_script)
+
+    def test_redis_runtime_parameter_consumption_collector_reads_shard_hash_memory_fields(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+            output_excerpt: str | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-3]
+                supports_shard_hash_memory = (
+                    "hashFieldMayContainRuntimePolicyParameters(fieldText)" in eval_script
+                    and 'string.match(keyText, "^[Ss]hard[%w_-]+$") ~= nil' in eval_script
+                    and 'keyText == "$activeWorld"' in eval_script
+                )
+                candidates = []
+                if supports_shard_hash_memory:
+                    candidates.append({
+                        "source": "redis.memory:bot.shardX.rlRuntimePolicyParameters",
+                        "value": evidence,
+                    })
+                self.output_excerpt = json.dumps({"ok": True, "candidates": candidates})
+                return {"returncode": 0, "output_excerpt": self.output_excerpt}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-3] if smoke.command is not None else ""
+        self.assertIn('keyText == "$activeWorld"', eval_script)
+        self.assertIn('string.match(keyText, "^[Ss]hard[%w_-]+$") ~= nil', eval_script)
+
+    def test_redis_runtime_parameter_consumption_collector_reads_shard_string_memory_containers(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+            output_excerpt: str | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-3]
+                supports_shard_containers = (
+                    "runtimePolicyParameterContainerKey(key)" in eval_script
+                    and "pushRuntimePolicyParameterEvidence(source .. \".\" .. key" in eval_script
+                    and 'string.match(keyText, "^[Ss]hard[%w_-]+$") ~= nil' in eval_script
+                )
+                candidates = []
+                if supports_shard_containers:
+                    candidates.append({
+                        "source": "redis.memory:bot.data.shardX.rlRuntimePolicyParameters",
+                        "value": evidence,
+                    })
+                self.output_excerpt = json.dumps({"ok": True, "candidates": candidates})
+                return {"returncode": 0, "output_excerpt": self.output_excerpt}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-3] if smoke.command is not None else ""
+        self.assertIn("runtimePolicyParameterContainerKey(key)", eval_script)
+        self.assertIn("pushRuntimePolicyParameterEvidence(source .. \".\" .. key", eval_script)
 
     def test_redis_runtime_parameter_consumption_collector_requires_configured_username(self) -> None:
         class FakeConfig:
@@ -3278,6 +3384,60 @@ cli:
         self.assertNotIn("pushCandidate('users.memory', user.memory)", eval_script)
         self.assertNotIn("pushCandidate(collectionName, record)", eval_script)
         self.assertIn("rlRuntimePolicyParameters", eval_script)
+
+    def test_mongo_runtime_parameter_consumption_collector_reads_shard_memory_containers(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+            output_excerpt: str | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-1]
+                supports_shard_containers = (
+                    "/^shard[\\w-]*$/i.test(key)" in eval_script
+                    and "key === '$activeWorld'" in eval_script
+                    and "pushRuntimePolicyParameterCandidate(source + '.' + key, nested, depth + 1)" in eval_script
+                )
+                candidates = []
+                if supports_shard_containers:
+                    candidates.append({
+                        "source": "users.memory.data.shardX.rlRuntimePolicyParameters",
+                        "value": evidence,
+                    })
+                self.output_excerpt = json.dumps({"ok": True, "candidates": candidates})
+                return {"returncode": 0, "output_excerpt": self.output_excerpt}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_mongo_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-1] if smoke.command is not None else ""
+        self.assertIn("/^shard[\\w-]*$/i.test(key)", eval_script)
+        self.assertIn("key === '$activeWorld'", eval_script)
 
     def test_runtime_parameter_summary_separates_upload_from_consumption(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

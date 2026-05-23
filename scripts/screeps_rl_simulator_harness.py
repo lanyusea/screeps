@@ -1076,6 +1076,28 @@ local nestedRuntimePolicyParameterKeys = {
   "value",
   "evidence",
 }
+local function runtimePolicyParameterContainerKey(keyText)
+  local keyLower = string.lower(keyText)
+  return string.find(keyLower, "runtime", 1, true) ~= nil
+    or keyText == "data"
+    or keyText == "value"
+    or keyText == "memory"
+    or keyText == "Memory"
+    or keyText == "$activeWorld"
+    or keyText == "activeWorld"
+    or string.match(keyText, "^[Ss]hard[%w_-]+$") ~= nil
+end
+local function predefinedRuntimePolicyParameterKey(keyText)
+  if keyText == "rlRuntimePolicyParameters" then
+    return true
+  end
+  for _, nestedKey in ipairs(nestedRuntimePolicyParameterKeys) do
+    if keyText == nestedKey then
+      return true
+    end
+  end
+  return false
+end
 local function decodedRuntimePolicyParameterValue(value)
   if type(value) == "table" then
     return value
@@ -1222,6 +1244,18 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMat
       end
     end
   end
+  for key, item in pairs(decoded) do
+    if
+      type(key) == "string"
+      and runtimePolicyParameterContainerKey(key)
+      and not predefinedRuntimePolicyParameterKey(key)
+    then
+      pushRuntimePolicyParameterEvidence(source .. "." .. key, item, depth + 1, nextOwnerMatched)
+      if candidateLimitReached() then
+        return
+      end
+    end
+  end
   if decoded[1] ~= nil then
     for index, item in ipairs(decoded) do
       pushRuntimePolicyParameterEvidence(source .. "[" .. tostring(index) .. "]", item, depth + 1, nextOwnerMatched)
@@ -1235,10 +1269,7 @@ local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMa
   pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
 local function hashFieldMayContainRuntimePolicyParameters(fieldText)
-  local fieldLower = string.lower(fieldText)
-  return string.find(fieldLower, "runtime", 1, true) ~= nil
-    or fieldText == "data"
-    or fieldText == "value"
+  return runtimePolicyParameterContainerKey(fieldText)
 end
 local function scanHashMemoryFields(keyText, key, ownerMatched)
   local hashCursor = "0"
@@ -1456,7 +1487,9 @@ def _collect_mongo_runtime_parameter_consumption_evidence(
 const smokeDb = db.getSiblingDB({json.dumps(cfg.mongo_db)});
 const user = smokeDb.getCollection('users').findOne({{username: {json.dumps(cfg.username)}}});
 const candidates = [];
+const candidateLimit = 32;
 const pushCandidate = (source, value) => {{
+  if (candidates.length >= candidateLimit) return;
   if (value === undefined || value === null) return;
   candidates.push({{source, value}});
 }};
@@ -1464,14 +1497,50 @@ const parseJson = value => {{
   if (typeof value !== 'string') return value;
   try {{ return JSON.parse(value); }} catch (err) {{ return value; }}
 }};
-const pushRuntimePolicyParameterCandidate = (source, value) => {{
+const fieldMayContainRuntimePolicyParameters = key => {{
+  if (typeof key !== 'string' || !key) return false;
+  const lower = key.toLowerCase();
+  return lower.includes('runtime')
+    || key === 'data'
+    || key === 'value'
+    || key === 'memory'
+    || key === 'Memory'
+    || key === '$activeWorld'
+    || key === 'activeWorld'
+    || /^shard[\\w-]*$/i.test(key);
+}};
+const pushRuntimePolicyParameterCandidate = (source, value, depth = 0) => {{
+  if (depth > 6 || candidates.length >= candidateLimit) return;
   const parsed = parseJson(value);
   if (!parsed || typeof parsed !== 'object') return;
   if (parsed.type === {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_TYPE)}) {{
     pushCandidate(source, parsed);
   }}
-  if (parsed.rlRuntimePolicyParameters !== undefined) {{
-    pushCandidate(source + '.rlRuntimePolicyParameters', parsed.rlRuntimePolicyParameters);
+  for (const key of [
+    {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)},
+    'rlRuntimePolicyParameters',
+    'runtimeParameterConsumption',
+    'runtimePolicyParameterConsumption',
+    'data',
+    'memory',
+    'Memory',
+    'value',
+    'evidence'
+  ]) {{
+    if (parsed[key] !== undefined) {{
+      pushRuntimePolicyParameterCandidate(source + '.' + key, parsed[key], depth + 1);
+    }}
+  }}
+  for (const [key, nested] of Object.entries(parsed)) {{
+    if (fieldMayContainRuntimePolicyParameters(key)) {{
+      pushRuntimePolicyParameterCandidate(source + '.' + key, nested, depth + 1);
+    }}
+    if (candidates.length >= candidateLimit) return;
+  }}
+  if (Array.isArray(parsed.candidates)) {{
+    parsed.candidates.forEach((item, index) => {{
+      pushRuntimePolicyParameterCandidate(source + '.candidates[' + index + ']', item, depth + 1);
+    }});
   }}
 }};
 if (user) {{
