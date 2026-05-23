@@ -4326,6 +4326,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 input_text: str | None = None,
                 env: dict[str, str] | None = None,
             ) -> subprocess.CompletedProcess[str]:
+                self.assertIs(check, False)
                 operation_commands.append(cmd)
                 if len(operation_commands) == 1:
                     stderr = "REMOTE HOST IDENTIFICATION HAS CHANGED!\nOffending ED25519 key in known_hosts:1\n"
@@ -4400,6 +4401,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 input_text: str | None = None,
                 env: dict[str, str] | None = None,
             ) -> subprocess.CompletedProcess[str]:
+                self.assertIs(check, False)
                 operation_commands.append(cmd)
                 if len(operation_commands) == 1:
                     return subprocess.CompletedProcess(cmd, 255, "", "Host key verification failed.\n")
