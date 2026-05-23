@@ -340,7 +340,7 @@ Pinned messages should be short and should not duplicate the whole project spec.
 ## 8. Required setup order
 
 1. Create the roles (`Owner`, `Bot`)
-2. Create the eight channels
+2. Create the seven channels
 3. Set the permissions
 4. Add the pinned message in each channel
 5. Start using the channel contract for all future Screeps work

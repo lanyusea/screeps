@@ -37,14 +37,16 @@ def live_github_snapshot() -> dict[str, Any]:
 def write_pages(repo_root: Path, *, generated_at: str, html_timestamp: str | None = None, github: Any = None) -> None:
     docs = repo_root / "docs"
     docs.mkdir(parents=True)
+    generated_at_cst = "2026-05-23 12:00:00 CST"
     data = {
         "generatedAt": generated_at,
-        "generatedAtCst": "2026-05-23 12:00:00 CST",
+        "generatedAtCst": generated_at_cst,
         "github": live_github_snapshot() if github is None else github,
     }
     (docs / "roadmap-data.json").write_text(json.dumps(data), encoding="utf-8")
+    timestamp_text = html_timestamp if html_timestamp is not None else f"{generated_at} {generated_at_cst}"
     (docs / "index.html").write_text(
-        f"<html><body>Published {html_timestamp or generated_at}</body></html>",
+        f"<html><body>Published {timestamp_text}</body></html>",
         encoding="utf-8",
     )
 
@@ -92,7 +94,24 @@ class RoadmapPagesFreshnessTests(unittest.TestCase):
                 now=datetime(2026, 5, 23, 5, tzinfo=timezone.utc),
             )
 
-        self.assertIn("generatedAt is not reflected", "\n".join(failures))
+        self.assertIn("generatedAt", "\n".join(failures))
+
+    def test_html_must_reflect_generated_cst_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            write_pages(
+                repo_root,
+                generated_at="2026-05-23T04:00:00Z",
+                html_timestamp="2026-05-23T04:00:00Z",
+            )
+
+            failures = checker.check_pages_freshness(
+                repo_root,
+                max_age_hours=168,
+                now=datetime(2026, 5, 23, 5, tzinfo=timezone.utc),
+            )
+
+        self.assertIn("generatedAtCst", "\n".join(failures))
 
     def test_require_live_github_rejects_cached_or_error_snapshots(self) -> None:
         stale_github = {

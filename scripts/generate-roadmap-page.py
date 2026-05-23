@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import html
 import json
 import math
@@ -3385,7 +3386,7 @@ def codex_session_metric_provenance(metrics: CodexSessionMetrics) -> JsonObject:
 
 
 def automation_run_metric_provenance(metrics: AutomationRunMetrics) -> JsonObject:
-    return delivery_metric_provenance(
+    provenance = delivery_metric_provenance(
         metrics.window_start,
         metrics.window_end,
         "repo-attributed local Hermes cron markdown",
@@ -3402,6 +3403,8 @@ def automation_run_metric_provenance(metrics: AutomationRunMetrics) -> JsonObjec
         captured_start=metrics.captured_start,
         captured_end=metrics.captured_end,
     )
+    provenance["sourceRootIds"] = [local_source_root_id(metrics.source_root)]
+    return provenance
 
 
 def local_source_root_label(path: Path | None, fallback: str) -> str:
@@ -3413,6 +3416,13 @@ def local_source_root_label(path: Path | None, fallback: str) -> str:
     if normalized.endswith("/.hermes/cron/output"):
         return ".hermes/cron/output"
     return path.name or fallback
+
+
+def local_source_root_id(path: Path | None) -> str:
+    if path is None:
+        return ""
+    normalized = str(path.expanduser().resolve(strict=False)).replace("\\", "/")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def unavailable_local_cache_process_card(
@@ -3635,6 +3645,10 @@ def delivery_metric_provenance_comparable(
         current_window.get("days") == prior_window.get("days")
         and current.get("sourceKind") == prior.get("sourceKind")
         and current.get("localCacheOnly") == prior.get("localCacheOnly")
+        and current.get("sourceRootIds", current.get("sourceRoots")) == prior.get(
+            "sourceRootIds",
+            prior.get("sourceRoots"),
+        )
     )
 
 

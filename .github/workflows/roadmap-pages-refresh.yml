@@ -27,12 +27,12 @@ jobs:
 
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: main
           fetch-depth: 0
           lfs: true
-          token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+          persist-credentials: false
 
       - name: Report toolchain
         run: |
@@ -73,7 +73,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(roadmap): refresh Pages artifacts [skip ci]"
-          git push origin HEAD:main
+          git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" push origin HEAD:main
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Request legacy Pages rebuild

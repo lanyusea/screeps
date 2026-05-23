@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.util
+import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,20 @@ RETIRED_ROADMAP_FANOUT_PATTERNS = (
 )
 
 
+def load_kpi_checker_module() -> Any:
+    module_path = REPO_ROOT / "scripts" / "check-roadmap-kpi-placeholders.py"
+    spec = importlib.util.spec_from_file_location("check_roadmap_kpi_placeholders", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load check-roadmap-kpi-placeholders.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+kpi_checker = load_kpi_checker_module()
+
+
 class RoadmapPagesContractTests(unittest.TestCase):
     def read(self, relative: Path) -> str:
         return (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -50,6 +67,24 @@ class RoadmapPagesContractTests(unittest.TestCase):
                 for pattern in RETIRED_ROADMAP_FANOUT_PATTERNS:
                     self.assertNotIn(pattern, text)
                 self.assertIn(PAGES_URL, text)
+
+    def test_deploy_process_metric_rejects_bool_values(self) -> None:
+        cards = [
+            {"label": label, "value": True if label == "Deploys" else 1}
+            for label in kpi_checker.EXPECTED_PROCESS_LABELS
+        ]
+        data = {
+            "report": {"processCards": cards},
+            "github": {
+                "issues": [{"evidence": "official deploy run 123456 succeeded"}],
+                "projectItems": [],
+            },
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_process_metrics(data, failures)
+
+        self.assertIn("Deploys must either reflect observed official deploy evidence", "\n".join(failures))
 
 
 if __name__ == "__main__":

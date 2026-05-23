@@ -69,9 +69,18 @@ def check_pages_freshness(
     except OSError as error:
         failures.append(f"{html_path}: failed to read HTML artifact: {error}")
     else:
-        visible_timestamps = [str(data.get("generatedAt") or ""), str(data.get("generatedAtCst") or "")]
-        if not any(timestamp and timestamp in html for timestamp in visible_timestamps):
-            failures.append(f"{html_path}: generatedAt is not reflected in the committed HTML artifact")
+        visible_timestamps = {
+            "generatedAt": str(data.get("generatedAt") or ""),
+            "generatedAtCst": str(data.get("generatedAtCst") or ""),
+        }
+        missing_timestamp_keys = [
+            key for key, timestamp in visible_timestamps.items() if timestamp and timestamp not in html
+        ]
+        if missing_timestamp_keys:
+            failures.append(
+                f"{html_path}: missing committed timestamp key(s) in HTML artifact: "
+                f"{', '.join(missing_timestamp_keys)}"
+            )
 
     if require_live_github:
         failures.extend(check_live_github_snapshot(data, data_path))

@@ -65,6 +65,31 @@ class CronRegistryCompareTests(unittest.TestCase):
             ["one-shot-migration"],
         )
 
+    def test_compare_ignores_unexpected_live_one_shot_repeat_string(self) -> None:
+        expected = {"recurring-job": expected_recurring_job()}
+        live = {
+            "recurring-job": live_recurring_job(),
+            "one-shot-repeat-string": {
+                "name": "MiniMax one-shot migration",
+                "enabled": True,
+                "state": "scheduled",
+                "schedule": "at 2026-05-23 12:00",
+                "deliver": "local",
+                "provider": "minimax-cn",
+                "model": "MiniMax-M2.7",
+                "repeat": "1/1",
+            },
+        }
+
+        result = cron.compare(expected, live)
+
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertEqual(result["unexpected_live"], [])
+        self.assertEqual(
+            [item["id"] for item in result.get("ignored_one_shot_live", [])],
+            ["one-shot-repeat-string"],
+        )
+
     def test_compare_still_flags_unexpected_recurring_jobs(self) -> None:
         expected = {"recurring-job": expected_recurring_job()}
         live = {

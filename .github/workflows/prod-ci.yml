@@ -166,9 +166,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           lfs: true
+          persist-credentials: false
 
       - name: Report Python toolchain
         run: python3 --version
@@ -188,3 +189,10 @@ jobs:
             scripts/test_check_cron_registry.py \
             scripts/test_roadmap_pages_contract.py \
             scripts/test_check_roadmap_pages_freshness.py
+
+      - name: Verify committed roadmap Pages freshness
+        run: |
+          python3 scripts/check-roadmap-pages-freshness.py \
+            . \
+            --max-age-hours 168 \
+            --require-live-github

@@ -981,6 +981,46 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
         self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
 
+    def test_cron_run_delta_resets_when_source_root_changes(self) -> None:
+        window_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 8, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            current_provenance = roadmap.automation_run_metric_provenance(
+                roadmap.AutomationRunMetrics(
+                    5,
+                    2,
+                    True,
+                    window_start=window_start,
+                    window_end=window_end,
+                    source_root=repo_root / "cron-output-a",
+                    source_exists=True,
+                )
+            )
+            prior_provenance = roadmap.automation_run_metric_provenance(
+                roadmap.AutomationRunMetrics(
+                    3,
+                    1,
+                    True,
+                    window_start=window_start,
+                    window_end=window_end,
+                    source_root=repo_root / "cron-output-b",
+                    source_exists=True,
+                )
+            )
+
+        changed_root_cache = [{"label": "Cron runs", "rawValue": 3, "provenance": prior_provenance}]
+        same_root_cache = [{"label": "Cron runs", "rawValue": 3, "provenance": current_provenance}]
+
+        self.assertEqual(
+            roadmap.process_card_delta(changed_root_cache, "Cron runs", 5, current_provenance),
+            "no prior snapshot",
+        )
+        self.assertEqual(
+            roadmap.process_card_delta(same_root_cache, "Cron runs", 5, current_provenance),
+            "+2",
+        )
+
     def test_report_process_cards_hide_cached_issue_pr_counts_when_github_unavailable(self) -> None:
         cached_page_data = {
             "report": {

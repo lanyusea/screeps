@@ -143,7 +143,16 @@ def is_live_one_shot(job: Dict[str, Any]) -> bool:
             return int(repeat.get("times", 0)) == 1
         except (TypeError, ValueError):
             return False
-    return normalize_live_repeat(repeat) == "once"
+    normalized = normalize_live_repeat(repeat)
+    if normalized == "once":
+        return True
+    if "/" in normalized:
+        try:
+            _completed, total = normalized.split("/", 1)
+            return int(total) == 1
+        except ValueError:
+            return False
+    return False
 
 
 def repeat_matches(expected: Optional[str], live_value: Any) -> Tuple[bool, str]:
