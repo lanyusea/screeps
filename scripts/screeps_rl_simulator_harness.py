@@ -545,7 +545,7 @@ def runtime_parameter_injection_for_variant(
     strategy_variant: Mapping[str, Any],
 ) -> JsonObject:
     """Build the offline-only policy-parameter payload injected into a private simulator code upload."""
-    parameters = _strategy_variant_parameters(dict(strategy_variant))
+    parameters = canonical_runtime_parameter_value(_strategy_variant_parameters(dict(strategy_variant)))
     if not parameters:
         return {
             "type": RUNTIME_PARAMETER_INJECTION_TYPE,
@@ -577,9 +577,7 @@ def runtime_parameter_injection_for_variant(
         "sourceStrategyId": strategy_variant.get("sourceStrategyId"),
         "family": strategy_variant.get("family"),
         "parameters": copy.deepcopy(parameters),
-        "parametersSha256": hashlib.sha256(
-            json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-        ).hexdigest(),
+        "parametersSha256": runtime_parameter_parameters_hash(parameters),
         "liveEffect": False,
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
@@ -764,9 +762,33 @@ def runtime_consumption_parameters_hash(evidence: JsonObject) -> str | None:
     parameters = evidence.get("parameters")
     if not isinstance(parameters, dict):
         return None
+    return runtime_parameter_parameters_hash(parameters)
+
+
+def runtime_parameter_parameters_hash(parameters: JsonObject) -> str:
+    normalized = canonical_runtime_parameter_value(parameters)
     return hashlib.sha256(
-        json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
+
+
+def canonical_runtime_parameter_value(value: Any) -> Any:
+    """Normalize JSON-safe values to the numeric shape emitted by JavaScript JSON.stringify."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        if value.is_integer():
+            return int(value)
+        return value
+    if isinstance(value, dict):
+        return {
+            key: canonical_runtime_parameter_value(item)
+            for key, item in value.items()
+            if isinstance(key, str)
+        }
+    if isinstance(value, list):
+        return [canonical_runtime_parameter_value(item) for item in value]
+    return value
 
 
 def runtime_parameter_record_matches_username(value: Any, username: str | None) -> bool:

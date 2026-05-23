@@ -199,6 +199,10 @@ def canonical_hash(value: Any) -> str:
     ).hexdigest()
 
 
+def runtime_parameter_parameters_hash(parameters: JsonObject) -> str:
+    return simulator_harness.runtime_parameter_parameters_hash(parameters)
+
+
 def ensure_steam_key_for_training(
     *,
     simulator_runner: SimulatorRunner,
@@ -4196,9 +4200,9 @@ def summarize_runtime_parameter_injection_attempt(
         return {key: value for key, value in row.items() if value is not None}
 
     evaluated_parameters = copy.deepcopy(raw_parameters)
-    evaluated_hash = canonical_hash(evaluated_parameters)
+    evaluated_hash = runtime_parameter_parameters_hash(evaluated_parameters)
     injected_hash = text_or_none(injection.get("parametersSha256"))
-    card_hash = canonical_hash(variant.parameters)
+    card_hash = runtime_parameter_parameters_hash(variant.parameters)
     if injected_hash is not None and evaluated_hash != injected_hash:
         row["runtimeParameterInjection"] = False
         row["runtimeParameterConsumption"] = False
@@ -4288,7 +4292,7 @@ def summarize_variant_runtime_parameter_injection(
             "attemptCount": len(attempts),
             "successfulAttemptCount": 0,
             "attempts": attempts,
-            "parametersSha256": canonical_hash(variant.parameters),
+            "parametersSha256": runtime_parameter_parameters_hash(variant.parameters),
             "reason": reason,
             "liveEffect": False,
             "officialMmoWrites": False,
@@ -4366,7 +4370,7 @@ def summarize_variant_runtime_parameter_injection(
         "attemptCount": len(attempts),
         "successfulAttemptCount": len(successful_attempts),
         "attempts": attempts,
-        "parametersSha256": canonical_hash(variant.parameters),
+        "parametersSha256": runtime_parameter_parameters_hash(variant.parameters),
         "runtimeParameterConsumption": runtime_injected and consumed_attempt_count == len(eligible_attempts),
         "runtimeParameterConsumptionStatus": runtime_parameter_consumption_rollup_status(eligible_attempts),
         "consumedAttemptCount": consumed_attempt_count,
