@@ -1181,8 +1181,11 @@ def build_report_runtime_parameter_injection_summary(
                 "reason": injection.get("reason"),
             }
             for field in ("candidatePolicyId", "sourceStrategyId", "family"):
-                if injection.get(field) is not None:
-                    row[field] = copy.deepcopy(injection.get(field))
+                value = injection.get(field)
+                if value is None:
+                    value = result.get(field)
+                if value is not None:
+                    row[field] = copy.deepcopy(value)
             for field in (
                 "runtimeParameterConsumption",
                 "runtimeParameterConsumptionStatus",

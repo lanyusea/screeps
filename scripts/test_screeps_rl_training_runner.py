@@ -2209,6 +2209,38 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(summary["variantCount"], 1)
         self.assertEqual([row["variantId"] for row in summary["variants"]], ["variant-a"])
 
+    def test_runtime_parameter_report_summary_preserves_sparse_injection_provenance(self) -> None:
+        summary = runner.build_report_runtime_parameter_injection_summary(
+            [
+                {
+                    "variantId": "variant-a",
+                    "candidatePolicyId": "candidate-a",
+                    "sourceStrategyId": "source-a",
+                    "family": "test-family",
+                    "runtimeParameterInjection": {
+                        "status": "partial",
+                        "runtimeParameterInjection": False,
+                        "candidateParameterScope": "partial_runtime_injection",
+                        "reason": "successful simulator attempt did not report consumption",
+                    },
+                },
+            ],
+            [
+                runner.StrategyVariant(
+                    id="variant-a",
+                    candidate_policy_id="candidate-a",
+                    source_strategy_id="source-a",
+                    family="test-family",
+                    parameters={"knob": 1},
+                )
+            ],
+        )
+
+        row = summary["variants"][0]
+        self.assertEqual(row["candidatePolicyId"], "candidate-a")
+        self.assertEqual(row["sourceStrategyId"], "source-a")
+        self.assertEqual(row["family"], "test-family")
+
     def test_policy_update_candidate_rows_accepts_candidate_policy_id_only_vectors(self) -> None:
         parameter_space = {"knob": {"min": 0, "max": 10}}
         rows = runner.policy_update_candidate_rows(
