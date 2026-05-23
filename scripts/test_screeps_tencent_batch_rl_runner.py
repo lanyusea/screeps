@@ -3726,6 +3726,138 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(spec["experimentCard"]["cardSupply"]["state"], "available")
         self.assertEqual(spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"], 500)
 
+    def test_run_remote_training_collects_diagnostics_on_exit_two(self) -> None:
+        args = controller_args()
+        args.training_timeout_seconds = 30
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+            calls: list[tuple[str, dict[str, object]]] = []
+
+            def fake_ssh_cmd(
+                name: str,
+                _remote_command: str,
+                **kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                calls.append((name, kwargs))
+                return subprocess.CompletedProcess(["ssh"], 2, "", "")
+
+            def fake_collect_remote_artifacts() -> None:
+                remote = root / "remote"
+                remote.mkdir(parents=True)
+                (remote / "training-stderr.log").write_text(
+                    "STEAM_KEY=secret-value\nerror: simulator argument rejected\n",
+                    encoding="utf-8",
+                )
+                (remote / "training-summary.json").write_text("", encoding="utf-8")
+                (remote / "card-validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+                (remote / "report-extract.json").write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(controller, "collect_remote_artifacts", side_effect=fake_collect_remote_artifacts),
+            ):
+                with self.assertRaisesRegex(
+                    runner.BatchRunError,
+                    "training-stderr.log: STEAM_KEY=\\[REDACTED\\]\\nerror: simulator argument rejected",
+                ):
+                    controller.run_remote_training()
+
+            self.assertEqual(calls[0][0], "remote_training")
+            self.assertIs(calls[0][1]["check"], False)
+            failure = controller.result["remoteTrainingFailure"]
+            self.assertEqual(failure["returncode"], 2)
+            stderr = failure["diagnostics"]["training-stderr.log"]
+            self.assertIn("simulator argument rejected", stderr["tail"])
+            self.assertIn("STEAM_KEY=[REDACTED]", stderr["tail"])
+            self.assertNotIn("secret-value", stderr["tail"])
+
+    def test_diagnostic_redaction_covers_common_secret_formats(self) -> None:
+        raw = (
+            "STEAM_KEY=steam-secret\n"
+            "SCREEPS_AUTH_TOKEN: screeps-secret\n"
+            '"GITHUB_TOKEN": "github-secret"\n'
+            "'TENCENT_SECRET_ID': 'tencent-secret-id'\n"
+            'OPENAI_API_KEY = "openai-secret"\n'
+            'vendor_api_key: "vendor-secret"\n'
+            "cache_key: cache-visible\n"
+            "error: simulator argument rejected\n"
+        )
+
+        redacted = runner.diagnostic_tail(raw, 5000)
+
+        for secret in (
+            "steam-secret",
+            "screeps-secret",
+            "github-secret",
+            "tencent-secret-id",
+            "openai-secret",
+            "vendor-secret",
+        ):
+            self.assertNotIn(secret, redacted)
+        self.assertIn("STEAM_KEY=[REDACTED]", redacted)
+        self.assertIn("SCREEPS_AUTH_TOKEN: [REDACTED]", redacted)
+        self.assertIn('"GITHUB_TOKEN": "[REDACTED]"', redacted)
+        self.assertIn("'TENCENT_SECRET_ID': '[REDACTED]'", redacted)
+        self.assertIn('OPENAI_API_KEY = "[REDACTED]"', redacted)
+        self.assertIn('vendor_api_key: "[REDACTED]"', redacted)
+        self.assertIn("cache_key: cache-visible", redacted)
+        self.assertIn("error: simulator argument rejected", redacted)
+
+    def test_remote_training_failure_diagnostics_reads_bounded_tail_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            for filename in runner.REMOTE_TRAINING_DIAGNOSTIC_FILES:
+                (remote / filename).write_text("", encoding="utf-8")
+            (remote / "training-stderr.log").write_text(
+                "old failure marker\n"
+                + ("x" * (runner.DIAGNOSTIC_FILE_TAIL_BYTES + 128))
+                + "\nGITHUB_TOKEN=tail-secret\nerror: recent failure\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("full file read")):
+                diagnostics = runner.remote_training_failure_diagnostics(root, 2)
+
+        stderr = diagnostics["diagnostics"]["training-stderr.log"]
+        self.assertGreater(stderr["bytes"], runner.DIAGNOSTIC_FILE_TAIL_BYTES)
+        self.assertIn("error: recent failure", stderr["tail"])
+        self.assertIn("GITHUB_TOKEN=[REDACTED]", stderr["tail"])
+        self.assertNotIn("tail-secret", stderr["tail"])
+        self.assertNotIn("old failure marker", stderr["tail"])
+
+    def test_collect_remote_artifacts_tolerates_missing_partial_diagnostics(self) -> None:
+        args = controller_args()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+            scripts: list[str] = []
+
+            def fake_ssh_cmd(name: str, remote_command: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                if name == "pack_remote_artifacts":
+                    scripts.append(decode_remote_bash_lc(remote_command))
+                return subprocess.CompletedProcess(["ssh"], 0, "", "")
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(
+                    controller,
+                    "scp_from_worker",
+                    side_effect=runner.BatchRunError("stop after pack"),
+                ),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "stop after pack"):
+                    controller.collect_remote_artifacts()
+
+        self.assertEqual(len(scripts), 1)
+        self.assertIn("mkdir -p repo/runtime-artifacts/rl-training", scripts[0])
+        self.assertIn(
+            "touch card-validation.json training-summary.json training-stderr.log report-extract.json",
+            scripts[0],
+        )
+
     def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:
         args = controller_args()
         args.training_approach = "policy_gradient"

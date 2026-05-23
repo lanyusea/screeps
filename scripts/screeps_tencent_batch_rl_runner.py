@@ -59,6 +59,13 @@ MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
+REMOTE_TRAINING_DIAGNOSTIC_FILES = (
+    "training-stderr.log",
+    "training-summary.json",
+    "card-validation.json",
+    "report-extract.json",
+)
+DIAGNOSTIC_FILE_TAIL_BYTES = 64 * 1024
 E1S1_REPEAT_GUARD_TYPE = "screeps-tencent-batch-rl-launch-guard"
 E1S1_REPEAT_GUARD_FINAL_STATUS = "skipped_e1s1_repeat_launch_guard"
 E1S1_REPEAT_GUARD_MIN_COMPLETED_RUNS = 3
@@ -103,8 +110,65 @@ SSH_NETWORK_UNREACHABLE_RE = re.compile(
     r"kex_exchange_identification:.*closed|Could not resolve hostname|Name or service not known)",
     re.IGNORECASE,
 )
-SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(?:STEAM_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|TENCENTCLOUD_SECRET_KEY|TENCENT_SECRET_KEY)=\S+"
+SECRET_KEY_CANDIDATE_PATTERN = r"[A-Za-z_][A-Za-z0-9_-]{0,80}"
+EXPLICIT_SECRET_KEYS = frozenset(
+    {
+        "STEAM_KEY",
+        "SCREEPS_AUTH_TOKEN",
+        "SCREEPS_TOKEN",
+        "GITHUB_TOKEN",
+        "TENCENT_SECRET_ID",
+        "TENCENT_SECRET_KEY",
+        "TENCENTCLOUD_SECRET_ID",
+        "TENCENTCLOUD_SECRET_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "MINIMAX_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "TOKEN",
+        "SECRET",
+        "PASSWORD",
+        "PRIVATE_KEY",
+    }
+)
+EXPLICIT_SECRET_KEYS_COMPACT = frozenset(key.replace("_", "") for key in EXPLICIT_SECRET_KEYS)
+SECRET_KEY_HINT_PARTS = frozenset(
+    {
+        "API",
+        "AUTH",
+        "DEEPSEEK",
+        "GITHUB",
+        "MINIMAX",
+        "OPENAI",
+        "PRIVATE",
+        "SCREEPS",
+        "SECRET",
+        "STEAM",
+        "TENCENT",
+        "TENCENTCLOUD",
+        "TOKEN",
+        "ANTHROPIC",
+    }
+)
+DOUBLE_QUOTED_SECRET_FIELD_RE = re.compile(
+    rf"(?P<prefix>(?P<key_quote>['\"])(?P<key>{SECRET_KEY_CANDIDATE_PATTERN})(?P=key_quote)\s*:\s*)"
+    r'(?P<value_quote>")(?P<value>(?:\\.|[^"\\])*)(?P=value_quote)'
+)
+SINGLE_QUOTED_SECRET_FIELD_RE = re.compile(
+    rf"(?P<prefix>(?P<key_quote>['\"])(?P<key>{SECRET_KEY_CANDIDATE_PATTERN})(?P=key_quote)\s*:\s*)"
+    r"(?P<value_quote>')(?P<value>(?:\\.|[^'\\])*)(?P=value_quote)"
+)
+DOUBLE_QUOTED_SECRET_ASSIGNMENT_RE = re.compile(
+    rf"(?P<prefix>\b(?P<key>{SECRET_KEY_CANDIDATE_PATTERN})\b\s*(?:=|:)\s*)"
+    r'(?P<value_quote>")(?P<value>(?:\\.|[^"\\])*)(?P=value_quote)'
+)
+SINGLE_QUOTED_SECRET_ASSIGNMENT_RE = re.compile(
+    rf"(?P<prefix>\b(?P<key>{SECRET_KEY_CANDIDATE_PATTERN})\b\s*(?:=|:)\s*)"
+    r"(?P<value_quote>')(?P<value>(?:\\.|[^'\\])*)(?P=value_quote)"
+)
+UNQUOTED_SECRET_FIELD_RE = re.compile(
+    rf"(?P<prefix>\b(?P<key>{SECRET_KEY_CANDIDATE_PATTERN})\b\s*(?:=|:)\s*)"
+    r"(?P<value>[^\s,;}\]\)\"']+)"
 )
 BUNDLE_ALLOWLISTED_RUNTIME_FILES = ("maps/map-0b6758af.json",)
 BUNDLE_EXCLUDE_DIRS = {".git", "node_modules", "__pycache__", ".codex", ".codex-local-git", ".git-local"}
@@ -1319,17 +1383,41 @@ PY
                 "HOST_PORT_START": str(self.args.host_port_start),
             }.items()
         )
-        self.ssh_cmd("remote_training", env_prefix + " " + bash_lc(remote), timeout=self.args.training_timeout_seconds)
+        cp = self.ssh_cmd(
+            "remote_training",
+            env_prefix + " " + bash_lc(remote),
+            check=False,
+            timeout=self.args.training_timeout_seconds,
+        )
+        if cp.returncode == 0:
+            return
+        collection_error: str | None = None
+        try:
+            self.collect_remote_artifacts()
+        # Preserve the original training failure while recording collection status.
+        except Exception as error:  # noqa: BLE001
+            collection_error = f"{type(error).__name__}: {error}"
+        diagnostics = remote_training_failure_diagnostics(
+            self.artifact_dir,
+            cp.returncode,
+            collection_error=collection_error,
+        )
+        self.result["remoteTrainingFailure"] = diagnostics
+        raise BatchRunError(
+            f"remote_training failed with exit {cp.returncode}: "
+            f"{remote_training_failure_message(diagnostics, cp)}"
+        )
 
     def collect_remote_artifacts(self) -> None:
         remote_tar = f"{self.remote_dir}/remote-artifacts.tar.gz"
         remote = r"""
 set -euo pipefail
 cd "$REMOTE_DIR"
+mkdir -p repo/runtime-artifacts/rl-training
+touch card-validation.json training-summary.json training-stderr.log report-extract.json
 if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
   cp training-summary.json report-extract.json
 fi
-touch report-extract.json
 simulator_summaries=()
 if [ -f "simulator-artifacts/$RUN_ID/run_summary.json" ]; then
   simulator_summaries+=("simulator-artifacts/$RUN_ID/run_summary.json")
@@ -1509,6 +1597,76 @@ def tail_text(raw: str | None, limit: int = 3000) -> str:
     return text[-limit:]
 
 
+def is_sensitive_secret_key(key: str) -> bool:
+    normalized = key.replace("-", "_").upper()
+    compact = normalized.replace("_", "")
+    if normalized in EXPLICIT_SECRET_KEYS or compact in EXPLICIT_SECRET_KEYS_COMPACT:
+        return True
+    if normalized.endswith(("_TOKEN", "_SECRET")):
+        return True
+    if normalized.endswith("_KEY"):
+        parts = frozenset(part for part in normalized.split("_") if part)
+        if key == key.upper() or parts.intersection(SECRET_KEY_HINT_PARTS):
+            return True
+    if re.search(r"(?i)(api|auth|private|secret|token|password)", key) and re.search(
+        r"(?i)(key|token|secret|password)$",
+        key,
+    ):
+        return True
+    return False
+
+
+def redact_secret_text(text: str) -> str:
+    def redact_quoted_secret(match: re.Match[str]) -> str:
+        if not is_sensitive_secret_key(match.group("key")):
+            return match.group(0)
+        quote = match.group("value_quote")
+        return f"{match.group('prefix')}{quote}[REDACTED]{quote}"
+
+    def redact_unquoted_secret(match: re.Match[str]) -> str:
+        if not is_sensitive_secret_key(match.group("key")):
+            return match.group(0)
+        return f"{match.group('prefix')}[REDACTED]"
+
+    for pattern in (
+        DOUBLE_QUOTED_SECRET_FIELD_RE,
+        SINGLE_QUOTED_SECRET_FIELD_RE,
+        DOUBLE_QUOTED_SECRET_ASSIGNMENT_RE,
+        SINGLE_QUOTED_SECRET_ASSIGNMENT_RE,
+    ):
+        text = pattern.sub(redact_quoted_secret, text)
+    return UNQUOTED_SECRET_FIELD_RE.sub(redact_unquoted_secret, text)
+
+
+def redact_diagnostic_text(raw: str | bytes | None) -> str:
+    if not raw:
+        return ""
+    text = decode_subprocess_text(raw).replace("\r", "")
+    return redact_secret_text(text)
+
+
+def diagnostic_tail(raw: str | bytes | None, limit: int = 3000) -> str:
+    return tail_text(redact_diagnostic_text(raw), limit)
+
+
+def read_bounded_file_tail(path: Path, limit: int = DIAGNOSTIC_FILE_TAIL_BYTES) -> bytes:
+    if limit <= 0:
+        return b""
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - limit), os.SEEK_SET)
+        return handle.read(limit)
+
+
+def diagnostic_file_tail(
+    path: Path,
+    limit: int = 3000,
+    byte_limit: int = DIAGNOSTIC_FILE_TAIL_BYTES,
+) -> str:
+    return diagnostic_tail(read_bounded_file_tail(path, byte_limit), limit)
+
+
 def decode_subprocess_text(raw: str | bytes | None) -> str:
     if not raw:
         return ""
@@ -1521,12 +1679,7 @@ def sanitize_known_hosts_cleanup_text(raw: str | bytes | None) -> str:
     text = decode_subprocess_text(raw)
     text = text.replace("\r", "")
     text = HOST_KEY_BLOB_RE.sub("[REDACTED_HOST_KEY]", text)
-
-    def redact_secret(match: re.Match[str]) -> str:
-        key, _value = match.group(0).split("=", 1)
-        return f"{key}=[REDACTED]"
-
-    return SECRET_ASSIGNMENT_RE.sub(redact_secret, text)
+    return redact_secret_text(text)
 
 
 def sanitized_known_hosts_completed_process(cp: subprocess.CompletedProcess[str]) -> subprocess.CompletedProcess[str]:
@@ -1883,6 +2036,58 @@ def training_environments_run(training_report: dict[str, Any]) -> int:
 
 def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
     return artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{run_id}.json"
+
+
+def remote_training_failure_diagnostics(
+    artifact_dir: Path,
+    returncode: int,
+    *,
+    collection_error: str | None = None,
+) -> dict[str, Any]:
+    remote_dir = artifact_dir / "remote"
+    files: dict[str, dict[str, Any]] = {}
+    for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
+        path = remote_dir / filename
+        entry: dict[str, Any] = {"path": str(path)}
+        try:
+            entry["bytes"] = path.stat().st_size
+            tail = diagnostic_file_tail(path)
+            if tail:
+                entry["tail"] = tail
+        except OSError as error:
+            entry["missing"] = True
+            entry["error"] = str(error)
+        files[filename] = entry
+    payload: dict[str, Any] = {
+        "status": "failed_exit",
+        "returncode": returncode,
+        "artifactDir": str(remote_dir),
+        "diagnostics": files,
+    }
+    if collection_error:
+        payload["collectionError"] = diagnostic_tail(collection_error)
+    return payload
+
+
+def remote_training_failure_message(
+    diagnostics: dict[str, Any],
+    cp: subprocess.CompletedProcess[str],
+) -> str:
+    raw_files = diagnostics.get("diagnostics")
+    if isinstance(raw_files, dict):
+        for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
+            entry = raw_files.get(filename)
+            if isinstance(entry, dict):
+                tail = entry.get("tail")
+                if isinstance(tail, str) and tail.strip():
+                    return f"{filename}: {tail_text(tail)}"
+    ssh_tail = diagnostic_tail(cp.stderr or cp.stdout)
+    if ssh_tail:
+        return ssh_tail
+    collection_error = diagnostics.get("collectionError")
+    if isinstance(collection_error, str) and collection_error:
+        return f"diagnostic collection failed: {collection_error}"
+    return "no remote diagnostics collected"
 
 
 def build_e1s1_repeat_launch_guard(
