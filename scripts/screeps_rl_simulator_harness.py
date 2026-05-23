@@ -1021,13 +1021,20 @@ def _collect_redis_runtime_parameter_consumption_evidence(
         return None
     eval_script = """
 local expectedUsername = tostring(ARGV[1] or "")
-local cursor = "0"
 local candidates = {}
 local seen = {}
 local candidateLimit = 32
 local candidateMaxDepth = 6
+local hscanCountLimit = 32
+local maxHashHscanCalls = 8
+local maxHashFields = 256
 local scanMode = tostring(ARGV[2] or "auto")
 local genericScanRan = false
+local hashScanBudgetExhausted = false
+local hashScanStats = {scannedFields = 0, skippedFields = 0}
+local function candidateLimitReached()
+  return #candidates >= candidateLimit
+end
 local nestedRuntimePolicyParameterKeys = {
   "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__",
   "runtimeParameterConsumption",
@@ -1120,7 +1127,7 @@ local function candidateMatchesExpectedOwner(value, ownerMatched)
   return ownerMatched
 end
 local function appendRuntimePolicyParameterCandidate(source, value, ownerMatched)
-  if #candidates >= candidateLimit then
+  if candidateLimitReached() then
     return
   end
   if not candidateMatchesExpectedOwner(value, ownerMatched) then
@@ -1133,7 +1140,7 @@ local function appendRuntimePolicyParameterCandidate(source, value, ownerMatched
   table.insert(candidates, candidate)
 end
 local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMatched)
-  if depth > candidateMaxDepth or #candidates >= candidateLimit then
+  if depth > candidateMaxDepth or candidateLimitReached() then
     return
   end
   local decoded = decodedRuntimePolicyParameterValue(value)
@@ -1179,7 +1186,7 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMat
         depth + 1,
         nextOwnerMatched
       )
-      if #candidates >= candidateLimit then
+      if candidateLimitReached() then
         return
       end
     end
@@ -1187,7 +1194,7 @@ local function pushRuntimePolicyParameterEvidence(source, value, depth, ownerMat
   if decoded[1] ~= nil then
     for index, item in ipairs(decoded) do
       pushRuntimePolicyParameterEvidence(source .. "[" .. tostring(index) .. "]", item, depth + 1, nextOwnerMatched)
-      if #candidates >= candidateLimit then
+      if candidateLimitReached() then
         return
       end
     end
@@ -1196,12 +1203,69 @@ end
 local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMatched)
   pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
+local function hashFieldMayContainRuntimePolicyParameters(fieldText)
+  local fieldLower = string.lower(fieldText)
+  return string.find(fieldLower, "runtime", 1, true) ~= nil
+    or fieldText == "data"
+    or fieldText == "value"
+end
+local function scanHashMemoryFields(keyText, key, ownerMatched)
+  local hashCursor = "0"
+  local hscanCallCount = 0
+  local scannedCount = 0
+  while hscanCallCount == 0 or hashCursor ~= "0" do
+    if candidateLimitReached() then
+      return
+    end
+    if hscanCallCount >= maxHashHscanCalls or scannedCount >= maxHashFields then
+      hashScanBudgetExhausted = true
+      return
+    end
+    hscanCallCount = hscanCallCount + 1
+    local result = redis.call("HSCAN", key, hashCursor, "COUNT", hscanCountLimit)
+    hashCursor = result[1]
+    local fields = result[2]
+    for index = 1, #fields, 2 do
+      if candidateLimitReached() then
+        return
+      end
+      if scannedCount >= maxHashFields then
+        hashScanBudgetExhausted = true
+        hashScanStats.skippedFields = hashScanStats.skippedFields + math.floor((#fields - index + 1) / 2)
+        return
+      end
+      scannedCount = scannedCount + 1
+      hashScanStats.scannedFields = hashScanStats.scannedFields + 1
+      local fieldText = tostring(fields[index])
+      local value = fields[index + 1]
+      local fieldMatchesExpectedUsername = keyMatchesExpectedUsername(fieldText)
+      local fieldOwnerMatched = ownerMatched or fieldMatchesExpectedUsername
+      if hashFieldMayContainRuntimePolicyParameters(fieldText) or fieldMatchesExpectedUsername then
+        pushRuntimePolicyParameterCandidate(
+          "redis." .. keyText .. "." .. fieldText,
+          value,
+          0,
+          fieldOwnerMatched
+        )
+      end
+      if candidateLimitReached() then
+        return
+      end
+    end
+  end
+end
 local function scanMemoryPattern(pattern, skipExpectedUsernameKeys)
-  cursor = "0"
+  local cursor = "0"
   repeat
+    if candidateLimitReached() or hashScanBudgetExhausted then
+      return
+    end
     local result = redis.call("SCAN", cursor, "MATCH", pattern, "COUNT", 100)
     cursor = result[1]
     for _, key in ipairs(result[2]) do
+      if candidateLimitReached() or hashScanBudgetExhausted then
+        return
+      end
       local keyText = tostring(key)
       local keyLower = string.lower(keyText)
       local ownerMatched = keyMatchesExpectedUsername(keyText)
@@ -1215,14 +1279,19 @@ local function scanMemoryPattern(pattern, skipExpectedUsernameKeys)
         if keyType == "string" then
           local value = redis.call("GET", key)
           pushRuntimePolicyParameterCandidate("redis." .. keyText, value, 0, ownerMatched)
+        elseif keyType == "hash" then
+          scanHashMemoryFields(keyText, key, ownerMatched)
         end
       end
     end
-  until cursor == "0"
+  until cursor == "0" or candidateLimitReached() or hashScanBudgetExhausted
 end
 local function scanGenericMemoryPatterns(skipExpectedUsernameKeys)
   genericScanRan = true
   for _, pattern in ipairs({"*memory*", "*Memory*"}) do
+    if candidateLimitReached() or hashScanBudgetExhausted then
+      return
+    end
     scanMemoryPattern(pattern, skipExpectedUsernameKeys or false)
   end
 end
@@ -1240,13 +1309,25 @@ if scanMode == "generic" then
   scanGenericMemoryPatterns(true)
 else
   for _, pattern in ipairs(scanPatterns) do
+    if candidateLimitReached() or hashScanBudgetExhausted then
+      break
+    end
     scanMemoryPattern(pattern, false)
   end
   if #candidates == 0 then
-    scanGenericMemoryPatterns(false)
+    if not candidateLimitReached() and not hashScanBudgetExhausted then
+      scanGenericMemoryPatterns(false)
+    end
   end
 end
-return cjson.encode({ok = true, candidates = candidates, genericScanRan = genericScanRan})
+return cjson.encode({
+  ok = true,
+  candidates = candidates,
+  genericScanRan = genericScanRan,
+  candidateLimitReached = candidateLimitReached(),
+  hashScanBudgetExhausted = hashScanBudgetExhausted,
+  hashScanStats = hashScanStats,
+})
 """.strip()
     username = text_or_none(getattr(cfg, "username", None))
     if username is None:
