@@ -2028,14 +2028,20 @@ def build_reinforce_policy_update(
         }
 
     if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        no_change_parameter_evidence = {
+            **parameter_evidence,
+            "learningRate": learning_rate,
+            "boundedIntegerStep": bounded_integer_step,
+        }
         return {
             **base,
             "skippedReason": "bounded_update_no_parameter_change",
             "candidateCount": len(candidates),
-            "parameterEvidence": parameter_evidence,
+            "parameterEvidence": no_change_parameter_evidence,
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
+            "boundedIntegerStep": bounded_integer_step,
             "gradient": gradient,
             "rawGradient": raw_gradient,
             "gradientEstimation": gradient_estimation,
@@ -3404,12 +3410,17 @@ def bounded_policy_parameter_integer_step_update(
     learning_rate: float,
     spec: JsonObject,
 ) -> float | int:
-    if abs(gradient_value) <= 1e-12:
+    minimum = float(spec["min"])
+    maximum = float(spec["max"])
+    span = max(maximum - minimum, 1.0)
+    effective_delta = float(learning_rate) * float(gradient_value) * span
+    if abs(effective_delta) <= 1e-12:
         return bounded_policy_parameter_value(anchor_value, spec)
     step = number_or_none(spec.get("step"))
     step_float = float(step) if step is not None and float(step) > 0 else 1.0
-    step_count = max(1, int(round(abs(float(learning_rate)))))
-    direction = 1.0 if gradient_value > 0 else -1.0
+    step_units = abs(effective_delta) / step_float
+    step_count = max(1, int(math.floor(step_units + 0.5 + 1e-12)))
+    direction = 1.0 if effective_delta > 0 else -1.0
     return bounded_policy_parameter_step_value(
         anchor_value + (direction * step_float * step_count),
         spec,

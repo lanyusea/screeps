@@ -3555,6 +3555,89 @@ export const STRATEGY_REGISTRY = [
             {"territorySignalWeight": 1},
         )
 
+    def test_reinforce_bounded_integer_step_scales_step_count_by_effective_gradient(self) -> None:
+        def build_update(learning_rate: float) -> JsonObject:
+            policy_gradient = {
+                "targetFamily": "test-family",
+                "policyUpdate": {
+                    "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                    "learning_rate": learning_rate,
+                    "bounded_integer_step": True,
+                    "gradient_reward_weights": {
+                        "reliability": 1,
+                        "territory": 1,
+                        "resources": 1,
+                        "kills": 1,
+                    },
+                },
+                "runner_support": {
+                    "runtime_parameter_injection": True,
+                    "inline_candidates_runtime_injected": True,
+                    "inline_candidates_applied_to_simulator": True,
+                    "candidate_parameter_scope": "runtime_injected",
+                    "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                    "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                    "runtime_parameter_consumption_status": "consumed",
+                },
+                "learnableParameters": [{"name": "territorySignalWeight", "min": 0, "max": 30, "step": 1}],
+                "candidateParameterVectors": [
+                    {
+                        "candidatePolicyId": "candidate-a",
+                        "strategyVariantId": "variant-a",
+                        "rolloutStatus": "incumbent",
+                        "parameters": {"territorySignalWeight": 10.0},
+                    },
+                    {
+                        "candidatePolicyId": "candidate-b",
+                        "strategyVariantId": "variant-b",
+                        "rolloutStatus": "shadow",
+                        "parameters": {"territorySignalWeight": 20.0},
+                    },
+                ],
+            }
+            results = [
+                {
+                    "variantId": "variant-a",
+                    "sampleCount": 1,
+                    "reward": {"tuple": [0, 0, 0, 0]},
+                    "evaluatedParameters": {"territorySignalWeight": 10.0},
+                },
+                {
+                    "variantId": "variant-b",
+                    "sampleCount": 1,
+                    "reward": {"tuple": [2.4, 0, 0, 0]},
+                    "evaluatedParameters": {"territorySignalWeight": 20.0},
+                },
+            ]
+            return runner.build_policy_update(
+                policy_gradient=policy_gradient,
+                results=results,
+                report_id=f"policy-gradient-bounded-step-lr-{learning_rate}",
+                generated_at="2026-05-17T03:30:00Z",
+            )
+
+        small_update = build_update(0.25)
+        large_update = build_update(1)
+
+        self.assertEqual(small_update["iterations"], 1)
+        self.assertEqual(large_update["iterations"], 1)
+        self.assertTrue(small_update["boundedIntegerStep"])
+        self.assertTrue(large_update["boundedIntegerStep"])
+        self.assertEqual(small_update["gradient"], large_update["gradient"])
+        self.assertAlmostEqual(float(small_update["gradient"]["territorySignalWeight"]), 0.2, places=12)
+        self.assertEqual(small_update["parameterDelta"], {"territorySignalWeight": 2})
+        self.assertEqual(small_update["updatedParameters"], {"territorySignalWeight": 12})
+        self.assertEqual(large_update["parameterDelta"], {"territorySignalWeight": 6})
+        self.assertEqual(large_update["updatedParameters"], {"territorySignalWeight": 16})
+        self.assertEqual(
+            small_update["nextCandidatePolicy"]["parameterEvidence"]["boundedIntegerStep"],
+            True,
+        )
+        self.assertEqual(
+            large_update["nextCandidatePolicy"]["parameterEvidence"]["boundedIntegerStep"],
+            True,
+        )
+
     def test_reinforce_bounded_integer_step_clamps_at_parameter_bounds(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
@@ -3618,6 +3701,9 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(update["iterations"], 0)
         self.assertEqual(update["skippedReason"], "bounded_update_no_parameter_change")
+        self.assertTrue(update["boundedIntegerStep"])
+        self.assertTrue(update["parameterEvidence"]["boundedIntegerStep"])
+        self.assertEqual(update["parameterEvidence"]["learningRate"], 1)
         self.assertGreater(float(update["gradient"]["territorySignalWeight"]), 0)
         self.assertNotIn("nextCandidatePolicy", update)
         self.assertNotIn("updatedParameters", update)
