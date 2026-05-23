@@ -1477,6 +1477,9 @@ cli:
                     "title": "Policy-gradient territory seed scale environment 1",
                     "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
                     "family": "construction-priority",
+                    "parameterEvidence": {
+                        "sourceStrategyId": "construction-priority.territory-shadow.v1",
+                    },
                     "parameters": parameters,
                 }
             },
@@ -1489,6 +1492,11 @@ cli:
         self.assertEqual(config["defaultValues"], parameters)
         self.assertEqual(injection["status"], "prepared")
         self.assertEqual(injection["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(injection["sourceStrategyId"], "construction-priority.territory-shadow.v1")
+        self.assertEqual(
+            injection["parameterEvidence"]["sourceStrategyId"],
+            "construction-priority.territory-shadow.v1",
+        )
         self.assertEqual(injection["parameters"], parameters)
         self.assertNotIn("reason", injection)
         self.assertFalse(injection["liveEffect"])

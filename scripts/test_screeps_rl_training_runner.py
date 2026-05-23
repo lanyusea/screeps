@@ -4146,6 +4146,10 @@ export const STRATEGY_REGISTRY = [
             base_id: runner.canonical_hash(parameters)
             for base_id, parameters in expected_parameters_by_base_id.items()
         }
+        expected_source_by_base_id = {
+            candidate["strategyVariantId"]: candidate["sourceStrategyId"]
+            for candidate in card["policy_gradient"]["candidate_parameter_vectors"]
+        }
         observed_hashes_by_base_id: dict[str, str] = {}
         for scaled_variant_id in expanded_ids:
             scaled_config = runner.simulator_harness.strategy_variant_config_by_id(
@@ -4159,6 +4163,7 @@ export const STRATEGY_REGISTRY = [
                 runner.canonical_hash(scaled_config["parameters"]),
                 expected_hashes_by_base_id[base_variant_id],
             )
+            self.assertEqual(scaled_config["sourceStrategyId"], expected_source_by_base_id[base_variant_id])
             self.assertEqual(scaled_config["scaleEnvironment"]["baseVariantId"], base_variant_id)
             observed_hashes_by_base_id[base_variant_id] = runner.canonical_hash(
                 scaled_config["parameters"]
@@ -4169,6 +4174,23 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
         self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(expanded_ids))
+        report_rows = {
+            row["variantId"]: row
+            for row in report["runtimeParameterInjection"]["variants"]
+        }
+        self.assertEqual(
+            report_rows["construction-priority.pg.resource-seed.v1.scale-env-03"]["sourceStrategyId"],
+            "construction-priority.incumbent.v1",
+        )
+        resource_result = next(
+            item
+            for item in report["variantResults"]
+            if item["variantId"] == "construction-priority.pg.resource-seed.v1.scale-env-03"
+        )
+        self.assertEqual(
+            resource_result["runtimeParameterInjection"]["sourceStrategyId"],
+            "construction-priority.incumbent.v1",
+        )
         self.assertTrue(report["runtimeParameterInjection"]["policyUpdateEligible"])
         self.assertEqual(report["policyGradient"]["runner_support"]["candidate_parameter_scope"], "runtime_injected")
         self.assertTrue(report["policyUpdate"]["parameterEvidence"]["runtimeParameterInjection"])
