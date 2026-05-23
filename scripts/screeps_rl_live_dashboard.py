@@ -1420,7 +1420,7 @@ def zero_iteration_policy_update_from_artifact(
                 "updatedAt": updated_at,
                 "sourceTrust": source_trust,
             }
-        if iterations > 0:
+        if iterations is not None and iterations > 0:
             true_gradient = policy_update_true_gradient_value(node, policy_update)
             if true_gradient is False:
                 return {

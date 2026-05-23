@@ -564,6 +564,44 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             "policy update non-promotional: blocked_runtime_parameter_consumption_missing",
         )
 
+    def test_policy_update_without_iteration_count_keeps_consumption_blocker_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "missing-iterations-update.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "createdAt": "2026-05-18T10:20:00Z",
+                    "policyUpdate": {"nextCandidatePolicy": {"candidatePolicyId": "missing-iterations"}},
+                },
+            )
+            write_json(
+                artifact_root / "rl-training" / "non-consumed-update.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "createdAt": "2026-05-18T10:15:00Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "promotionGate": {
+                            "status": "blocked_runtime_parameter_consumption_missing",
+                            "runtimeParameterConsumption": False,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertEqual(zero_iteration["sourceTrust"], "trusted_training_report")
+        self.assertTrue(zero_iteration["latestPath"].endswith("non-consumed-update.json"))
+        self.assertIn("policy update non-promotional", zero_iteration["evidence"])
+        self.assertIn("blocked_runtime_parameter_consumption_missing", zero_iteration["evidence"])
+
     def test_true_gradient_report_beats_newer_stale_zero_iteration_ledger(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
