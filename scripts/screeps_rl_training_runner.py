@@ -70,8 +70,12 @@ DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 DEFAULT_GRADIENT_DIRECTION_CONSISTENCY_THRESHOLD = 0.8
 DEFAULT_GRADIENT_EMA_DECAY = 0.8
 GRADIENT_ESTIMATION_EVIDENCE_TYPE = "screeps-rl-gradient-estimation-evidence"
+GRADIENT_ESTIMATION_SCHEME_TYPE = "screeps-rl-gradient-estimation-scheme"
 GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
+POLICY_GRADIENT_SCALAR_REWARD = "scalar_weighted_sum"
+POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE = "gradient_estimation_only_non_promotional"
+POLICY_GRADIENT_LEXICOGRAPHIC_REWARD = "lexicographic"
 # Cap the estimator reward scale used by the update gradient; promotion remains
 # lexicographic-gated.
 DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP = 10_000.0
@@ -416,6 +420,13 @@ def raw_mapping(value: Any, label: str) -> JsonObject:
 def first_present(raw: JsonObject, keys: Sequence[str]) -> Any:
     for key in keys:
         if key in raw:
+            return raw[key]
+    return None
+
+
+def first_non_null_present(raw: JsonObject, keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in raw and raw[key] is not None:
             return raw[key]
     return None
 
@@ -1557,6 +1568,11 @@ def build_training_report(
         gradient_estimation = policy_update.get("gradientEstimation")
         if isinstance(gradient_estimation, dict):
             report["gradientEstimation"] = copy.deepcopy(gradient_estimation)
+            report["gradientEstimationSchemeKey"] = text_or_none(gradient_estimation.get("schemeKey"))
+            report["gradientComparisonKey"] = text_or_none(gradient_estimation.get("comparisonKey"))
+            scheme_identity = first_mapping(gradient_estimation, ("schemeIdentity",))
+            if scheme_identity is not None:
+                report["gradientEstimationScheme"] = copy.deepcopy(scheme_identity)
         gradient_momentum = policy_update.get("gradientMomentum")
         if isinstance(gradient_momentum, dict):
             report["gradientMomentum"] = copy.deepcopy(gradient_momentum)
@@ -1942,6 +1958,7 @@ def build_reinforce_policy_update(
     gradient_momentum = policy_update_gradient_momentum_evidence(
         policy_gradient=policy_gradient,
         raw_gradient=raw_gradient,
+        gradient_estimation=gradient_estimation,
     )
     gradient = gradient_momentum.get("rawEmaGradient", gradient_momentum["emaGradient"])
     updated_parameters: JsonObject = {}
@@ -2055,6 +2072,9 @@ def build_reinforce_policy_update(
         "trustedGradientUpdate": trusted_gradient_update,
         "highVariance": gradient_stability["highVariance"],
         "gradientEstimation": copy.deepcopy(gradient_estimation),
+        "gradientEstimationSchemeKey": gradient_estimation.get("schemeKey"),
+        "gradientComparisonKey": gradient_estimation.get("comparisonKey"),
+        "gradientEstimationScheme": copy.deepcopy(gradient_estimation.get("schemeIdentity")),
         "gradientMomentum": copy.deepcopy(gradient_momentum),
         "gradientStability": copy.deepcopy(gradient_stability),
         "parameters": updated_parameters,
@@ -2120,6 +2140,9 @@ def build_reinforce_policy_update(
         "rawGradient": raw_gradient,
         "gradientByRewardTier": gradient_by_tier,
         "gradientEstimation": gradient_estimation,
+        "gradientEstimationSchemeKey": gradient_estimation.get("schemeKey"),
+        "gradientComparisonKey": gradient_estimation.get("comparisonKey"),
+        "gradientEstimationScheme": copy.deepcopy(gradient_estimation.get("schemeIdentity")),
         "gradientMomentum": gradient_momentum,
         "gradientStability": gradient_stability,
         "selectedRewardTierByParameter": selected_reward_tier_by_parameter,
@@ -2201,6 +2224,255 @@ def first_nonzero_tier_gradient(tier_gradients: JsonObject) -> tuple[str | None,
     return None, 0
 
 
+def policy_update_scalar_gradient_scheme_identity(weight_evidence: JsonObject) -> JsonObject:
+    return {
+        "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "estimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
+        "gradientReward": POLICY_GRADIENT_SCALAR_REWARD,
+        "gradientUse": "policy_gradient_estimation_only",
+        "scalarWeightedSumUse": POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE,
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rewardComponentOrder": list(REWARD_TIERS),
+        "lexicographicRankingPreserved": True,
+        "scalarWeightedSumAuthorized": False,
+        "normalizedWeightsByRewardTier": copy.deepcopy(weight_evidence["normalizedWeightsByRewardTier"]),
+        "normalizationCap": weight_evidence["normalizationCap"],
+        "normalizationFactor": weight_evidence["normalizationFactor"],
+        "scalarRewardScaleFactor": weight_evidence["scalarRewardScaleFactor"],
+    }
+
+
+def policy_update_lexicographic_gradient_scheme_identity() -> JsonObject:
+    return {
+        "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "estimator": RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM,
+        "gradientReward": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rewardComponentOrder": list(REWARD_TIERS),
+        "scalarWeightedSumUse": "not_used",
+        "lexicographicRankingPreserved": True,
+        "scalarWeightedSumAuthorized": False,
+    }
+
+
+def policy_update_gradient_scheme_key(identity: JsonObject) -> str:
+    return canonical_hash(identity)
+
+
+GRADIENT_SCHEME_COMPARISON_IDENTITY_FIELDS = (
+    "type",
+    "schemaVersion",
+    "estimator",
+    "gradientReward",
+    "gradientUse",
+    "scalarWeightedSumUse",
+    "rankingRewardModel",
+    "rewardComponentOrder",
+    "lexicographicRankingPreserved",
+    "scalarWeightedSumAuthorized",
+    "normalizedWeightsByRewardTier",
+    "normalizationCap",
+    "scalarRewardScaleFactor",
+)
+
+
+def policy_update_gradient_scheme_comparison_identity(identity: JsonObject) -> JsonObject:
+    return {
+        field: copy.deepcopy(identity[field])
+        for field in GRADIENT_SCHEME_COMPARISON_IDENTITY_FIELDS
+        if field in identity
+    }
+
+
+def policy_update_gradient_scheme_comparison_key(identity: JsonObject) -> str:
+    estimator = text_or_none(identity.get("estimator")) or "unknown-estimator"
+    return f"{estimator}:{canonical_hash(policy_update_gradient_scheme_comparison_identity(identity))}"
+
+
+def policy_update_gradient_scheme_identity_from_evidence(raw: Any) -> JsonObject | None:
+    if not isinstance(raw, dict):
+        return None
+    scheme_identity = first_mapping(raw, ("schemeIdentity", "gradientSchemeIdentity", "gradientEstimationScheme"))
+    if scheme_identity is not None:
+        return copy.deepcopy(scheme_identity)
+
+    estimator = text_or_none(raw.get("estimator"))
+    gradient_reward = text_or_none(raw.get("gradientReward", raw.get("gradient_reward")))
+    ranking_reward = text_or_none(raw.get("rankingRewardModel", raw.get("ranking_reward_model")))
+    if estimator is None and gradient_reward is None and ranking_reward is None:
+        return None
+
+    identity: JsonObject = {
+        "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+    }
+    if estimator is not None:
+        identity["estimator"] = estimator
+    if gradient_reward is not None:
+        identity["gradientReward"] = gradient_reward
+    if ranking_reward is not None:
+        identity["rankingRewardModel"] = ranking_reward
+    for source_key, dest_key in (
+        ("gradientUse", "gradientUse"),
+        ("scalarWeightedSumUse", "scalarWeightedSumUse"),
+        ("lexicographicRankingPreserved", "lexicographicRankingPreserved"),
+        ("scalarWeightedSumAuthorized", "scalarWeightedSumAuthorized"),
+        ("normalizedWeightsByRewardTier", "normalizedWeightsByRewardTier"),
+        ("normalizationCap", "normalizationCap"),
+        ("normalizationFactor", "normalizationFactor"),
+        ("scalarRewardScaleFactor", "scalarRewardScaleFactor"),
+    ):
+        if source_key in raw:
+            identity[dest_key] = copy.deepcopy(raw[source_key])
+    component_order = raw.get("rewardComponentOrder") or raw.get("componentOrder")
+    if isinstance(component_order, list):
+        identity["rewardComponentOrder"] = copy.deepcopy(component_order)
+    return identity
+
+
+def policy_update_gradient_state_config_candidates(policy_gradient: JsonObject) -> list[JsonObject]:
+    configs: list[JsonObject] = []
+    for raw in policy_update_config_candidates(policy_gradient):
+        configs.append(raw)
+        for key in ("gradient_momentum", "gradientMomentum", "gradient_ema", "gradientEma"):
+            nested = raw.get(key)
+            if isinstance(nested, dict):
+                configs.append(nested)
+    return configs
+
+
+def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -> JsonObject:
+    previous_identity: JsonObject | None = None
+    previous_key: str | None = None
+    previous_comparison_key: str | None = None
+    for raw in policy_update_gradient_state_config_candidates(policy_gradient):
+        round_tripped_momentum = text_or_none(raw.get("type")) == GRADIENT_MOMENTUM_EVIDENCE_TYPE
+        identity_keys = (
+            (
+                "previous_gradient_estimation_scheme",
+                "previousGradientEstimationScheme",
+                "previous_gradient_scheme",
+                "previousGradientScheme",
+                "previousGradientSchemeIdentity",
+                "gradientEstimationScheme",
+                "gradientSchemeIdentity",
+                "schemeIdentity",
+            )
+            if round_tripped_momentum
+            else (
+                "previous_gradient_estimation_scheme",
+                "previousGradientEstimationScheme",
+                "previous_gradient_scheme",
+                "previousGradientScheme",
+                "gradientEstimationScheme",
+                "schemeIdentity",
+            )
+        )
+        for key in identity_keys:
+            identity = first_mapping(raw, (key,))
+            if identity is not None:
+                previous_identity = copy.deepcopy(identity)
+        for key in (
+            "previous_gradient_estimation",
+            "previousGradientEstimation",
+            "gradientEstimation",
+        ):
+            evidence = first_mapping(raw, (key,))
+            identity = policy_update_gradient_scheme_identity_from_evidence(evidence)
+            if identity is not None:
+                previous_identity = identity
+            if isinstance(evidence, dict):
+                evidence_comparison_key = text_or_none(
+                    first_non_null_present(
+                        evidence,
+                        (
+                            "comparisonKey",
+                            "trustedComparisonKey",
+                            "gradientComparisonKey",
+                            "gradientEstimationComparisonKey",
+                        ),
+                    )
+                )
+                if evidence_comparison_key is not None:
+                    previous_comparison_key = evidence_comparison_key
+                evidence_key = text_or_none(
+                    first_non_null_present(
+                        evidence,
+                        (
+                            "schemeKey",
+                            "gradientSchemeKey",
+                            "gradientEstimationSchemeKey",
+                        ),
+                    )
+                )
+                if evidence_key is not None:
+                    previous_key = evidence_key
+        raw_key = text_or_none(
+            first_non_null_present(
+                raw,
+                (
+                    "gradientEstimationSchemeKey",
+                    "gradientSchemeKey",
+                    "schemeKey",
+                    "previous_gradient_estimation_scheme_key",
+                    "previousGradientEstimationSchemeKey",
+                    "previous_gradient_scheme_key",
+                    "previousGradientSchemeKey",
+                )
+                if round_tripped_momentum
+                else (
+                    "previous_gradient_estimation_scheme_key",
+                    "previousGradientEstimationSchemeKey",
+                    "previous_gradient_scheme_key",
+                    "previousGradientSchemeKey",
+                    "gradientEstimationSchemeKey",
+                    "gradientSchemeKey",
+                    "schemeKey",
+                ),
+            )
+        )
+        if raw_key is not None:
+            previous_key = raw_key
+        raw_comparison_key = text_or_none(
+            first_non_null_present(
+                raw,
+                (
+                    "gradientEstimationComparisonKey",
+                    "gradientComparisonKey",
+                    "comparisonKey",
+                    "trustedComparisonKey",
+                    "previous_gradient_estimation_comparison_key",
+                    "previousGradientEstimationComparisonKey",
+                    "previous_gradient_comparison_key",
+                    "previousGradientComparisonKey",
+                )
+                if round_tripped_momentum
+                else (
+                    "previous_gradient_estimation_comparison_key",
+                    "previousGradientEstimationComparisonKey",
+                    "previous_gradient_comparison_key",
+                    "previousGradientComparisonKey",
+                    "gradientEstimationComparisonKey",
+                    "gradientComparisonKey",
+                    "comparisonKey",
+                    "trustedComparisonKey",
+                ),
+            )
+        )
+        if raw_comparison_key is not None:
+            previous_comparison_key = raw_comparison_key
+    if previous_identity is not None:
+        previous_key = policy_update_gradient_scheme_key(previous_identity)
+        previous_comparison_key = policy_update_gradient_scheme_comparison_key(previous_identity)
+    return {
+        "previousGradientSchemeIdentity": previous_identity,
+        "previousGradientSchemeKey": previous_key,
+        "previousGradientComparisonKey": previous_comparison_key,
+    }
+
+
 def mean_policy_return_tuple(return_tuples: Sequence[Sequence[Any]]) -> list[float | int]:
     if not return_tuples:
         return [0 for _tier in REWARD_TIERS]
@@ -2216,6 +2488,8 @@ def policy_update_scalar_weighted_gradient_estimation(
     anchor_parameters: JsonObject,
 ) -> JsonObject:
     weight_evidence = policy_update_scalar_reward_weight_evidence(policy_gradient)
+    scheme_identity = policy_update_scalar_gradient_scheme_identity(weight_evidence)
+    scheme_key = policy_update_gradient_scheme_key(scheme_identity)
     weights = weight_evidence["normalizedWeightsByRewardTier"]
     scalar_returns = [policy_update_scalar_reward(sample["returnTuple"], weights) for sample in samples]
     scalar_baseline = statistics.fmean(scalar_returns) if scalar_returns else 0.0
@@ -2251,7 +2525,7 @@ def policy_update_scalar_weighted_gradient_estimation(
         cap_normalized_gradient[name] = round_policy_number(cap_normalized_estimate)
         gradient[name] = cap_normalized_estimate
         direction_by_parameter[name] = {
-            "gradientReward": "scalar_weighted_sum",
+            "gradientReward": POLICY_GRADIENT_SCALAR_REWARD,
             "gradient": cap_normalized_gradient[name],
             "contributionSum": round_policy_number(contribution_sum),
             "capNormalizedContributionSum": round_policy_number(contribution_sum),
@@ -2266,12 +2540,17 @@ def policy_update_scalar_weighted_gradient_estimation(
         "type": GRADIENT_ESTIMATION_EVIDENCE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "estimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
-        "gradientReward": "scalar_weighted_sum",
+        "gradientReward": POLICY_GRADIENT_SCALAR_REWARD,
         "gradientUse": "policy_gradient_estimation_only",
-        "scalarWeightedSumUse": "gradient_estimation_only_non_promotional",
-        "rankingRewardModel": "lexicographic",
+        "scalarWeightedSumUse": POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE,
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rewardComponentOrder": list(REWARD_TIERS),
         "lexicographicRankingPreserved": True,
         "scalarWeightedSumAuthorized": False,
+        "schemeIdentity": scheme_identity,
+        "schemeKey": scheme_key,
+        "comparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
+        "trustedComparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
         "sourceComponentWeights": weight_evidence["sourceComponentWeights"],
         "normalizedWeightsByRewardTier": weights,
         "sourceMaxComponentWeight": weight_evidence["sourceMaxComponentWeight"],
@@ -2363,10 +2642,45 @@ def policy_update_gradient_momentum_evidence(
     *,
     policy_gradient: JsonObject,
     raw_gradient: JsonObject,
+    gradient_estimation: JsonObject | None = None,
 ) -> JsonObject:
     config = policy_update_gradient_momentum_config(policy_gradient)
     decay = float(config["emaDecay"])
-    previous_gradient = config["previousEmaGradient"]
+    configured_previous_gradient = config["previousEmaGradient"]
+    current_scheme_identity = policy_update_gradient_scheme_identity_from_evidence(gradient_estimation)
+    current_scheme_key = (
+        policy_update_gradient_scheme_key(current_scheme_identity)
+        if current_scheme_identity is not None
+        else None
+    )
+    current_comparison_key = (
+        policy_update_gradient_scheme_comparison_key(current_scheme_identity)
+        if current_scheme_identity is not None
+        else None
+    )
+    previous_scheme_identity = config.get("previousGradientSchemeIdentity")
+    previous_scheme_key = text_or_none(config.get("previousGradientSchemeKey"))
+    previous_comparison_key = text_or_none(config.get("previousGradientComparisonKey"))
+    configured_previous_gradient_present = bool(configured_previous_gradient)
+    if not configured_previous_gradient_present:
+        gradient_scheme_compatible = True
+        scheme_status = "current_scheme_only"
+    elif current_comparison_key is None:
+        gradient_scheme_compatible = True
+        scheme_status = "current_scheme_unavailable"
+    elif previous_comparison_key is None and previous_scheme_key is None:
+        gradient_scheme_compatible = False
+        scheme_status = "previous_scheme_missing"
+    elif (
+        previous_comparison_key == current_comparison_key
+        or (previous_comparison_key is None and previous_scheme_key == current_scheme_key)
+    ):
+        gradient_scheme_compatible = True
+        scheme_status = "same_scheme"
+    else:
+        gradient_scheme_compatible = False
+        scheme_status = "scheme_mismatch"
+    previous_gradient = configured_previous_gradient if gradient_scheme_compatible else {}
     ema_gradient: JsonObject = {}
     raw_ema_gradient: JsonObject = {}
     conflicting_parameters: list[str] = []
@@ -2403,11 +2717,18 @@ def policy_update_gradient_momentum_evidence(
             "momentumConsistent": momentum_consistent,
         }
 
-    return {
+    payload: JsonObject = {
         "type": GRADIENT_MOMENTUM_EVIDENCE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "emaDecay": decay,
         "previousGradientPresent": bool(previous_gradient),
+        "configuredPreviousGradientPresent": configured_previous_gradient_present,
+        "gradientSchemeCompatible": gradient_scheme_compatible,
+        "gradientSchemeComparisonStatus": scheme_status,
+        "gradientSchemeKey": current_scheme_key,
+        "gradientComparisonKey": current_comparison_key,
+        "previousGradientSchemeKey": previous_scheme_key,
+        "previousGradientComparisonKey": previous_comparison_key,
         "rawGradient": copy.deepcopy(raw_gradient),
         "emaGradient": ema_gradient,
         "rawEmaGradient": raw_ema_gradient,
@@ -2419,17 +2740,15 @@ def policy_update_gradient_momentum_evidence(
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+    if current_scheme_identity is not None:
+        payload["gradientSchemeIdentity"] = current_scheme_identity
+    if isinstance(previous_scheme_identity, dict):
+        payload["previousGradientSchemeIdentity"] = copy.deepcopy(previous_scheme_identity)
+    return payload
 
 
 def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonObject:
-    configs: list[JsonObject] = []
-    for raw in policy_update_config_candidates(policy_gradient):
-        configs.append(raw)
-        for key in ("gradient_momentum", "gradientMomentum", "gradient_ema", "gradientEma"):
-            nested = raw.get(key)
-            if isinstance(nested, dict):
-                configs.append(nested)
-
+    configs = policy_update_gradient_state_config_candidates(policy_gradient)
     decay = DEFAULT_GRADIENT_EMA_DECAY
     previous_gradient: JsonObject = {}
     for raw in configs:
@@ -2463,9 +2782,13 @@ def policy_update_gradient_momentum_config(policy_gradient: JsonObject) -> JsonO
                 if isinstance(name, str) and parsed_value is not None and math.isfinite(float(parsed_value)):
                     previous_gradient[name] = float(parsed_value)
 
+    previous_scheme = policy_update_previous_gradient_scheme_config(policy_gradient)
     return {
         "emaDecay": decay,
         "previousEmaGradient": previous_gradient,
+        "previousGradientSchemeIdentity": previous_scheme["previousGradientSchemeIdentity"],
+        "previousGradientSchemeKey": previous_scheme["previousGradientSchemeKey"],
+        "previousGradientComparisonKey": previous_scheme["previousGradientComparisonKey"],
     }
 
 
@@ -2524,6 +2847,14 @@ def policy_update_gradient_stability_gate(
     ]
     gradient_momentum = gradient_momentum if isinstance(gradient_momentum, dict) else None
     momentum_consistent = gradient_momentum is None or gradient_momentum.get("momentumConsistent") is not False
+    gradient_scheme_comparable = (
+        gradient_momentum is None or gradient_momentum.get("gradientSchemeCompatible") is not False
+    )
+    gradient_scheme_status = (
+        text_or_none(gradient_momentum.get("gradientSchemeComparisonStatus"))
+        if isinstance(gradient_momentum, dict)
+        else None
+    )
     conflicting_momentum_parameters = (
         list(gradient_momentum.get("conflictingParameters", []))
         if isinstance(gradient_momentum, dict) and isinstance(gradient_momentum.get("conflictingParameters"), list)
@@ -2531,9 +2862,16 @@ def policy_update_gradient_stability_gate(
     )
 
     direction_consistent = not conflicting_parameters
-    gradient_stable = sample_size_sufficient and direction_consistent and momentum_consistent
+    gradient_stable = sample_size_sufficient and direction_consistent and momentum_consistent and gradient_scheme_comparable
     high_variance = not gradient_stable
-    if insufficient_candidates:
+    if not gradient_scheme_comparable:
+        classification = "gradient_estimation_scheme_mismatch_non_comparable"
+        convergence_label = "scheme_mismatch_not_comparable"
+        reason = (
+            "previous gradient evidence was recorded under a missing or different gradient-estimation "
+            "scheme, so these samples are non-comparable and the trusted-gradient sample count must reset"
+        )
+    elif insufficient_candidates:
         classification = "insufficient_sample_high_variance"
         convergence_label = "sample_only_not_convergence"
         reason = (
@@ -2573,6 +2911,8 @@ def policy_update_gradient_stability_gate(
         "sampleSizeSufficient": sample_size_sufficient,
         "directionConsistent": direction_consistent,
         "momentumConsistent": momentum_consistent,
+        "gradientSchemeComparable": gradient_scheme_comparable,
+        "gradientSchemeComparisonStatus": gradient_scheme_status,
         "minimumSamplesPerCandidate": min_samples_per_candidate,
         "minimumTotalSamples": minimum_total_samples,
         "totalReturnSampleCount": total_sample_count,
@@ -2590,6 +2930,11 @@ def policy_update_gradient_stability_gate(
     }
     if isinstance(gradient_estimation, dict):
         payload["gradientEstimation"] = copy.deepcopy(gradient_estimation)
+        payload["gradientSchemeKey"] = text_or_none(gradient_estimation.get("schemeKey"))
+        payload["gradientComparisonKey"] = text_or_none(gradient_estimation.get("comparisonKey"))
+        scheme_identity = first_mapping(gradient_estimation, ("schemeIdentity",))
+        if scheme_identity is not None:
+            payload["gradientSchemeIdentity"] = copy.deepcopy(scheme_identity)
     if isinstance(gradient_momentum, dict):
         payload["gradientMomentum"] = copy.deepcopy(gradient_momentum)
     return payload
@@ -5788,14 +6133,20 @@ def policy_update_promotion_gate(
         gradient_stability.get("trustedUpdate") is True if gradient_gate_present else True
     )
     gradient_high_variance = gradient_stability.get("highVariance") is True if gradient_gate_present else False
+    gradient_classification = (
+        text_or_none(gradient_stability.get("classification")) if gradient_gate_present else None
+    )
 
     if runtime_consumed and not trusted_gradient_update:
         consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
         status = "blocked_gradient_stability_untrusted"
         missing_prerequisites = ["gradient_stability"]
+        if gradient_classification == "gradient_estimation_scheme_mismatch_non_comparable":
+            missing_prerequisites.append("gradient_estimation_scheme")
         reason = (
             "tick-time runtime policy parameter consumption proof is present, but the true-gradient "
-            "estimate is not trusted because sample size or per-sample direction consistency failed"
+            "estimate is not trusted because gradient-estimation scheme comparability, sample size, "
+            "or per-sample direction consistency failed"
         )
     elif runtime_consumed:
         consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
@@ -5861,6 +6212,13 @@ def policy_update_promotion_gate(
         payload["gradientStable"] = gradient_stability.get("gradientStable") is True
         payload["trustedGradientUpdate"] = trusted_gradient_update
         payload["highVariance"] = gradient_high_variance
+        payload["gradientClassification"] = gradient_classification
+        payload["gradientSchemeComparable"] = gradient_stability.get("gradientSchemeComparable") is not False
+        payload["gradientSchemeComparisonStatus"] = text_or_none(
+            gradient_stability.get("gradientSchemeComparisonStatus")
+        )
+        payload["gradientSchemeKey"] = text_or_none(gradient_stability.get("gradientSchemeKey"))
+        payload["gradientComparisonKey"] = text_or_none(gradient_stability.get("gradientComparisonKey"))
         payload["gradientStability"] = copy.deepcopy(gradient_stability)
     return payload
 
