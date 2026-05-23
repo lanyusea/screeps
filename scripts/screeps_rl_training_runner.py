@@ -2348,14 +2348,29 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
     previous_key: str | None = None
     previous_comparison_key: str | None = None
     for raw in policy_update_gradient_state_config_candidates(policy_gradient):
-        for key in (
-            "previous_gradient_estimation_scheme",
-            "previousGradientEstimationScheme",
-            "previous_gradient_scheme",
-            "previousGradientScheme",
-            "gradientEstimationScheme",
-            "schemeIdentity",
-        ):
+        round_tripped_momentum = text_or_none(raw.get("type")) == GRADIENT_MOMENTUM_EVIDENCE_TYPE
+        identity_keys = (
+            (
+                "previous_gradient_estimation_scheme",
+                "previousGradientEstimationScheme",
+                "previous_gradient_scheme",
+                "previousGradientScheme",
+                "previousGradientSchemeIdentity",
+                "gradientEstimationScheme",
+                "gradientSchemeIdentity",
+                "schemeIdentity",
+            )
+            if round_tripped_momentum
+            else (
+                "previous_gradient_estimation_scheme",
+                "previousGradientEstimationScheme",
+                "previous_gradient_scheme",
+                "previousGradientScheme",
+                "gradientEstimationScheme",
+                "schemeIdentity",
+            )
+        )
+        for key in identity_keys:
             identity = first_mapping(raw, (key,))
             if identity is not None:
                 previous_identity = copy.deepcopy(identity)
@@ -2398,6 +2413,16 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
             first_non_null_present(
                 raw,
                 (
+                    "gradientEstimationSchemeKey",
+                    "gradientSchemeKey",
+                    "schemeKey",
+                    "previous_gradient_estimation_scheme_key",
+                    "previousGradientEstimationSchemeKey",
+                    "previous_gradient_scheme_key",
+                    "previousGradientSchemeKey",
+                )
+                if round_tripped_momentum
+                else (
                     "previous_gradient_estimation_scheme_key",
                     "previousGradientEstimationSchemeKey",
                     "previous_gradient_scheme_key",
@@ -2414,6 +2439,17 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
             first_non_null_present(
                 raw,
                 (
+                    "gradientEstimationComparisonKey",
+                    "gradientComparisonKey",
+                    "comparisonKey",
+                    "trustedComparisonKey",
+                    "previous_gradient_estimation_comparison_key",
+                    "previousGradientEstimationComparisonKey",
+                    "previous_gradient_comparison_key",
+                    "previousGradientComparisonKey",
+                )
+                if round_tripped_momentum
+                else (
                     "previous_gradient_estimation_comparison_key",
                     "previousGradientEstimationComparisonKey",
                     "previous_gradient_comparison_key",
