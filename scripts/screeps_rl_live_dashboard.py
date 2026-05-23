@@ -1223,6 +1223,27 @@ def newest_summary(current: JsonObject | None, candidate: JsonObject | None) -> 
     return candidate if summary_tie_key(candidate) > summary_tie_key(current) else current
 
 
+def preferred_policy_update_summary(
+    trusted: JsonObject | None,
+    fallback: JsonObject | None,
+) -> JsonObject | None:
+    if trusted is None:
+        return fallback
+    if fallback is None:
+        return trusted
+    trusted_is_blocked = str(trusted.get("status") or "").upper() == "BLOCKED"
+    fallback_is_blocked = str(fallback.get("status") or "").upper() == "BLOCKED"
+    trusted_timestamp = parse_iso_datetime(trusted.get("updatedAt"))
+    fallback_timestamp = parse_iso_datetime(fallback.get("updatedAt"))
+    if trusted_timestamp is not None and fallback_timestamp is not None:
+        if fallback_timestamp > trusted_timestamp and fallback_is_blocked and not trusted_is_blocked:
+            return fallback
+        return trusted
+    if fallback_is_blocked and not trusted_is_blocked:
+        return newest_summary(trusted, fallback)
+    return trusted
+
+
 def runtime_candidate_injection_from_artifact(
     path: Path,
     payload: JsonObject,
@@ -1469,10 +1490,9 @@ def zero_iteration_policy_update_summary_from_artifacts(
             latest_trusted_report = newest_summary(latest_trusted_report, summary)
         else:
             latest_fallback = newest_summary(latest_fallback, summary)
-    if latest_trusted_report is not None:
-        return latest_trusted_report
-    if latest_fallback is not None:
-        return latest_fallback
+    latest = preferred_policy_update_summary(latest_trusted_report, latest_fallback)
+    if latest is not None:
+        return latest
     return {
         "status": "N/A",
         "evidence": "no policy update evidence found",
@@ -1501,7 +1521,7 @@ def artifact_evidence_summaries(
             trusted_zero_iteration = newest_summary(trusted_zero_iteration, zero_iteration)
         else:
             fallback_zero_iteration = newest_summary(fallback_zero_iteration, zero_iteration)
-    zero_iteration = trusted_zero_iteration or fallback_zero_iteration
+    zero_iteration = preferred_policy_update_summary(trusted_zero_iteration, fallback_zero_iteration)
     return (
         injection
         or {

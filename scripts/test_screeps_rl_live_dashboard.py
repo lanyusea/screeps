@@ -716,6 +716,48 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertNotIn("lacks trueGradient", zero_iteration["evidence"])
         self.assertNotIn("POLICY_UPDATE_NOT_TRUE_GRADIENT", zero_iteration["evidence"])
 
+    def test_newer_blocked_ledger_beats_older_trusted_policy_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "trusted-policy-report.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "generatedAt": "2026-05-23T11:25:04Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": True,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "trustedGradientUpdate": True,
+                    },
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "newer-zero-iteration-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "createdAt": "2026-05-23T16:45:20Z",
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {"nextCandidatePolicy": {"candidatePolicyId": "blocked"}},
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+            _, aggregate_zero_iteration = live.artifact_evidence_summaries(artifact_root, repo_root)
+
+        for summary in (zero_iteration, aggregate_zero_iteration):
+            self.assertEqual(summary["status"], "BLOCKED")
+            self.assertEqual(summary["sourceTrust"], "artifact")
+            self.assertTrue(summary["latestPath"].endswith("newer-zero-iteration-ledger.json"))
+            self.assertEqual(summary["updatedAt"], "2026-05-23T16:45:20Z")
+            self.assertEqual(
+                summary["evidence"],
+                "zero-iteration policy update lacks safe skippedReason or has update artifact",
+            )
+
     def test_known_hosts_retry_success_is_not_self_heal_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
