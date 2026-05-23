@@ -1927,6 +1927,7 @@ def build_reinforce_policy_update(
 
     return_baseline = mean_policy_return_tuple([sample["returnTuple"] for sample in samples])
     learning_rate = policy_update_learning_rate(policy_gradient)
+    bounded_integer_step = policy_update_uses_bounded_integer_step(policy_gradient)
     anchor_parameters = anchor["parameters"]
     gradient_by_tier: JsonObject = {}
     selected_reward_tier_by_parameter: JsonObject = {}
@@ -1966,10 +1967,19 @@ def build_reinforce_policy_update(
     for name, spec in parameter_space.items():
         anchor_value = float(anchor_parameters[name])
         span = max(float(spec["max"]) - float(spec["min"]), 1.0)
-        updated = bounded_policy_parameter_value(
-            anchor_value + (learning_rate * float(gradient.get(name, 0)) * span),
-            spec,
-        )
+        gradient_value = float(gradient.get(name, 0))
+        if bounded_integer_step:
+            updated = bounded_policy_parameter_integer_step_update(
+                anchor_value=anchor_value,
+                gradient_value=gradient_value,
+                learning_rate=learning_rate,
+                spec=spec,
+            )
+        else:
+            updated = bounded_policy_parameter_value(
+                anchor_value + (learning_rate * gradient_value * span),
+                spec,
+            )
         updated_parameters[name] = updated
         parameter_delta[name] = round_policy_number(float(updated) - anchor_value)
 
@@ -2018,14 +2028,20 @@ def build_reinforce_policy_update(
         }
 
     if not any(abs(float(value)) > 0 for value in parameter_delta.values()):
+        no_change_parameter_evidence = {
+            **parameter_evidence,
+            "learningRate": learning_rate,
+            "boundedIntegerStep": bounded_integer_step,
+        }
         return {
             **base,
             "skippedReason": "bounded_update_no_parameter_change",
             "candidateCount": len(candidates),
-            "parameterEvidence": parameter_evidence,
+            "parameterEvidence": no_change_parameter_evidence,
             "anchor": policy_update_candidate_summary(anchor),
             "candidateRewards": [policy_update_candidate_summary(row) for row in candidates],
             "learningRate": learning_rate,
+            "boundedIntegerStep": bounded_integer_step,
             "gradient": gradient,
             "rawGradient": raw_gradient,
             "gradientEstimation": gradient_estimation,
@@ -2099,6 +2115,7 @@ def build_reinforce_policy_update(
             "selectedRewardTierByParameter": copy.deepcopy(selected_reward_tier_by_parameter),
             "parameterDelta": copy.deepcopy(parameter_delta),
             "learningRate": learning_rate,
+            "boundedIntegerStep": bounded_integer_step,
             "returnBaseline": copy.deepcopy(return_baseline),
             "returnSampleCount": len(samples),
             "candidateCount": len(candidates),
@@ -2130,6 +2147,7 @@ def build_reinforce_policy_update(
         "trustedGradientUpdate": trusted_gradient_update,
         "highVariance": gradient_stability["highVariance"],
         "learningRate": learning_rate,
+        "boundedIntegerStep": bounded_integer_step,
         "parameterSpace": copy.deepcopy(parameter_space),
         "candidateCount": len(candidates),
         "parameterEvidence": parameter_evidence,
@@ -3357,11 +3375,56 @@ def policy_update_learning_rate(policy_gradient: JsonObject) -> float:
     return DEFAULT_POLICY_UPDATE_LEARNING_RATE
 
 
+def policy_update_uses_bounded_integer_step(policy_gradient: JsonObject) -> bool:
+    for raw in policy_update_config_candidates(policy_gradient):
+        value = first_present(raw, ("bounded_integer_step", "boundedIntegerStep"))
+        if isinstance(value, bool):
+            return value
+    return False
+
+
 def bounded_policy_parameter_value(value: float, spec: JsonObject) -> float | int:
     minimum = float(spec["min"])
     maximum = float(spec["max"])
     bounded = max(minimum, min(maximum, value))
     return round_policy_number(bounded)
+
+
+def bounded_policy_parameter_step_value(value: float, spec: JsonObject) -> float | int:
+    minimum = float(spec["min"])
+    maximum = float(spec["max"])
+    bounded = max(minimum, min(maximum, value))
+    step = number_or_none(spec.get("step"))
+    if step is None or float(step) <= 0:
+        return round_policy_number(bounded)
+    step_float = float(step)
+    quantized_steps = round((bounded - minimum) / step_float)
+    quantized = minimum + (quantized_steps * step_float)
+    return round_policy_number(max(minimum, min(maximum, quantized)))
+
+
+def bounded_policy_parameter_integer_step_update(
+    *,
+    anchor_value: float,
+    gradient_value: float,
+    learning_rate: float,
+    spec: JsonObject,
+) -> float | int:
+    minimum = float(spec["min"])
+    maximum = float(spec["max"])
+    span = max(maximum - minimum, 1.0)
+    effective_delta = float(learning_rate) * float(gradient_value) * span
+    if abs(effective_delta) <= 1e-12:
+        return bounded_policy_parameter_value(anchor_value, spec)
+    step = number_or_none(spec.get("step"))
+    step_float = float(step) if step is not None and float(step) > 0 else 1.0
+    step_units = abs(effective_delta) / step_float
+    step_count = max(1, int(math.floor(step_units + 0.5 + 1e-12)))
+    direction = 1.0 if effective_delta > 0 else -1.0
+    return bounded_policy_parameter_step_value(
+        anchor_value + (direction * step_float * step_count),
+        spec,
+    )
 
 
 def round_policy_number(value: float | int) -> float | int:
