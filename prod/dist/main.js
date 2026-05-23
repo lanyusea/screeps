@@ -47593,19 +47593,19 @@ function buildRolloutDetails(strategyId, historicalReplay, failedPrerequisites) 
 var kernel = new Kernel();
 var strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 var kpiWindowMaxLength = 120;
-var runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
-var runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
 var strategyRegistryState = {
-  entries: runtimePolicyParameters.registry
+  entries: DEFAULT_STRATEGY_REGISTRY
 };
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
+  const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
+  const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   let summary;
   try {
     summary = kernel.run({
-      strategyRegistry: strategyRegistryState.entries,
+      strategyRegistry: runtimePolicyParameters.registry,
       ...runtimePolicyParameterPlanningEnabled ? {
         runtimeStrategyConstructionEnabled: true,
         onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
@@ -47614,7 +47614,7 @@ function loop() {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, runtimePolicyParameters.registry);
 }
 function runStrategyRolloutMonitoring(summary, registry) {
   let workingRegistry = applyPendingRollbacks(registry);

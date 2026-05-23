@@ -37,22 +37,22 @@ export { DEFAULT_VARIANCE_CONFIG, VarianceConfig, injectStrategyVariance } from 
 const kernel = new Kernel();
 const strategyRolloutConfig = DEFAULT_KPI_ROLLOUT_MONITOR_CONFIG;
 const kpiWindowMaxLength = 120;
-const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
-const runtimePolicyParameterPlanningEnabled =
-  runtimePolicyParameters.evidence.runtimeParameterInjection === true &&
-  runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
 const strategyRegistryState = {
-  entries: runtimePolicyParameters.registry
+  entries: DEFAULT_STRATEGY_REGISTRY
 };
 const recentKpiWindows: KpiWindowHistory = {};
 const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
+  const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
+  const runtimePolicyParameterPlanningEnabled =
+    runtimePolicyParameters.evidence.runtimeParameterInjection === true &&
+    runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   let summary: RuntimeSummary | undefined;
   try {
     summary = kernel.run({
-      strategyRegistry: strategyRegistryState.entries,
+      strategyRegistry: runtimePolicyParameters.registry,
       ...(runtimePolicyParameterPlanningEnabled
         ? {
             runtimeStrategyConstructionEnabled: true,
@@ -63,7 +63,7 @@ export function loop(): void {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, runtimePolicyParameters.registry);
 }
 
 function runStrategyRolloutMonitoring(
