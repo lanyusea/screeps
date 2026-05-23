@@ -1539,6 +1539,11 @@ cli:
         self.assertNotEqual(base_upload, territory_upload)
         self.assertTrue(base_upload.startswith('"use strict";\n'))
         self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, base_upload)
+        self.assertIn("function addRoot(root)", base_upload)
+        self.assertIn("typeof globalThis !== 'undefined'", base_upload)
+        self.assertIn("typeof global !== 'undefined'", base_upload)
+        self.assertIn("typeof self !== 'undefined'", base_upload)
+        self.assertIn("addRoot(this)", base_upload)
         self.assertIn('"territorySignalWeight":6', base_upload)
         self.assertNotIn('"territorySignalWeight":22', base_upload)
         self.assertIn('"territorySignalWeight":22', territory_upload)
@@ -1688,6 +1693,10 @@ cli:
         self.assertFalse(updated["runtimeParameterConsumption"])
         self.assertEqual(updated["runtimeParameterConsumptionStatus"], "missing")
         self.assertIn("did not expose", consumption["reason"])
+        self.assertNotIn("consumerVersion", consumption)
+        self.assertNotIn("runtimeParameterConsumerVersion", updated)
+        self.assertNotIn("consumedParametersSha256", updated)
+        self.assertNotIn("consumedStrategyVariantId", updated)
 
     def test_runtime_parameter_consumption_accepts_matching_memory_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
@@ -1698,10 +1707,15 @@ cli:
 
         self.assertEqual(consumption["status"], "consumed")
         self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["consumerVersion"], harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION)
         self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
         self.assertEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+        self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
+        self.assertEqual(consumption["consumedStrategyVariantId"], injection["strategyVariantId"])
         self.assertTrue(updated["runtimeParameterConsumption"])
         self.assertEqual(updated["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertEqual(updated["runtimeParameterConsumerVersion"], harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION)
+        self.assertEqual(updated["consumedParametersSha256"], injection["parametersSha256"])
 
     def test_runtime_parameter_consumption_accepts_javascript_numeric_canonicalization(self) -> None:
         variant = {
@@ -1780,6 +1794,22 @@ cli:
         self.assertFalse(consumption["runtimeParameterConsumption"])
         self.assertIn("disagreed", consumption["reason"])
         self.assertNotEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
+
+    def test_runtime_parameter_consumption_rejects_consumer_version_mismatch(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["consumerVersion"] = "runtime-policy-v0"
+
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("consumer version", consumption["reason"])
+        self.assertNotIn("consumerVersion", consumption)
+        self.assertNotIn("runtimeParameterConsumerVersion", updated)
+        self.assertNotIn("consumedParametersSha256", updated)
+        self.assertNotIn("consumedStrategyVariantId", updated)
 
     def test_runtime_parameter_consumption_extracts_memory_payload(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
@@ -3299,6 +3329,14 @@ cli:
         self.assertEqual(summary["runtimeParameterConsumptionStatus"], "partial")
         self.assertEqual(summary["consumedVariantCount"], 1)
         self.assertEqual(summary["variantCount"], 2)
+        self.assertEqual(summary["variants"][0]["runtimeParameterConsumerVersion"], harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION)
+        self.assertEqual(summary["variants"][0]["consumedParametersSha256"], consumed_injection["parametersSha256"])
+        self.assertEqual(summary["variants"][0]["consumedStrategyVariantId"], consumed_injection["strategyVariantId"])
+        self.assertFalse(summary["variants"][1]["runtimeParameterConsumption"])
+        self.assertEqual(summary["variants"][1]["runtimeParameterConsumptionStatus"], "missing")
+        self.assertNotIn("runtimeParameterConsumerVersion", summary["variants"][1])
+        self.assertNotIn("consumedParametersSha256", summary["variants"][1])
+        self.assertNotIn("consumedStrategyVariantId", summary["variants"][1])
 
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (
@@ -3326,6 +3364,7 @@ cli:
         return {
             "type": harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
             "consumerMarker": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+            "consumerVersion": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
             "runtimeParameterInjection": True,
             "consumed": True,
             "strategyVariantId": injection["strategyVariantId"],
@@ -3333,6 +3372,8 @@ cli:
             "family": injection["family"],
             "parameters": copy.deepcopy(injection["parameters"]),
             "parametersSha256": injection["parametersSha256"],
+            "consumedStrategyVariantId": injection["strategyVariantId"],
+            "consumedParametersSha256": injection["parametersSha256"],
             "appliedStrategyIds": [injection["strategyVariantId"]],
             "liveEffect": False,
             "officialMmoWrites": False,

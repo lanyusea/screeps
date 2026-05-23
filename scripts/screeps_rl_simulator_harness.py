@@ -96,6 +96,7 @@ RUNTIME_PARAMETER_INJECTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__"
 RUNTIME_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__"
 RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consumption"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
+RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
     r"\A(\ufeff?(?:(?:\s+)|(?://[^\r\n]*(?:\r?\n|$))|(?:/\*.*?\*/))*"
@@ -600,9 +601,13 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
         "liveEffect=false officialMmoWrites=false officialMmoWritesAllowed=false */\n"
         "(function(){\n"
         f"  var payload = {json.dumps(runtime_payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True)};\n"
-        "  var root = typeof globalThis !== 'undefined' ? globalThis : "
-        "(typeof global !== 'undefined' ? global : this);\n"
-        f"  root[{json.dumps(RUNTIME_PARAMETER_INJECTION_GLOBAL)}] = payload;\n"
+        "  var roots = [];\n"
+        "  function addRoot(root) { if (root && roots.indexOf(root) < 0) roots.push(root); }\n"
+        "  if (typeof globalThis !== 'undefined') addRoot(globalThis);\n"
+        "  if (typeof global !== 'undefined') addRoot(global);\n"
+        "  if (typeof self !== 'undefined') addRoot(self);\n"
+        "  addRoot(this);\n"
+        f"  for (var index = 0; index < roots.length; index += 1) roots[index][{json.dumps(RUNTIME_PARAMETER_INJECTION_GLOBAL)}] = payload;\n"
         "})();\n"
     )
     insert_at = runtime_parameter_injection_insert_index(code_text)
@@ -701,11 +706,15 @@ def runtime_parameter_consumption_check(
     payload = {
         **{key: value for key, value in base.items() if value is not None},
         "status": "consumed",
+        "consumerVersion": text_or_none(evidence.get("consumerVersion")),
         "runtimeParameterConsumption": True,
         "consumed": True,
         "source": text_or_none(evidence.get("source")) or "runtime_policy_parameter_consumption",
         "evaluatedParameters": parameters,
         "evaluatedParametersSha256": parameters_hash,
+        "consumedParametersSha256": text_or_none(evidence.get("consumedParametersSha256")) or parameters_hash,
+        "consumedStrategyVariantId": text_or_none(evidence.get("consumedStrategyVariantId"))
+        or text_or_none(evidence.get("strategyVariantId")),
         "appliedStrategyIds": copy.deepcopy(evidence.get("appliedStrategyIds", [])),
         "evidence": copy.deepcopy(evidence),
     }
@@ -725,6 +734,12 @@ def apply_runtime_parameter_consumption_to_injection(
         updated["runtimeParameterConsumptionSource"] = consumption.get("source")
     if consumption.get("evaluatedParametersSha256"):
         updated["evaluatedParametersSha256"] = consumption.get("evaluatedParametersSha256")
+    if consumption.get("status") == "consumed" and consumption.get("consumerVersion"):
+        updated["runtimeParameterConsumerVersion"] = consumption.get("consumerVersion")
+    if consumption.get("status") == "consumed" and consumption.get("consumedParametersSha256"):
+        updated["consumedParametersSha256"] = consumption.get("consumedParametersSha256")
+    if consumption.get("status") == "consumed" and consumption.get("consumedStrategyVariantId"):
+        updated["consumedStrategyVariantId"] = consumption.get("consumedStrategyVariantId")
     return updated
 
 
@@ -736,6 +751,11 @@ def runtime_parameter_consumption_validation_error(
         return "runtime policy parameter evidence had the wrong type"
     if evidence.get("consumerMarker") != RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER:
         return "runtime policy parameter evidence did not come from the expected consumer"
+    observed_version = text_or_none(evidence.get("consumerVersion"))
+    if observed_version is None:
+        return "runtime policy parameter evidence did not include a consumer version"
+    if observed_version != RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION:
+        return "runtime policy parameter evidence came from an unsupported consumer version"
     if evidence.get("consumed") is not True or evidence.get("runtimeParameterInjection") is not True:
         return "runtime policy parameter evidence did not mark the payload consumed"
     parameters = evidence.get("parameters")
@@ -747,6 +767,17 @@ def runtime_parameter_consumption_validation_error(
         return "runtime policy parameter evidence parameters could not be hashed"
     if expected_hash is not None and observed_hash != expected_hash:
         return "runtime policy parameter evidence parameters disagreed with injected parameters"
+    consumed_hash = text_or_none(evidence.get("consumedParametersSha256"))
+    if consumed_hash is None:
+        return "runtime policy parameter evidence did not include a consumed parameter hash"
+    if expected_hash is not None and consumed_hash != expected_hash:
+        return "runtime policy parameter evidence consumed parameter hash disagreed with injected parameters"
+    consumed_variant_id = text_or_none(evidence.get("consumedStrategyVariantId"))
+    expected_variant_id = text_or_none(injection.get("strategyVariantId"))
+    if consumed_variant_id is None:
+        return "runtime policy parameter evidence did not include a consumed strategy variant id"
+    if expected_variant_id is not None and consumed_variant_id != expected_variant_id:
+        return "runtime policy parameter evidence consumed strategy variant id disagreed with injected parameters"
     for field in ("strategyVariantId", "candidatePolicyId", "family"):
         expected = text_or_none(injection.get(field))
         observed = text_or_none(evidence.get(field))
@@ -2773,7 +2804,7 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
                 "reason": "variant result did not include runtime parameter injection evidence",
             })
             continue
-        rows.append({
+        row = {
             "variantId": item.get("variant_id", item.get("variantId")),
             "status": injection.get("status"),
             "runtimeParameterInjection": injection.get("runtimeParameterInjection") is True,
@@ -2783,7 +2814,15 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
             "candidateParameterScope": injection.get("candidateParameterScope"),
             "parametersSha256": injection.get("parametersSha256"),
             "reason": injection.get("runtimeParameterConsumptionReason", injection.get("reason")),
-        })
+        }
+        for field in (
+            "consumedParametersSha256",
+            "consumedStrategyVariantId",
+            "runtimeParameterConsumerVersion",
+        ):
+            if injection.get(field) is not None:
+                row[field] = injection.get(field)
+        rows.append(row)
     injected = sum(1 for row in rows if row.get("runtimeParameterInjection") is True)
     consumed = sum(1 for row in rows if row.get("runtimeParameterConsumption") is True)
     attempted_runtime = any(_runtime_parameter_summary_row_indicates_runtime_attempt(row) for row in rows)

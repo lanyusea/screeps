@@ -3,11 +3,13 @@ import type { StrategyKnobValue, StrategyRegistryEntry } from './strategyRegistr
 export const RUNTIME_POLICY_PARAMETERS_GLOBAL = '__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__';
 export const RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = '__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__';
 export const RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = 'screeps-rl-runtime-policy-parameters-consumer-v1';
+export const RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION = 'v1';
 export const RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX = '#runtime-parameter-consumption ';
 
 export interface RuntimePolicyParameterConsumptionEvidence {
   type: 'screeps-rl-runtime-policy-parameter-consumption';
   consumerMarker: typeof RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER;
+  consumerVersion: typeof RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION;
   runtimeParameterInjection: boolean;
   consumed: boolean;
   strategyVariantId?: string;
@@ -15,6 +17,8 @@ export interface RuntimePolicyParameterConsumptionEvidence {
   family?: string;
   parameters?: Record<string, StrategyKnobValue>;
   parametersSha256?: string;
+  consumedStrategyVariantId?: string;
+  consumedParametersSha256?: string;
   appliedStrategyIds: string[];
   reason?: string;
   liveEffect: false;
@@ -118,8 +122,7 @@ export function applyRuntimePolicyParametersToRegistry(
 export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicyParameterConsumptionRecorder {
   const payload = readRuntimePolicyParameterPayload();
   const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
-  const materializedStrategyIds = runtimeMaterializedStrategyIds(payload, parameters);
-  const appliedStrategyIds = new Set<string>(materializedStrategyIds);
+  const appliedStrategyIds = new Set<string>();
 
   return {
     recordStrategyRuntimeUse(entry: StrategyRegistryEntry): void {
@@ -157,9 +160,7 @@ export function createRuntimePolicyParameterConsumptionRecorder(): RuntimePolicy
         parameters,
         appliedStrategyIds: observedStrategyIds,
         reason: consumed
-          ? materializedStrategyIds.length > 0
-            ? 'runtime policy parameter payload was materialized into the tick runtime strategy registry'
-            : undefined
+          ? 'runtime policy parameter payload was used by tick runtime strategy evaluation'
           : 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
       });
     }
@@ -184,15 +185,18 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
-  const root = globalThis as typeof globalThis & Record<string, unknown>;
-  const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
-  if (!isRecord(raw)) {
-    return null;
+  for (const root of runtimeGlobalRoots()) {
+    const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
+    if (
+      isRecord(raw) &&
+      raw.runtimeParameterInjection === true &&
+      raw.candidateParameterScope === 'runtime_injected'
+    ) {
+      return raw;
+    }
   }
-  if (raw.runtimeParameterInjection !== true || raw.candidateParameterScope !== 'runtime_injected') {
-    return null;
-  }
-  return raw;
+
+  return null;
 }
 
 function normalizeRuntimePolicyParameters(raw: unknown): Record<string, StrategyKnobValue> | null {
@@ -262,6 +266,7 @@ function buildConsumptionEvidence(options: {
   return {
     type: 'screeps-rl-runtime-policy-parameter-consumption',
     consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
+    consumerVersion: RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
     runtimeParameterInjection,
     consumed: options.consumed,
     ...(textOrUndefined(options.payload?.strategyVariantId)
@@ -275,6 +280,12 @@ function buildConsumptionEvidence(options: {
     ...(textOrUndefined(options.payload?.parametersSha256)
       ? { parametersSha256: textOrUndefined(options.payload?.parametersSha256) }
       : {}),
+    ...(options.consumed && textOrUndefined(options.payload?.strategyVariantId)
+      ? { consumedStrategyVariantId: textOrUndefined(options.payload?.strategyVariantId) }
+      : {}),
+    ...(options.consumed && textOrUndefined(options.payload?.parametersSha256)
+      ? { consumedParametersSha256: textOrUndefined(options.payload?.parametersSha256) }
+      : {}),
     appliedStrategyIds: [...options.appliedStrategyIds].sort(),
     ...(options.reason ? { reason: options.reason } : {}),
     liveEffect: false,
@@ -286,73 +297,9 @@ function buildConsumptionEvidence(options: {
 function publishRuntimePolicyParameterConsumptionEvidence(
   evidence: RuntimePolicyParameterConsumptionEvidence
 ): void {
-  const root = globalThis as typeof globalThis & Record<string, unknown>;
-  root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
-}
-
-function readPublishedRuntimePolicyParameterConsumptionEvidence(): RuntimePolicyParameterConsumptionEvidence | null {
-  const root = globalThis as typeof globalThis & Record<string, unknown>;
-  const evidence = root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
-  return isRuntimePolicyParameterConsumptionEvidence(evidence) ? evidence : null;
-}
-
-function runtimeMaterializedStrategyIds(
-  payload: RuntimePolicyParameterPayload | null,
-  parameters: Record<string, StrategyKnobValue> | null
-): string[] {
-  if (!payload || !parameters) {
-    return [];
+  for (const root of runtimeGlobalRoots()) {
+    root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
   }
-
-  const evidence = readPublishedRuntimePolicyParameterConsumptionEvidence();
-  if (
-    !evidence ||
-    evidence.runtimeParameterInjection !== true ||
-    evidence.consumed === true ||
-    evidence.appliedStrategyIds.length === 0 ||
-    !runtimePolicyParameterEvidenceMatchesPayload(evidence, payload, parameters)
-  ) {
-    return [];
-  }
-
-  return [...evidence.appliedStrategyIds].sort();
-}
-
-function runtimePolicyParameterEvidenceMatchesPayload(
-  evidence: RuntimePolicyParameterConsumptionEvidence,
-  payload: RuntimePolicyParameterPayload,
-  parameters: Record<string, StrategyKnobValue>
-): boolean {
-  if (!sameOptionalText(evidence.strategyVariantId, payload.strategyVariantId)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.candidatePolicyId, payload.candidatePolicyId)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.family, payload.family)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.parametersSha256, payload.parametersSha256)) {
-    return false;
-  }
-  if (!evidence.parameters) {
-    return false;
-  }
-
-  return sameStrategyKnobValues(evidence.parameters, parameters);
-}
-
-function sameStrategyKnobValues(
-  left: Record<string, StrategyKnobValue>,
-  right: Record<string, StrategyKnobValue>
-): boolean {
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-
-  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
 }
 
 function isRuntimePolicyParameterConsumptionEvidence(
@@ -365,6 +312,7 @@ function isRuntimePolicyParameterConsumptionEvidence(
   return (
     value.type === 'screeps-rl-runtime-policy-parameter-consumption' &&
     value.consumerMarker === RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER &&
+    value.consumerVersion === RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION &&
     typeof value.runtimeParameterInjection === 'boolean' &&
     typeof value.consumed === 'boolean' &&
     Array.isArray(value.appliedStrategyIds)
@@ -409,7 +357,9 @@ function shouldCarryRuntimePolicyParameterConsumptionEvidence(
   }
   if (
     evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER ||
-    previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER
+    previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER ||
+    evidence.consumerVersion !== RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION ||
+    previous.consumerVersion !== RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION
   ) {
     return false;
   }
@@ -476,6 +426,24 @@ function runtimeMemoryRoot(): RuntimeMemory {
     root.Memory = {};
   }
   return root.Memory;
+}
+
+function runtimeGlobalRoots(): Array<Record<string, unknown>> {
+  const roots: Array<Record<string, unknown>> = [];
+  const root = globalThis as typeof globalThis & { global?: unknown; self?: unknown };
+  addRuntimeGlobalRoot(roots, globalThis);
+  addRuntimeGlobalRoot(roots, root.global);
+  addRuntimeGlobalRoot(roots, root.self);
+
+  return roots;
+}
+
+function addRuntimeGlobalRoot(roots: Array<Record<string, unknown>>, value: unknown): void {
+  if (!isRecord(value) || roots.includes(value)) {
+    return;
+  }
+
+  roots.push(value);
 }
 
 function runtimeTick(): number {

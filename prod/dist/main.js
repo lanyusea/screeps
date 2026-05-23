@@ -46685,6 +46685,7 @@ function getGameTime45() {
 var RUNTIME_POLICY_PARAMETERS_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__";
 var RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL = "__SCREEPS_RL_RUNTIME_POLICY_PARAMETER_CONSUMPTION__";
 var RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1";
+var RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION = "v1";
 var RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption ";
 function applyRuntimePolicyParametersToRegistry(registry) {
   var _a;
@@ -46746,8 +46747,7 @@ function applyRuntimePolicyParametersToRegistry(registry) {
 function createRuntimePolicyParameterConsumptionRecorder() {
   const payload = readRuntimePolicyParameterPayload();
   const parameters = payload ? normalizeRuntimePolicyParameters(payload.parameters) : null;
-  const materializedStrategyIds = runtimeMaterializedStrategyIds(payload, parameters);
-  const appliedStrategyIds = new Set(materializedStrategyIds);
+  const appliedStrategyIds = /* @__PURE__ */ new Set();
   return {
     recordStrategyRuntimeUse(entry) {
       if (!payload || !parameters) {
@@ -46780,7 +46780,7 @@ function createRuntimePolicyParameterConsumptionRecorder() {
         consumed,
         parameters,
         appliedStrategyIds: observedStrategyIds,
-        reason: consumed ? materializedStrategyIds.length > 0 ? "runtime policy parameter payload was materialized into the tick runtime strategy registry" : void 0 : "runtime policy parameter payload was not used by tick runtime strategy evaluation"
+        reason: consumed ? "runtime policy parameter payload was used by tick runtime strategy evaluation" : "runtime policy parameter payload was not used by tick runtime strategy evaluation"
       });
     }
   };
@@ -46799,15 +46799,13 @@ function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
   emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 function readRuntimePolicyParameterPayload() {
-  const root = globalThis;
-  const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
-  if (!isRecord41(raw)) {
-    return null;
+  for (const root of runtimeGlobalRoots()) {
+    const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
+    if (isRecord41(raw) && raw.runtimeParameterInjection === true && raw.candidateParameterScope === "runtime_injected") {
+      return raw;
+    }
   }
-  if (raw.runtimeParameterInjection !== true || raw.candidateParameterScope !== "runtime_injected") {
-    return null;
-  }
-  return raw;
+  return null;
 }
 function normalizeRuntimePolicyParameters(raw) {
   if (!isRecord41(raw)) {
@@ -46849,11 +46847,12 @@ function strategyEntryUsesRuntimeParameters(entry, parameters) {
   return true;
 }
 function buildConsumptionEvidence(options) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
   const runtimeParameterInjection = ((_a = options.payload) == null ? void 0 : _a.runtimeParameterInjection) === true && ((_b = options.payload) == null ? void 0 : _b.candidateParameterScope) === "runtime_injected";
   return {
     type: "screeps-rl-runtime-policy-parameter-consumption",
     consumerMarker: RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER,
+    consumerVersion: RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
     runtimeParameterInjection,
     consumed: options.consumed,
     ...textOrUndefined((_c = options.payload) == null ? void 0 : _c.strategyVariantId) ? { strategyVariantId: textOrUndefined((_d = options.payload) == null ? void 0 : _d.strategyVariantId) } : {},
@@ -46861,6 +46860,8 @@ function buildConsumptionEvidence(options) {
     ...textOrUndefined((_g = options.payload) == null ? void 0 : _g.family) ? { family: textOrUndefined((_h = options.payload) == null ? void 0 : _h.family) } : {},
     ...options.parameters ? { parameters: options.parameters } : {},
     ...textOrUndefined((_i = options.payload) == null ? void 0 : _i.parametersSha256) ? { parametersSha256: textOrUndefined((_j = options.payload) == null ? void 0 : _j.parametersSha256) } : {},
+    ...options.consumed && textOrUndefined((_k = options.payload) == null ? void 0 : _k.strategyVariantId) ? { consumedStrategyVariantId: textOrUndefined((_l = options.payload) == null ? void 0 : _l.strategyVariantId) } : {},
+    ...options.consumed && textOrUndefined((_m = options.payload) == null ? void 0 : _m.parametersSha256) ? { consumedParametersSha256: textOrUndefined((_n = options.payload) == null ? void 0 : _n.parametersSha256) } : {},
     appliedStrategyIds: [...options.appliedStrategyIds].sort(),
     ...options.reason ? { reason: options.reason } : {},
     liveEffect: false,
@@ -46869,55 +46870,9 @@ function buildConsumptionEvidence(options) {
   };
 }
 function publishRuntimePolicyParameterConsumptionEvidence(evidence) {
-  const root = globalThis;
-  root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
-}
-function readPublishedRuntimePolicyParameterConsumptionEvidence() {
-  const root = globalThis;
-  const evidence = root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
-  return isRuntimePolicyParameterConsumptionEvidence(evidence) ? evidence : null;
-}
-function runtimeMaterializedStrategyIds(payload, parameters) {
-  if (!payload || !parameters) {
-    return [];
+  for (const root of runtimeGlobalRoots()) {
+    root[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL] = evidence;
   }
-  const evidence = readPublishedRuntimePolicyParameterConsumptionEvidence();
-  if (!evidence || evidence.runtimeParameterInjection !== true || evidence.consumed === true || evidence.appliedStrategyIds.length === 0 || !runtimePolicyParameterEvidenceMatchesPayload(evidence, payload, parameters)) {
-    return [];
-  }
-  return [...evidence.appliedStrategyIds].sort();
-}
-function runtimePolicyParameterEvidenceMatchesPayload(evidence, payload, parameters) {
-  if (!sameOptionalText(evidence.strategyVariantId, payload.strategyVariantId)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.candidatePolicyId, payload.candidatePolicyId)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.family, payload.family)) {
-    return false;
-  }
-  if (!sameOptionalText(evidence.parametersSha256, payload.parametersSha256)) {
-    return false;
-  }
-  if (!evidence.parameters) {
-    return false;
-  }
-  return sameStrategyKnobValues(evidence.parameters, parameters);
-}
-function sameStrategyKnobValues(left, right) {
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
-}
-function isRuntimePolicyParameterConsumptionEvidence(value) {
-  if (!isRecord41(value)) {
-    return false;
-  }
-  return value.type === "screeps-rl-runtime-policy-parameter-consumption" && value.consumerMarker === RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER && typeof value.runtimeParameterInjection === "boolean" && typeof value.consumed === "boolean" && Array.isArray(value.appliedStrategyIds);
 }
 function emitRuntimePolicyParameterConsumptionEvidence(evidence) {
   if (evidence.runtimeParameterInjection !== true) {
@@ -46944,7 +46899,7 @@ function shouldCarryRuntimePolicyParameterConsumptionEvidence(evidence, previous
   if (!evidence.parameters || !previous.parameters) {
     return false;
   }
-  if (evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER || previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER) {
+  if (evidence.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER || previous.consumerMarker !== RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER || evidence.consumerVersion !== RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION || previous.consumerVersion !== RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION) {
     return false;
   }
   const currentHash = textOrUndefined(evidence.parametersSha256);
@@ -46996,6 +46951,20 @@ function runtimeMemoryRoot() {
     root.Memory = {};
   }
   return root.Memory;
+}
+function runtimeGlobalRoots() {
+  const roots = [];
+  const root = globalThis;
+  addRuntimeGlobalRoot(roots, globalThis);
+  addRuntimeGlobalRoot(roots, root.global);
+  addRuntimeGlobalRoot(roots, root.self);
+  return roots;
+}
+function addRuntimeGlobalRoot(roots, value) {
+  if (!isRecord41(value) || roots.includes(value)) {
+    return;
+  }
+  roots.push(value);
 }
 function runtimeTick() {
   var _a, _b;
@@ -47633,14 +47602,18 @@ var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
-  const summary = kernel.run({
-    strategyRegistry: strategyRegistryState.entries,
-    ...runtimePolicyParameterPlanningEnabled ? {
-      runtimeStrategyConstructionEnabled: true,
-      onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
-    } : {}
-  });
-  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+  let summary;
+  try {
+    summary = kernel.run({
+      strategyRegistry: strategyRegistryState.entries,
+      ...runtimePolicyParameterPlanningEnabled ? {
+        runtimeStrategyConstructionEnabled: true,
+        onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+      } : {}
+    });
+  } finally {
+    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+  }
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 function runStrategyRolloutMonitoring(summary, registry) {
