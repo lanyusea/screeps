@@ -565,7 +565,12 @@ def runtime_parameter_injection_for_variant(
         }
 
     source_strategy_id = _runtime_parameter_source_strategy_id(strategy_variant)
+    candidate_policy_id = strategy_variant.get("candidatePolicyId")
+    if candidate_policy_id is None:
+        candidate_policy_id = strategy_variant.get("candidate_policy_id")
     parameter_evidence = strategy_variant.get("parameterEvidence")
+    if not isinstance(parameter_evidence, Mapping):
+        parameter_evidence = strategy_variant.get("parameter_evidence")
     payload = {
         "type": RUNTIME_PARAMETER_INJECTION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -576,10 +581,10 @@ def runtime_parameter_injection_for_variant(
         "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
         "globalName": RUNTIME_PARAMETER_INJECTION_GLOBAL,
         "strategyVariantId": variant_id,
-        "candidatePolicyId": strategy_variant.get("candidatePolicyId"),
+        "candidatePolicyId": candidate_policy_id,
         "sourceStrategyId": source_strategy_id,
         "family": strategy_variant.get("family"),
-        "parameterEvidence": copy.deepcopy(parameter_evidence) if isinstance(parameter_evidence, dict) else None,
+        "parameterEvidence": copy.deepcopy(dict(parameter_evidence)) if isinstance(parameter_evidence, Mapping) else None,
         "parameters": copy.deepcopy(parameters),
         "parametersSha256": runtime_parameter_parameters_hash(parameters),
         "liveEffect": False,
