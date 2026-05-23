@@ -84,6 +84,33 @@ TENCENT_TIMEOUT_COMPONENT_KEY_GROUPS = (
     ("trainingTimeoutSeconds", "training_timeout_seconds", "training-timeout-seconds", "training"),
     ("transferTimeoutSeconds", "transfer_timeout_seconds", "transfer-timeout-seconds", "transfer"),
 )
+TRUSTED_POLICY_UPDATE_REPORT_TYPES = {
+    "screeps-rl-training-report",
+    "screeps-rl-training-generation",
+    "screeps-rl-training-execution-report",
+}
+HOST_KEY_SELF_HEAL_SUCCESS_STATUSES = {
+    "accepted_new_known_host",
+    "already_prepared",
+    "existing_known_host",
+    "existing_known_host_keyscan_unavailable",
+    "host_key_scanned",
+    "new_known_host",
+    "rotated_known_host",
+    "skipped_no_public_ip",
+}
+HOST_KEY_SELF_HEAL_RETRY_STATUSES = {
+    "host_key_accept_new_unavailable",
+    "host_key_scan_unavailable",
+}
+HOST_KEY_SELF_HEAL_FAILURE_STATUSES = {"host_key_self_healing_failed"}
+HOST_KEY_SELF_HEAL_STEP_NAMES = {
+    "accept_new_worker_known_host",
+    "clear_worker_known_host",
+    "install_worker_known_host",
+    "prepare_worker_known_host",
+    "scan_worker_host_key",
+}
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -725,6 +752,7 @@ def tencent_batch_summary_at(
         compute_evidence = static_dashboard.compute_evidence_summary(payload)
         batch_scale = tencent_batch_scale(payload)
         runner_state = classify_tencent_batch_run_state(payload, now=now)
+        known_hosts_self_heal = as_dict(runner_state.get("knownHostsSelfHeal"))
         runs.append(
             {
                 "runId": payload.get("runId") or path.parent.name,
@@ -739,11 +767,13 @@ def tencent_batch_summary_at(
                 "computeEvidence": compute_evidence,
                 "computeClassification": compute_evidence.get("classification"),
                 "batchScale": batch_scale,
+                "knownHostsSelfHeal": known_hosts_self_heal,
                 "runnerState": runner_state,
                 "stateClassification": runner_state.get("status"),
                 "activeAgeSeconds": runner_state.get("ageSeconds"),
                 "declaredTimeoutSeconds": runner_state.get("timeoutSeconds"),
-                "handoffRequired": runner_state.get("handoffRequired"),
+                "handoffRequired": runner_state.get("handoffRequired")
+                or known_hosts_self_heal.get("handoffRequired") is True,
                 "blocker": compute_evidence.get("blocker"),
                 "path": safe_display_path(path, repo_root),
                 "timestamp": display_timestamp(artifact_timestamp(path, payload)),
@@ -777,6 +807,7 @@ def classify_tencent_batch_run_state(payload: JsonObject, *, now: Any | None = N
     progress = tencent_batch_progress(payload)
     pid = tencent_controller_pid(payload)
     active = tencent_batch_run_is_active(payload)
+    known_hosts_self_heal = known_hosts_self_heal_summary(payload)
     state: JsonObject = {
         "runId": run_id,
         "pid": pid,
@@ -787,9 +818,21 @@ def classify_tencent_batch_run_state(payload: JsonObject, *, now: Any | None = N
         "timeoutSeconds": timeout_seconds,
         "timeoutKnown": timeout_seconds is not None,
         "progress": progress,
+        "knownHostsSelfHeal": known_hosts_self_heal,
         "handoffRequired": False,
         "action": "none",
     }
+    if known_hosts_self_heal.get("status") == "BLOCKED":
+        state.update(
+            {
+                "status": "SSH_HOST_KEY_SELF_HEALING_FAILED",
+                "handoffRequired": True,
+                "handoffSeverity": "P1",
+                "action": "inspect Tencent known_hosts self-heal failure before retrying SSH work",
+                "evidence": known_hosts_self_heal.get("evidence"),
+            }
+        )
+        return state
     if not active:
         return state
     if timeout_seconds is None or age_seconds is None or age_seconds <= timeout_seconds or progress.get("hasProgress") is True:
@@ -937,6 +980,102 @@ def tencent_controller_pid(payload: JsonObject) -> int | None:
             if parsed is not None and parsed > 0:
                 return parsed
     return None
+
+
+def tencent_step_status(step: JsonObject) -> str | None:
+    detail = as_dict(step.get("detail"))
+    return text_value(detail.get("status")) or text_value(step.get("status"))
+
+
+def tencent_step_attempt(step: JsonObject) -> int | None:
+    detail = as_dict(step.get("detail"))
+    return static_dashboard.int_value(detail.get("attempt")) or static_dashboard.int_value(step.get("attempt"))
+
+
+def known_hosts_self_heal_summary(payload: JsonObject) -> JsonObject:
+    records: list[JsonObject] = []
+    for index, step in enumerate(as_list(payload.get("steps"))):
+        if not isinstance(step, dict):
+            continue
+        name = text_value(step.get("name")) or ""
+        status = tencent_step_status(step)
+        if (
+            name not in HOST_KEY_SELF_HEAL_STEP_NAMES
+            and status not in HOST_KEY_SELF_HEAL_SUCCESS_STATUSES
+            and status not in HOST_KEY_SELF_HEAL_RETRY_STATUSES
+            and status not in HOST_KEY_SELF_HEAL_FAILURE_STATUSES
+        ):
+            continue
+        detail = as_dict(step.get("detail"))
+        records.append(
+            {
+                "index": index,
+                "step": name,
+                "status": status,
+                "ok": step.get("ok"),
+                "retryable": detail.get("retryable"),
+                "attempt": tencent_step_attempt(step),
+            }
+        )
+
+    if not records:
+        return {
+            "status": "N/A",
+            "classification": "SSH_HOST_KEY_SELF_HEALING_NOT_OBSERVED",
+            "handoffRequired": False,
+            "evidence": "no known_hosts self-heal steps observed",
+            "steps": [],
+        }
+
+    retry_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_RETRY_STATUSES]
+    success_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_SUCCESS_STATUSES]
+    failure_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_FAILURE_STATUSES]
+    last_success = success_records[-1] if success_records else None
+    last_failure = failure_records[-1] if failure_records else None
+    if last_failure is not None and (last_success is None or last_failure["index"] > last_success["index"]):
+        return {
+            "status": "BLOCKED",
+            "classification": "SSH_HOST_KEY_SELF_HEALING_FAILED",
+            "handoffRequired": True,
+            "evidence": (
+                "known_hosts self-healing failed after "
+                f"{len(retry_records)} retry/status attempt(s); latestStatus={last_failure.get('status')}"
+            ),
+            "steps": records,
+        }
+    if retry_records and last_success is not None:
+        return {
+            "status": "OK",
+            "classification": "SSH_HOST_KEY_SELF_HEALING_RECOVERED",
+            "handoffRequired": False,
+            "evidence": (
+                f"{len(retry_records)} retry/status attempt(s) recovered via {last_success.get('status')}"
+            ),
+            "steps": records,
+        }
+    if last_success is not None:
+        return {
+            "status": "OK",
+            "classification": "SSH_HOST_KEY_SELF_HEALING_OK",
+            "handoffRequired": False,
+            "evidence": f"known_hosts prepared via {last_success.get('status')}",
+            "steps": records,
+        }
+    if retry_records:
+        return {
+            "status": "MONITOR",
+            "classification": "SSH_HOST_KEY_SELF_HEALING_RETRYING",
+            "handoffRequired": False,
+            "evidence": f"{len(retry_records)} retryable host-key status attempt(s) observed without terminal failure",
+            "steps": records,
+        }
+    return {
+        "status": "N/A",
+        "classification": "SSH_HOST_KEY_SELF_HEALING_NOT_OBSERVED",
+        "handoffRequired": False,
+        "evidence": "known_hosts steps did not include retry, success, or failure statuses",
+        "steps": records,
+    }
 
 
 def tencent_batch_scale(payload: JsonObject) -> JsonObject:
@@ -1149,6 +1288,98 @@ def runtime_candidate_injection_summary(artifact_root: Path, repo_root: Path) ->
     return runtime_candidate_injection_summary_from_artifacts(scan_artifact_json(artifact_root), repo_root)
 
 
+def trusted_policy_update_report_artifact(path: Path, payload: JsonObject) -> bool:
+    type_text = str(payload.get("type") or "").lower()
+    if type_text in TRUSTED_POLICY_UPDATE_REPORT_TYPES:
+        return failed_training_report_status(payload) is not True
+    if "training-report" in type_text and "ledger" not in type_text:
+        return failed_training_report_status(payload) is not True
+    if (
+        "rl-training" in path.parts
+        and "training-ledger" not in path.name
+        and ("policyUpdateIterations" in payload or isinstance(payload.get("policyUpdate"), dict))
+    ):
+        return failed_training_report_status(payload) is not True
+    return False
+
+
+def failed_training_report_status(payload: JsonObject) -> bool:
+    status = normalized_key(text_value(payload.get("finalStatus")) or text_value(payload.get("status")) or "")
+    return status in {"cancelled", "canceled", "error", "failed", "timeout", "timedout"}
+
+
+def policy_update_iterations_value(node: JsonObject, policy_update: JsonObject | None) -> int | None:
+    values = [node.get("policyUpdateIterations")]
+    if isinstance(policy_update, dict):
+        values.append(policy_update.get("iterations"))
+    for value in values:
+        parsed = static_dashboard.int_value(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def policy_update_true_gradient_value(node: JsonObject, policy_update: JsonObject | None) -> bool | None:
+    for container in (
+        node,
+        policy_update if isinstance(policy_update, dict) else {},
+        as_dict(as_dict(policy_update).get("nextCandidatePolicy")) if isinstance(policy_update, dict) else {},
+    ):
+        value = container.get("trueGradient")
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def unique_policy_blocker_details(details: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for detail in details:
+        if detail in seen:
+            continue
+        seen.add(detail)
+        unique.append(detail)
+    return unique
+
+
+def policy_update_non_promotional_details(node: JsonObject, policy_update: JsonObject | None) -> list[str]:
+    policy_update_dict = policy_update if isinstance(policy_update, dict) else {}
+    promotion_gate = as_dict(node.get("policyUpdatePromotionGate")) or as_dict(policy_update_dict.get("promotionGate"))
+    details: list[str] = []
+    status = text_value(promotion_gate.get("status"))
+    if status:
+        details.append(status)
+    elif promotion_gate.get("runtimeParameterConsumption") is False:
+        details.append("blocked_runtime_parameter_consumption_missing")
+
+    evidence_containers = (
+        as_dict(node.get("runtimeParameterInjection")),
+        as_dict(policy_update_dict.get("parameterEvidence")),
+        as_dict(node.get("candidateScorecard")),
+        as_dict(as_dict(node.get("candidateScorecard")).get("overallGate")).get("runtimeCandidateGate"),
+    )
+    for raw_container in evidence_containers:
+        container = as_dict(raw_container)
+        if container.get("runtimeParameterConsumption") is False and not status:
+            details.append("runtimeParameterConsumption=false")
+        consumed = static_dashboard.int_value(container.get("consumedVariantCount"))
+        if consumed == 0:
+            details.append("consumedVariantCount=0")
+        if container.get("policyUpdateEligible") is False:
+            details.append("policyUpdateEligible=false")
+
+    for container in (
+        node,
+        policy_update_dict,
+        as_dict(policy_update_dict.get("promotionGate")),
+        as_dict(policy_update_dict.get("nextCandidatePolicy")),
+        as_dict(node.get("gradientStability")),
+    ):
+        if container.get("trustedGradientUpdate") is False or container.get("trustedUpdate") is False:
+            details.append("trustedGradientUpdate=false")
+    return unique_policy_blocker_details(details)
+
+
 def zero_iteration_policy_update_from_artifact(
     path: Path,
     payload: JsonObject,
@@ -1157,18 +1388,21 @@ def zero_iteration_policy_update_from_artifact(
 ) -> JsonObject | None:
     display_path = safe_display_path(path, repo_root)
     updated_at = display_timestamp(timestamp)
+    source_trust = "trusted_training_report" if trusted_policy_update_report_artifact(path, payload) else "artifact"
     for node in iter_json_objects(payload):
-        iterations = node.get("policyUpdateIterations")
-        policy_update = node.get("policyUpdate")
-        if iterations is None and not isinstance(policy_update, dict):
+        raw_policy_update = node.get("policyUpdate")
+        policy_update = raw_policy_update if isinstance(raw_policy_update, dict) else None
+        iterations = policy_update_iterations_value(node, policy_update)
+        if iterations is None and policy_update is None:
             continue
         if iterations == 0:
-            if not isinstance(policy_update, dict):
+            if policy_update is None:
                 return {
                     "status": "OK",
                     "evidence": "zero policy updates with no update artifact",
                     "latestPath": display_path,
                     "updatedAt": updated_at,
+                    "sourceTrust": source_trust,
                 }
             skipped = text_value(policy_update.get("skippedReason"))
             if skipped and not node.get("policyUpdateArtifactPath"):
@@ -1177,32 +1411,43 @@ def zero_iteration_policy_update_from_artifact(
                     "evidence": f"safe zero-iteration no-op: {skipped}",
                     "latestPath": display_path,
                     "updatedAt": updated_at,
+                    "sourceTrust": source_trust,
                 }
             return {
                 "status": "BLOCKED",
                 "evidence": "zero-iteration policy update lacks safe skippedReason or has update artifact",
                 "latestPath": display_path,
                 "updatedAt": updated_at,
+                "sourceTrust": source_trust,
             }
-        if isinstance(iterations, (int, float)) and iterations > 0:
-            promotion_gate = None
-            if isinstance(node.get("policyUpdatePromotionGate"), dict):
-                promotion_gate = node.get("policyUpdatePromotionGate")
-            elif isinstance(policy_update, dict) and isinstance(policy_update.get("promotionGate"), dict):
-                promotion_gate = policy_update.get("promotionGate")
-            if isinstance(promotion_gate, dict) and promotion_gate.get("runtimeParameterConsumption") is False:
-                status = text_value(promotion_gate.get("status")) or "blocked_runtime_parameter_consumption_missing"
+        if iterations > 0:
+            true_gradient = policy_update_true_gradient_value(node, policy_update)
+            if true_gradient is False:
                 return {
                     "status": "BLOCKED",
-                    "evidence": f"policy update non-promotional: {status}",
+                    "evidence": f"positive policy update lacks trueGradient=true; policyUpdateIterations={iterations}",
                     "latestPath": display_path,
                     "updatedAt": updated_at,
+                    "sourceTrust": source_trust,
+                }
+            blocker_details = policy_update_non_promotional_details(node, policy_update)
+            if blocker_details:
+                return {
+                    "status": "BLOCKED",
+                    "evidence": f"policy update non-promotional: {'; '.join(blocker_details)}",
+                    "latestPath": display_path,
+                    "updatedAt": updated_at,
+                    "sourceTrust": source_trust,
                 }
             return {
                 "status": "N/A",
-                "evidence": f"latest policy update had {iterations} iteration(s)",
+                "evidence": (
+                    f"latest policy update had {iterations} iteration(s); "
+                    f"trueGradient={'true' if true_gradient is True else 'unknown'}"
+                ),
                 "latestPath": display_path,
                 "updatedAt": updated_at,
+                "sourceTrust": source_trust,
             }
     return None
 
@@ -1211,11 +1456,18 @@ def zero_iteration_policy_update_summary_from_artifacts(
     artifacts: Iterable[ArtifactJson],
     repo_root: Path,
 ) -> JsonObject:
-    latest: JsonObject | None = None
+    latest_trusted_report: JsonObject | None = None
+    latest_fallback: JsonObject | None = None
     for path, payload, timestamp in artifacts:
-        latest = newest_summary(latest, zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root))
-    if latest is not None:
-        return latest
+        summary = zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root)
+        if as_dict(summary).get("sourceTrust") == "trusted_training_report":
+            latest_trusted_report = newest_summary(latest_trusted_report, summary)
+        else:
+            latest_fallback = newest_summary(latest_fallback, summary)
+    if latest_trusted_report is not None:
+        return latest_trusted_report
+    if latest_fallback is not None:
+        return latest_fallback
     return {
         "status": "N/A",
         "evidence": "no policy update evidence found",
@@ -1235,13 +1487,16 @@ def artifact_evidence_summaries(
     max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
 ) -> tuple[JsonObject, JsonObject]:
     injection: JsonObject | None = None
-    zero_iteration: JsonObject | None = None
+    trusted_zero_iteration: JsonObject | None = None
+    fallback_zero_iteration: JsonObject | None = None
     for path, payload, timestamp in scan_artifact_json(artifact_root, max_files_per_root=max_files_per_root):
         injection = newest_summary(injection, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
-        zero_iteration = newest_summary(
-            zero_iteration,
-            zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root),
-        )
+        zero_iteration = zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root)
+        if as_dict(zero_iteration).get("sourceTrust") == "trusted_training_report":
+            trusted_zero_iteration = newest_summary(trusted_zero_iteration, zero_iteration)
+        else:
+            fallback_zero_iteration = newest_summary(fallback_zero_iteration, zero_iteration)
+    zero_iteration = trusted_zero_iteration or fallback_zero_iteration
     return (
         injection
         or {
