@@ -407,16 +407,34 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(paths[0], str(repo_root / "runtime-artifacts"))
         self.assertIn("/root/.hermes/cron/output", paths)
 
-    def test_cron_output_root_defaults_to_repo_local_path(self) -> None:
+    def test_cron_output_root_uses_existing_host_default_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
+            host_root = repo_root / "host-cron-output"
+            host_root.mkdir()
 
-            path = roadmap.roadmap_cron_output_root(repo_root)
+            with (
+                patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+            ):
+                path = roadmap.roadmap_cron_output_root(repo_root)
+
+        self.assertEqual(path, host_root)
+
+    def test_cron_output_root_defaults_to_repo_local_path_when_host_default_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            host_root = repo_root / "missing-host-cron-output"
+
+            with (
+                patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+            ):
+                path = roadmap.roadmap_cron_output_root(repo_root)
 
         self.assertEqual(path, repo_root / "runtime-artifacts" / "cron-output")
-        self.assertNotEqual(path, Path("/root/.hermes/cron/output"))
 
-    def test_cron_output_root_host_global_path_requires_explicit_opt_in(self) -> None:
+    def test_cron_output_root_explicit_root_overrides_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
 

@@ -763,8 +763,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--cron-output-root",
         help=(
-            "Optional Hermes cron output root for delivery metrics. Defaults to "
-            f"repo-local runtime-artifacts/cron-output; {CRON_OUTPUT_ROOT_ENV} can opt into another root."
+            "Optional Hermes cron output root for delivery metrics. Defaults to the host Hermes cron output "
+            f"cache when present, otherwise repo-local runtime-artifacts/cron-output; {CRON_OUTPUT_ROOT_ENV} "
+            "can opt into another root."
         ),
     )
     return parser.parse_args(argv)
@@ -1683,6 +1684,8 @@ def roadmap_cron_output_root(repo_root: Path, explicit_root: str | None = None) 
     if configured:
         return normalize_repo_scoped_path(repo_root, configured)
     if HERMES_CRON_OUTPUT_ROOT != HOST_HERMES_CRON_OUTPUT_ROOT:
+        return HERMES_CRON_OUTPUT_ROOT
+    if HERMES_CRON_OUTPUT_ROOT.exists():
         return HERMES_CRON_OUTPUT_ROOT
     return repo_root / "runtime-artifacts" / "cron-output"
 
