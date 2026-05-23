@@ -124,6 +124,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.summary_cache: JsonObject | None = None
         self.summary_cache_dashboard_url: str | None = None
         self.summary_cache_until = 0.0
+        self.summary_cache_generation = 0
         self.refresh_state: JsonObject = {
             "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
             "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
@@ -187,6 +188,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             self.summary_cache = None
             self.summary_cache_dashboard_url = None
             self.summary_cache_until = 0.0
+            self.summary_cache_generation += 1
 
     def prime_summary_cache(self) -> JsonObject:
         return self.summary_snapshot(self.dashboard_url())
@@ -202,23 +204,35 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 and current_monotonic < self.summary_cache_until
             ):
                 return self.summary_cache
+            cache_generation = self.summary_cache_generation
 
-            with self.refresh_lock:
-                db = sqlite_summary(self.config.db_path, self.config.repo_root)
-                refresh = self.refresh_snapshot()
-            summary = build_live_summary(
-                self.config.repo_root,
-                self.config.artifact_root,
-                self.config.db_path,
-                dashboard_url=dashboard_url,
-                refresh=refresh,
-                db_summary=db,
-                scan_file_limit=self.config.summary_scan_file_limit,
-            )
-            self.summary_cache = summary
-            self.summary_cache_dashboard_url = dashboard_url
-            self.summary_cache_until = time.monotonic() + cache_ttl
-            return summary
+        with self.refresh_lock:
+            db = sqlite_summary(self.config.db_path, self.config.repo_root)
+            refresh = self.refresh_snapshot()
+        summary = build_live_summary(
+            self.config.repo_root,
+            self.config.artifact_root,
+            self.config.db_path,
+            dashboard_url=dashboard_url,
+            refresh=refresh,
+            db_summary=db,
+            scan_file_limit=self.config.summary_scan_file_limit,
+        )
+
+        current_monotonic = time.monotonic()
+        with self.summary_lock:
+            if (
+                cache_ttl > 0
+                and self.summary_cache is not None
+                and self.summary_cache_dashboard_url == dashboard_url
+                and current_monotonic < self.summary_cache_until
+            ):
+                return self.summary_cache
+            if self.summary_cache_generation == cache_generation:
+                self.summary_cache = summary
+                self.summary_cache_dashboard_url = dashboard_url
+                self.summary_cache_until = time.monotonic() + cache_ttl
+        return summary
 
     def server_close(self) -> None:
         self.refresh_stop.set()

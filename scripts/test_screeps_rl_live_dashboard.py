@@ -732,6 +732,95 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertGreaterEqual(len(observed_locked_reads), 2)
         self.assertTrue(all(observed_locked_reads))
 
+    def test_summary_snapshot_does_not_deadlock_with_refresh_state_invalidation(self) -> None:
+        class ObservedLock:
+            def __init__(self) -> None:
+                self._lock = threading.Lock()
+                self.enter_attempted = threading.Event()
+
+            def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+                self.enter_attempted.set()
+                return self._lock.acquire(blocking, timeout)
+
+            def release(self) -> None:
+                self._lock.release()
+
+            def locked(self) -> bool:
+                return self._lock.locked()
+
+            def __enter__(self) -> "ObservedLock":
+                self.acquire()
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                self.release()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            server = live.LiveDashboardHTTPServer.__new__(live.LiveDashboardHTTPServer)
+            server.config = config
+            server.server_address = ("127.0.0.1", 0)
+            server.refresh_state_lock = threading.Lock()
+            server.summary_lock = threading.Lock()
+            server.refresh_state = {
+                "mode": "manual",
+                "autoRefreshSeconds": None,
+                "lastRefreshAt": None,
+                "lastRefreshOk": None,
+                "lastRefresh": None,
+                "nextRefreshAt": None,
+            }
+            server.summary_cache = None
+            server.summary_cache_dashboard_url = None
+            server.summary_cache_until = 0.0
+            server.summary_cache_generation = 0
+
+            observed_refresh_lock = ObservedLock()
+            server.refresh_lock = observed_refresh_lock  # type: ignore[assignment]
+            self.assertTrue(observed_refresh_lock.acquire())
+            observed_refresh_lock.enter_attempted.clear()
+            summary_errors: list[Exception] = []
+            summary_result: list[JsonObject] = []
+
+            def read_summary() -> None:
+                try:
+                    summary_result.append(server.summary_snapshot(server.dashboard_url()))
+                except Exception as error:  # pragma: no cover - assertion path
+                    summary_errors.append(error)
+
+            summary_thread = threading.Thread(target=read_summary, daemon=True)
+            summary_thread.start()
+            self.assertTrue(observed_refresh_lock.enter_attempted.wait(timeout=1))
+
+            refresh_state_entered = threading.Event()
+            invalidate_done = threading.Event()
+
+            def invalidate_while_refresh_state_locked() -> None:
+                with server.refresh_state_lock:
+                    refresh_state_entered.set()
+                    server.invalidate_summary_cache()
+                invalidate_done.set()
+
+            invalidate_thread = threading.Thread(target=invalidate_while_refresh_state_locked, daemon=True)
+            invalidate_thread.start()
+            self.assertTrue(refresh_state_entered.wait(timeout=1))
+            time.sleep(0.05)
+
+            observed_refresh_lock.release()
+            summary_thread.join(timeout=1)
+            invalidate_thread.join(timeout=1)
+
+        self.assertFalse(summary_thread.is_alive())
+        self.assertFalse(invalidate_thread.is_alive())
+        self.assertFalse(summary_errors)
+        self.assertTrue(invalidate_done.is_set())
+        self.assertEqual(summary_result[0]["type"], "screeps-rl-live-dashboard")
+
     def test_summary_endpoint_uses_cache_until_refresh_invalidates_it(self) -> None:
         original_build_live_summary = live.build_live_summary
         calls: list[str] = []
