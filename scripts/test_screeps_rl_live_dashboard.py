@@ -564,6 +564,289 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             "policy update non-promotional: blocked_runtime_parameter_consumption_missing",
         )
 
+    def test_runtime_consumed_shadow_candidate_policy_update_is_not_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "runtime-consumed-update.json",
+                {
+                    "createdAt": "2026-05-18T10:16:00Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": True,
+                    "runtimeParameterInjection": {
+                        "runtimeParameterConsumption": True,
+                        "consumedVariantCount": 2,
+                        "policyUpdateEligible": True,
+                    },
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "trustedGradientUpdate": True,
+                        "parameterEvidence": {
+                            "runtimeParameterConsumption": True,
+                            "consumedVariantCount": 2,
+                            "policyUpdateEligible": True,
+                        },
+                        "promotionGate": {
+                            "status": "runtime_consumed_shadow_candidate",
+                            "runtimeParameterConsumption": True,
+                            "loopAPromotionEligible": True,
+                            "loopBPromotionEligible": True,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "N/A")
+        self.assertEqual(
+            zero_iteration["evidence"],
+            "latest policy update had 1 iteration(s); trueGradient=true",
+        )
+
+    def test_policy_update_without_iteration_count_keeps_consumption_blocker_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "missing-iterations-update.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "createdAt": "2026-05-18T10:20:00Z",
+                    "policyUpdate": {"nextCandidatePolicy": {"candidatePolicyId": "missing-iterations"}},
+                },
+            )
+            write_json(
+                artifact_root / "rl-training" / "non-consumed-update.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "createdAt": "2026-05-18T10:15:00Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "promotionGate": {
+                            "status": "blocked_runtime_parameter_consumption_missing",
+                            "runtimeParameterConsumption": False,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertEqual(zero_iteration["sourceTrust"], "trusted_training_report")
+        self.assertTrue(zero_iteration["latestPath"].endswith("non-consumed-update.json"))
+        self.assertIn("policy update non-promotional", zero_iteration["evidence"])
+        self.assertIn("blocked_runtime_parameter_consumption_missing", zero_iteration["evidence"])
+
+    def test_true_gradient_report_beats_newer_stale_zero_iteration_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "20260523T164520Z-training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "createdAt": "2026-05-23T16:45:20Z",
+                    "status": "RUN_WITH_ANOMALY",
+                    "policyUpdateIterations": 0,
+                    "trueGradient": False,
+                    "policyUpdate": {"nextCandidatePolicy": {"candidatePolicyId": "stale"}},
+                    "blockingReasons": ["POLICY_UPDATE_NOT_TRUE_GRADIENT"],
+                },
+            )
+            write_json(
+                artifact_root
+                / "tencent-cloud"
+                / "batch-runs"
+                / "tencent-pg-20260523t112504z"
+                / "remote"
+                / "runtime-artifacts"
+                / "rl-training"
+                / "tencent-pg-20260523t112504z.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "generatedAt": "2026-05-23T11:25:04Z",
+                    "reportId": "tencent-pg-20260523t112504z",
+                    "status": "shadow",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": False,
+                    "runtimeParameterInjection": {
+                        "runtimeParameterConsumption": False,
+                        "runtimeParameterConsumptionStatus": "missing_runtime_parameter_consumption",
+                        "consumedVariantCount": 0,
+                        "policyUpdateEligible": False,
+                    },
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "trustedGradientUpdate": False,
+                        "parameterEvidence": {
+                            "runtimeParameterConsumption": False,
+                            "consumedVariantCount": 0,
+                            "policyUpdateEligible": False,
+                        },
+                        "promotionGate": {
+                            "status": "blocked_runtime_parameter_consumption_missing",
+                            "runtimeParameterConsumption": False,
+                            "loopAPromotionEligible": False,
+                            "loopBPromotionEligible": False,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertEqual(zero_iteration["sourceTrust"], "trusted_training_report")
+        self.assertTrue(zero_iteration["latestPath"].endswith("tencent-pg-20260523t112504z.json"))
+        self.assertIn("policy update non-promotional", zero_iteration["evidence"])
+        self.assertIn("blocked_runtime_parameter_consumption_missing", zero_iteration["evidence"])
+        self.assertIn("consumedVariantCount=0", zero_iteration["evidence"])
+        self.assertIn("policyUpdateEligible=false", zero_iteration["evidence"])
+        self.assertIn("trustedGradientUpdate=false", zero_iteration["evidence"])
+        self.assertNotIn("lacks trueGradient", zero_iteration["evidence"])
+        self.assertNotIn("POLICY_UPDATE_NOT_TRUE_GRADIENT", zero_iteration["evidence"])
+
+    def test_newer_blocked_ledger_beats_older_trusted_policy_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "trusted-policy-report.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "generatedAt": "2026-05-23T11:25:04Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": True,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "trustedGradientUpdate": True,
+                    },
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "newer-zero-iteration-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "createdAt": "2026-05-23T16:45:20Z",
+                    "policyUpdateIterations": 0,
+                    "policyUpdate": {"nextCandidatePolicy": {"candidatePolicyId": "blocked"}},
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+            _, aggregate_zero_iteration = live.artifact_evidence_summaries(artifact_root, repo_root)
+
+        for summary in (zero_iteration, aggregate_zero_iteration):
+            self.assertEqual(summary["status"], "BLOCKED")
+            self.assertEqual(summary["sourceTrust"], "artifact")
+            self.assertTrue(summary["latestPath"].endswith("newer-zero-iteration-ledger.json"))
+            self.assertEqual(summary["updatedAt"], "2026-05-23T16:45:20Z")
+            self.assertEqual(
+                summary["evidence"],
+                "zero-iteration policy update lacks safe skippedReason or has update artifact",
+            )
+
+    def test_known_hosts_retry_success_is_not_self_heal_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "tencent-cloud" / "batch-runs" / "tencent-pg-20260523t121005z" / "controller-summary.json",
+                {
+                    "type": "screeps-tencent-batch-rl-run",
+                    "runId": "tencent-pg-20260523t121005z",
+                    "startedAt": "2026-05-23T12:10:05Z",
+                    "finishedAt": None,
+                    "partial": True,
+                    "finalStatus": "running",
+                    "controllerProcess": {"pid": 1205},
+                    "inputs": {"executionTimeouts": {"totalSeconds": 12300}},
+                    "execution": {
+                        "environmentsRun": 0,
+                        "artifactCount": 0,
+                        "trainingReportProduced": False,
+                    },
+                    "steps": [
+                        {
+                            "name": "scan_worker_host_key",
+                            "ok": False,
+                            "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                        },
+                        {
+                            "name": "scan_worker_host_key",
+                            "ok": False,
+                            "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 2},
+                        },
+                        {
+                            "name": "scan_worker_host_key",
+                            "ok": True,
+                            "detail": {"status": "host_key_scanned", "retryable": False, "attempt": 3},
+                        },
+                        {
+                            "name": "install_worker_known_host",
+                            "ok": True,
+                            "detail": {"status": "new_known_host", "hostKeyCount": 3},
+                        },
+                    ],
+                },
+            )
+
+            summary = live.tencent_batch_summary_at(
+                artifact_root,
+                repo_root,
+                now="2026-05-23T12:20:00Z",
+            )
+
+        latest = summary["latest"]
+        known_hosts = latest["knownHostsSelfHeal"]
+        self.assertEqual(latest["stateClassification"], "TRAINING_IN_PROGRESS")
+        self.assertFalse(latest["handoffRequired"])
+        self.assertEqual(known_hosts["status"], "OK")
+        self.assertEqual(known_hosts["classification"], "SSH_HOST_KEY_SELF_HEALING_RECOVERED")
+        self.assertFalse(known_hosts["handoffRequired"])
+        self.assertIn("recovered via new_known_host", known_hosts["evidence"])
+
+    def test_known_hosts_terminal_self_heal_failure_requires_handoff(self) -> None:
+        payload = {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-pg-host-key-failed",
+            "startedAt": "2026-05-23T12:10:05Z",
+            "finishedAt": "2026-05-23T12:12:05Z",
+            "partial": False,
+            "finalStatus": "failed",
+            "steps": [
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": False,
+                    "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                },
+                {
+                    "name": "prepare_worker_known_host",
+                    "ok": False,
+                    "detail": {"status": "host_key_self_healing_failed", "retryable": False},
+                },
+            ],
+        }
+
+        state = live.classify_tencent_batch_run_state(payload, now="2026-05-23T12:20:00Z")
+
+        self.assertEqual(state["status"], "SSH_HOST_KEY_SELF_HEALING_FAILED")
+        self.assertTrue(state["handoffRequired"])
+        self.assertEqual(state["handoffSeverity"], "P1")
+        self.assertEqual(state["knownHostsSelfHeal"]["classification"], "SSH_HOST_KEY_SELF_HEALING_FAILED")
+
     def test_health_helper_requires_successful_auto_refresh(self) -> None:
         health = live.health_with_refresh(
             {"ok": True, "status": "ok", "failures": []},
