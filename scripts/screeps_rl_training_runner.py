@@ -424,6 +424,13 @@ def first_present(raw: JsonObject, keys: Sequence[str]) -> Any:
     return None
 
 
+def first_non_null_present(raw: JsonObject, keys: Sequence[str]) -> Any:
+    for key in keys:
+        if key in raw and raw[key] is not None:
+            return raw[key]
+    return None
+
+
 def load_strategy_variants(card: JsonObject, registry_path: Path | None = None) -> list[StrategyVariant]:
     """Resolve strategy variants from the TS registry and inline card definitions."""
     registry = load_strategy_registry(registry_path or simulator_harness.DEFAULT_STRATEGY_REGISTRY_PATH)
@@ -2363,7 +2370,7 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
                 previous_identity = identity
             if isinstance(evidence, dict):
                 evidence_comparison_key = text_or_none(
-                    first_present(
+                    first_non_null_present(
                         evidence,
                         (
                             "comparisonKey",
@@ -2376,7 +2383,7 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
                 if evidence_comparison_key is not None:
                     previous_comparison_key = evidence_comparison_key
                 evidence_key = text_or_none(
-                    first_present(
+                    first_non_null_present(
                         evidence,
                         (
                             "schemeKey",
@@ -2388,7 +2395,7 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
                 if evidence_key is not None:
                     previous_key = evidence_key
         raw_key = text_or_none(
-            first_present(
+            first_non_null_present(
                 raw,
                 (
                     "previous_gradient_estimation_scheme_key",
@@ -2404,7 +2411,7 @@ def policy_update_previous_gradient_scheme_config(policy_gradient: JsonObject) -
         if raw_key is not None:
             previous_key = raw_key
         raw_comparison_key = text_or_none(
-            first_present(
+            first_non_null_present(
                 raw,
                 (
                     "previous_gradient_estimation_comparison_key",

@@ -2674,6 +2674,36 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
         self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
 
+    def test_reinforce_gradient_stability_trusts_round_trip_momentum_with_null_previous_keys(self) -> None:
+        first_update = runner.build_policy_update(
+            policy_gradient=reinforce_stability_policy_gradient(),
+            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(20)]),
+            report_id="policy-gradient-round-trip-first",
+            generated_at="2026-05-22T00:00:00Z",
+        )
+        first_momentum = first_update["gradientMomentum"]
+        self.assertIsNone(first_momentum["previousGradientSchemeKey"])
+        self.assertIsNone(first_momentum["previousGradientComparisonKey"])
+
+        policy_gradient = reinforce_stability_policy_gradient()
+        policy_gradient["policyUpdate"]["gradient_momentum"] = copy.deepcopy(first_momentum)
+        config = runner.policy_update_gradient_momentum_config(policy_gradient)
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(20)]),
+            report_id="policy-gradient-round-trip-second",
+            generated_at="2026-05-22T00:01:00Z",
+        )
+
+        self.assertEqual(config["previousGradientSchemeKey"], first_momentum["gradientSchemeKey"])
+        self.assertEqual(config["previousGradientComparisonKey"], first_momentum["gradientComparisonKey"])
+        self.assertTrue(update["trustedGradientUpdate"])
+        self.assertTrue(update["gradientStability"]["gradientSchemeComparable"])
+        self.assertEqual(update["gradientMomentum"]["gradientSchemeComparisonStatus"], "same_scheme")
+        self.assertTrue(update["gradientMomentum"]["previousGradientPresent"])
+        self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
+
     def test_policy_gradient_scheme_comparison_key_uses_effective_scalar_weights(self) -> None:
         def scheme_for_weights(weights: JsonObject) -> JsonObject:
             policy_gradient = reinforce_stability_policy_gradient()
