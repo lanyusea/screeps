@@ -59,6 +59,12 @@ MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
+REMOTE_TRAINING_DIAGNOSTIC_FILES = (
+    "training-stderr.log",
+    "training-summary.json",
+    "card-validation.json",
+    "report-extract.json",
+)
 E1S1_REPEAT_GUARD_TYPE = "screeps-tencent-batch-rl-launch-guard"
 E1S1_REPEAT_GUARD_FINAL_STATUS = "skipped_e1s1_repeat_launch_guard"
 E1S1_REPEAT_GUARD_MIN_COMPLETED_RUNS = 3
@@ -1319,17 +1325,41 @@ PY
                 "HOST_PORT_START": str(self.args.host_port_start),
             }.items()
         )
-        self.ssh_cmd("remote_training", env_prefix + " " + bash_lc(remote), timeout=self.args.training_timeout_seconds)
+        cp = self.ssh_cmd(
+            "remote_training",
+            env_prefix + " " + bash_lc(remote),
+            check=False,
+            timeout=self.args.training_timeout_seconds,
+        )
+        if cp.returncode == 0:
+            return
+        collection_error: str | None = None
+        try:
+            self.collect_remote_artifacts()
+        # Preserve the original training failure while recording collection status.
+        except Exception as error:  # noqa: BLE001
+            collection_error = f"{type(error).__name__}: {error}"
+        diagnostics = remote_training_failure_diagnostics(
+            self.artifact_dir,
+            cp.returncode,
+            collection_error=collection_error,
+        )
+        self.result["remoteTrainingFailure"] = diagnostics
+        raise BatchRunError(
+            f"remote_training failed with exit {cp.returncode}: "
+            f"{remote_training_failure_message(diagnostics, cp)}"
+        )
 
     def collect_remote_artifacts(self) -> None:
         remote_tar = f"{self.remote_dir}/remote-artifacts.tar.gz"
         remote = r"""
 set -euo pipefail
 cd "$REMOTE_DIR"
+mkdir -p repo/runtime-artifacts/rl-training
+touch card-validation.json training-summary.json training-stderr.log report-extract.json
 if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
   cp training-summary.json report-extract.json
 fi
-touch report-extract.json
 simulator_summaries=()
 if [ -f "simulator-artifacts/$RUN_ID/run_summary.json" ]; then
   simulator_summaries+=("simulator-artifacts/$RUN_ID/run_summary.json")
@@ -1507,6 +1537,22 @@ def tail_text(raw: str | None, limit: int = 3000) -> str:
         return ""
     text = raw.replace("\r", "")
     return text[-limit:]
+
+
+def redact_diagnostic_text(raw: str | bytes | None) -> str:
+    if not raw:
+        return ""
+    text = decode_subprocess_text(raw).replace("\r", "")
+
+    def redact_secret(match: re.Match[str]) -> str:
+        key, _value = match.group(0).split("=", 1)
+        return f"{key}=[REDACTED]"
+
+    return SECRET_ASSIGNMENT_RE.sub(redact_secret, text)
+
+
+def diagnostic_tail(raw: str | bytes | None, limit: int = 3000) -> str:
+    return tail_text(redact_diagnostic_text(raw), limit)
 
 
 def decode_subprocess_text(raw: str | bytes | None) -> str:
@@ -1883,6 +1929,58 @@ def training_environments_run(training_report: dict[str, Any]) -> int:
 
 def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
     return artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{run_id}.json"
+
+
+def remote_training_failure_diagnostics(
+    artifact_dir: Path,
+    returncode: int,
+    *,
+    collection_error: str | None = None,
+) -> dict[str, Any]:
+    remote_dir = artifact_dir / "remote"
+    files: dict[str, dict[str, Any]] = {}
+    for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
+        path = remote_dir / filename
+        entry: dict[str, Any] = {"path": str(path)}
+        try:
+            entry["bytes"] = path.stat().st_size
+            tail = diagnostic_tail(path.read_bytes())
+            if tail:
+                entry["tail"] = tail
+        except OSError as error:
+            entry["missing"] = True
+            entry["error"] = str(error)
+        files[filename] = entry
+    payload: dict[str, Any] = {
+        "status": "failed_exit",
+        "returncode": returncode,
+        "artifactDir": str(remote_dir),
+        "diagnostics": files,
+    }
+    if collection_error:
+        payload["collectionError"] = diagnostic_tail(collection_error)
+    return payload
+
+
+def remote_training_failure_message(
+    diagnostics: dict[str, Any],
+    cp: subprocess.CompletedProcess[str],
+) -> str:
+    raw_files = diagnostics.get("diagnostics")
+    if isinstance(raw_files, dict):
+        for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
+            entry = raw_files.get(filename)
+            if isinstance(entry, dict):
+                tail = entry.get("tail")
+                if isinstance(tail, str) and tail.strip():
+                    return f"{filename}: {tail_text(tail)}"
+    ssh_tail = diagnostic_tail(cp.stderr or cp.stdout)
+    if ssh_tail:
+        return ssh_tail
+    collection_error = diagnostics.get("collectionError")
+    if isinstance(collection_error, str) and collection_error:
+        return f"diagnostic collection failed: {collection_error}"
+    return "no remote diagnostics collected"
 
 
 def build_e1s1_repeat_launch_guard(
