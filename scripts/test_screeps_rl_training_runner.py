@@ -2674,6 +2674,75 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(update["promotionGate"]["loopAPromotionEligible"])
         self.assertTrue(update["promotionGate"]["loopBPromotionEligible"])
 
+    def test_policy_gradient_scheme_comparison_key_uses_effective_scalar_weights(self) -> None:
+        def scheme_for_weights(weights: JsonObject) -> JsonObject:
+            policy_gradient = reinforce_stability_policy_gradient()
+            policy_gradient["policyUpdate"]["gradient_reward_weights"] = weights
+            return runner.policy_update_scalar_gradient_scheme_identity(
+                runner.policy_update_scalar_reward_weight_evidence(policy_gradient)
+            )
+
+        first = scheme_for_weights(
+            {"reliability": 100, "territory": 50, "resources": 25, "kills": 10}
+        )
+        scaled_equivalent = scheme_for_weights(
+            {"reliability": 200, "territory": 100, "resources": 50, "kills": 20}
+        )
+        different_estimator = scheme_for_weights(
+            {"reliability": 100, "territory": 40, "resources": 25, "kills": 10}
+        )
+
+        self.assertNotIn("sourceComponentWeights", first)
+        self.assertNotIn("sourceMaxComponentWeight", first)
+        self.assertEqual(
+            first["normalizedWeightsByRewardTier"],
+            scaled_equivalent["normalizedWeightsByRewardTier"],
+        )
+        self.assertEqual(
+            runner.policy_update_gradient_scheme_comparison_key(first),
+            runner.policy_update_gradient_scheme_comparison_key(scaled_equivalent),
+        )
+        self.assertNotEqual(
+            runner.policy_update_gradient_scheme_comparison_key(first),
+            runner.policy_update_gradient_scheme_comparison_key(different_estimator),
+        )
+
+    def test_reinforce_gradient_stability_trusts_scaled_equivalent_previous_scheme(self) -> None:
+        previous_policy_gradient = reinforce_stability_policy_gradient()
+        previous_policy_gradient["policyUpdate"]["gradient_reward_weights"] = {
+            "reliability": 100,
+            "territory": 50,
+            "resources": 25,
+            "kills": 10,
+        }
+        policy_gradient = reinforce_stability_policy_gradient()
+        policy_gradient["policyUpdate"]["gradient_reward_weights"] = {
+            "reliability": 200,
+            "territory": 100,
+            "resources": 50,
+            "kills": 20,
+        }
+        policy_gradient["policyUpdate"]["gradient_momentum"] = {
+            "ema_decay": 0.8,
+            "previous_ema_gradient": {"territorySignalWeight": 0.25},
+            "previous_gradient_estimation_scheme": scalar_gradient_scheme_identity(previous_policy_gradient),
+        }
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=reinforce_stability_results([[2, 0, 0, 0] for _index in range(20)]),
+            report_id="policy-gradient-scaled-equivalent-scheme",
+            generated_at="2026-05-22T00:10:00Z",
+        )
+
+        self.assertTrue(update["trustedGradientUpdate"])
+        self.assertTrue(update["gradientStability"]["gradientSchemeComparable"])
+        self.assertEqual(update["gradientMomentum"]["gradientSchemeComparisonStatus"], "same_scheme")
+        self.assertEqual(
+            update["gradientMomentum"]["previousGradientComparisonKey"],
+            update["gradientEstimation"]["comparisonKey"],
+        )
+
     def test_reinforce_gradient_stability_blocks_mixed_gradient_estimation_scheme(self) -> None:
         policy_gradient = reinforce_stability_policy_gradient()
         policy_gradient["policyUpdate"]["gradient_momentum"] = {
