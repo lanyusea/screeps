@@ -4507,6 +4507,9 @@ def summarize_runtime_parameter_injection_attempt(
         row["runtimeParameterConsumptionStatus"] = consumption.get("status")
         row["runtimeParameterConsumptionSource"] = consumption.get("source")
         row["runtimeParameterConsumer"] = consumption.get("consumerMarker")
+        row["runtimeParameterConsumerVersion"] = consumption.get("consumerVersion")
+        row["consumedParametersSha256"] = consumption.get("consumedParametersSha256")
+        row["consumedStrategyVariantId"] = consumption.get("consumedStrategyVariantId")
         applied_strategy_ids = consumption.get("appliedStrategyIds")
         if isinstance(applied_strategy_ids, list):
             row["appliedStrategyIds"] = [
@@ -4732,8 +4735,11 @@ def summarize_variant_runtime_parameter_injection(
         for field in (
             "runtimeParameterConsumptionSource",
             "runtimeParameterConsumer",
+            "runtimeParameterConsumerVersion",
             "evaluatedParametersSource",
             "evaluatedParametersSha256",
+            "consumedParametersSha256",
+            "consumedStrategyVariantId",
             "appliedStrategyIds",
         ):
             if field in first_injected:

@@ -281,6 +281,7 @@ class MockSimulator:
                 consumption_evidence = {
                     "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
                     "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+                    "consumerVersion": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
                     "runtimeParameterInjection": True,
                     "consumed": True,
                     "strategyVariantId": variant_id,
@@ -288,6 +289,8 @@ class MockSimulator:
                     "family": variant_config.get("family"),
                     "parameters": evaluated_parameters,
                     "parametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
+                    "consumedStrategyVariantId": variant_id,
+                    "consumedParametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
                     "appliedStrategyIds": [variant_id],
                     "liveEffect": False,
                     "officialMmoWrites": False,
@@ -3815,6 +3818,16 @@ export const STRATEGY_REGISTRY = [
                 for result in report["variantResults"]
             )
         )
+        self.assertTrue(
+            all(
+                attempt.get("runtimeParameterConsumerVersion")
+                == runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION
+                and attempt.get("consumedParametersSha256") == attempt.get("parametersSha256")
+                and isinstance(attempt.get("consumedStrategyVariantId"), str)
+                for result in report["variantResults"]
+                for attempt in result["runtimeParameterInjection"]["attempts"]
+            )
+        )
         self.assertTrue(all("evaluatedParameters" in result for result in report["variantResults"]))
         self.assertFalse(report["officialMmoWritesAllowed"])
         self.assertFalse(persisted["officialMmoWritesAllowed"])
@@ -4310,6 +4323,15 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["policyUpdate"]["promotionGate"]["runtimeParameterConsumption"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
+        self.assertTrue(
+            all(
+                "consumedParametersSha256" not in attempt
+                and "consumedStrategyVariantId" not in attempt
+                and "runtimeParameterConsumerVersion" not in attempt
+                for result in report["variantResults"]
+                for attempt in result["runtimeParameterInjection"]["attempts"]
+            )
+        )
         self.assertNotIn("policyUpdateArtifactPath", report)
         self.assertFalse(report["liveEffect"])
         self.assertFalse(report["officialMmoWrites"])

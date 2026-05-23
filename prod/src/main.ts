@@ -49,16 +49,20 @@ const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
-  const summary = kernel.run({
-    strategyRegistry: strategyRegistryState.entries,
-    ...(runtimePolicyParameterPlanningEnabled
-      ? {
-          runtimeStrategyConstructionEnabled: true,
-          onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
-        }
-      : {})
-  });
-  persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+  let summary: RuntimeSummary | undefined;
+  try {
+    summary = kernel.run({
+      strategyRegistry: strategyRegistryState.entries,
+      ...(runtimePolicyParameterPlanningEnabled
+        ? {
+            runtimeStrategyConstructionEnabled: true,
+            onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
+          }
+        : {})
+    });
+  } finally {
+    persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
+  }
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 

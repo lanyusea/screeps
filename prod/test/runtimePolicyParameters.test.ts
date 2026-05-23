@@ -2,6 +2,7 @@ import {
   RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX,
   RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL,
   RUNTIME_POLICY_PARAMETERS_GLOBAL,
+  RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
   applyRuntimePolicyParametersToRegistry,
   createRuntimePolicyParameterConsumptionRecorder,
   persistRuntimePolicyParameterConsumptionEvidence
@@ -12,6 +13,7 @@ describe('runtime policy parameters', () => {
   afterEach(() => {
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
+    delete (globalThis as Record<string, unknown>).self;
     delete (globalThis as { Memory?: unknown }).Memory;
     delete (globalThis as { Game?: unknown }).Game;
   });
@@ -99,6 +101,32 @@ describe('runtime policy parameters', () => {
     }
   });
 
+  it('reads private-simulator payloads from alternate Screeps global roots', () => {
+    (globalThis as Record<string, unknown>).self = {
+      [RUNTIME_POLICY_PARAMETERS_GLOBAL]: {
+        runtimeParameterInjection: true,
+        candidateParameterScope: 'runtime_injected',
+        strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+        candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+        sourceStrategyId: 'construction-priority.territory-shadow.v1',
+        family: 'construction-priority',
+        parameters: {
+          territorySignalWeight: 29
+        },
+        parametersSha256: 'alternate-root-sha'
+      }
+    };
+
+    const result = applyRuntimePolicyParametersToRegistry(DEFAULT_STRATEGY_REGISTRY);
+
+    expect(result.evidence).toMatchObject({
+      runtimeParameterInjection: true,
+      consumed: false,
+      parametersSha256: 'alternate-root-sha',
+      appliedStrategyIds: ['construction-priority.territory-shadow.v1']
+    });
+  });
+
   it('does not fan out explicit candidate payloads to every family sibling', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
@@ -126,7 +154,7 @@ describe('runtime policy parameters', () => {
     ).toBe(true);
   });
 
-  it('marks consumption after runtime-injected parameters are materialized into the tick registry', () => {
+  it('marks consumption after tick-time planning uses runtime-injected parameters', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -149,10 +177,10 @@ describe('runtime policy parameters', () => {
 
     expect(recorder.buildEvidence()).toMatchObject({
       runtimeParameterInjection: true,
-      consumed: true,
-      reason: 'runtime policy parameter payload was materialized into the tick runtime strategy registry',
+      consumed: false,
+      reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation',
       parametersSha256: 'runtime-use-sha',
-      appliedStrategyIds: ['construction-priority.incumbent.v1'],
+      appliedStrategyIds: [],
       parameters: {
         territorySignalWeight: 29
       }
@@ -164,7 +192,11 @@ describe('runtime policy parameters', () => {
     expect(recorder.buildEvidence()).toMatchObject({
       runtimeParameterInjection: true,
       consumed: true,
+      reason: 'runtime policy parameter payload was used by tick runtime strategy evaluation',
+      consumerVersion: RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
       parametersSha256: 'runtime-use-sha',
+      consumedParametersSha256: 'runtime-use-sha',
+      consumedStrategyVariantId: 'construction-priority.pg.territory-seed.v1',
       appliedStrategyIds: ['construction-priority.incumbent.v1'],
       parameters: {
         territorySignalWeight: 29
@@ -172,7 +204,7 @@ describe('runtime policy parameters', () => {
     });
   });
 
-  it('does not carry materialized registry evidence across a different injected payload', () => {
+  it('does not infer consumption from a different injected payload', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -316,6 +348,7 @@ describe('runtime policy parameters', () => {
       persistRuntimePolicyParameterConsumptionEvidence({
         type: 'screeps-rl-runtime-policy-parameter-consumption',
         consumerMarker: 'screeps-rl-runtime-policy-parameters-consumer-v1',
+        consumerVersion: 'v1',
         runtimeParameterInjection: false,
         consumed: false,
         appliedStrategyIds: [],
@@ -328,6 +361,7 @@ describe('runtime policy parameters', () => {
       const evidence = {
         type: 'screeps-rl-runtime-policy-parameter-consumption' as const,
         consumerMarker: 'screeps-rl-runtime-policy-parameters-consumer-v1' as const,
+        consumerVersion: 'v1' as const,
         runtimeParameterInjection: true,
         consumed: true,
         strategyVariantId: 'construction-priority.pg.territory-seed.v1',
