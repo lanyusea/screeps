@@ -2456,6 +2456,61 @@ cli:
         self.assertNotIn("KEYS", eval_script)
         self.assertNotIn('table.insert(candidates, {source = "redis." .. keyText, value = value})', eval_script)
 
+    def test_redis_runtime_parameter_consumption_collector_reads_hash_backed_memory(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["user"] = "bot"
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-3]
+                candidates: list[dict[str, object]] = []
+                if (
+                    'keyType == "hash"' in eval_script
+                    and "scanHashMemoryFields" in eval_script
+                    and "HSCAN" in eval_script
+                ):
+                    candidates.append({
+                        "source": "redis.memory:bot.rlRuntimePolicyParameters",
+                        "value": evidence,
+                    })
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({"ok": True, "candidates": candidates}),
+                }
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-3] if smoke.command is not None else ""
+        self.assertIn("scanHashMemoryFields", eval_script)
+        self.assertIn("hashFieldMayContainRuntimePolicyParameters", eval_script)
+        self.assertIn("HSCAN", eval_script)
+
     def test_redis_runtime_parameter_consumption_collector_requires_configured_username(self) -> None:
         class FakeConfig:
             shard = "shardX"

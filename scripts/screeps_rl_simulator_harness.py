@@ -1196,6 +1196,38 @@ end
 local function pushRuntimePolicyParameterCandidate(source, value, depth, ownerMatched)
   pushRuntimePolicyParameterEvidence(source, value, depth or 0, ownerMatched or false)
 end
+local function hashFieldMayContainRuntimePolicyParameters(fieldText)
+  local fieldLower = string.lower(fieldText)
+  return string.find(fieldLower, "memory", 1, true) ~= nil
+    or string.find(fieldLower, "runtime", 1, true) ~= nil
+    or fieldText == "data"
+    or fieldText == "value"
+end
+local function scanHashMemoryFields(keyText, key, ownerMatched)
+  local hashCursor = "0"
+  local keyMayContainMemory = string.find(string.lower(keyText), "memory", 1, true) ~= nil
+  repeat
+    local result = redis.call("HSCAN", key, hashCursor, "COUNT", 100)
+    hashCursor = result[1]
+    local fields = result[2]
+    for index = 1, #fields, 2 do
+      local fieldText = tostring(fields[index])
+      local value = fields[index + 1]
+      local fieldOwnerMatched = ownerMatched or keyMatchesExpectedUsername(fieldText)
+      if keyMayContainMemory or hashFieldMayContainRuntimePolicyParameters(fieldText) or ownerMatched or fieldOwnerMatched then
+        pushRuntimePolicyParameterCandidate(
+          "redis." .. keyText .. "." .. fieldText,
+          value,
+          0,
+          fieldOwnerMatched
+        )
+      end
+      if #candidates >= candidateLimit then
+        return
+      end
+    end
+  until hashCursor == "0"
+end
 local function scanMemoryPattern(pattern, skipExpectedUsernameKeys)
   cursor = "0"
   repeat
@@ -1215,6 +1247,8 @@ local function scanMemoryPattern(pattern, skipExpectedUsernameKeys)
         if keyType == "string" then
           local value = redis.call("GET", key)
           pushRuntimePolicyParameterCandidate("redis." .. keyText, value, 0, ownerMatched)
+        elseif keyType == "hash" then
+          scanHashMemoryFields(keyText, key, ownerMatched)
         end
       end
     end
