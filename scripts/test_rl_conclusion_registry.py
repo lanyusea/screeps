@@ -168,6 +168,23 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(merged["summary"]["total"], 2)
         self.assertEqual(merged["summary"]["unknown"], 2)
 
+    def test_normalize_conclusions_rejects_duplicate_conclusion_ids(self) -> None:
+        with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
+            registry.normalize_conclusions(
+                [
+                    {"conclusionId": "DUPLICATE-ID", "status": "OPEN"},
+                    {"conclusionId": "DUPLICATE-ID", "status": "CLOSED"},
+                ]
+            )
+
+        with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
+            registry.normalize_conclusions(
+                {
+                    "FIRST-KEY": {"conclusionId": "DUPLICATE-ID", "status": "OPEN"},
+                    "SECOND-KEY": {"conclusionId": "DUPLICATE-ID", "status": "CLOSED"},
+                }
+            )
+
     @unittest.skipIf(os.name == "nt", "POSIX file mode preservation test")
     def test_merge_registry_file_preserves_existing_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

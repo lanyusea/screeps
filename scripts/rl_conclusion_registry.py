@@ -104,6 +104,8 @@ def normalize_conclusions(value: Any) -> dict[str, JsonObject]:
             raise ConclusionRegistryError("each conclusion record must have a non-empty conclusionId")
         record = dict(item)
         record["conclusionId"] = conclusion_id
+        if conclusion_id in records:
+            raise ConclusionRegistryError(f"duplicate conclusionId {conclusion_id!r} in conclusions payload")
         records[conclusion_id] = record
     return records
 
