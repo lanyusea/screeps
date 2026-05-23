@@ -3772,6 +3772,62 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertIn("STEAM_KEY=[REDACTED]", stderr["tail"])
             self.assertNotIn("secret-value", stderr["tail"])
 
+    def test_diagnostic_redaction_covers_common_secret_formats(self) -> None:
+        raw = (
+            "STEAM_KEY=steam-secret\n"
+            "SCREEPS_AUTH_TOKEN: screeps-secret\n"
+            '"GITHUB_TOKEN": "github-secret"\n'
+            "'TENCENT_SECRET_ID': 'tencent-secret-id'\n"
+            'OPENAI_API_KEY = "openai-secret"\n'
+            'vendor_api_key: "vendor-secret"\n'
+            "cache_key: cache-visible\n"
+            "error: simulator argument rejected\n"
+        )
+
+        redacted = runner.diagnostic_tail(raw, 5000)
+
+        for secret in (
+            "steam-secret",
+            "screeps-secret",
+            "github-secret",
+            "tencent-secret-id",
+            "openai-secret",
+            "vendor-secret",
+        ):
+            self.assertNotIn(secret, redacted)
+        self.assertIn("STEAM_KEY=[REDACTED]", redacted)
+        self.assertIn("SCREEPS_AUTH_TOKEN: [REDACTED]", redacted)
+        self.assertIn('"GITHUB_TOKEN": "[REDACTED]"', redacted)
+        self.assertIn("'TENCENT_SECRET_ID': '[REDACTED]'", redacted)
+        self.assertIn('OPENAI_API_KEY = "[REDACTED]"', redacted)
+        self.assertIn('vendor_api_key: "[REDACTED]"', redacted)
+        self.assertIn("cache_key: cache-visible", redacted)
+        self.assertIn("error: simulator argument rejected", redacted)
+
+    def test_remote_training_failure_diagnostics_reads_bounded_tail_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            for filename in runner.REMOTE_TRAINING_DIAGNOSTIC_FILES:
+                (remote / filename).write_text("", encoding="utf-8")
+            (remote / "training-stderr.log").write_text(
+                "old failure marker\n"
+                + ("x" * (runner.DIAGNOSTIC_FILE_TAIL_BYTES + 128))
+                + "\nGITHUB_TOKEN=tail-secret\nerror: recent failure\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("full file read")):
+                diagnostics = runner.remote_training_failure_diagnostics(root, 2)
+
+        stderr = diagnostics["diagnostics"]["training-stderr.log"]
+        self.assertGreater(stderr["bytes"], runner.DIAGNOSTIC_FILE_TAIL_BYTES)
+        self.assertIn("error: recent failure", stderr["tail"])
+        self.assertIn("GITHUB_TOKEN=[REDACTED]", stderr["tail"])
+        self.assertNotIn("tail-secret", stderr["tail"])
+        self.assertNotIn("old failure marker", stderr["tail"])
+
     def test_collect_remote_artifacts_tolerates_missing_partial_diagnostics(self) -> None:
         args = controller_args()
         with tempfile.TemporaryDirectory() as temp_dir:
