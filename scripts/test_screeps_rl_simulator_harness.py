@@ -3439,6 +3439,116 @@ cli:
         self.assertIn("/^shard[\\w-]*$/i.test(key)", eval_script)
         self.assertIn("key === '$activeWorld'", eval_script)
 
+    def test_mongo_runtime_parameter_consumption_collector_dedupes_predefined_keys(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["parameters"] = {
+            **stale["parameters"],
+            "territorySignalWeight": stale["parameters"]["territorySignalWeight"] + 1,
+        }
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-1]
+                has_predefined_key_guard = (
+                    "const predefinedKeys = new Set([" in eval_script
+                    and "!predefinedKeys.has(key) && fieldMayContainRuntimePolicyParameters(key)" in eval_script
+                )
+                candidates = [
+                    {
+                        "source": f"users.memory.data.rlRuntimePolicyParameters.{index}",
+                        "value": stale,
+                    }
+                    for index in range(32)
+                ]
+                if has_predefined_key_guard:
+                    candidates = [
+                        *candidates[:31],
+                        {"source": "users.memory.runtimeEvidence", "value": matching},
+                    ]
+                return {"returncode": 0, "output_excerpt": json.dumps({"ok": True, "candidates": candidates})}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_mongo_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, matching)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-1] if smoke.command is not None else ""
+        self.assertIn("const predefinedKeys = new Set([", eval_script)
+        self.assertIn("!predefinedKeys.has(key) && fieldMayContainRuntimePolicyParameters(key)", eval_script)
+
+    def test_mongo_runtime_parameter_consumption_collector_traverses_array_payloads(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                eval_script = command[-1]
+                supports_array_payloads = (
+                    "Array.isArray(parsed)" in eval_script
+                    and "source + '[' + index + ']'" in eval_script
+                )
+                candidates = []
+                if supports_array_payloads:
+                    candidates.append({"source": "users.memory[0]", "value": evidence})
+                return {"returncode": 0, "output_excerpt": json.dumps({"ok": True, "candidates": candidates})}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_mongo_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-1] if smoke.command is not None else ""
+        self.assertIn("Array.isArray(parsed)", eval_script)
+        self.assertIn("source + '[' + index + ']'", eval_script)
+
     def test_runtime_parameter_summary_separates_upload_from_consumption(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         consumption = harness.runtime_parameter_consumption_check(injection, None)

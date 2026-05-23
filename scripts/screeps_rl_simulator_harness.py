@@ -1509,6 +1509,17 @@ const fieldMayContainRuntimePolicyParameters = key => {{
     || key === 'activeWorld'
     || /^shard[\\w-]*$/i.test(key);
 }};
+const predefinedKeys = new Set([
+  {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)},
+  'rlRuntimePolicyParameters',
+  'runtimeParameterConsumption',
+  'runtimePolicyParameterConsumption',
+  'data',
+  'memory',
+  'Memory',
+  'value',
+  'evidence'
+]);
 const pushRuntimePolicyParameterCandidate = (source, value, depth = 0) => {{
   if (depth > 6 || candidates.length >= candidateLimit) return;
   const parsed = parseJson(value);
@@ -1516,28 +1527,23 @@ const pushRuntimePolicyParameterCandidate = (source, value, depth = 0) => {{
   if (parsed.type === {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_TYPE)}) {{
     pushCandidate(source, parsed);
   }}
-  for (const key of [
-    {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)},
-    'rlRuntimePolicyParameters',
-    'runtimeParameterConsumption',
-    'runtimePolicyParameterConsumption',
-    'data',
-    'memory',
-    'Memory',
-    'value',
-    'evidence'
-  ]) {{
+  for (const key of predefinedKeys) {{
     if (parsed[key] !== undefined) {{
       pushRuntimePolicyParameterCandidate(source + '.' + key, parsed[key], depth + 1);
     }}
   }}
   for (const [key, nested] of Object.entries(parsed)) {{
-    if (fieldMayContainRuntimePolicyParameters(key)) {{
+    if (!predefinedKeys.has(key) && fieldMayContainRuntimePolicyParameters(key)) {{
       pushRuntimePolicyParameterCandidate(source + '.' + key, nested, depth + 1);
     }}
     if (candidates.length >= candidateLimit) return;
   }}
-  if (Array.isArray(parsed.candidates)) {{
+  if (Array.isArray(parsed)) {{
+    for (let index = 0; index < parsed.length; index += 1) {{
+      pushRuntimePolicyParameterCandidate(source + '[' + index + ']', parsed[index], depth + 1);
+      if (candidates.length >= candidateLimit) return;
+    }}
+  }} else if (Array.isArray(parsed.candidates)) {{
     parsed.candidates.forEach((item, index) => {{
       pushRuntimePolicyParameterCandidate(source + '.candidates[' + index + ']', item, depth + 1);
     }});
