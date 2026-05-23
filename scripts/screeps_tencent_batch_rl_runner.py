@@ -486,11 +486,62 @@ class Controller:
                 if check:
                     raise BatchRunError(ssh_prepare_failure_message(name, prepare_result))
                 return cp
-        return self.run_cp(name, cmd, check=check, timeout=timeout)
+        return self.run_worker_transport_cp(name, cmd, check=check, timeout=timeout)
+
+    def run_worker_transport_cp(
+        self,
+        name: str,
+        cmd: Sequence[str],
+        *,
+        check: bool = True,
+        timeout: int | None = 600,
+    ) -> subprocess.CompletedProcess[str]:
+        cp = self.run_cp(name, cmd, check=False, timeout=timeout)
+        if cp.returncode == 0:
+            return cp
+
+        if classify_ssh_process_failure(cp) == "host_key_mismatch":
+            heal_result = self.self_heal_worker_known_host_after_mismatch()
+            if heal_result.ok:
+                cp = self.run_cp(name, cmd, check=False, timeout=timeout)
+            else:
+                cp = ssh_prepare_failure_completed_process(cmd, heal_result)
+                started = time.time()
+                self.record_step(
+                    name,
+                    started,
+                    False,
+                    cp,
+                    argv=redacted_argv(cmd),
+                    sshFailureClass=heal_result.status,
+                    retryable=heal_result.retryable,
+                    selfHealedAfterHostKeyMismatch=False,
+                )
+                if check:
+                    raise BatchRunError(ssh_prepare_failure_message(name, heal_result))
+                return cp
+
+        if check and cp.returncode != 0:
+            raise BatchRunError(f"{name} failed with exit {cp.returncode}: {tail_text(cp.stderr or cp.stdout)}")
+        return cp
+
+    def self_heal_worker_known_host_after_mismatch(self) -> KnownHostPrepareResult:
+        if not self.public_ip:
+            return KnownHostPrepareResult(False, "host_key_self_healing_failed", reason="public IP is not known")
+        self.known_hosts_prepared_public_ips.discard(self.public_ip)
+        self.known_hosts_cleaned_public_ips.discard(self.public_ip)
+        if not self.clear_worker_known_host():
+            return KnownHostPrepareResult(
+                False,
+                "host_key_self_healing_failed",
+                reason="ssh-keygen failed while clearing stale known_hosts after host-key mismatch",
+            )
+        self.known_hosts_prepared_public_ips.discard(self.public_ip)
+        return self.prepare_worker_known_host()
 
     def scp_to_worker(self, name: str, local_path: Path, remote_path: str, *, timeout: int = 300) -> None:
         self.require_worker_known_host_prepared(name)
-        self.run_cp(
+        self.run_worker_transport_cp(
             name,
             [
                 "scp",
@@ -505,7 +556,7 @@ class Controller:
     def scp_from_worker(self, name: str, remote_path: str, local_path: Path, *, timeout: int = 900) -> None:
         self.require_worker_known_host_prepared(name)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        self.run_cp(
+        self.run_worker_transport_cp(
             name,
             [
                 "scp",
