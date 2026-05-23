@@ -8,7 +8,7 @@
 The Discord server is the project’s operating surface for:
 - research collection
 - decision tracking
-- roadmap planning
+- roadmap planning via GitHub Pages at https://lanyusea.github.io/screeps/
 - active task coordination
 - development logs
 - runtime monitoring
@@ -43,11 +43,12 @@ Create the following channels in this order:
 1. `#project-vision`
 2. `#decisions`
 3. `#research-notes`
-4. `#roadmap`
-5. `#task-queue`
-6. `#dev-log`
-7. `#runtime-summary`
-8. `#runtime-alerts`
+4. `#task-queue`
+5. `#dev-log`
+6. `#runtime-summary`
+7. `#runtime-alerts`
+
+Roadmap status is not a Discord push surface. The canonical roadmap surface is GitHub Pages: https://lanyusea.github.io/screeps/.
 
 ### Channel responsibilities
 
@@ -71,12 +72,6 @@ Create the following channels in this order:
 - API findings
 - Experiment notes
 - Working observations
-
-#### `#roadmap`
-- Phase planning
-- Milestones
-- Exit criteria
-- Priority ordering
 
 #### `#task-queue`
 - Active tasks only
@@ -120,7 +115,6 @@ Because the server has only two participants, permissions should be simple.
 - `#project-vision`: Owner, Bot
 - `#decisions`: Owner, Bot
 - `#research-notes`: Owner, Bot
-- `#roadmap`: Owner, Bot
 - `#task-queue`: Owner, Bot
 - `#dev-log`: Owner, Bot
 - `#runtime-summary`: Bot primarily; Owner may manually add notes
@@ -137,7 +131,7 @@ Because the server has only two participants, permissions should be simple.
 ### 5.1 Separation of concerns
 - Research goes to `#research-notes`
 - Final decisions go to `#decisions`
-- Roadmaps go to `#roadmap`
+- Roadmaps go to GitHub Pages: https://lanyusea.github.io/screeps/
 - Current work goes to `#task-queue`
 - Development progress goes to `#dev-log`
 - Periodic state goes to `#runtime-summary`
@@ -146,7 +140,7 @@ Because the server has only two participants, permissions should be simple.
 ### 5.2 Noise control
 - Do not post long debates in `#decisions`.
 - Do not post raw logs in `#research-notes`.
-- Do not post tasks in `#roadmap`.
+- Do not revive a roadmap Discord channel for routine roadmap pushes.
 - Do not post summary data in `#runtime-alerts`.
 - Keep alert messages short and actionable.
 
@@ -169,12 +163,12 @@ Every important choice should leave a trail:
   - research findings and sources → `#research-notes`
   - active task state and blockers → `#task-queue`
   - implementation, verification, and file-change logs → `#dev-log`
-  - roadmap phase or milestone changes → `#roadmap`
+  - roadmap phase or milestone changes → GitHub Pages roadmap artifacts
   - final direction-changing choices → `#decisions`
 - Whenever a subagent completes a task, the main agent must review the result before accepting it and then report the relevant summary/decision items to the corresponding channel(s):
   - `#task-queue` for task status, blockers, completion criteria, and next task candidates
   - `#dev-log` for implementation, file, test, build, and commit results
-  - `#roadmap` for phase, milestone, priority, or blocker changes
+  - GitHub Pages roadmap artifacts for phase, milestone, priority, or blocker changes
   - `#research-notes` for new factual findings or source-derived conclusions
   - `#decisions` for final decision requests or direction-changing tradeoffs
   - `#runtime-summary` / `#runtime-alerts` for runtime state or urgent runtime failures once a runtime exists

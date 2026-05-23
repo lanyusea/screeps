@@ -28,6 +28,8 @@ SCHEMA_VERSION = 1
 KPI_HISTORY_WINDOW_DAYS = 7
 DELIVERY_METRICS_WINDOW_DAYS = 7
 RUNTIME_ARTIFACT_SOURCE_KIND = "runtime-summary-artifact"
+RUNTIME_ARTIFACT_PATHS_ENV = "SCREEPS_ROADMAP_RUNTIME_ARTIFACT_PATHS"
+CRON_OUTPUT_ROOT_ENV = "SCREEPS_ROADMAP_CRON_OUTPUT_ROOT"
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
@@ -609,7 +611,8 @@ OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
 PRIVATE_SMOKE_EVIDENCE_PATTERN = "private-smoke-report-*.json"
 CODEX_SESSION_ROOT = Path("/root/.codex/sessions")
 CODEX_SESSION_PATTERN = "rollout-*.jsonl"
-HERMES_CRON_OUTPUT_ROOT = Path("/root/.hermes/cron/output")
+HOST_HERMES_CRON_OUTPUT_ROOT = Path("/root/.hermes/cron/output")
+HERMES_CRON_OUTPUT_ROOT = HOST_HERMES_CRON_OUTPUT_ROOT
 
 KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4/27")
 
@@ -747,6 +750,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DELIVERY_METRICS_WINDOW_DAYS,
         help="Window, in days, for delivery artifact metrics. Default: 7.",
     )
+    parser.add_argument(
+        "--runtime-artifact-path",
+        action="append",
+        default=[],
+        help=(
+            "Additional runtime-summary artifact file or directory to scan. "
+            f"May be repeated. Defaults stay repo-local; {RUNTIME_ARTIFACT_PATHS_ENV} "
+            "can provide extra paths separated by the OS path separator."
+        ),
+    )
+    parser.add_argument(
+        "--cron-output-root",
+        help=(
+            "Optional Hermes cron output root for delivery metrics. Defaults to "
+            f"repo-local runtime-artifacts/cron-output; {CRON_OUTPUT_ROOT_ENV} can opt into another root."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -760,8 +780,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     docs_dir.mkdir(parents=True, exist_ok=True)
     repo_full_name = args.repo_full_name or detect_repo_full_name(repo_root)
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    runtime_artifact_paths = runtime_history_input_paths(
+        repo_root,
+        explicit_paths=runtime_artifact_extra_paths(args.runtime_artifact_path),
+    )
+    cron_output_root = roadmap_cron_output_root(repo_root, args.cron_output_root)
 
-    runtime_report = load_runtime_kpi_report(repo_root)
+    runtime_report = load_runtime_kpi_report(repo_root, runtime_artifact_paths)
     metrics = build_current_metrics(runtime_report)
     cached_page_data = load_cached_page_data(docs_dir / "roadmap-data.json")
     conn, history_db_status = prepare_history_db(db_path)
@@ -773,7 +798,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         conn.close()
         remove_sqlite_sidecars(db_path)
-    artifact_history, artifact_history_status = load_runtime_artifact_metric_history(repo_root, generated_at, history)
+    artifact_history, artifact_history_status = load_runtime_artifact_metric_history(
+        repo_root,
+        generated_at,
+        history,
+        paths=runtime_artifact_paths,
+    )
     history = merge_metric_histories(history, artifact_history)
     history_source = summarize_kpi_history_source(history_db_status, artifact_history_status)
 
@@ -797,6 +827,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         repo_root=repo_root,
         cached_page_data=cached_page_data,
         delivery_window_days=delivery_window_days,
+        cron_output_root=cron_output_root,
     )
     data = sanitize_public_data(data)
 
@@ -990,15 +1021,21 @@ def run_json(command: Sequence[str], cwd: Path, timeout: int = 30) -> tuple[Any 
         return None, {"command": command_list[:4], "exitCode": completed.returncode, "message": "invalid json output"}
 
 
-def load_runtime_kpi_report(repo_root: Path) -> JsonObject:
+def load_runtime_kpi_report(repo_root: Path, paths: Sequence[str] | None = None) -> JsonObject:
     script_path = repo_root / "scripts" / "screeps_runtime_kpi_artifact_bridge.py"
     if not script_path.exists():
         return empty_runtime_report("runtime KPI bridge missing")
 
-    data, error = run_json([sys.executable, str(script_path), "--format", "json"], repo_root, timeout=45)
+    input_paths = runtime_history_input_paths(repo_root) if paths is None else list(paths)
+    data, error = run_json(
+        [sys.executable, str(script_path), "--format", "json", "--", *input_paths],
+        repo_root,
+        timeout=45,
+    )
     if error is not None or not isinstance(data, dict):
         report = empty_runtime_report("runtime KPI bridge unavailable")
         report["source"]["bridgeError"] = error
+        report["source"]["inputPaths"] = input_paths
         return report
     return data
 
@@ -1618,12 +1655,43 @@ def load_runtime_artifact_metric_history(
     }
 
 
-def runtime_history_input_paths(repo_root: Path) -> list[str]:
-    paths = [str(repo_root / "runtime-artifacts")]
-    for path in runtime_kpi_bridge.DEFAULT_INPUT_PATHS:
-        if path not in paths:
-            paths.append(path)
+def runtime_artifact_extra_paths(cli_paths: Sequence[str] | None = None, env_value: str | None = None) -> list[str]:
+    env_text = os.environ.get(RUNTIME_ARTIFACT_PATHS_ENV, "") if env_value is None else env_value
+    paths = [path.strip() for path in env_text.split(os.pathsep) if path.strip()]
+    paths.extend(str(path).strip() for path in (cli_paths or []) if str(path).strip())
     return paths
+
+
+def runtime_history_input_paths(repo_root: Path, explicit_paths: Sequence[str] | None = None) -> list[str]:
+    paths = [normalize_runtime_artifact_input_path(repo_root, "runtime-artifacts")]
+    for path in explicit_paths or []:
+        normalized = normalize_runtime_artifact_input_path(repo_root, path)
+        if normalized not in paths:
+            paths.append(normalized)
+    return paths
+
+
+def normalize_runtime_artifact_input_path(repo_root: Path, path_text: str) -> str:
+    path = Path(path_text).expanduser()
+    if not path.is_absolute():
+        path = repo_root / path
+    return str(path)
+
+
+def roadmap_cron_output_root(repo_root: Path, explicit_root: str | None = None) -> Path:
+    configured = explicit_root or os.environ.get(CRON_OUTPUT_ROOT_ENV, "")
+    if configured:
+        return normalize_repo_scoped_path(repo_root, configured)
+    if HERMES_CRON_OUTPUT_ROOT != HOST_HERMES_CRON_OUTPUT_ROOT:
+        return HERMES_CRON_OUTPUT_ROOT
+    return repo_root / "runtime-artifacts" / "cron-output"
+
+
+def normalize_repo_scoped_path(repo_root: Path, path_text: str) -> Path:
+    path = Path(path_text).expanduser()
+    if not path.is_absolute():
+        path = repo_root / path
+    return path
 
 
 def runtime_history_input_path_labels(input_paths: Sequence[str]) -> list[str]:
@@ -2297,6 +2365,7 @@ def build_page_data(
     repo_root: Path,
     cached_page_data: JsonObject | None = None,
     delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+    cron_output_root: Path | None = None,
 ) -> JsonObject:
     logo_path = docs_dir / "assets" / "screeps-community-logo.png"
     return {
@@ -2339,6 +2408,7 @@ def build_page_data(
             repo,
             cached_page_data or {},
             delivery_window_days,
+            cron_output_root,
         ),
     }
 
@@ -2365,6 +2435,7 @@ def build_approved_report_model(
     repo: JsonObject,
     cached_page_data: JsonObject,
     delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+    cron_output_root: Path | None = None,
 ) -> JsonObject:
     return {
         "id": APPROVED_REPORT_MODEL_ID,
@@ -2382,6 +2453,7 @@ def build_approved_report_model(
             cached_page_data,
             generated_at,
             delivery_window_days,
+            cron_output_root,
         ),
     }
 
@@ -2996,6 +3068,7 @@ def build_report_process_cards(
     cached_page_data: JsonObject,
     generated_at: str | None = None,
     delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+    cron_output_root: Path | None = None,
 ) -> list[JsonObject]:
     cached_process_cards = cached_report_process_cards(cached_page_data)
     commit_count = git_commit_count(repo_root)
@@ -3127,7 +3200,7 @@ def build_report_process_cards(
         pr_card,
         deploy_card,
         private_smoke_card,
-        *build_agent_process_cards(repo_root, repo, cached_process_cards, generated_at, delivery_window_days),
+        *build_agent_process_cards(repo_root, repo, cached_process_cards, generated_at, delivery_window_days, cron_output_root),
     ]
 
 
@@ -3137,10 +3210,16 @@ def build_agent_process_cards(
     cached_process_cards: Sequence[JsonObject],
     generated_at: str | None = None,
     delivery_window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+    cron_output_root: Path | None = None,
 ) -> list[JsonObject]:
     attribution = build_repo_attribution(repo_root, repo)
     codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution, generated_at, delivery_window_days)
-    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT, attribution, generated_at, delivery_window_days)
+    automation_metrics = summarize_automation_runs(
+        cron_output_root or roadmap_cron_output_root(repo_root),
+        attribution,
+        generated_at,
+        delivery_window_days,
+    )
     codex_provenance = codex_session_metric_provenance(codex_metrics)
     automation_provenance = automation_run_metric_provenance(automation_metrics)
 

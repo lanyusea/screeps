@@ -1,0 +1,80 @@
+name: roadmap-pages-refresh
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+  repository-projects: read
+  pages: write
+
+concurrency:
+  group: roadmap-pages-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-pages-artifacts:
+    name: Refresh committed Pages roadmap artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+      GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          lfs: true
+          token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+
+      - name: Report toolchain
+        run: |
+          python3 --version
+          gh --version
+          git lfs version
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "lanyusea's bot"
+          git config user.email "lanyusea@gmail.com"
+          git lfs install --local
+
+      - name: Generate roadmap Pages artifacts
+        run: |
+          python3 scripts/generate-roadmap-page.py \
+            --repo . \
+            --docs-dir docs \
+            --db docs/roadmap-kpi.sqlite
+          rm -f docs/roadmap-kpi.sqlite-wal docs/roadmap-kpi.sqlite-shm
+          test ! -e docs/roadmap-kpi.sqlite-wal
+          test ! -e docs/roadmap-kpi.sqlite-shm
+
+      - name: Verify generated Pages freshness
+        run: |
+          python3 scripts/check-roadmap-pages-freshness.py \
+            . \
+            --max-age-hours 2 \
+            --require-live-github
+
+      - name: Commit generated Pages artifacts
+        id: commit
+        run: |
+          git add docs/index.html docs/roadmap-data.json docs/roadmap-kpi.sqlite
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No generated Pages artifact changes."
+            exit 0
+          fi
+          git commit -m "chore(roadmap): refresh Pages artifacts [skip ci]"
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Request legacy Pages rebuild
+        run: gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent

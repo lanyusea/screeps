@@ -13,6 +13,11 @@ from typing import Any
 from unittest.mock import patch
 
 
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+
 def load_roadmap_module() -> Any:
     module_path = Path(__file__).with_name("generate-roadmap-page.py")
     spec = importlib.util.spec_from_file_location("generate_roadmap_page", module_path)
@@ -380,6 +385,69 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(owned_rooms["values"], [1, 1, 1, 1, 1, 1, 1])
         self.assertEqual(territory["history"]["status"], "complete")
         self.assertIn("reducer-backed KPI history", territory["footer"])
+
+    def test_runtime_history_default_input_paths_are_repo_local_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            paths = roadmap.runtime_history_input_paths(repo_root)
+
+        self.assertEqual(paths, [str(repo_root / "runtime-artifacts")])
+        self.assertNotIn("/root/.hermes/cron/output", paths)
+
+    def test_runtime_history_host_global_paths_require_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            paths = roadmap.runtime_history_input_paths(
+                repo_root,
+                explicit_paths=["/root/.hermes/cron/output"],
+            )
+
+        self.assertEqual(paths[0], str(repo_root / "runtime-artifacts"))
+        self.assertIn("/root/.hermes/cron/output", paths)
+
+    def test_cron_output_root_defaults_to_repo_local_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            path = roadmap.roadmap_cron_output_root(repo_root)
+
+        self.assertEqual(path, repo_root / "runtime-artifacts" / "cron-output")
+        self.assertNotEqual(path, Path("/root/.hermes/cron/output"))
+
+    def test_cron_output_root_host_global_path_requires_explicit_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            path = roadmap.roadmap_cron_output_root(repo_root, "/root/.hermes/cron/output")
+
+        self.assertEqual(path, Path("/root/.hermes/cron/output"))
+
+    def test_runtime_kpi_report_invokes_bridge_with_scoped_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            script_path = repo_root / "scripts" / "screeps_runtime_kpi_artifact_bridge.py"
+            script_path.parent.mkdir(parents=True)
+            script_path.write_text("# bridge placeholder\n", encoding="utf-8")
+            captured: dict[str, Any] = {}
+
+            def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[dict[str, Any], None]:
+                captured["command"] = command
+                captured["cwd"] = cwd
+                captured["timeout"] = timeout
+                return {"type": "runtime-kpi-report", "source": {"inputPaths": command[5:]}}, None
+
+            with patch.object(roadmap, "run_json", side_effect=fake_run_json):
+                report = roadmap.load_runtime_kpi_report(repo_root)
+
+        command = captured["command"]
+        self.assertEqual(command[:4], [sys.executable, str(script_path), "--format", "json"])
+        self.assertEqual(command[4:], ["--", str(repo_root / "runtime-artifacts")])
+        self.assertEqual(captured["cwd"], repo_root)
+        self.assertEqual(captured["timeout"], 45)
+        self.assertEqual(report["source"]["inputPaths"], [str(repo_root / "runtime-artifacts")])
+        self.assertNotIn("/root/.hermes/cron/output", command)
 
     def test_runtime_artifact_history_blanks_not_observed_resource_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

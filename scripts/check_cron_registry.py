@@ -136,6 +136,16 @@ def normalize_live_repeat(live_value: Any) -> str:
     return empty_to_none(live_value) or ""
 
 
+def is_live_one_shot(job: Dict[str, Any]) -> bool:
+    repeat = job.get("repeat")
+    if isinstance(repeat, dict):
+        try:
+            return int(repeat.get("times", 0)) == 1
+        except (TypeError, ValueError):
+            return False
+    return normalize_live_repeat(repeat) == "once"
+
+
 def repeat_matches(expected: Optional[str], live_value: Any) -> Tuple[bool, str]:
     exp = empty_to_none(expected)
     live = normalize_live_repeat(live_value)
@@ -161,6 +171,7 @@ def repeat_matches(expected: Optional[str], live_value: Any) -> Tuple[bool, str]
 def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     missing_expected: List[Dict[str, Any]] = []
     unexpected_live: List[Dict[str, Any]] = []
+    ignored_one_shot_live: List[Dict[str, Any]] = []
     mismatches: List[Dict[str, Any]] = []
 
     for jid, spec in sorted(expected.items()):
@@ -228,6 +239,17 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
 
     for jid, job in sorted(live.items()):
         if jid not in expected:
+            if is_live_one_shot(job):
+                ignored_one_shot_live.append({
+                    "id": jid,
+                    "job": job.get("name"),
+                    "enabled": job.get("enabled"),
+                    "state": job.get("state"),
+                    "schedule": live_schedule(job),
+                    "deliver": job.get("deliver"),
+                    "repeat": normalize_live_repeat(job.get("repeat")),
+                })
+                continue
             unexpected_live.append({
                 "id": jid,
                 "job": job.get("name"),
@@ -244,6 +266,7 @@ def compare(expected: Dict[str, Dict[str, Optional[str]]], live: Dict[str, Dict[
         "live_count": len(live),
         "missing_expected": missing_expected,
         "unexpected_live": unexpected_live,
+        "ignored_one_shot_live": ignored_one_shot_live,
         "mismatches": mismatches,
     }
 
@@ -257,6 +280,9 @@ def print_text(result: Dict[str, Any]) -> None:
         print(f"  - {item['id']} {item.get('job')}")
     print(f"- unexpected live: {len(result['unexpected_live'])}")
     for item in result["unexpected_live"]:
+        print(f"  - {item['id']} {item.get('job')} enabled={item.get('enabled')} state={item.get('state')} schedule={item.get('schedule')}")
+    print(f"- ignored live one-shot jobs: {len(result.get('ignored_one_shot_live', []))}")
+    for item in result.get("ignored_one_shot_live", []):
         print(f"  - {item['id']} {item.get('job')} enabled={item.get('enabled')} state={item.get('state')} schedule={item.get('schedule')}")
     print(f"- mismatches: {len(result['mismatches'])}")
     for item in result["mismatches"]:

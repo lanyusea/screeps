@@ -29,7 +29,7 @@ Do not pass API roots such as `https://screeps.com/api` or `https://screeps.com/
 | Runtime monitor state | `/root/.hermes/screeps-runtime-monitor/state.json` | `/root/.hermes/screeps-seasonal-runtime-monitor/state.json` |
 | Runtime monitor terrain cache | `/root/.hermes/screeps-runtime-monitor/terrain-cache/` | `/root/.hermes/screeps-seasonal-runtime-monitor/terrain-cache/` |
 | Deploy health-gate state | `runtime-artifacts/official-screeps-deploy/postdeploy-monitor-state.json` | `runtime-artifacts/seasonal/official-screeps-deploy/postdeploy-monitor-state.json` |
-| Discord roadmap route | persistent/global `#roadmap` | `discord:1504888618651488407` |
+| Roadmap surface | GitHub Pages: https://lanyusea.github.io/screeps/ | GitHub Pages: https://lanyusea.github.io/screeps/ |
 | Discord task route | persistent/global `#task-queue` | `discord:1504888933832589362` |
 | Discord dev/QA route | persistent/global `#dev-log` | `discord:1504889127227621507` |
 | Discord runtime summary route | persistent/global runtime summary route | `discord:1504889233670930442` |
@@ -61,7 +61,7 @@ The current Seasonal goal is a smoke test only:
 3. Use an isolated Seasonal branch, pending final choice between `seasonal-smoke` and `seasonal-main`.
 4. Write evidence and monitor outputs only under `runtime-artifacts/seasonal/...` and `/root/.hermes/screeps-seasonal-runtime-monitor/...`.
 5. Keep persistent deploy, monitor, cron, and recovery automation unchanged.
-6. Report Seasonal work only to the Seasonal Discord routes in `docs/ops/cron-and-route-registry.md`; persistent/general routes may contain only short cross-links when needed.
+6. Report Seasonal task/dev/runtime work only to the Seasonal Discord routes in `docs/ops/cron-and-route-registry.md`; roadmap state remains a GitHub Pages artifact, and persistent/general routes may contain only short cross-links when needed.
 
 `scripts/screeps_official_deploy.py` accepts the Seasonal world root for dry-run planning only. Seasonal live deploy is not enabled; its `--deploy` mode remains restricted to the persistent MMO root, `https://screeps.com`, until monitor/evidence/state/cache isolation is complete in a later slice.
 

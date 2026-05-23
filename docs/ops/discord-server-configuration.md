@@ -114,7 +114,7 @@ Use for:
 
 ### Category C — Planning
 
-#### `#roadmap`
+#### GitHub Pages roadmap
 Purpose:
 - Multi-stage plan tracking
 
@@ -122,6 +122,9 @@ Use for:
 - Phase 1 / Phase 2 / MVP / V1 / V2 planning
 - Milestones
 - Exit criteria
+
+Surface:
+- https://lanyusea.github.io/screeps/
 
 #### `#task-queue`
 Purpose:
@@ -276,16 +279,17 @@ Use for:
 
 ## 3. Minimal channel set for day 1
 
-If we want to keep the server lean at the beginning, start with these 8 channels:
+If we want to keep the server lean at the beginning, start with these 7 channels plus GitHub Pages for roadmap status:
 
 1. `#project-vision`
 2. `#decisions`
 3. `#research-notes`
-4. `#roadmap`
-5. `#task-queue`
-6. `#dev-log`
-7. `#runtime-summary`
-8. `#runtime-alerts`
+4. `#task-queue`
+5. `#dev-log`
+6. `#runtime-summary`
+7. `#runtime-alerts`
+
+Use GitHub Pages for roadmap status: https://lanyusea.github.io/screeps/
 
 Optional add-ons once the project grows:
 - `#build-status`
@@ -448,11 +452,12 @@ Create these channels first:
 - `#project-vision`
 - `#decisions`
 - `#research-notes`
-- `#roadmap`
 - `#task-queue`
 - `#dev-log`
 - `#runtime-summary`
 - `#runtime-alerts`
+
+Use GitHub Pages for roadmap status: https://lanyusea.github.io/screeps/
 
 Create these roles first:
 - `Owner`
