@@ -481,6 +481,65 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(report["quality_checks"]["samples_rejected"], 1)
         self.assertIn("no_owned_spawns", report["quality_checks"]["rejection_reasons"])
 
+    def test_gate_data_out_dir_merges_e1_conclusions_without_dropping_loop_b_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            control_loop = artifact_root / "rl-control-loop"
+            registry_path = control_loop / "conclusion-registry.json"
+            write_json(
+                registry_path,
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "lastUpdatedAt": "2026-05-22T22:00:00Z",
+                    "updatedBy": "01609968392a",
+                    "conclusions": {
+                        "LOOP-B-ACTIONED": {
+                            "conclusionId": "LOOP-B-ACTIONED",
+                            "ownerCron": "01609968392a",
+                            "status": "ACTIONED",
+                            "statement": "Loop B action still needs validation.",
+                        },
+                        "E1-GATE-STATUS": {
+                            "conclusionId": "E1-GATE-STATUS",
+                            "ownerCron": gate.E1_OWNER_CRON,
+                            "status": "OPEN",
+                            "statement": "Previous E1 gate failed.",
+                        },
+                    },
+                },
+            )
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(runtime_payload(100)), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E26S49"}):
+                report = gate.run_gate(
+                    [str(artifact)],
+                    out_dir=control_loop / "gate-data",
+                    gate_id="gate-e1-merge",
+                    created_at="2026-05-23T00:00:00Z",
+                    dataset_out_dir=artifact_root / "rl-datasets",
+                    skip_shadow_report=True,
+                    bot_commit="c" * 40,
+                    eval_ratio_value=0,
+                    repo_root=root,
+                )
+
+            saved_registry = read_json(registry_path)
+            saved_summary = read_json(control_loop / "gate-data" / "gate-e1-merge" / "gate_summary.json")
+
+        self.assertIn("conclusionRegistry", report)
+        self.assertEqual(report["conclusionRegistry"]["ownerCron"], gate.E1_OWNER_CRON)
+        self.assertEqual(saved_summary["conclusionRegistrySummary"]["total"], len(saved_registry["conclusions"]))
+        conclusions = saved_registry["conclusions"]
+        self.assertEqual(conclusions["LOOP-B-ACTIONED"]["statement"], "Loop B action still needs validation.")
+        self.assertEqual(conclusions["LOOP-B-ACTIONED"]["ownerCron"], "01609968392a")
+        self.assertNotEqual(conclusions["E1-GATE-STATUS"]["statement"], "Previous E1 gate failed.")
+        self.assertEqual(conclusions["E1-GATE-STATUS"]["ownerCron"], gate.E1_OWNER_CRON)
+        self.assertIn("E1-CONSOLE-CAPTURE-FLOWING", conclusions)
+        self.assertEqual(saved_registry["summary"]["total"], len(conclusions))
+
     def test_cli_returns_nonzero_when_predefined_metric_floor_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

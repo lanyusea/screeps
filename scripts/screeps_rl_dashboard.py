@@ -1137,7 +1137,9 @@ def conclusion_summary(artifact: LoadedArtifact | None) -> JsonObject:
             "hasData": False,
         }
 
-    conclusions = [item for item in as_list(artifact.payload.get("conclusions")) if isinstance(item, dict)]
+    raw_conclusions = artifact.payload.get("conclusions")
+    conclusion_values = raw_conclusions.values() if isinstance(raw_conclusions, dict) else as_list(raw_conclusions)
+    conclusions = [item for item in conclusion_values if isinstance(item, dict)]
     counts = Counter(str(item.get("status", "UNKNOWN")).upper() for item in conclusions)
     p0_unresolved = [
         item
