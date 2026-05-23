@@ -2511,6 +2511,50 @@ cli:
         self.assertIn("hashFieldMayContainRuntimePolicyParameters", eval_script)
         self.assertIn("HSCAN", eval_script)
 
+    def test_redis_runtime_parameter_consumption_collector_filters_hash_fields_before_decode(self) -> None:
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                return {"returncode": 0, "output_excerpt": json.dumps({"ok": True, "candidates": []})}
+
+        smoke = FakeSmoke()
+
+        extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+            smoke,
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+        )
+
+        self.assertIsNone(extracted)
+        self.assertIsNotNone(smoke.command)
+        eval_script = smoke.command[-3] if smoke.command is not None else ""
+        self.assertIn('string.find(fieldLower, "runtime", 1, true) ~= nil', eval_script)
+        self.assertIn('or fieldText == "data"', eval_script)
+        self.assertIn('or fieldText == "value"', eval_script)
+        self.assertIn("fieldMatchesExpectedUsername = keyMatchesExpectedUsername(fieldText)", eval_script)
+        self.assertIn(
+            "if hashFieldMayContainRuntimePolicyParameters(fieldText) or fieldMatchesExpectedUsername then",
+            eval_script,
+        )
+        self.assertNotIn('string.find(fieldLower, "memory"', eval_script)
+        self.assertNotIn("keyMayContainMemory", eval_script)
+        self.assertNotIn("or ownerMatched or fieldOwnerMatched", eval_script)
+
     def test_redis_runtime_parameter_consumption_collector_requires_configured_username(self) -> None:
         class FakeConfig:
             shard = "shardX"
