@@ -104,6 +104,36 @@ class ScreepsRlDashboardCardSupplyTest(unittest.TestCase):
         self.assertTrue(dashboard.value_has_reference(["0", "2.5"]))
         self.assertTrue(dashboard.value_has_reference("training-report-a"))
 
+    def test_conclusion_summary_counts_mapping_registry_shape(self) -> None:
+        artifact = loaded_artifact(
+            Path("runtime-artifacts/rl-control-loop/conclusion-registry.json"),
+            {
+                "conclusions": {
+                    "LOOP-B-ACTIONED": {
+                        "conclusionId": "LOOP-B-ACTIONED",
+                        "status": "ACTIONED",
+                        "severity": "P0",
+                        "statement": "Loop B still validating.",
+                        "lastSeenAt": "2026-05-23T00:00:00Z",
+                    },
+                    "E1-OPEN": {
+                        "conclusionId": "E1-OPEN",
+                        "status": "OPEN",
+                        "severity": "P0",
+                        "statement": "E1 still needs closure evidence.",
+                        "lastSeenAt": "2026-05-23T00:01:00Z",
+                    },
+                }
+            },
+        )
+
+        summary = dashboard.conclusion_summary(artifact)
+
+        self.assertEqual(summary["counts"]["OPEN"], 1)
+        self.assertEqual(summary["counts"]["ACTIONED"], 1)
+        self.assertEqual(summary["counts"]["CLOSED"], 0)
+        self.assertEqual([item["conclusionId"] for item in summary["p0Unresolved"]], ["E1-OPEN"])
+
     def test_dashboard_prefers_fresh_acceptable_gate_data_over_stale_dataset_gate_and_embedded_ledger_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

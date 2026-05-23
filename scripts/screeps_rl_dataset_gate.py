@@ -18,6 +18,7 @@ from typing import Any, Sequence, TextIO
 import screeps_rl_dataset_export as dataset_export
 import screeps_rl_mmo_validator as mmo_validator
 import screeps_rl_rollout_manager as rollout_manager
+import rl_conclusion_registry as conclusion_registry
 import screeps_world_profiles as world_profiles
 import screeps_strategy_shadow_report as shadow_report
 
@@ -27,6 +28,8 @@ CONTRACT_TYPE = "screeps-rl-dataset-evaluation-gate-contract"
 REPORT_TYPE = "screeps-rl-dataset-evaluation-gate"
 SUMMARY_TYPE = "screeps-rl-dataset-evaluation-gate-summary"
 DEFAULT_OUT_DIR = Path("runtime-artifacts/rl-dataset-gates")
+DEFAULT_CONCLUSION_REGISTRY = Path("runtime-artifacts/rl-control-loop/conclusion-registry.json")
+E1_OWNER_CRON = "d6cff532edd4"
 DEFAULT_MIN_SAMPLES = 1
 DEFAULT_SHADOW_ARTIFACT_LIMIT = 200
 QUALITY_REJECTED_SAMPLE_LOG_LIMIT = 50
@@ -178,6 +181,12 @@ def build_contract() -> JsonObject:
                 "default": DEFAULT_HOME_ROOM,
                 "contract": "only the configured home room is expected to have owned spawns",
             },
+            "conclusionRegistry": {
+                "flag": "--conclusion-registry",
+                "required": False,
+                "defaultWhenOutDirIsGateData": str(DEFAULT_CONCLUSION_REGISTRY),
+                "contract": "read-modify-write merge keyed by conclusionId; non-E1 ownerCron records are preserved",
+            },
         },
         "outputs": {
             "directory": "runtime-artifacts/rl-dataset-gates/<gate-id>/",
@@ -191,6 +200,7 @@ def build_contract() -> JsonObject:
                 "runtime-artifacts/rl-datasets/<run-id>/",
                 "runtime-artifacts/strategy-shadow/<report-id>.json unless --skip-shadow-report is used",
                 "historical validation report when --candidate-config is supplied",
+                "runtime-artifacts/rl-control-loop/conclusion-registry.json when --conclusion-registry is supplied or --out-dir is runtime-artifacts/rl-control-loop/gate-data",
             ],
         },
         "gateChecks": {
@@ -1003,6 +1013,7 @@ def build_summary(report: JsonObject) -> JsonObject:
     historical = report.get("historicalValidation") if isinstance(report.get("historicalValidation"), dict) else {}
     predefined = report.get("predefinedMetricGate") if isinstance(report.get("predefinedMetricGate"), dict) else {}
     rollout = report.get("rolloutGate") if isinstance(report.get("rolloutGate"), dict) else {}
+    registry = report.get("conclusionRegistry") if isinstance(report.get("conclusionRegistry"), dict) else {}
     return {
         "ok": report.get("ok") is True,
         "type": SUMMARY_TYPE,
@@ -1026,8 +1037,170 @@ def build_summary(report: JsonObject) -> JsonObject:
         "predefinedMetricGateStatus": predefined.get("status"),
         "rolloutGateStatus": rollout.get("status"),
         "rolloutDecision": rollout.get("decision"),
+        "conclusionRegistryPath": registry.get("path"),
+        "conclusionRegistrySummary": registry.get("summary"),
         "blockingReasons": report.get("blockingReasons", []),
     }
+
+
+def inferred_conclusion_registry_path(out_dir: Path) -> Path | None:
+    resolved = out_dir.expanduser().resolve()
+    if resolved.name == "gate-data" and resolved.parent.name == "rl-control-loop":
+        return resolved.parent / "conclusion-registry.json"
+    return None
+
+
+def resolve_conclusion_registry_path(
+    conclusion_registry_path: Path | None,
+    out_dir: Path,
+    repo_root: Path,
+) -> Path | None:
+    if conclusion_registry_path is not None:
+        return resolve_path_against_repo(conclusion_registry_path, repo_root)
+    return inferred_conclusion_registry_path(out_dir)
+
+
+def source_artifacts_for_report(report: JsonObject) -> list[str]:
+    outputs = report.get("outputs") if isinstance(report.get("outputs"), dict) else {}
+    candidates = [report.get("reportPath"), outputs.get("reportPath"), outputs.get("gateDir")]
+    artifacts: list[str] = []
+    seen: set[str] = set()
+    for value in candidates:
+        if not isinstance(value, str) or not value or value in seen:
+            continue
+        seen.add(value)
+        artifacts.append(value)
+    return artifacts
+
+
+def e1_gate_conclusions(report: JsonObject, *, updated_at: str) -> list[JsonObject]:
+    gate_id = str(report.get("gateId") or "unknown")
+    source_artifacts = source_artifacts_for_report(report)
+    dataset = report.get("dataset") if isinstance(report.get("dataset"), dict) else {}
+    dataset_gate = report.get("datasetGate") if isinstance(report.get("datasetGate"), dict) else {}
+    quality = report.get("quality_checks") if isinstance(report.get("quality_checks"), dict) else {}
+    shadow = report.get("shadowEvaluation") if isinstance(report.get("shadowEvaluation"), dict) else {}
+    predefined = report.get("predefinedMetricGate") if isinstance(report.get("predefinedMetricGate"), dict) else {}
+
+    samples_accepted = quality.get("samples_accepted")
+    samples_rejected = quality.get("samples_rejected")
+    gate_ok = report.get("ok") is True
+    records: list[JsonObject] = [
+        {
+            "conclusionId": "E1-GATE-STATUS",
+            "sourceArtifacts": source_artifacts,
+            "category": "gate-status",
+            "severity": "P3" if gate_ok else "P1",
+            "statement": (
+                f"E1 shadow-eval gate {gate_id} {'PASSED' if gate_ok else 'BLOCKED'}: "
+                f"{samples_accepted if samples_accepted is not None else 'unknown'} accepted, "
+                f"{samples_rejected if samples_rejected is not None else 'unknown'} rejected."
+            ),
+            "status": "CLOSED" if gate_ok else "OPEN",
+            "closureAction": "Gate report and metrics persisted." if gate_ok else None,
+            "linkedIssues": ["#879", "#893", "#906"],
+            "requiredLandingEvidence": "Gate report JSON persisted and dashboard/metrics ingest can read it.",
+            "sustainedOutputRule": "Gate must keep passing with acceptance >= 0.95 on the next E1 run.",
+            "nextVerification": updated_at,
+            "lastSeenAt": updated_at,
+            "staleAfterHours": 48,
+            "gateId": gate_id,
+        }
+    ]
+
+    split_counts = dataset.get("splitCounts") if isinstance(dataset.get("splitCounts"), dict) else {}
+    eval_count = split_counts.get("eval")
+    if isinstance(eval_count, int):
+        records.append(
+            {
+                "conclusionId": "E1-EVAL-SAMPLE-LIMITED",
+                "sourceArtifacts": source_artifacts,
+                "category": "data-quality",
+                "severity": "P2",
+                "statement": f"Eval split has {eval_count} samples. Statistical power is limited below 50 samples.",
+                "status": "OPEN" if eval_count < 50 else "CLOSED",
+                "closureAction": "Eval split reached at least 50 samples." if eval_count >= 50 else None,
+                "linkedIssues": ["#879", "#893"],
+                "requiredLandingEvidence": "Eval set >= 50 samples or explicit owner/steward acceptance.",
+                "sustainedOutputRule": "Flag on every E1 run while eval samples remain below 50.",
+                "nextVerification": updated_at,
+                "lastSeenAt": updated_at,
+                "staleAfterHours": 72,
+                "gateId": gate_id,
+            }
+        )
+
+    if predefined.get("status") == "not_configured":
+        normalized = predefined.get("normalizedCurrent") if isinstance(predefined.get("normalizedCurrent"), dict) else {}
+        metrics = normalized.get("metrics") if isinstance(normalized.get("metrics"), dict) else {}
+        records.append(
+            {
+                "conclusionId": "E1-PREDEFINED-METRIC-NOT-CONFIGURED",
+                "sourceArtifacts": source_artifacts,
+                "category": "configuration-gap",
+                "severity": "P2",
+                "statement": (
+                    "Predefined metric gate not configured"
+                    f" (territory={metrics.get('territory')}, resources={metrics.get('resources')}, "
+                    f"kills={metrics.get('kills')}, reliability={metrics.get('reliability')})."
+                ),
+                "status": "OPEN",
+                "closureAction": None,
+                "linkedIssues": ["#893", "#906"],
+                "requiredLandingEvidence": "Metric floors configured in a future E1 gate run.",
+                "sustainedOutputRule": "Flag on every E1 run until metric floors are configured.",
+                "nextVerification": updated_at,
+                "lastSeenAt": updated_at,
+                "staleAfterHours": 72,
+                "gateId": gate_id,
+            }
+        )
+
+    shadow_status = shadow.get("status")
+    if shadow_status not in (None, "skipped"):
+        records.append(
+            {
+                "conclusionId": "E1-SHADOW-EVAL-STATUS",
+                "sourceArtifacts": [value for value in [shadow.get("reportPath"), *source_artifacts] if isinstance(value, str)],
+                "category": "strategy-eval",
+                "severity": "P3" if shadow_status == "pass" else "P1",
+                "statement": f"Shadow eval status is {shadow_status}; ranking context evidence remains gate-owned.",
+                "status": "CLOSED" if shadow_status == "pass" else "OPEN",
+                "closureAction": "Shadow report generated without blocking regression." if shadow_status == "pass" else None,
+                "linkedIssues": ["#879", "#893"],
+                "requiredLandingEvidence": "Shadow report with non-regressing candidate-vs-incumbent evidence.",
+                "sustainedOutputRule": "Reopen if shadow evaluation fails or reports unsafe/live-write flags.",
+                "nextVerification": updated_at,
+                "lastSeenAt": updated_at,
+                "staleAfterHours": 48,
+                "gateId": gate_id,
+            }
+        )
+
+    if dataset_gate.get("status") == "pass" and quality.get("status") == "pass":
+        records.append(
+            {
+                "conclusionId": "E1-CONSOLE-CAPTURE-FLOWING",
+                "sourceArtifacts": source_artifacts,
+                "category": "data-quality",
+                "severity": "P2",
+                "statement": (
+                    "Console capture pipeline is flowing: "
+                    f"{dataset_gate.get('sampleCount', dataset.get('sampleCount', 'unknown'))} samples accepted by the dataset gate."
+                ),
+                "status": "CLOSED",
+                "closureAction": "Dataset and quality gates passed.",
+                "linkedIssues": ["#879", "#893"],
+                "requiredLandingEvidence": "Two consecutive gate runs with acceptable quality and sample counts.",
+                "sustainedOutputRule": "Reopen if quality acceptance drops below 0.95.",
+                "nextVerification": updated_at,
+                "lastSeenAt": updated_at,
+                "staleAfterHours": 48,
+                "gateId": gate_id,
+            }
+        )
+
+    return records
 
 
 def run_gate(
@@ -1059,6 +1232,7 @@ def run_gate(
     min_owned_rooms: float | None = None,
     min_resource_score: float | None = None,
     min_kills_score: float | None = None,
+    conclusion_registry_path: Path | None = None,
     repo_root: Path | None = None,
 ) -> JsonObject:
     repo = (repo_root or Path.cwd()).expanduser().resolve()
@@ -1077,7 +1251,8 @@ def run_gate(
     )
     validate_gate_id(resolved_gate_id)
 
-    gate_dir = resolve_path_against_repo(out_dir, repo) / resolved_gate_id
+    resolved_out_dir = resolve_path_against_repo(out_dir, repo)
+    gate_dir = resolved_out_dir / resolved_gate_id
     resolved_dataset_out_dir = resolve_path_against_repo(dataset_out_dir, repo)
     resolved_shadow_out_dir = resolve_path_against_repo(shadow_out_dir, repo)
     resolved_dist_path = resolve_path_against_repo(dist_path, repo)
@@ -1201,9 +1376,34 @@ def run_gate(
     report["ok"] = not report["blockingReasons"]
     report["reportPath"] = dataset_export.display_path(report_path)
 
+    resolved_conclusion_registry_path = resolve_conclusion_registry_path(
+        conclusion_registry_path,
+        resolved_out_dir,
+        repo,
+    )
+    summary_path = gate_dir / "gate_summary.json"
     summary = build_summary(report)
     write_json_atomic(report_path, report)
-    write_json_atomic(gate_dir / "gate_summary.json", summary)
+    write_json_atomic(summary_path, summary)
+
+    if resolved_conclusion_registry_path is not None:
+        merged_registry = conclusion_registry.merge_registry_file(
+            resolved_conclusion_registry_path,
+            e1_gate_conclusions(report, updated_at=created),
+            owner_cron=E1_OWNER_CRON,
+            updated_at=created,
+            updated_by=E1_OWNER_CRON,
+        )
+        report["outputs"]["conclusionRegistryPath"] = dataset_export.display_path(resolved_conclusion_registry_path)
+        report["conclusionRegistry"] = {
+            "path": dataset_export.display_path(resolved_conclusion_registry_path),
+            "ownerCron": E1_OWNER_CRON,
+            "summary": merged_registry.get("summary"),
+        }
+        summary = build_summary(report)
+        write_json_atomic(report_path, report)
+        write_json_atomic(summary_path, summary)
+
     dataset_export.assert_no_secret_leak(gate_dir, dataset_export.configured_secret_values())
     return report
 
@@ -1254,6 +1454,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--min-owned-rooms", type=non_negative_number, help="Optional current owned-room floor.")
     run.add_argument("--min-resource-score", type=non_negative_number, help="Optional current resource-score floor.")
     run.add_argument("--min-kills-score", type=non_negative_number, help="Optional current kills-score floor.")
+    run.add_argument(
+        "--conclusion-registry",
+        type=Path,
+        help=(
+            "Optional conclusion registry path. If omitted, gate-data out dirs under "
+            "runtime-artifacts/rl-control-loop infer conclusion-registry.json."
+        ),
+    )
     run.add_argument("--print-report", action="store_true", help="Print the full gate report instead of the compact summary.")
     return parser
 
@@ -1304,12 +1512,13 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 min_owned_rooms=args.min_owned_rooms,
                 min_resource_score=args.min_resource_score,
                 min_kills_score=args.min_kills_score,
+                conclusion_registry_path=args.conclusion_registry,
             )
             stdout.write(canonical_json(report if args.print_report else build_summary(report)))
             return 0 if report.get("ok") is True else 1
 
         parser.error(f"unsupported command: {args.command}")
-    except DatasetGateError as error:
+    except (DatasetGateError, conclusion_registry.ConclusionRegistryError) as error:
         stderr.write(f"error: {error}\n")
         return 2
     except (RuntimeError, OSError, mmo_validator.ValidationConfigError) as error:
