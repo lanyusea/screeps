@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -27,12 +30,18 @@ def canonical_json(value: Any) -> str:
 
 def write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing_mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        existing_mode = None
     temp_fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     temp_path = Path(temp_name)
     try:
         with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
             temp_fd = -1
             handle.write(canonical_json(payload))
+        if existing_mode is not None:
+            os.chmod(temp_path, existing_mode)
         os.replace(temp_path, path)
     finally:
         if temp_fd != -1:
@@ -44,6 +53,18 @@ def write_json_atomic(path: Path, payload: Any) -> None:
             temp_path.unlink()
         except FileNotFoundError:
             pass
+
+
+@contextmanager
+def locked_registry(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def load_registry(path: Path) -> JsonObject:
@@ -116,7 +137,7 @@ def merge_registry_payload(
 
         previous = existing_records.get(conclusion_id)
         previous_owner = previous.get("ownerCron") if isinstance(previous, dict) else None
-        if previous is not None and previous_owner != owner_cron:
+        if previous is not None and previous_owner is not None and previous_owner != owner_cron:
             raise ConclusionRegistryError(
                 f"refusing to overwrite conclusion {conclusion_id} owned by {previous_owner!r}"
             )
@@ -157,10 +178,13 @@ def summarize_conclusions(
     closed_this_window: int = 0,
 ) -> JsonObject:
     status_counts = {status: 0 for status in CONCLUSION_STATUSES}
+    unknown_count = 0
     for record in records.values():
         status = str(record.get("status", "UNKNOWN")).upper()
         if status in status_counts:
             status_counts[status] += 1
+        else:
+            unknown_count += 1
 
     return {
         "total": len(records),
@@ -170,6 +194,7 @@ def summarize_conclusions(
         "validating": status_counts["VALIDATING"],
         "closedThisWindow": closed_this_window,
         "staleOrEscalated": status_counts["STALE"] + status_counts["ESCALATED"],
+        "unknown": unknown_count,
     }
 
 
@@ -181,12 +206,13 @@ def merge_registry_file(
     updated_at: str,
     updated_by: str | None = None,
 ) -> JsonObject:
-    merged = merge_registry_payload(
-        load_registry(path),
-        producer_conclusions,
-        owner_cron=owner_cron,
-        updated_at=updated_at,
-        updated_by=updated_by,
-    )
-    write_json_atomic(path, merged)
+    with locked_registry(path):
+        merged = merge_registry_payload(
+            load_registry(path),
+            producer_conclusions,
+            owner_cron=owner_cron,
+            updated_at=updated_at,
+            updated_by=updated_by,
+        )
+        write_json_atomic(path, merged)
     return merged

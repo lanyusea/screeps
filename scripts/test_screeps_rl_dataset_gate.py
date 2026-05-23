@@ -540,6 +540,99 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertIn("E1-CONSOLE-CAPTURE-FLOWING", conclusions)
         self.assertEqual(saved_registry["summary"]["total"], len(conclusions))
 
+    def test_gate_updates_legacy_e1_conclusion_missing_owner_cron(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            control_loop = artifact_root / "rl-control-loop"
+            registry_path = control_loop / "conclusion-registry.json"
+            write_json(
+                registry_path,
+                {
+                    "schemaVersion": 1,
+                    "registryType": "rl-conclusion-registry",
+                    "lastUpdatedAt": "2026-05-22T22:00:00Z",
+                    "updatedBy": "legacy-gate",
+                    "conclusions": {
+                        "E1-GATE-STATUS": {
+                            "conclusionId": "E1-GATE-STATUS",
+                            "status": "OPEN",
+                            "statement": "Legacy E1 gate failed before ownerCron existed.",
+                        },
+                    },
+                },
+            )
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(runtime_payload(100)), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E26S49"}):
+                report = gate.run_gate(
+                    [str(artifact)],
+                    out_dir=control_loop / "gate-data",
+                    gate_id="gate-e1-legacy-owner",
+                    created_at="2026-05-23T00:00:00Z",
+                    dataset_out_dir=artifact_root / "rl-datasets",
+                    skip_shadow_report=True,
+                    bot_commit="d" * 40,
+                    eval_ratio_value=0,
+                    repo_root=root,
+                )
+
+            saved_registry = read_json(registry_path)
+
+        self.assertTrue(report["ok"])
+        conclusion = saved_registry["conclusions"]["E1-GATE-STATUS"]
+        self.assertEqual(conclusion["ownerCron"], gate.E1_OWNER_CRON)
+        self.assertEqual(conclusion["status"], "CLOSED")
+        self.assertNotEqual(conclusion["statement"], "Legacy E1 gate failed before ownerCron existed.")
+
+    def test_gate_does_not_update_registry_when_initial_summary_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            control_loop = artifact_root / "rl-control-loop"
+            registry_path = control_loop / "conclusion-registry.json"
+            original_registry = {
+                "schemaVersion": 1,
+                "registryType": "rl-conclusion-registry",
+                "lastUpdatedAt": "2026-05-22T22:00:00Z",
+                "updatedBy": gate.E1_OWNER_CRON,
+                "conclusions": {
+                    "E1-GATE-STATUS": {
+                        "conclusionId": "E1-GATE-STATUS",
+                        "ownerCron": gate.E1_OWNER_CRON,
+                        "status": "OPEN",
+                        "statement": "Previous E1 gate failed.",
+                    },
+                },
+            }
+            write_json(registry_path, original_registry)
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(runtime_payload(100)), encoding="utf-8")
+            original_write_json_atomic = gate.write_json_atomic
+
+            def fail_summary_write(path: Path, payload: JsonObject) -> None:
+                if path.name == "gate_summary.json":
+                    raise OSError("simulated summary write failure")
+                original_write_json_atomic(path, payload)
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E26S49"}):
+                with mock.patch.object(gate, "write_json_atomic", side_effect=fail_summary_write):
+                    with self.assertRaises(OSError):
+                        gate.run_gate(
+                            [str(artifact)],
+                            out_dir=control_loop / "gate-data",
+                            gate_id="gate-summary-write-fails",
+                            created_at="2026-05-23T00:00:00Z",
+                            dataset_out_dir=artifact_root / "rl-datasets",
+                            skip_shadow_report=True,
+                            bot_commit="e" * 40,
+                            eval_ratio_value=0,
+                            repo_root=root,
+                        )
+
+            self.assertEqual(read_json(registry_path), original_registry)
+
     def test_cli_returns_nonzero_when_predefined_metric_floor_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

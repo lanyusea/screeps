@@ -1381,6 +1381,11 @@ def run_gate(
         resolved_out_dir,
         repo,
     )
+    summary_path = gate_dir / "gate_summary.json"
+    summary = build_summary(report)
+    write_json_atomic(report_path, report)
+    write_json_atomic(summary_path, summary)
+
     if resolved_conclusion_registry_path is not None:
         merged_registry = conclusion_registry.merge_registry_file(
             resolved_conclusion_registry_path,
@@ -1395,10 +1400,10 @@ def run_gate(
             "ownerCron": E1_OWNER_CRON,
             "summary": merged_registry.get("summary"),
         }
+        summary = build_summary(report)
+        write_json_atomic(report_path, report)
+        write_json_atomic(summary_path, summary)
 
-    summary = build_summary(report)
-    write_json_atomic(report_path, report)
-    write_json_atomic(gate_dir / "gate_summary.json", summary)
     dataset_export.assert_no_secret_leak(gate_dir, dataset_export.configured_secret_values())
     return report
 

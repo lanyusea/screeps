@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -73,6 +76,94 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(merged["summary"]["new"], 1)
         self.assertEqual(merged["summary"]["closedThisWindow"], 1)
         self.assertEqual(merged["summary"]["actioned"], 1)
+
+    def test_merge_allows_updating_legacy_records_missing_owner_cron(self) -> None:
+        existing = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "E1-GATE-STATUS": {
+                    "conclusionId": "E1-GATE-STATUS",
+                    "status": "OPEN",
+                    "statement": "Legacy E1 gate failed before ownerCron existed.",
+                },
+            },
+        }
+
+        merged = registry.merge_registry_payload(
+            existing,
+            [
+                {
+                    "conclusionId": "E1-GATE-STATUS",
+                    "status": "CLOSED",
+                    "statement": "Current E1 gate passed.",
+                },
+            ],
+            owner_cron="d6cff532edd4",
+            updated_at="2026-05-23T00:00:00Z",
+        )
+
+        conclusion = merged["conclusions"]["E1-GATE-STATUS"]
+        self.assertEqual(conclusion["status"], "CLOSED")
+        self.assertEqual(conclusion["statement"], "Current E1 gate passed.")
+        self.assertEqual(conclusion["ownerCron"], "d6cff532edd4")
+        self.assertEqual(merged["summary"]["closedThisWindow"], 1)
+
+    def test_summary_counts_missing_or_invalid_status_as_unknown(self) -> None:
+        merged = registry.merge_registry_payload(
+            {},
+            [
+                {"conclusionId": "MISSING-STATUS", "statement": "Missing status."},
+                {"conclusionId": "INVALID-STATUS", "status": "deferred", "statement": "Invalid status."},
+            ],
+            owner_cron="d6cff532edd4",
+            updated_at="2026-05-23T00:00:00Z",
+        )
+
+        self.assertEqual(merged["summary"]["total"], 2)
+        self.assertEqual(merged["summary"]["unknown"], 2)
+
+    @unittest.skipIf(os.name == "nt", "POSIX file mode preservation test")
+    def test_merge_registry_file_preserves_existing_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+            path.write_text(
+                registry.canonical_json(
+                    {
+                        "schemaVersion": 1,
+                        "registryType": "rl-conclusion-registry",
+                        "conclusions": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(path, 0o640)
+
+            registry.merge_registry_file(
+                path,
+                [{"conclusionId": "E1-GATE-STATUS", "status": "CLOSED", "statement": "E1 passed."}],
+                owner_cron="d6cff532edd4",
+                updated_at="2026-05-23T00:00:00Z",
+            )
+
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
+
+    def test_merge_registry_file_uses_exclusive_sidecar_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+
+            with mock.patch.object(registry.fcntl, "flock", wraps=registry.fcntl.flock) as flock:
+                registry.merge_registry_file(
+                    path,
+                    [{"conclusionId": "E1-GATE-STATUS", "status": "CLOSED", "statement": "E1 passed."}],
+                    owner_cron="d6cff532edd4",
+                    updated_at="2026-05-23T00:00:00Z",
+                )
+
+            self.assertEqual(
+                [call.args[1] for call in flock.call_args_list],
+                [registry.fcntl.LOCK_EX, registry.fcntl.LOCK_UN],
+            )
 
     def test_merge_rejects_cross_owner_conclusion_id_collision_without_rewriting_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
