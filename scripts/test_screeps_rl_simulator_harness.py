@@ -2467,6 +2467,7 @@ cli:
 
         class FakeSmoke:
             command: list[str] | None = None
+            output_excerpt: str | None = None
 
             def run_command(
                 self,
@@ -2480,18 +2481,42 @@ cli:
                 self.command = command
                 eval_script = command[-3]
                 candidates: list[dict[str, object]] = []
-                if (
-                    'keyType == "hash"' in eval_script
-                    and "scanHashMemoryFields" in eval_script
-                    and "HSCAN" in eval_script
-                ):
-                    candidates.append({
-                        "source": "redis.memory:bot.rlRuntimePolicyParameters",
-                        "value": evidence,
-                    })
+                bounded_hash_scan_supported = all(
+                    token in eval_script
+                    for token in (
+                        'keyType == "hash"',
+                        "scanHashMemoryFields",
+                        "hscanCountLimit = 32",
+                        "maxHashHscanCalls = 8",
+                        "maxHashFields = 256",
+                        "scannedCount",
+                        "hashScanStats.scannedFields",
+                        "hashScanStats.skippedFields",
+                        'redis.call("HSCAN", key, hashCursor, "COUNT", hscanCountLimit)',
+                        "candidateLimitReached()",
+                    )
+                )
+                if bounded_hash_scan_supported:
+                    simulated_more_than_limit_fields = [
+                        {
+                            "source": f"redis.memory:bot.rlRuntimePolicyParameters.{index}",
+                            "value": evidence,
+                        }
+                        for index in range(40)
+                    ]
+                    candidates.extend(simulated_more_than_limit_fields[:32])
+                self.output_excerpt = json.dumps({
+                    "ok": True,
+                    "candidates": candidates,
+                    "candidateLimitReached": len(candidates) >= 32,
+                    "hashScanStats": {
+                        "scannedFields": len(candidates),
+                        "skippedFields": 40 - len(candidates),
+                    },
+                })
                 return {
                     "returncode": 0,
-                    "output_excerpt": json.dumps({"ok": True, "candidates": candidates}),
+                    "output_excerpt": self.output_excerpt,
                 }
 
         smoke = FakeSmoke()
@@ -2510,6 +2535,23 @@ cli:
         self.assertIn("scanHashMemoryFields", eval_script)
         self.assertIn("hashFieldMayContainRuntimePolicyParameters", eval_script)
         self.assertIn("HSCAN", eval_script)
+        self.assertIn("local hscanCountLimit = 32", eval_script)
+        self.assertIn("local maxHashHscanCalls = 8", eval_script)
+        self.assertIn("local maxHashFields = 256", eval_script)
+        self.assertIn('redis.call("HSCAN", key, hashCursor, "COUNT", hscanCountLimit)', eval_script)
+        self.assertIn('while hscanCallCount == 0 or hashCursor ~= "0" do', eval_script)
+        self.assertIn("if scannedCount >= maxHashFields then", eval_script)
+        self.assertIn("if candidateLimitReached() then", eval_script)
+        self.assertIn("hashScanBudgetExhausted = true", eval_script)
+        self.assertIn("hashScanStats.scannedFields", eval_script)
+        self.assertIn("hashScanStats.skippedFields", eval_script)
+        self.assertIn("candidateLimitReached = candidateLimitReached()", eval_script)
+        self.assertIn("hashScanStats = hashScanStats", eval_script)
+        self.assertIsNotNone(smoke.output_excerpt)
+        output = json.loads(smoke.output_excerpt or "{}")
+        self.assertLessEqual(len(output["candidates"]), 32)
+        self.assertEqual(output["hashScanStats"]["scannedFields"], 32)
+        self.assertEqual(output["hashScanStats"]["skippedFields"], 8)
 
     def test_redis_runtime_parameter_consumption_collector_filters_hash_fields_before_decode(self) -> None:
         class FakeConfig:
@@ -2932,6 +2974,74 @@ cli:
         self.assertIn('scanMode == "generic"', eval_script)
         self.assertIn("skipExpectedUsernameKeys", eval_script)
         self.assertIn("genericScanRan", eval_script)
+
+    def test_redis_runtime_parameter_consumption_collector_skips_generic_after_lua_scan_stop(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["owner"] = "bot"
+        stale["strategyVariantId"] = "stale-variant"
+        matching = self.runtime_parameter_consumption_evidence(injection)
+        matching["owner"] = "bot"
+
+        class FakeConfig:
+            shard = "shardX"
+            username = "bot"
+
+        class FakeSmoke:
+            commands: list[list[str]]
+
+            def __init__(self, stop_flag: str) -> None:
+                self.commands = []
+                self.stop_flag = stop_flag
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.commands.append(command)
+                if command[-1] == "generic":
+                    return {
+                        "returncode": 0,
+                        "output_excerpt": json.dumps({
+                            "ok": True,
+                            "genericScanRan": True,
+                            "candidates": [{"source": "redis.Memory", "value": matching}],
+                        }),
+                    }
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "genericScanRan": False,
+                        "candidateLimitReached": self.stop_flag == "candidateLimitReached",
+                        "hashScanBudgetExhausted": self.stop_flag == "hashScanBudgetExhausted",
+                        "hashScanStats": {"scannedFields": 256, "skippedFields": 1},
+                        "candidates": [
+                            {"source": "redis.memory:bot.rlRuntimePolicyParameters", "value": stale}
+                        ],
+                    }),
+                }
+
+        for stop_flag in ("candidateLimitReached", "hashScanBudgetExhausted"):
+            with self.subTest(stop_flag=stop_flag):
+                smoke = FakeSmoke(stop_flag)
+
+                extracted = harness._collect_redis_runtime_parameter_consumption_evidence(
+                    smoke,
+                    ["docker", "compose"],
+                    FakeConfig(),
+                    None,
+                    injection,
+                )
+
+                self.assertEqual(extracted, stale)
+                self.assertEqual(len(smoke.commands), 1)
+                self.assertEqual(smoke.commands[0][-2:], ["0", "bot"])
 
     def test_redis_runtime_parameter_consumption_collector_fails_closed_without_proof(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
