@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from collections import UserDict
 from pathlib import Path
 from unittest import mock
 
@@ -1477,6 +1478,9 @@ cli:
                     "title": "Policy-gradient territory seed scale environment 1",
                     "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
                     "family": "construction-priority",
+                    "parameterEvidence": {
+                        "sourceStrategyId": "construction-priority.territory-shadow.v1",
+                    },
                     "parameters": parameters,
                 }
             },
@@ -1489,11 +1493,67 @@ cli:
         self.assertEqual(config["defaultValues"], parameters)
         self.assertEqual(injection["status"], "prepared")
         self.assertEqual(injection["candidateParameterScope"], "runtime_injected")
+        self.assertEqual(injection["sourceStrategyId"], "construction-priority.territory-shadow.v1")
+        self.assertEqual(
+            injection["parameterEvidence"]["sourceStrategyId"],
+            "construction-priority.territory-shadow.v1",
+        )
         self.assertEqual(injection["parameters"], parameters)
         self.assertNotIn("reason", injection)
         self.assertFalse(injection["liveEffect"])
         self.assertFalse(injection["officialMmoWrites"])
         self.assertFalse(injection["officialMmoWritesAllowed"])
+
+    def test_runtime_parameter_injection_preserves_metadata_aliases_and_mapping_evidence(self) -> None:
+        parameters = {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 22,
+            "resourceSignalWeight": 3,
+            "killSignalWeight": 5,
+            "riskPenalty": 4,
+        }
+        expected_policy_id = "construction-priority.pg.territory-seed.v1"
+        expected_source_id = "construction-priority.territory-shadow.v1"
+        cases = [
+            (
+                "snake-case aliases",
+                {
+                    "candidate_policy_id": expected_policy_id,
+                    "parameter_evidence": {
+                        "source_strategy_id": expected_source_id,
+                        "sampleCount": 3,
+                    },
+                },
+            ),
+            (
+                "mapping evidence",
+                {
+                    "candidatePolicyId": expected_policy_id,
+                    "parameterEvidence": UserDict(
+                        {
+                            "sourceStrategyId": expected_source_id,
+                            "sampleCount": 3,
+                        }
+                    ),
+                },
+            ),
+        ]
+
+        for label, metadata in cases:
+            with self.subTest(label=label):
+                variant = {
+                    "id": expected_policy_id,
+                    "family": "construction-priority",
+                    "parameters": parameters,
+                    **metadata,
+                }
+                injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+
+                self.assertEqual(injection["candidatePolicyId"], expected_policy_id)
+                self.assertEqual(injection["sourceStrategyId"], expected_source_id)
+                self.assertIsInstance(injection["parameterEvidence"], dict)
+                self.assertEqual(injection["parameterEvidence"]["sampleCount"], 3)
+                json.dumps(injection["parameterEvidence"])
 
     def test_runtime_parameter_injection_changes_private_runtime_code_input(self) -> None:
         base_code = (

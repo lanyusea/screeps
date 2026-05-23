@@ -564,6 +564,13 @@ def runtime_parameter_injection_for_variant(
             "safety": safety_metadata(),
         }
 
+    source_strategy_id = _runtime_parameter_source_strategy_id(strategy_variant)
+    candidate_policy_id = strategy_variant.get("candidatePolicyId")
+    if candidate_policy_id is None:
+        candidate_policy_id = strategy_variant.get("candidate_policy_id")
+    parameter_evidence = strategy_variant.get("parameterEvidence")
+    if not isinstance(parameter_evidence, Mapping):
+        parameter_evidence = strategy_variant.get("parameter_evidence")
     payload = {
         "type": RUNTIME_PARAMETER_INJECTION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -574,9 +581,10 @@ def runtime_parameter_injection_for_variant(
         "mechanism": RUNTIME_PARAMETER_INJECTION_MECHANISM,
         "globalName": RUNTIME_PARAMETER_INJECTION_GLOBAL,
         "strategyVariantId": variant_id,
-        "candidatePolicyId": strategy_variant.get("candidatePolicyId"),
-        "sourceStrategyId": strategy_variant.get("sourceStrategyId"),
+        "candidatePolicyId": candidate_policy_id,
+        "sourceStrategyId": source_strategy_id,
         "family": strategy_variant.get("family"),
+        "parameterEvidence": copy.deepcopy(dict(parameter_evidence)) if isinstance(parameter_evidence, Mapping) else None,
         "parameters": copy.deepcopy(parameters),
         "parametersSha256": runtime_parameter_parameters_hash(parameters),
         "liveEffect": False,
@@ -585,6 +593,26 @@ def runtime_parameter_injection_for_variant(
         "safety": safety_metadata(),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _runtime_parameter_source_strategy_id(strategy_variant: Mapping[str, Any]) -> str | None:
+    direct = strategy_variant.get("sourceStrategyId")
+    if isinstance(direct, str) and direct:
+        return direct
+    snake = strategy_variant.get("source_strategy_id")
+    if isinstance(snake, str) and snake:
+        return snake
+    evidence = strategy_variant.get("parameterEvidence")
+    if not isinstance(evidence, Mapping):
+        evidence = strategy_variant.get("parameter_evidence")
+    if isinstance(evidence, Mapping):
+        evidence_source = evidence.get("sourceStrategyId")
+        if isinstance(evidence_source, str) and evidence_source:
+            return evidence_source
+        evidence_snake = evidence.get("source_strategy_id")
+        if isinstance(evidence_snake, str) and evidence_snake:
+            return evidence_snake
+    return None
 
 
 def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObject) -> str:
@@ -2887,6 +2915,9 @@ def _run_runtime_parameter_injection_summary(variant_results: Sequence[JsonObjec
             "runtimeParameterConsumption": injection.get("runtimeParameterConsumption") is True,
             "runtimeParameterConsumptionStatus": injection.get("runtimeParameterConsumptionStatus"),
             "candidateParameterScope": injection.get("candidateParameterScope"),
+            "candidatePolicyId": injection.get("candidatePolicyId"),
+            "sourceStrategyId": injection.get("sourceStrategyId"),
+            "family": injection.get("family"),
             "parametersSha256": injection.get("parametersSha256"),
             "reason": injection.get("runtimeParameterConsumptionReason", injection.get("reason")),
         }

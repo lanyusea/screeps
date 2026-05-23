@@ -1180,6 +1180,12 @@ def build_report_runtime_parameter_injection_summary(
                 "parametersSha256": injection.get("parametersSha256"),
                 "reason": injection.get("reason"),
             }
+            for field in ("candidatePolicyId", "sourceStrategyId", "family"):
+                value = injection.get(field)
+                if value is None:
+                    value = result.get(field)
+                if value is not None:
+                    row[field] = copy.deepcopy(value)
             for field in (
                 "runtimeParameterConsumption",
                 "runtimeParameterConsumptionStatus",
@@ -4549,6 +4555,9 @@ def summarize_runtime_parameter_injection_attempt(
         "status": injection.get("status"),
         "runtimeParameterInjection": False,
         "candidateParameterScope": injection.get("candidateParameterScope"),
+        "candidatePolicyId": injection.get("candidatePolicyId"),
+        "sourceStrategyId": injection.get("sourceStrategyId"),
+        "family": injection.get("family"),
         "parametersSha256": injection.get("parametersSha256"),
         "reason": injection.get("reason"),
     }
@@ -4768,11 +4777,16 @@ def summarize_variant_runtime_parameter_injection(
         scope = "runtime_injected" if attempted_runtime else "metadata_only"
         evaluated_parameters = None
 
+    candidate_policy_id = variant.candidate_policy_id or first_attempt_text(attempts, "candidatePolicyId")
+    source_strategy_id = variant.source_strategy_id or first_attempt_text(attempts, "sourceStrategyId")
+    family = variant.family or first_attempt_text(attempts, "family")
     payload: JsonObject = {
         "type": simulator_harness.RUNTIME_PARAMETER_INJECTION_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "strategyVariantId": variant.id,
-        "candidatePolicyId": variant.candidate_policy_id,
+        "candidatePolicyId": candidate_policy_id,
+        "sourceStrategyId": source_strategy_id,
+        "family": family,
         "status": status,
         "runtimeParameterInjection": runtime_injected,
         "inlineCandidatesRuntimeInjected": runtime_injected,
@@ -4808,6 +4822,14 @@ def summarize_variant_runtime_parameter_injection(
             if field in first_injected:
                 payload[field] = copy.deepcopy(first_injected.get(field))
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def first_attempt_text(attempts: Sequence[JsonObject], field: str) -> str | None:
+    for attempt in attempts:
+        value = text_or_none(attempt.get(field))
+        if value is not None:
+            return value
+    return None
 
 
 def finalize_multi_tier_policy_activation_run(
