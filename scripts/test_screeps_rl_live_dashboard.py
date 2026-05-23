@@ -564,6 +564,49 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             "policy update non-promotional: blocked_runtime_parameter_consumption_missing",
         )
 
+    def test_runtime_consumed_shadow_candidate_policy_update_is_not_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-training" / "runtime-consumed-update.json",
+                {
+                    "createdAt": "2026-05-18T10:16:00Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": True,
+                    "runtimeParameterInjection": {
+                        "runtimeParameterConsumption": True,
+                        "consumedVariantCount": 2,
+                        "policyUpdateEligible": True,
+                    },
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "trustedGradientUpdate": True,
+                        "parameterEvidence": {
+                            "runtimeParameterConsumption": True,
+                            "consumedVariantCount": 2,
+                            "policyUpdateEligible": True,
+                        },
+                        "promotionGate": {
+                            "status": "runtime_consumed_shadow_candidate",
+                            "runtimeParameterConsumption": True,
+                            "loopAPromotionEligible": True,
+                            "loopBPromotionEligible": True,
+                        },
+                    },
+                },
+            )
+
+            zero_iteration = live.zero_iteration_policy_update_summary(artifact_root, repo_root)
+
+        self.assertEqual(zero_iteration["status"], "N/A")
+        self.assertEqual(
+            zero_iteration["evidence"],
+            "latest policy update had 1 iteration(s); trueGradient=true",
+        )
+
     def test_policy_update_without_iteration_count_keeps_consumption_blocker_visible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

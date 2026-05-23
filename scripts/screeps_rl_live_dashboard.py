@@ -1342,12 +1342,17 @@ def unique_policy_blocker_details(details: Sequence[str]) -> list[str]:
     return unique
 
 
+def promotion_gate_status_is_blocking(status: str | None) -> bool:
+    return normalized_key(status or "").startswith("blocked")
+
+
 def policy_update_non_promotional_details(node: JsonObject, policy_update: JsonObject | None) -> list[str]:
     policy_update_dict = policy_update if isinstance(policy_update, dict) else {}
     promotion_gate = as_dict(node.get("policyUpdatePromotionGate")) or as_dict(policy_update_dict.get("promotionGate"))
     details: list[str] = []
     status = text_value(promotion_gate.get("status"))
-    if status:
+    status_is_blocking = promotion_gate_status_is_blocking(status)
+    if status and status_is_blocking:
         details.append(status)
     elif promotion_gate.get("runtimeParameterConsumption") is False:
         details.append("blocked_runtime_parameter_consumption_missing")
@@ -1360,7 +1365,7 @@ def policy_update_non_promotional_details(node: JsonObject, policy_update: JsonO
     )
     for raw_container in evidence_containers:
         container = as_dict(raw_container)
-        if container.get("runtimeParameterConsumption") is False and not status:
+        if container.get("runtimeParameterConsumption") is False and not status_is_blocking:
             details.append("runtimeParameterConsumption=false")
         consumed = static_dashboard.int_value(container.get("consumedVariantCount"))
         if consumed == 0:
