@@ -2339,6 +2339,309 @@ cli:
         self.assertEqual(extracted, expected)
         self.assertEqual(errors, [])
 
+    def test_runtime_parameter_consumption_collection_accepts_mongo_console_tick_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        line = harness.RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX + json.dumps(evidence, sort_keys=True)
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            command: list[str] | None = None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                self.command = command
+                if "logs" in command:
+                    return {"returncode": 0, "output_excerpt": "private server logs without Screeps console output"}
+                if "mongosh" in command:
+                    return {
+                        "returncode": 0,
+                        "output_excerpt": json.dumps({
+                            "ok": True,
+                            "lines": ["noise", line],
+                            "collectionNames": ["users.console"],
+                        }),
+                    }
+                raise AssertionError(command)
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            extracted, errors = harness.collect_runtime_parameter_consumption_evidence(
+                FakeSmoke(),
+                ["docker", "compose"],
+                FakeConfig(),
+                None,
+                injection,
+            )
+
+        expected = copy.deepcopy(evidence)
+        expected["source"] = "mongo.console.runtimePolicyParameterConsumption"
+        self.assertEqual(extracted, expected)
+        self.assertEqual(errors, [])
+
+        consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": "construction-priority.pg.territory-seed.v1",
+                "runtimeParameterInjection": updated,
+            }
+        ])
+
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["consumedVariantCount"], 1)
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "consumed")
+
+    def test_mongo_console_runtime_parameter_consumption_collector_bounds_payload_before_output_limit(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        line = harness.RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX + json.dumps(evidence, sort_keys=True)
+        unbounded_payload = json.dumps({
+            "ok": True,
+            "lines": ["x" * 4000 for _ in range(200)],
+            "scannedCollections": 24,
+            "scannedDocuments": 200,
+            "collectionNames": ["users.console"],
+        })
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        captured: dict[str, object] = {}
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                captured["eval_script"] = command[-1]
+                captured["output_limit"] = output_limit
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "lines": [line],
+                        "collectionNames": ["users.console"],
+                    }),
+                }
+
+        extracted = harness._collect_mongo_console_runtime_parameter_consumption_evidence(
+            FakeSmoke(),
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertEqual(extracted, evidence)
+        self.assertGreater(len(unbounded_payload), harness.MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT)
+        self.assertEqual(captured["output_limit"], harness.MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT)
+        self.assertLess(
+            harness.MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT,
+            harness.MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT,
+        )
+        eval_script = str(captured["eval_script"])
+        self.assertIn(
+            f"const payloadLimit = {harness.MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT};",
+            eval_script,
+        )
+        self.assertIn("while (jsonText.length > payloadLimit && lines.length > 0)", eval_script)
+        self.assertIn("lines.pop();", eval_script)
+        self.assertIn("print(jsonText);", eval_script)
+
+    def test_mongo_console_runtime_parameter_consumption_collector_falls_back_per_collection(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        captured: dict[str, object] = {}
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                captured["eval_script"] = command[-1]
+                return {
+                    "returncode": 0,
+                    "output_excerpt": json.dumps({
+                        "ok": True,
+                        "lines": [],
+                        "collectionNames": ["users.console", "rooms.log"],
+                    }),
+                }
+
+        extracted = harness._collect_mongo_console_runtime_parameter_consumption_evidence(
+            FakeSmoke(),
+            ["docker", "compose"],
+            FakeConfig(),
+            None,
+            injection,
+        )
+
+        self.assertIsNone(extracted)
+        eval_script = str(captured["eval_script"])
+        self.assertIn("const beforeLineCount = lines.length;", eval_script)
+        self.assertIn("return lines.length > beforeLineCount;", eval_script)
+        self.assertIn("let collectionAddedLines = false;", eval_script)
+        self.assertIn(
+            "collectionAddedLines = scanCollection(collectionName, {$or: userClauses}) || collectionAddedLines;",
+            eval_script,
+        )
+        self.assertIn("if (!collectionAddedLines && lines.length < candidateLimit)", eval_script)
+        self.assertNotIn("if (lines.length === 0)", eval_script)
+
+    def test_runtime_parameter_consumption_collection_records_mongo_console_probe_error(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                if "logs" in command:
+                    return {"returncode": 0, "output_excerpt": "private server logs without Screeps console output"}
+                if "mongosh" in command:
+                    return {"returncode": 17, "output_excerpt": "mongosh console query failed"}
+                raise AssertionError(command)
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                FakeSmoke(),
+                ["docker", "compose"],
+                FakeConfig(),
+                None,
+                injection,
+            )
+
+        self.assertIsNone(evidence)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("mongo.console.runtimePolicyParameterConsumption failed", errors[0])
+        self.assertIn("mongo console runtime-parameter probe failed: exit=17", errors[0])
+        self.assertIn("mongosh console query failed", errors[0])
+
+    def test_runtime_parameter_consumption_collection_records_mongo_console_malformed_json(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        class FakeConfig:
+            mongo_db = "screeps"
+            username = "bot"
+            shard = "shardX"
+
+        class FakeSmoke:
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+                output_limit: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout, output_limit
+                if "logs" in command:
+                    return {"returncode": 0, "output_excerpt": "private server logs without Screeps console output"}
+                if "mongosh" in command:
+                    return {"returncode": 0, "output_excerpt": "not-json"}
+                raise AssertionError(command)
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ),
+        ):
+            evidence, errors = harness.collect_runtime_parameter_consumption_evidence(
+                FakeSmoke(),
+                ["docker", "compose"],
+                FakeConfig(),
+                None,
+                injection,
+            )
+
+        self.assertIsNone(evidence)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("mongo.console.runtimePolicyParameterConsumption failed", errors[0])
+        self.assertIn("mongo console runtime-parameter probe returned malformed JSON", errors[0])
+        self.assertIn("not-json", errors[0])
+
     def test_runtime_parameter_consumption_collection_records_console_probe_error(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
 

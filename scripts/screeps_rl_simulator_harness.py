@@ -98,6 +98,8 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
+MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
     r"\A(\ufeff?(?:(?:\s+)|(?://[^\r\n]*(?:\r?\n|$))|(?:/\*.*?\*/))*"
     r"(?:(?:['\"]use strict['\"]\s*;?\s*)+))",
@@ -943,6 +945,10 @@ def collect_runtime_parameter_consumption_evidence(
     collectors = [
         ("Memory.rlRuntimePolicyParameters", _collect_http_runtime_parameter_consumption_evidence),
         ("console.runtimePolicyParameterConsumption", _collect_console_runtime_parameter_consumption_evidence),
+        (
+            "mongo.console.runtimePolicyParameterConsumption",
+            _collect_mongo_console_runtime_parameter_consumption_evidence,
+        ),
         ("redis.Memory.rlRuntimePolicyParameters", _collect_redis_runtime_parameter_consumption_evidence),
         ("mongo.Memory.rlRuntimePolicyParameters", _collect_mongo_runtime_parameter_consumption_evidence),
     ]
@@ -1039,6 +1045,147 @@ def _collect_console_runtime_parameter_consumption_evidence(
         result.get("output_excerpt", ""),
         injection=injection,
     )
+
+
+def _collect_mongo_console_runtime_parameter_consumption_evidence(
+    smoke: Any,
+    compose: Sequence[str] | None,
+    cfg: Any,
+    token: str | None,
+    injection: JsonObject | None = None,
+) -> JsonObject | None:
+    _ = token
+    if compose is None:
+        return None
+    mongo_db = text_or_none(getattr(cfg, "mongo_db", None))
+    username = text_or_none(getattr(cfg, "username", None))
+    if mongo_db is None or username is None:
+        return None
+    eval_script = f"""
+const smokeDb = db.getSiblingDB({json.dumps(mongo_db)});
+const user = smokeDb.getCollection('users').findOne({{username: {json.dumps(username)}}}, {{_id: 1, username: 1}});
+const marker = {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX)};
+const lines = [];
+const candidateLimit = 200;
+const collectionLimit = 24;
+const documentLimit = 200;
+const stringLimit = 4000;
+const payloadLimit = {MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT};
+const pushLine = value => {{
+  if (lines.length >= candidateLimit || typeof value !== 'string' || !value.includes(marker)) return;
+  lines.push(value.slice(0, stringLimit));
+}};
+const scanValue = (value, depth = 0) => {{
+  if (lines.length >= candidateLimit || value === null || value === undefined || depth > 6) return;
+  if (typeof value === 'string') {{
+    pushLine(value);
+    return;
+  }}
+  if (Array.isArray(value)) {{
+    for (const item of value) {{
+      scanValue(item, depth + 1);
+      if (lines.length >= candidateLimit) return;
+    }}
+    return;
+  }}
+  if (typeof value === 'object') {{
+    for (const item of Object.values(value)) {{
+      scanValue(item, depth + 1);
+      if (lines.length >= candidateLimit) return;
+    }}
+  }}
+}};
+const userClauses = [];
+if (user) {{
+  userClauses.push({{user: user._id}});
+  userClauses.push({{user: String(user._id)}});
+  userClauses.push({{username: user.username}});
+  userClauses.push({{'user.username': user.username}});
+  userClauses.push({{'owner.username': user.username}});
+}}
+const collectionNames = smokeDb.getCollectionNames()
+  .filter(name => /console|log/i.test(name))
+  .slice(0, collectionLimit);
+let scannedCollections = 0;
+let scannedDocuments = 0;
+const scanCollection = (collectionName, query) => {{
+  if (lines.length >= candidateLimit) return false;
+  const beforeLineCount = lines.length;
+  const collection = smokeDb.getCollection(collectionName);
+  const cursor = collection.find(query || {{}}).sort({{_id: -1}}).limit(documentLimit);
+  while (cursor.hasNext() && lines.length < candidateLimit) {{
+    scannedDocuments += 1;
+    scanValue(cursor.next());
+  }}
+  return lines.length > beforeLineCount;
+}};
+for (const collectionName of collectionNames) {{
+  scannedCollections += 1;
+  try {{
+    let collectionAddedLines = false;
+    if (userClauses.length > 0) {{
+      collectionAddedLines = scanCollection(collectionName, {{$or: userClauses}}) || collectionAddedLines;
+    }}
+    if (!collectionAddedLines && lines.length < candidateLimit) {{
+      scanCollection(collectionName, {{}});
+    }}
+  }} catch (err) {{}}
+  if (lines.length >= candidateLimit) break;
+}}
+const makePayload = () => ({{
+  ok: true,
+  lines,
+  scannedCollections,
+  scannedDocuments,
+  collectionNames,
+}});
+let payload = makePayload();
+let jsonText = JSON.stringify(payload);
+while (jsonText.length > payloadLimit && lines.length > 0) {{
+  lines.pop();
+  payload = makePayload();
+  jsonText = JSON.stringify(payload);
+}}
+if (jsonText.length > payloadLimit) {{
+  payload = {{
+    ok: true,
+    lines: [],
+    scannedCollections,
+    scannedDocuments,
+    collectionNames: [],
+  }};
+  jsonText = JSON.stringify(payload);
+}}
+print(jsonText);
+""".strip()
+    command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
+    result = smoke.run_command(
+        command,
+        cfg,
+        timeout=60,
+        output_limit=MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT,
+    )
+    if result.get("returncode") != 0:
+        output = result.get("output_excerpt")
+        if not output:
+            output = "\n".join(str(part) for part in (result.get("stdout"), result.get("stderr")) if part)
+        raise RuntimeError(
+            "mongo console runtime-parameter probe failed: "
+            f"exit={result.get('returncode')} "
+            f"output={_safe_text(output, 240)}"
+        )
+    try:
+        payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "mongo console runtime-parameter probe returned malformed JSON: "
+            f"{_safe_text(result.get('output_excerpt', ''), 240)}"
+        ) from exc
+    lines = payload.get("lines") if isinstance(payload, dict) else None
+    if not isinstance(lines, list):
+        return None
+    output = "\n".join(line for line in lines if isinstance(line, str))
+    return runtime_parameter_consumption_evidence_from_console_output(output, injection=injection)
 
 
 def runtime_parameter_consumption_evidence_from_console_output(
