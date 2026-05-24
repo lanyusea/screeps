@@ -1185,6 +1185,144 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 self.assertIn(command, card["detail"])
                 self.assertIn("unavailable", card["detail"])
 
+    def test_report_process_cards_retain_fresh_local_delivery_metrics_when_runner_cache_is_empty(self) -> None:
+        window_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        window_end = datetime(2026, 5, 8, tzinfo=timezone.utc)
+        codex_provenance = roadmap.delivery_metric_provenance(
+            window_start,
+            window_end,
+            "repo-attributed local Codex session JSONL",
+            ("2026/05/08/rollout-good.jsonl:2026-05-08T00:00:00Z",),
+            1,
+            source_roots=(".codex/sessions",),
+            local_cache_only=True,
+            counted_count=1,
+            captured_start=window_start,
+            captured_end=window_end,
+        )
+        cron_provenance = roadmap.delivery_metric_provenance(
+            window_start,
+            window_end,
+            "repo-attributed local Hermes cron markdown",
+            ("job-a/run-20260508T000000Z.md:2026-05-08T00:00:00Z",),
+            1,
+            source_roots=("cron-output",),
+            local_cache_only=True,
+            counted_count=1,
+            captured_start=window_start,
+            captured_end=window_end,
+        )
+        cached_page_data = {
+            "report": {
+                "processCards": [
+                    {
+                        "label": "Agent tokens",
+                        "value": "1,234",
+                        "rawValue": 1234,
+                        "detail": "1,234 total; latest token_count in 1/1 sessions in last 7d; local cache only",
+                        "delta": "+10",
+                        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+                        "provenance": codex_provenance,
+                    },
+                    {
+                        "label": "Codex runtime",
+                        "value": "30m",
+                        "rawValueSeconds": 1800,
+                        "detail": "summed first-to-last JSONL timestamps across 1/1 sessions in last 7d; local cache only",
+                        "delta": "+5m",
+                        "source": "repo-attributed local Codex timestamps",
+                        "provenance": codex_provenance,
+                    },
+                    {
+                        "label": "Codex runs",
+                        "value": "1",
+                        "rawValue": 1,
+                        "detail": "rollout JSONL files counted as Codex runs in last 7d; local cache only",
+                        "delta": "+1",
+                        "source": "repo-attributed local Codex session cache",
+                        "provenance": codex_provenance,
+                    },
+                    {
+                        "label": "Cron runs",
+                        "value": "2",
+                        "rawValue": 2,
+                        "detail": "2 cron outputs across 1 jobs in last 7d; local cache only",
+                        "delta": "+1",
+                        "source": "repo-attributed local Hermes cron output cache",
+                        "provenance": cron_provenance,
+                    },
+                    {
+                        "label": "Longest Codex run",
+                        "value": "30m",
+                        "rawValueSeconds": 1800,
+                        "detail": "maximum first-to-last JSONL timestamp span across 1/1 sessions in last 7d; local cache only",
+                        "delta": "+5m",
+                        "source": "repo-attributed local Codex timestamps",
+                        "provenance": codex_provenance,
+                    },
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            empty_cron_root = repo_root / "runtime-artifacts" / "cron-output"
+            empty_cron_root.mkdir(parents=True)
+            with (
+                patch.object(roadmap, "run_text", return_value="42\n"),
+                patch.object(roadmap, "fetch_all_prs", return_value=([], None)),
+                patch.object(roadmap, "fetch_all_issues", return_value=([], None)),
+                patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
+                patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
+                patch.object(roadmap, "summarize_private_smoke_evidence", return_value=roadmap.PrivateSmokeEvidenceSummary(0)),
+            ):
+                cards = roadmap.build_report_process_cards(
+                    repo_root,
+                    {"fullName": "lanyusea/screeps"},
+                    {},
+                    cached_page_data,
+                    "2026-05-08T06:00:00Z",
+                    cron_output_root=empty_cron_root,
+                )
+
+        cards_by_label = {card["label"]: card for card in cards}
+        for label in ("Agent tokens", "Codex runtime", "Codex runs", "Cron runs", "Longest Codex run"):
+            with self.subTest(label=label):
+                card = cards_by_label[label]
+                self.assertNotEqual(card["value"], "unavailable")
+                self.assertEqual(card["delta"], "cached")
+                self.assertEqual(card["source"], "cached local cache")
+                self.assertIn("cached from prior local cache snapshot", card["detail"])
+
+    def test_retained_local_delivery_metrics_expire_after_window(self) -> None:
+        provenance = roadmap.delivery_metric_provenance(
+            datetime(2026, 5, 1, tzinfo=timezone.utc),
+            datetime(2026, 5, 8, tzinfo=timezone.utc),
+            "repo-attributed local Codex session JSONL",
+            ("2026/05/08/rollout-good.jsonl:2026-05-08T00:00:00Z",),
+            1,
+            source_roots=(".codex/sessions",),
+            local_cache_only=True,
+            counted_count=1,
+        )
+        cached_cards = [
+            {
+                "label": "Agent tokens",
+                "value": "1,234",
+                "rawValue": 1234,
+                "detail": "1,234 total; local cache only",
+                "provenance": provenance,
+            }
+        ]
+
+        retained = roadmap.retained_local_cache_process_card(
+            cached_cards,
+            "Agent tokens",
+            "2026-05-16T00:00:01Z",
+            7,
+        )
+
+        self.assertEqual(retained, {})
+
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
