@@ -68,6 +68,15 @@ class RoadmapPagesContractTests(unittest.TestCase):
                     self.assertNotIn(pattern, text)
                 self.assertIn(PAGES_URL, text)
 
+    def test_roadmap_pages_refresh_push_uses_safe_checkout_credentials(self) -> None:
+        text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
+
+        self.assertNotIn("bearer ***", text)
+        self.assertNotIn(".extraheader=AUTHORIZATION: bearer", text)
+        self.assertIn("persist-credentials: true", text)
+        self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}", text)
+        self.assertIn("git push origin HEAD:main", text)
+
     def test_deploy_process_metric_rejects_bool_values(self) -> None:
         cards = [
             {"label": label, "value": True if label == "Deploys" else 1}

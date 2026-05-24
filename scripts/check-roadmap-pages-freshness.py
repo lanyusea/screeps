@@ -102,6 +102,14 @@ def check_live_github_snapshot(data: dict[str, object], data_path: Path) -> list
         failures.append(
             f"{data_path}: github.projectItemsSource must be live, got {github.get('projectItemsSource')!r}"
         )
+    completeness = github.get("projectItemsCompleteness")
+    if not isinstance(completeness, dict):
+        failures.append(f"{data_path}: github.projectItemsCompleteness must be present for a live Pages refresh")
+    elif completeness.get("complete") is not True:
+        failures.append(
+            f"{data_path}: github.projectItemsCompleteness.complete must be true, got "
+            f"{completeness.get('complete')!r}"
+        )
     fetch_errors = github.get("fetchErrors")
     if not isinstance(fetch_errors, list):
         failures.append(f"{data_path}: github.fetchErrors must be a list")
