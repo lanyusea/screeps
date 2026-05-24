@@ -14079,6 +14079,37 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
   });
 
+  it('repairs E29N56 ramparts above the monitor critical damage band', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'e29n56-rampart-alert-buffer',
+      'rampart' as StructureConstant,
+      121_001,
+      300_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'E29N56',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures: [rampart]
+    });
+    const creep = {
+      name: 'E29N56Repairer',
+      memory: { role: 'worker', colony: 'E29N56' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'e29n56-rampart-alert-buffer' });
+  });
+
   it('repairs E29N55 active-decay ramparts before controller upgrade pressure', () => {
     const controller = {
       id: 'controller1',
