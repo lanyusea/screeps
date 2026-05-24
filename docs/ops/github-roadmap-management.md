@@ -9,7 +9,7 @@ This document complements `docs/ops/github-issue-management.md`. The issue-manag
 1. **Issue = atomic work item.** Any roadmap target, blocker, known defect, or follow-up that needs action must have a GitHub issue.
 2. **Milestone = roadmap gate.** Every open roadmap issue must belong to exactly one active roadmap milestone.
 3. **Project = execution board.** The user project `screeps` (`https://github.com/users/lanyusea/projects/3`) tracks cross-milestone status, priority, domain, blockers, evidence, next action, and linked PRs.
-4. **PR = implementation proof.** PRs that complete a known issue must use GitHub closing keywords such as `Fixes #123`, `Closes #123`, or `Resolves #123`.
+4. **PR = implementation proof.** PR bodies use GitHub closing keywords such as `Fixes #123`, `Closes #123`, or `Resolves #123` only when the PR satisfies every original acceptance criterion for that issue at merge time and includes the `Issue closure gate`. Commit messages must not contain GitHub closing keywords for tracked issues. Enabling work, post-merge validation, owner-action blockers, live service/process proof, successors, and partial fixes use non-closing wording such as `Related to issue 123`.
 5. **Docs = explanation and recovery.** Keep durable decisions, runbooks, status snapshots, and postmortems in `docs/`, but do not treat local markdown as the authoritative active backlog.
 
 Operational invariant:
@@ -20,6 +20,8 @@ Any open roadmap issue without a milestone is not planned.
 Any active roadmap issue missing from Project screeps is a management defect.
 Any agent task whose GitHub issue/PR/Project state is not current is not complete.
 ```
+
+Negated close-keyword phrases are unsafe in PR bodies and commit messages. Do not write `does not close #123`, `not close #123`, `must not close #123`, or `without closing #123`; use related/non-closing wording instead.
 
 ## Agent task completion gate
 
@@ -32,7 +34,7 @@ Before an agent reports a task complete, it must update the corresponding GitHub
 3. **Maintain next action** — keep `Next action` accurate enough that another agent can resume without reading local chat history.
 4. **Record evidence** — keep `Evidence` current with PR URL, commit, CI/check result, runtime artifact, redacted report, process note, or decision note.
 5. **Record blockers** — if progress is blocked, add the `blocked` label, fill `Blocked by`, and set `Next action` to the unblock step.
-6. **Close only after GitHub is current** — when the task is actually complete, update the issue/PR Project item to `Done` or ensure the linked PR closes the issue, then verify the Project item reflects the final status.
+6. **Close only after acceptance is satisfied** — when the task is actually complete, update the issue/PR Project item to `Done` or use an intentional PR-body closing keyword only after every original acceptance criterion is satisfied and no post-merge/runtime/owner-action/successor/partial-fix blocker remains. Then verify the Project item reflects the final status. Do not put closing keywords for tracked issues in commit messages.
 
 A task is **not done** if its code/docs/tests are complete but its GitHub issue, PR, or Project item still shows stale status, stale evidence, or stale next action. The final report for any agent task should mention the GitHub issue/PR numbers whose state was updated.
 
@@ -153,7 +155,7 @@ When creating or triaging roadmap work:
 4. Add it to Project `screeps` if automation has not already done so.
 5. Set Project fields: `Status`, `Priority`, `Domain`, `Kind`, `Evidence`, `Next action`, and `Next-point %` when applicable.
 6. If blocked, add `blocked` and fill `Blocked by`.
-7. Link implementation PRs with closing keywords and keep PR items visible in the Project until merged/closed.
+7. Link implementation PRs with acceptance-first linkage. Use closing keywords in the PR body only for issues whose original acceptance criteria are fully satisfied at merge time, include the PR `Issue closure gate` evidence for each closed issue, keep closing keywords out of commit messages, and keep PR items visible in the Project until merged/closed. Use `Related to issue 123` for enabling, blocked, successor, post-merge validation, live proof, or partial-fix work.
 8. Reflect durable decisions or recovery context in docs/process notes only after GitHub source-of-truth state is correct.
 9. Before any agent reports completion, verify its issue/PR/Project item state is current. If the Project item still has stale `Status`, `Evidence`, `Next action`, or blocker fields, the task is not complete.
 
