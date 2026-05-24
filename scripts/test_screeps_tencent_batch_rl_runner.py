@@ -4978,6 +4978,121 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(summary["steps"][-1]["name"], "scale_down")
         self.assertEqual(summary["steps"][-1]["detail"]["desiredCapacity"], 0)
 
+    def test_controller_run_preserves_scale_failed_remote_report_evidence(self) -> None:
+        class FakeController(runner.Controller):
+            def check_pre_launch_guard(self) -> bool:
+                return False
+
+            def ensure_map_present(self) -> None:
+                pass
+
+            def ensure_dist_present(self) -> None:
+                pass
+
+            def run_billing_guard(self) -> None:
+                pass
+
+            def verify_security_group(self) -> None:
+                pass
+
+            def generate_experiment_card(self) -> None:
+                pass
+
+            def scale_up_and_wait(self) -> None:
+                self.scaled_up = True
+                self.instance_id = "ins-test"
+
+            def verify_worker_security(self) -> None:
+                pass
+
+            def bootstrap_worker(self) -> None:
+                pass
+
+            def transfer_repo_bundle(self) -> None:
+                pass
+
+            def transfer_secret_env(self) -> None:
+                pass
+
+            def run_remote_training(self) -> None:
+                self.record_step("remote_training", 100.0, True, reportId=self.run_id)
+
+            def collect_remote_artifacts(self) -> None:
+                report = runner.remote_training_report_path(self.artifact_dir, self.run_id)
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(
+                    json.dumps(
+                        {
+                            "reportId": self.run_id,
+                            "generatedAt": "2026-05-24T22:25:05Z",
+                            "liveEffect": False,
+                            "officialMmoWrites": False,
+                            "officialMmoWritesAllowed": False,
+                            "artifactCount": 23,
+                            "simulation": {"ticks": 500},
+                            "scaleValidation": {
+                                "ok": False,
+                                "targetEnvironments": 5,
+                                "minimumSuccessfulEnvironments": 4,
+                                "totalEnvironments": 25,
+                                "successfulEnvironments": 23,
+                                "failedEnvironments": 2,
+                                "repetitions": 5,
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            def scale_down(self) -> None:
+                self.record_step("scale_down", 101.0, True, desiredCapacity=0)
+
+        args = controller_args()
+        args.training_approach = "policy_gradient"
+        args.ticks = 500
+        args.workers = 5
+        args.repetitions = 5
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            args.artifact_root = artifact_root
+            controller = FakeController(
+                args=args,
+                run_id="tencent-pg-20260524t222505z",
+                artifact_dir=artifact_root / "tencent-pg-20260524t222505z",
+            )
+            with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+                with self.assertRaisesRegex(runner.BatchRunError, "scale proof did not satisfy success criteria"):
+                    controller.run()
+            summary = json.loads(
+                (artifact_root / "tencent-pg-20260524t222505z" / "controller-summary.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+
+        training_report = summary["outputs"]["trainingReport"]
+        scale_validation = training_report["scaleValidation"]
+        self.assertEqual(summary["finalStatus"], "failed")
+        self.assertEqual(summary["execution"]["trainingReportPath"], training_report["path"])
+        self.assertTrue(summary["execution"]["trainingReportProduced"])
+        self.assertEqual(summary["execution"]["trainingReportId"], "tencent-pg-20260524t222505z")
+        self.assertEqual(summary["execution"]["artifactCount"], 23)
+        self.assertEqual(summary["execution"]["environmentsRun"], 25)
+        self.assertEqual(training_report["reportId"], "tencent-pg-20260524t222505z")
+        self.assertEqual(training_report["artifactCount"], 23)
+        self.assertFalse(scale_validation["ok"])
+        self.assertEqual(scale_validation["targetEnvironments"], 5)
+        self.assertEqual(scale_validation["totalEnvironments"], 25)
+        self.assertEqual(scale_validation["successfulEnvironments"], 23)
+        self.assertEqual(scale_validation["minimumSuccessfulEnvironments"], 4)
+        self.assertEqual(scale_validation["repetitions"], 5)
+        self.assertFalse(summary["safety"]["liveEffect"])
+        self.assertFalse(summary["safety"]["officialMmoWrites"])
+        self.assertFalse(summary["safety"]["officialMmoWritesAllowed"])
+        self.assertFalse(summary["safety"]["secretsPrinted"])
+        self.assertTrue(summary["safety"]["scaleDownAttempted"])
+        self.assertEqual(summary["steps"][-1]["name"], "scale_down")
+        self.assertEqual(summary["steps"][-1]["detail"]["desiredCapacity"], 0)
+
     def test_main_exits_nonzero_when_controller_cleanup_failed(self) -> None:
         class FakeController:
             def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:

@@ -1557,6 +1557,21 @@ tar -czf remote-artifacts.tar.gz \
         batch_scale = batch_scale_summary_from_training_report(data, artifact_count)
         scale_environments = resolve_scale_environment_count(self.args)
         scale_validation = data.get("scaleValidation")
+        self.result["trainingReport"] = {
+            "path": str(report),
+            "reportId": data.get("reportId"),
+            "generatedAt": data.get("generatedAt"),
+            "experimentCard": data.get("experimentCard"),
+            **safety_flags,
+            "artifactCount": artifact_count,
+            "batchScale": batch_scale,
+            "changedTopCount": data.get("changedTopCount"),
+            "activationProof": data.get("activationProof"),
+            "ranking": data.get("ranking"),
+            "warnings": data.get("warnings"),
+            "simulation": data.get("simulation"),
+            "scaleValidation": scale_validation,
+        }
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
         runtime_parameter_injection = verified_remote_runtime_parameter_injection(
