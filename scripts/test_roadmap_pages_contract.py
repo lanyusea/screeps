@@ -68,14 +68,20 @@ class RoadmapPagesContractTests(unittest.TestCase):
                     self.assertNotIn(pattern, text)
                 self.assertIn(PAGES_URL, text)
 
-    def test_roadmap_pages_refresh_push_uses_safe_checkout_credentials(self) -> None:
+    def test_roadmap_pages_refresh_uses_pr_flow_for_generated_artifacts(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
 
         self.assertNotIn("bearer ***", text)
         self.assertNotIn(".extraheader=AUTHORIZATION: bearer", text)
         self.assertIn("persist-credentials: true", text)
         self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}", text)
-        self.assertIn("git push origin HEAD:main", text)
+        self.assertIn("pull-requests: write", text)
+        self.assertNotIn("git push origin HEAD:main", text)
+        self.assertIn('refresh_branch="chore/roadmap-pages-refresh"', text)
+        self.assertIn('git push --force-with-lease origin HEAD:"$refresh_branch"', text)
+        self.assertIn("gh pr list --head", text)
+        self.assertIn("gh pr create", text)
+        self.assertIn("gh pr edit", text)
 
     def test_roadmap_pages_refresh_collects_live_runtime_summary_before_generation(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))

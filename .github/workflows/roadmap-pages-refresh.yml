@@ -8,7 +8,7 @@ on:
 permissions:
   contents: write
   issues: read
-  pull-requests: read
+  pull-requests: write
   repository-projects: read
   pages: write
 
@@ -81,6 +81,7 @@ jobs:
       - name: Commit generated Pages artifacts
         id: commit
         run: |
+          refresh_branch="chore/roadmap-pages-refresh"
           git add docs/index.html docs/roadmap-data.json docs/roadmap-kpi.sqlite
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -88,8 +89,37 @@ jobs:
             exit 0
           fi
           git commit -m "chore(roadmap): refresh Pages artifacts [skip ci]"
-          git push origin HEAD:main
+          git fetch origin "$refresh_branch" || true
+          git push --force-with-lease origin HEAD:"$refresh_branch"
           echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$refresh_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update Pages refresh PR
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          refresh_branch="${{ steps.commit.outputs.branch }}"
+          pr_number="$(gh pr list --head "$refresh_branch" --state open --json number --jq '.[0].number // empty')"
+          body_file="$(mktemp)"
+          cat > "$body_file" <<'EOF'
+          Automated roadmap Pages artifact refresh.
+
+          This PR was opened by the scheduled `roadmap-pages-refresh` workflow because branch protection requires generated docs changes to pass through a pull request.
+
+          Verification already run in the workflow:
+          - generated `docs/index.html`, `docs/roadmap-data.json`, and `docs/roadmap-kpi.sqlite`
+          - `python3 scripts/check-roadmap-pages-freshness.py . --max-age-hours 2 --require-live-github`
+          EOF
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" --title "chore(roadmap): refresh Pages artifacts" --body-file "$body_file"
+            echo "Updated existing Pages refresh PR #$pr_number."
+          else
+            gh pr create \
+              --base main \
+              --head "$refresh_branch" \
+              --title "chore(roadmap): refresh Pages artifacts" \
+              --body-file "$body_file"
+          fi
 
       - name: Request legacy Pages rebuild
+        if: steps.commit.outputs.changed != 'true'
         run: gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent
