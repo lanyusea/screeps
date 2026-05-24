@@ -143,6 +143,9 @@ SUMMARY_ARTIFACT_SOURCE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
 )
+SUMMARY_DASHBOARD_ARTIFACT_KINDS = frozenset(
+    ("training_ledger", "policy_advantage", "metrics_observations")
+)
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -1365,14 +1368,27 @@ def summary_artifact_json_paths(
     repo_root: Path,
     *,
     max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+    artifact_kinds: Sequence[str] | None = None,
 ) -> tuple[list[Path], JsonObject]:
     bounded_limit = max(0, max_files_per_root)
+    artifact_kind_filter = set(artifact_kinds) if artifact_kinds is not None else None
     paths: list[Path] = []
     source_summaries: list[JsonObject] = []
     seen: set[Path] = set()
     for source, patterns in SUMMARY_ARTIFACT_SOURCE_PATTERNS:
         root = summary_artifact_source_root(artifact_root, source)
-        selected, total = newest_matching_files(root, patterns, limit=bounded_limit)
+        if artifact_kind_filter is None:
+            selected, total = newest_matching_files(root, patterns, limit=bounded_limit)
+            semantic_total: int | None = None
+            truncated = total > len(selected)
+        else:
+            selected, total, semantic_total = newest_semantic_artifact_files(
+                root,
+                patterns,
+                artifact_kind_filter,
+                limit_per_kind=bounded_limit,
+            )
+            truncated = semantic_total > len(selected)
         source_paths: list[Path] = []
         for path in selected:
             try:
@@ -1384,17 +1400,20 @@ def summary_artifact_json_paths(
             seen.add(resolved)
             source_paths.append(path)
             paths.append(path)
-        source_summaries.append(
-            {
-                "source": source,
-                "root": safe_display_path(root, repo_root),
-                "patterns": list(patterns),
-                "filesDiscovered": total,
-                "filesScanned": len(source_paths),
-                "fileLimit": bounded_limit,
-                "truncated": total > len(selected),
-            }
-        )
+        source_summary: JsonObject = {
+            "source": source,
+            "root": safe_display_path(root, repo_root),
+            "patterns": list(patterns),
+            "filesDiscovered": total,
+            "filesScanned": len(source_paths),
+            "fileLimit": bounded_limit,
+            "truncated": truncated,
+        }
+        if artifact_kind_filter is not None:
+            source_summary["artifactKinds"] = sorted(artifact_kind_filter)
+            source_summary["semanticFilesDiscovered"] = semantic_total
+            source_summary["fileLimitPerKind"] = bounded_limit
+        source_summaries.append(source_summary)
     ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
     return ordered, {
         "mode": "bounded-targeted-json",
@@ -1403,6 +1422,35 @@ def summary_artifact_json_paths(
         "sources": source_summaries,
         "truncated": any(source.get("truncated") is True for source in source_summaries),
     }
+
+
+def newest_semantic_artifact_files(
+    root: Path,
+    patterns: Sequence[str],
+    artifact_kinds: set[str],
+    *,
+    limit_per_kind: int,
+) -> tuple[list[Path], int, int]:
+    matched, total = newest_matching_files(root, patterns)
+    paths_by_kind: dict[str, list[Path]] = {kind: [] for kind in artifact_kinds}
+    semantic_total = 0
+    for path in matched:
+        payload = load_json_object(path)
+        if payload is None:
+            continue
+        kind = static_dashboard.artifact_kind(path, payload)
+        if kind not in artifact_kinds:
+            continue
+        semantic_total += 1
+        if len(paths_by_kind[kind]) < limit_per_kind:
+            paths_by_kind[kind].append(path)
+    selected = [
+        path
+        for kind_paths in paths_by_kind.values()
+        for path in kind_paths
+    ]
+    selected.sort(key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+    return selected, total, semantic_total
 
 
 def load_artifact_json_paths(paths: Iterable[Path]) -> Iterator[ArtifactJson]:
@@ -1424,6 +1472,7 @@ def load_bounded_dashboard_artifacts(
         artifact_root,
         repo_root,
         max_files_per_root=max_files_per_root,
+        artifact_kinds=SUMMARY_DASHBOARD_ARTIFACT_KINDS,
     )
     artifacts: list[static_dashboard.LoadedArtifact] = []
     for path in paths:

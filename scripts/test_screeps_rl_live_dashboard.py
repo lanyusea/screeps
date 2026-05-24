@@ -489,6 +489,75 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["simulator"]["ticksRun"], 2200)
         self.assertEqual(dashboard["policy"]["candidate"], "remote-candidate")
 
+    def test_bounded_dashboard_sections_filter_artifact_kind_before_source_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            for index in range(5):
+                path = control_root / f"decision-{index}.json"
+                write_json(
+                    path,
+                    {
+                        "type": "screeps-rl-iteration-decision",
+                        "decisionId": f"decision-{index}",
+                        "createdAt": f"2026-05-18T10:1{index}:00Z",
+                    },
+                )
+                os.utime(path, (1_771_001_000 + index, 1_771_001_000 + index))
+            training_path = control_root / "training-ledger.json"
+            write_json(
+                training_path,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 3, "policyUpdateIterations": 1, "simulatorTicksRun": 600},
+                    "environmentExecution": {"completed": 1, "failed": 0, "lastNewRunAt": "2026-05-18T10:00:00Z"},
+                    "createdAt": "2026-05-18T10:00:00Z",
+                },
+            )
+            policy_path = control_root / "policy-advantage.json"
+            write_json(
+                policy_path,
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate-policy",
+                    "baselinePolicyId": "baseline-policy",
+                    "createdAt": "2026-05-18T10:01:00Z",
+                },
+            )
+            metrics_path = control_root / "metrics-observations.json"
+            write_json(
+                metrics_path,
+                {
+                    "type": "screeps-rl-metrics-observations-report",
+                    "observations": [],
+                    "createdAt": "2026-05-18T10:02:00Z",
+                },
+            )
+            for path in (training_path, policy_path, metrics_path):
+                os.utime(path, (1_771_000_000, 1_771_000_000))
+
+            dashboard = live.build_bounded_dashboard_sections(
+                repo_root,
+                artifact_root,
+                "2026-05-18T10:15:00Z",
+                max_files_per_root=1,
+            )
+
+        self.assertTrue(str(dashboard["artifacts"]["trainingLedger"]).endswith("training-ledger.json"))
+        self.assertTrue(str(dashboard["artifacts"]["policyAdvantage"]).endswith("policy-advantage.json"))
+        self.assertTrue(str(dashboard["artifacts"]["metricsObservations"]).endswith("metrics-observations.json"))
+        self.assertEqual(dashboard["training"]["episodes"], 3.0)
+        self.assertEqual(dashboard["policy"]["candidate"], "candidate-policy")
+        control_source = {source["source"]: source for source in dashboard["scan"]["sources"]}["rl-control-loop"]
+        self.assertEqual(control_source["filesDiscovered"], 8)
+        self.assertEqual(control_source["semanticFilesDiscovered"], 3)
+        self.assertEqual(control_source["filesScanned"], 3)
+        self.assertEqual(control_source["fileLimitPerKind"], 1)
+
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
