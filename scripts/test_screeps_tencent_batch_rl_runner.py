@@ -5055,6 +5055,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
             args.artifact_root = artifact_root
+            expected_training_report_path = runner.remote_training_report_path(
+                artifact_root / "tencent-pg-20260524t222505z",
+                "tencent-pg-20260524t222505z",
+            )
             controller = FakeController(
                 args=args,
                 run_id="tencent-pg-20260524t222505z",
@@ -5071,8 +5075,16 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         training_report = summary["outputs"]["trainingReport"]
         scale_validation = training_report["scaleValidation"]
+        training_report_path = training_report["path"]
+        execution_training_report_path = summary["execution"]["trainingReportPath"]
         self.assertEqual(summary["finalStatus"], "failed")
-        self.assertEqual(summary["execution"]["trainingReportPath"], training_report["path"])
+        self.assertIsInstance(training_report_path, str)
+        self.assertTrue(training_report_path)
+        self.assertIsInstance(execution_training_report_path, str)
+        self.assertTrue(execution_training_report_path)
+        self.assertEqual(training_report_path, execution_training_report_path)
+        self.assertEqual(Path(training_report_path), expected_training_report_path)
+        self.assertEqual(Path(execution_training_report_path), expected_training_report_path)
         self.assertTrue(summary["execution"]["trainingReportProduced"])
         self.assertEqual(summary["execution"]["trainingReportId"], "tencent-pg-20260524t222505z")
         self.assertEqual(summary["execution"]["artifactCount"], 23)
