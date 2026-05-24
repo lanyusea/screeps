@@ -37,13 +37,13 @@ npm run rl-dashboard-live
 Default dashboard URL:
 
 ```text
-http://127.0.0.1:8790/
+http://127.0.0.1:8765/
 ```
 
 Machine-readable summary:
 
 ```text
-http://127.0.0.1:8790/api/summary
+http://127.0.0.1:8765/api/summary
 ```
 
 Health check:
@@ -55,10 +55,10 @@ npm run rl-dashboard-live:health
 Equivalent direct check:
 
 ```bash
-python3 scripts/screeps_rl_live_dashboard.py healthcheck --url http://127.0.0.1:8790/healthz
+python3 scripts/screeps_rl_live_dashboard.py healthcheck --url http://127.0.0.1:8765/healthz
 ```
 
-Expected healthy output includes JSON with `"ok": true` and `"message": "OK"`. The command checks the running local dashboard, so start `npm run rl-dashboard-live` first.
+Expected healthy output includes JSON with `"ok": true` and `"message": "OK"`. During startup refresh the service should still answer `/healthz` with a degraded JSON payload instead of refusing the connection. The command checks the running local dashboard, so start `npm run rl-dashboard-live` first.
 
 Run the task-level live acceptance guard before claiming the owner-facing surface is Done:
 
@@ -69,10 +69,10 @@ npm run rl-dashboard-live:acceptance
 Equivalent direct check:
 
 ```bash
-python3 scripts/screeps_rl_live_dashboard.py acceptance --url http://127.0.0.1:8790/
+python3 scripts/screeps_rl_live_dashboard.py acceptance --url http://127.0.0.1:8765/
 ```
 
-The acceptance command must PASS against the running service. It checks `/healthz` and `/api/summary`, requires `dashboardUrl`, `db.path`, SQLite table counts and `db.latestObservedAt`, `refresh.lastRefreshOk=true`, `refresh.lastRefreshAt`, and visible E1 gate, Loop A, Loop B, Tencent utilization, scorecard, safety, and Project gate sections. If the service is not listening, it fails with a clear `live dashboard service is not running/reachable` message.
+The acceptance command must PASS against the running service. It retries while startup refresh is explicitly in progress, then checks `/healthz` and `/api/summary`, requires `dashboardUrl`, `db.path`, SQLite table counts and `db.latestObservedAt`, `refresh.lastRefreshOk=true`, `refresh.lastRefreshAt`, and visible E1 gate, Loop A, Loop B, Tencent utilization, scorecard, safety, and Project gate sections. If the service is not listening, it fails with a clear `live dashboard service is not running/reachable` message.
 
 For a one-shot foreground start with an explicit cadence:
 
@@ -82,12 +82,12 @@ python3 scripts/screeps_rl_live_dashboard.py serve \
   --auto-refresh-seconds 300
 ```
 
-The live server precomputes and caches generated `/api/summary` and HTML summary data, invalidates that cache after each refresh, and bounds newest-artifact evidence scans. The standard local service therefore keeps health checks and summary reads fast while still refreshing SQLite on start and every 300 seconds while running.
+The live server precomputes and caches generated `/api/summary` and HTML summary data, invalidates that cache after each refresh, and bounds newest-artifact evidence scans. The default summary inspects the newest 25 files per targeted source group and exposes truncation metadata in `artifactEvidenceScan` plus `tencentBatch.truncated`, so capped scans are visible instead of silent. The standard local service therefore keeps health checks and summary reads fast while still refreshing SQLite on start and every 300 seconds while running.
 
 Trigger a local refresh through the running service only after starting it with `--enable-refresh-endpoint`:
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:8790/refresh
+curl -fsS -X POST http://127.0.0.1:8765/refresh
 ```
 
 ## Dashboard Coverage
@@ -139,7 +139,7 @@ Use this static command when refreshing local RL evidence for the GitHub Pages r
 
 Issue #1381 is a false-completion repair for closed #1184/#1237/#1350. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Closure requires all of the following live evidence in #879/#1381 Project Evidence:
 
-1. A running dashboard process/listener at the owner-facing URL (`http://127.0.0.1:8790/` by default).
+1. A running dashboard process/listener at the owner-facing URL (`http://127.0.0.1:8765/` by default).
 2. `npm run rl-dashboard-live:health` output showing `/healthz` with `ok=true`.
 3. `npm run rl-dashboard-live:acceptance` output with `ok=true` / `message=PASS`.
 4. `/api/summary` evidence including `dashboardUrl`, `db.path`, `db.tables`, `db.latestObservedAt`, `refresh.lastRefreshOk=true`, and `refresh.lastRefreshAt`.

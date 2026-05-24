@@ -372,6 +372,33 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertIn("SQLite Table Counts", html)
         self.assertIn("#924 Scorecard Status", html)
 
+    def test_live_summary_does_not_call_unbounded_static_dashboard_builder(self) -> None:
+        original_build_dashboard = live.static_dashboard.build_dashboard
+
+        def unbounded_build_dashboard(*_args: Any, **_kwargs: Any) -> JsonObject:
+            raise AssertionError("static dashboard full artifact scan should not run in live summary")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            live.refresh_metrics(db_path, artifact_root)
+            live.static_dashboard.build_dashboard = unbounded_build_dashboard
+            try:
+                summary = live.build_live_summary(
+                    repo_root,
+                    artifact_root,
+                    db_path,
+                    generated_at="2026-05-18T10:09:00Z",
+                )
+            finally:
+                live.static_dashboard.build_dashboard = original_build_dashboard
+
+        self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
+        self.assertEqual(summary["loopA"]["training"]["episodes"], 7.0)
+        self.assertEqual(summary["loopB"]["onlineUtilityStatus"], "PROVEN")
+
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -865,6 +892,24 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(health["status"], "degraded")
         self.assertIn("auto-refresh has not completed successfully", health["failures"])
 
+    def test_health_helper_reports_startup_refresh_in_progress(self) -> None:
+        health = live.health_with_refresh(
+            {"ok": True, "status": "ok", "failures": []},
+            {
+                "mode": "auto",
+                "autoRefreshSeconds": 60,
+                "initialRefreshRequired": True,
+                "refreshInProgress": True,
+                "activeRefreshReason": "startup",
+                "lastRefreshAt": None,
+                "lastRefreshOk": None,
+            },
+        )
+
+        self.assertFalse(health["ok"])
+        self.assertEqual(health["status"], "degraded")
+        self.assertIn("startup refresh is in progress", health["failures"])
+
     def test_project_gate_requires_successful_auto_refresh(self) -> None:
         flywheel_stages = [{"stage": "construction-landed", "status": "OK"}]
         tencent = {
@@ -1211,6 +1256,75 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(payload["refresh"]["lastRefreshOk"])
         self.assertEqual(payload["refresh"]["lastRefreshAt"], "2026-05-18T10:09:00Z")
 
+    def test_health_and_acceptance_stay_ok_during_auto_refresh_with_cached_summary(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+        refresh_entered = threading.Event()
+        release_refresh = threading.Event()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            initial_refresh = live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            server.record_refresh(initial_refresh, refreshed_at="2026-05-18T10:09:00Z")
+
+            def blocked_refresh_metrics(
+                db_path_arg: Path,
+                artifact_root_arg: Path,
+                paths: Any = None,
+                **kwargs: Any,
+            ) -> JsonObject:
+                refresh_entered.set()
+                release_refresh.wait(timeout=5)
+                return original_refresh_metrics(db_path_arg, artifact_root_arg, paths, **kwargs)
+
+            live.refresh_metrics = blocked_refresh_metrics
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            refresh_thread: threading.Thread | None = None
+            try:
+                host, port = server.server_address
+                warm_summary = read_json_url(f"http://{host}:{port}/api/summary")
+                self.assertTrue(warm_summary["health"]["ok"])
+                refresh_thread = server.start_background_refresh("auto")
+                self.assertTrue(refresh_entered.wait(timeout=1))
+
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    exit_code = live.run_acceptance(f"http://{host}:{port}/", timeout=2.0)
+                payload = json.loads(output.getvalue())
+            finally:
+                release_refresh.set()
+                if refresh_thread is not None:
+                    refresh_thread.join(timeout=5)
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+        self.assertEqual(health["message"], "OK")
+        self.assertTrue(health["refresh"]["refreshInProgress"])
+        self.assertEqual(health["refresh"]["activeRefreshReason"], "auto")
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["message"], "PASS")
+        self.assertTrue(payload["refresh"]["lastRefreshOk"])
+        self.assertTrue(payload["refresh"]["refreshInProgress"])
+
     def test_live_acceptance_reports_not_running_connection_refused(self) -> None:
         try:
             sock = socket.socket()
@@ -1231,6 +1345,212 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertIn("live dashboard service is not running/reachable", payload["error"])
         self.assertIn("npm run rl-dashboard-live", payload["error"])
 
+    def test_refresh_on_start_binds_before_slow_refresh_finishes(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+        original_make_server = live.make_server
+        refresh_entered = threading.Event()
+        release_refresh = threading.Event()
+        server_created = threading.Event()
+        server_ref: dict[str, live.LiveDashboardHTTPServer] = {}
+
+        def slow_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
+            refresh_entered.set()
+            release_refresh.wait(timeout=5)
+            return {"ok": True, "files_scanned": 1}
+
+        def tracking_make_server(host: str, port: int, config: live.LiveDashboardConfig) -> live.LiveDashboardHTTPServer:
+            server = original_make_server(host, port, config)
+            server_ref["server"] = server
+            server_created.set()
+            return server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = artifact_root / "rl-metrics" / "rl_metrics.sqlite"
+            probe_config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            try:
+                probe_server = original_make_server("127.0.0.1", 0, probe_config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            else:
+                probe_server.server_close()
+            live.refresh_metrics = slow_refresh_metrics
+            live.make_server = tracking_make_server
+            main_thread = threading.Thread(
+                target=lambda: live.main(
+                    [
+                        "serve",
+                        "--repo-root",
+                        str(repo_root),
+                        "--artifact-root",
+                        str(artifact_root),
+                        "--db",
+                        str(db_path),
+                        "--refresh-on-start",
+                        "--auto-refresh-seconds",
+                        "60",
+                        "--port",
+                        "0",
+                    ]
+                ),
+                daemon=True,
+            )
+            main_thread.start()
+            try:
+                self.assertTrue(server_created.wait(timeout=1))
+                self.assertTrue(refresh_entered.wait(timeout=1))
+                server = server_ref["server"]
+                host, port = server.server_address
+                deadline = time.monotonic() + 2
+                last_error: Exception | None = None
+                while True:
+                    try:
+                        status, health = get_json_url(f"http://{host}:{port}/healthz", timeout=0.2)
+                        break
+                    except OSError as error:
+                        last_error = error
+                        if time.monotonic() >= deadline:
+                            raise AssertionError(f"server did not bind before refresh finished: {last_error}")
+                        time.sleep(0.05)
+            finally:
+                release_refresh.set()
+                server = server_ref.get("server")
+                if server is not None:
+                    server.shutdown()
+                main_thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+                live.make_server = original_make_server
+
+        self.assertEqual(status, 503)
+        self.assertFalse(health["ok"])
+        self.assertTrue(health["refresh"]["refreshInProgress"])
+        self.assertEqual(health["refresh"]["activeRefreshReason"], "startup")
+        self.assertIn("startup refresh is in progress", health["failures"])
+
+    def test_startup_refresh_in_progress_without_usable_data_is_degraded(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+        refresh_entered = threading.Event()
+        release_refresh = threading.Event()
+
+        def blocked_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
+            refresh_entered.set()
+            release_refresh.wait(timeout=5)
+            return {"ok": True, "files_scanned": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = artifact_root / "rl-metrics" / "rl_metrics.sqlite"
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+                initial_refresh_required=True,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.refresh_metrics = blocked_refresh_metrics
+            refresh_thread = server.start_background_refresh("startup")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                self.assertTrue(refresh_entered.wait(timeout=1))
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
+            finally:
+                release_refresh.set()
+                refresh_thread.join(timeout=5)
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(status, 503)
+        self.assertFalse(health["ok"])
+        self.assertFalse(health["db"]["exists"])
+        self.assertIsNone(health["refresh"]["lastRefreshOk"])
+        self.assertIn("startup refresh is in progress", health["failures"])
+
+    def test_live_acceptance_waits_for_startup_refresh_to_complete(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+        refresh_entered = threading.Event()
+        release_refresh = threading.Event()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = artifact_root / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+
+            def delayed_refresh_metrics(
+                db_path_arg: Path,
+                artifact_root_arg: Path,
+                paths: Any = None,
+                **kwargs: Any,
+            ) -> JsonObject:
+                refresh_entered.set()
+                release_refresh.wait(timeout=5)
+                return original_refresh_metrics(db_path_arg, artifact_root_arg, paths, **kwargs)
+
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+                initial_refresh_required=True,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            live.refresh_metrics = delayed_refresh_metrics
+            server.start_background_refresh("startup")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            output = io.StringIO()
+            acceptance_result: list[int] = []
+
+            def run_acceptance() -> None:
+                with contextlib.redirect_stdout(output):
+                    acceptance_result.append(live.run_acceptance(f"http://{host}:{port}/", timeout=5.0))
+
+            try:
+                host, port = server.server_address
+                self.assertTrue(refresh_entered.wait(timeout=1))
+                acceptance_thread = threading.Thread(target=run_acceptance, daemon=True)
+                acceptance_thread.start()
+                time.sleep(0.1)
+                self.assertTrue(acceptance_thread.is_alive())
+                release_refresh.set()
+                acceptance_thread.join(timeout=5)
+                self.assertFalse(acceptance_thread.is_alive())
+                payload = json.loads(output.getvalue())
+            finally:
+                release_refresh.set()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                live.refresh_metrics = original_refresh_metrics
+
+        self.assertEqual(acceptance_result, [0])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["message"], "PASS")
+        self.assertTrue(payload["refresh"]["lastRefreshOk"])
+
     def test_artifact_evidence_summary_scan_is_bounded_to_newest_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -1250,7 +1570,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             )
             os.utime(newest, (1_771_001_000, 1_771_001_000))
 
-            injection, zero_iteration = live.artifact_evidence_summaries(
+            injection, zero_iteration, scan = live.artifact_evidence_summaries_with_scan(
                 artifact_root,
                 repo_root,
                 max_files_per_root=1,
@@ -1260,6 +1580,61 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(injection["evidence"], "runtime_parameter_injection=False")
         self.assertTrue(injection["latestPath"].endswith("new-runtime-blocked.json"))
         self.assertEqual(zero_iteration["status"], "N/A")
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertTrue(control_source["truncated"])
+        self.assertEqual(control_source["fileLimit"], 1)
+
+    def test_artifact_evidence_scan_avoids_recursive_whole_tree_discovery(self) -> None:
+        original_rglob = Path.rglob
+
+        def forbidden_rglob(self: Path, pattern: str) -> Any:
+            raise AssertionError(f"recursive scan attempted for {self}/{pattern}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "runtime-blocked.json",
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+            write_json(
+                artifact_root
+                / "tencent-cloud"
+                / "batch-runs"
+                / "tencent-pg"
+                / "remote"
+                / "runtime-artifacts"
+                / "rl-training"
+                / "trusted-report.json",
+                {
+                    "type": "screeps-rl-training-report",
+                    "createdAt": "2026-05-18T10:09:00Z",
+                    "policyUpdateIterations": 1,
+                    "trueGradient": True,
+                    "trustedGradientUpdate": False,
+                    "policyUpdate": {
+                        "iterations": 1,
+                        "trueGradient": True,
+                        "promotionGate": {
+                            "status": "blocked_runtime_parameter_consumption_missing",
+                            "runtimeParameterConsumption": False,
+                        },
+                    },
+                },
+            )
+
+            Path.rglob = forbidden_rglob  # type: ignore[method-assign]
+            try:
+                injection, zero_iteration = live.artifact_evidence_summaries(artifact_root, repo_root)
+            finally:
+                Path.rglob = original_rglob  # type: ignore[method-assign]
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertEqual(zero_iteration["status"], "BLOCKED")
+        self.assertEqual(zero_iteration["sourceTrust"], "trusted_training_report")
 
     def test_write_json_suppresses_client_disconnect(self) -> None:
         class BrokenWriter:
@@ -1442,7 +1817,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(payload["summary"]["refresh"]["lastRefreshOk"])
         self.assertEqual(payload["summary"]["refresh"]["lastRefresh"]["files_scanned"], 7)
 
-    def test_refresh_on_start_returns_failure_when_refresh_reports_not_ok(self) -> None:
+    def test_startup_refresh_failure_keeps_service_reachable_but_degraded(self) -> None:
         original_refresh_metrics = live.refresh_metrics
 
         def failing_refresh_metrics(
@@ -1460,24 +1835,35 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             write_live_artifacts(artifact_root)
             live.refresh_metrics = failing_refresh_metrics
             try:
-                exit_code = live.main(
-                    [
-                        "serve",
-                        "--repo-root",
-                        str(repo_root),
-                        "--artifact-root",
-                        str(artifact_root),
-                        "--db",
-                        str(db_path),
-                        "--refresh-on-start",
-                        "--port",
-                        "0",
-                    ]
+                config = live.LiveDashboardConfig(
+                    repo_root=repo_root,
+                    artifact_root=artifact_root,
+                    db_path=db_path,
+                    initial_refresh_required=True,
                 )
+                try:
+                    server = live.make_server("127.0.0.1", 0, config)
+                except OSError as error:
+                    self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+                refresh_thread = server.start_background_refresh("startup")
+                refresh_thread.join(timeout=2)
+                host, port = server.server_address
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                status, health = get_json_url(f"http://{host}:{port}/healthz")
             finally:
+                if "server" in locals():
+                    server.shutdown()
+                    server.server_close()
+                if "thread" in locals():
+                    thread.join(timeout=5)
                 live.refresh_metrics = original_refresh_metrics
 
-        self.assertEqual(exit_code, 1)
+        self.assertEqual(status, 503)
+        self.assertFalse(health["ok"])
+        self.assertFalse(health["refresh"]["lastRefreshOk"])
+        self.assertEqual(health["refresh"]["lastRefresh"]["error"], "ingestor soft failure")
+        self.assertIn("startup refresh has not completed successfully", health["failures"])
 
 
 if __name__ == "__main__":

@@ -27,13 +27,13 @@ import screeps_rl_scale_gates as scale_gates
 
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8790
+DEFAULT_PORT = 8765
 DEFAULT_REFRESH_SECONDS = 60
 DEFAULT_AUTO_REFRESH_SECONDS = 300
 DEFAULT_DASHBOARD_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/"
 DEFAULT_HEALTHCHECK_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/healthz"
 DEFAULT_SUMMARY_CACHE_SECONDS = DEFAULT_AUTO_REFRESH_SECONDS
-DEFAULT_SUMMARY_SCAN_FILE_LIMIT = 200
+DEFAULT_SUMMARY_SCAN_FILE_LIMIT = 25
 DEFAULT_INGEST_FILE_LIMIT_PER_ROOT = 250
 REQUIRED_TABLES = (
     "metric_definitions",
@@ -112,6 +112,37 @@ HOST_KEY_SELF_HEAL_STEP_NAMES = {
     "prepare_worker_known_host",
     "scan_worker_host_key",
 }
+SUMMARY_ARTIFACT_SOURCE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "rl-control-loop",
+        (
+            "*.json",
+            "scorecards/*.json",
+            "gate-data/*.json",
+            "gate-data/*/*.json",
+            "*/gate_summary.json",
+            "*/gate_report.json",
+        ),
+    ),
+    (
+        "rl-training",
+        (
+            "*.json",
+            "policy-candidates/*.json",
+            "*/experiment_card.json",
+            "*/training-report*.json",
+        ),
+    ),
+    (
+        "tencent-cloud/batch-runs",
+        (
+            "*/controller-summary.json",
+            "*/experiment_card.json",
+            "*/remote/runtime-artifacts/rl-control-loop/*.json",
+            "*/remote/runtime-artifacts/rl-training/*.json",
+        ),
+    ),
+)
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -126,6 +157,7 @@ class LiveDashboardConfig:
     refresh_seconds: int = DEFAULT_REFRESH_SECONDS
     enable_refresh_endpoint: bool = False
     auto_refresh_seconds: int = 0
+    initial_refresh_required: bool = False
     summary_cache_seconds: float = DEFAULT_SUMMARY_CACHE_SECONDS
     summary_scan_file_limit: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT
     ingest_file_limit_per_root: int = DEFAULT_INGEST_FILE_LIMIT_PER_ROOT
@@ -147,6 +179,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.refresh_lock = threading.Lock()
         self.refresh_state_lock = threading.Lock()
         self.summary_lock = threading.Lock()
+        self.background_refresh_threads_lock = threading.Lock()
+        self.background_refresh_threads: list[threading.Thread] = []
         self.refresh_stop = threading.Event()
         self.refresh_thread: threading.Thread | None = None
         self.summary_cache: JsonObject | None = None
@@ -156,6 +190,10 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.refresh_state: JsonObject = {
             "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
             "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
+            "initialRefreshRequired": config.initial_refresh_required,
+            "refreshInProgress": False,
+            "activeRefreshStartedAt": None,
+            "activeRefreshReason": None,
             "lastRefreshAt": None,
             "lastRefreshOk": None,
             "lastRefresh": None,
@@ -166,9 +204,21 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         if config.auto_refresh_seconds > 0:
             self.start_auto_refresh()
 
-    def record_refresh(self, refresh: JsonObject, refreshed_at: str | None = None) -> None:
+    def record_refresh(
+        self,
+        refresh: JsonObject,
+        refreshed_at: str | None = None,
+        *,
+        keep_in_progress: bool = False,
+        active_reason: str | None = None,
+    ) -> None:
         timestamp = refreshed_at or utc_now_iso()
         with self.refresh_state_lock:
+            self.refresh_state["refreshInProgress"] = keep_in_progress
+            self.refresh_state["activeRefreshStartedAt"] = (
+                self.refresh_state.get("activeRefreshStartedAt") if keep_in_progress else None
+            )
+            self.refresh_state["activeRefreshReason"] = active_reason if keep_in_progress else None
             self.refresh_state["lastRefreshAt"] = timestamp
             self.refresh_state["lastRefreshOk"] = refresh_succeeded(refresh)
             self.refresh_state["lastRefresh"] = dashboard_json_safe(refresh, self.config.repo_root)
@@ -177,11 +227,74 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 if self.config.auto_refresh_seconds > 0
                 else None
             )
-        self.invalidate_summary_cache()
+        self.invalidate_summary_cache(preserve_existing=keep_in_progress and refresh_succeeded(refresh))
 
     def refresh_snapshot(self) -> JsonObject:
         with self.refresh_state_lock:
             return dict(self.refresh_state)
+
+    def finish_refresh_progress(self) -> None:
+        with self.refresh_state_lock:
+            self.refresh_state["refreshInProgress"] = False
+            self.refresh_state["activeRefreshStartedAt"] = None
+            self.refresh_state["activeRefreshReason"] = None
+
+    def mark_refresh_started(self, reason: str) -> str:
+        timestamp = utc_now_iso()
+        with self.refresh_state_lock:
+            previous_refresh_ok = self.refresh_state.get("lastRefreshOk") is True and bool(
+                self.refresh_state.get("lastRefreshAt")
+            )
+            self.refresh_state["refreshInProgress"] = True
+            self.refresh_state["activeRefreshStartedAt"] = timestamp
+            self.refresh_state["activeRefreshReason"] = reason
+        self.invalidate_summary_cache(preserve_existing=previous_refresh_ok)
+        return timestamp
+
+    def run_refresh_cycle(self, reason: str) -> JsonObject:
+        with self.refresh_lock:
+            self.mark_refresh_started(reason)
+            try:
+                refresh = refresh_metrics(
+                    self.config.db_path,
+                    self.config.artifact_root,
+                    max_files_per_root=self.config.ingest_file_limit_per_root,
+                )
+            except Exception as error:  # pragma: no cover - defensive background boundary
+                refresh = {"ok": False, "error": str(error)}
+            self.record_refresh(
+                refresh,
+                keep_in_progress=refresh_succeeded(refresh),
+                active_reason=f"{reason} summary",
+            )
+        if refresh_succeeded(refresh):
+            try:
+                self.prime_summary_cache()
+            except Exception:
+                self.invalidate_summary_cache()
+            finally:
+                self.finish_refresh_progress()
+        return refresh
+
+    def start_background_refresh(self, reason: str) -> threading.Thread:
+        thread_holder: dict[str, threading.Thread] = {}
+
+        def refresh_target() -> None:
+            try:
+                self.run_refresh_cycle(reason)
+            finally:
+                thread = thread_holder.get("thread")
+                if thread is not None:
+                    with self.background_refresh_threads_lock:
+                        if thread in self.background_refresh_threads:
+                            self.background_refresh_threads.remove(thread)
+
+        thread = threading.Thread(target=refresh_target, daemon=True, name=f"rl-dashboard-{reason}-refresh")
+        thread_holder["thread"] = thread
+        with self.background_refresh_threads_lock:
+            self.background_refresh_threads.append(thread)
+        thread.start()
+        return thread
 
     def start_auto_refresh(self) -> None:
         if self.refresh_thread is not None:
@@ -189,20 +302,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
 
         def refresh_loop() -> None:
             while not self.refresh_stop.wait(self.config.auto_refresh_seconds):
-                with self.refresh_lock:
-                    try:
-                        refresh = refresh_metrics(
-                            self.config.db_path,
-                            self.config.artifact_root,
-                            max_files_per_root=self.config.ingest_file_limit_per_root,
-                        )
-                    except Exception as error:  # pragma: no cover - defensive background loop boundary
-                        refresh = {"ok": False, "error": str(error)}
-                self.record_refresh(refresh)
-                try:
-                    self.prime_summary_cache()
-                except Exception:
-                    pass
+                self.run_refresh_cycle("auto")
 
         self.refresh_thread = threading.Thread(target=refresh_loop, daemon=True, name="rl-dashboard-refresh")
         self.refresh_thread.start()
@@ -211,22 +311,39 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         host, port = self.server_address[:2]
         return format_dashboard_url(str(host), int(port))
 
-    def invalidate_summary_cache(self) -> None:
+    def invalidate_summary_cache(self, *, preserve_existing: bool = False) -> None:
         with self.summary_lock:
-            self.summary_cache = None
-            self.summary_cache_dashboard_url = None
-            self.summary_cache_until = 0.0
+            if not preserve_existing:
+                self.summary_cache = None
+                self.summary_cache_dashboard_url = None
+                self.summary_cache_until = 0.0
             self.summary_cache_generation += 1
 
     def prime_summary_cache(self) -> JsonObject:
-        return self.summary_snapshot(self.dashboard_url())
+        return self.summary_snapshot(self.dashboard_url(), allow_refresh_placeholder=False)
 
-    def summary_snapshot(self, dashboard_url: str) -> JsonObject:
+    def cached_summary_for_refresh(self, dashboard_url: str, refresh: JsonObject) -> JsonObject | None:
+        with self.summary_lock:
+            cached = self.summary_cache
+            if cached is None or self.summary_cache_dashboard_url != dashboard_url:
+                return None
+            if not summary_has_usable_cached_data(cached):
+                return None
+            return summary_with_refresh(cached, refresh)
+
+    def summary_snapshot(self, dashboard_url: str, *, allow_refresh_placeholder: bool = True) -> JsonObject:
+        refresh = self.refresh_snapshot()
+        if allow_refresh_placeholder and refresh.get("refreshInProgress"):
+            cached = self.cached_summary_for_refresh(dashboard_url, refresh)
+            if cached is not None:
+                return cached
+            return build_refreshing_summary(self.config, dashboard_url, refresh)
         cache_ttl = max(0.0, float(self.config.summary_cache_seconds))
         current_monotonic = time.monotonic()
         with self.summary_lock:
             if (
-                cache_ttl > 0
+                not refresh.get("refreshInProgress")
+                and cache_ttl > 0
                 and self.summary_cache is not None
                 and self.summary_cache_dashboard_url == dashboard_url
                 and current_monotonic < self.summary_cache_until
@@ -234,9 +351,19 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 return self.summary_cache
             cache_generation = self.summary_cache_generation
 
-        with self.refresh_lock:
+        if not self.refresh_lock.acquire(blocking=False):
+            refresh = self.refresh_snapshot()
+            if allow_refresh_placeholder and refresh.get("refreshInProgress"):
+                cached = self.cached_summary_for_refresh(dashboard_url, refresh)
+                if cached is not None:
+                    return cached
+                return build_refreshing_summary(self.config, dashboard_url, refresh)
+            self.refresh_lock.acquire()
+        try:
             db = sqlite_summary(self.config.db_path, self.config.repo_root)
             refresh = self.refresh_snapshot()
+        finally:
+            self.refresh_lock.release()
         summary = build_live_summary(
             self.config.repo_root,
             self.config.artifact_root,
@@ -267,6 +394,10 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         if self.refresh_thread is not None:
             self.refresh_thread.join(timeout=2)
             self.refresh_thread = None
+        with self.background_refresh_threads_lock:
+            background_threads = list(self.background_refresh_threads)
+        for thread in background_threads:
+            thread.join(timeout=2)
         super().server_close()
 
 
@@ -579,11 +710,43 @@ def health_from_db_summary(db: JsonObject) -> JsonObject:
     }
 
 
-def health_with_refresh(db_health: JsonObject, refresh: JsonObject) -> JsonObject:
+def db_summary_has_usable_data(db: JsonObject) -> bool:
+    tables = db.get("tables")
+    return (
+        db.get("exists") is True
+        and db.get("schemaReady") is True
+        and not db.get("error")
+        and isinstance(tables, dict)
+        and bool(tables)
+        and bool(db.get("latestObservedAt"))
+    )
+
+
+def summary_has_usable_cached_data(summary: JsonObject) -> bool:
+    refresh = as_dict(summary.get("refresh"))
+    return (
+        db_summary_has_usable_data(as_dict(summary.get("db")))
+        and as_dict(summary.get("health")).get("ok") is True
+        and refresh.get("lastRefreshOk") is True
+        and bool(refresh.get("lastRefreshAt"))
+        and bool(as_dict(summary.get("e1Gate")))
+        and bool(as_dict(summary.get("loopA")))
+        and bool(as_dict(summary.get("loopB")))
+        and bool(as_dict(summary.get("tencentBatch")))
+        and bool(as_list(summary.get("projectGates")))
+    )
+
+
+def health_with_refresh(db_health: JsonObject, refresh: JsonObject, *, usable_data: bool = False) -> JsonObject:
     failures = list(as_list(db_health.get("failures")))
-    if refresh.get("mode") == "auto" and (
-        refresh.get("lastRefreshOk") is not True or not refresh.get("lastRefreshAt")
-    ):
+    refresh_succeeded_at_least_once = refresh.get("lastRefreshOk") is True and bool(refresh.get("lastRefreshAt"))
+    if refresh.get("refreshInProgress") is True:
+        if not (refresh_succeeded_at_least_once and usable_data):
+            reason = text_value(refresh.get("activeRefreshReason")) or "metrics"
+            failures.append(f"{reason} refresh is in progress")
+    elif refresh.get("initialRefreshRequired") is True and not refresh_succeeded_at_least_once:
+        failures.append("startup refresh has not completed successfully")
+    elif refresh.get("mode") == "auto" and not refresh_succeeded_at_least_once:
         failures.append("auto-refresh has not completed successfully")
     ok = not failures
     return {
@@ -591,6 +754,37 @@ def health_with_refresh(db_health: JsonObject, refresh: JsonObject) -> JsonObjec
         "status": "ok" if ok else "degraded",
         "failures": failures,
     }
+
+
+def summary_with_refresh(summary: JsonObject, refresh: JsonObject) -> JsonObject:
+    updated = dict(summary)
+    db = as_dict(updated.get("db"))
+    updated["refresh"] = dict(refresh)
+    updated["health"] = health_with_refresh(
+        health_from_db_summary(db),
+        refresh,
+        usable_data=db_summary_has_usable_data(db),
+    )
+    return updated
+
+
+def refreshing_db_summary(db_path: Path, repo_root: Path, reason: str) -> JsonObject:
+    expanded = db_path.expanduser()
+    summary: JsonObject = {
+        "path": safe_display_path(expanded, repo_root),
+        "exists": expanded.exists(),
+        "sizeBytes": None,
+        "schemaReady": False,
+        "tables": {},
+        "latestObservedAt": None,
+        "error": reason,
+    }
+    try:
+        if expanded.exists():
+            summary["sizeBytes"] = expanded.stat().st_size
+    except OSError as error:
+        summary["error"] = f"{reason}; cannot stat metrics database: {error}"
+    return summary
 
 
 def default_ingest_paths(artifact_root: Path) -> list[Path]:
@@ -1161,30 +1355,74 @@ def safety_summary(dashboard: JsonObject, tencent: JsonObject, scorecard: JsonOb
     }
 
 
+def summary_artifact_source_root(artifact_root: Path, source: str) -> Path:
+    return artifact_root.joinpath(*source.split("/"))
+
+
+def summary_artifact_json_paths(
+    artifact_root: Path,
+    repo_root: Path,
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> tuple[list[Path], JsonObject]:
+    bounded_limit = max(0, max_files_per_root)
+    paths: list[Path] = []
+    source_summaries: list[JsonObject] = []
+    seen: set[Path] = set()
+    for source, patterns in SUMMARY_ARTIFACT_SOURCE_PATTERNS:
+        root = summary_artifact_source_root(artifact_root, source)
+        selected, total = newest_matching_files(root, patterns, limit=bounded_limit)
+        source_paths: list[Path] = []
+        for path in selected:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            source_paths.append(path)
+            paths.append(path)
+        source_summaries.append(
+            {
+                "source": source,
+                "root": safe_display_path(root, repo_root),
+                "patterns": list(patterns),
+                "filesDiscovered": total,
+                "filesScanned": len(source_paths),
+                "fileLimit": bounded_limit,
+                "truncated": total > len(selected),
+            }
+        )
+    ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+    return ordered, {
+        "mode": "bounded-targeted-json",
+        "filesScanned": len(ordered),
+        "fileLimitPerSource": bounded_limit,
+        "sources": source_summaries,
+        "truncated": any(source.get("truncated") is True for source in source_summaries),
+    }
+
+
+def load_artifact_json_paths(paths: Iterable[Path]) -> Iterator[ArtifactJson]:
+    for path in paths:
+        payload = load_json_object(path)
+        if payload is None:
+            continue
+        yield path, payload, artifact_timestamp(path, payload)
+
+
 def scan_artifact_json(
     artifact_root: Path,
     *,
     max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
 ) -> Iterator[ArtifactJson]:
-    roots = (
-        artifact_root / "rl-control-loop",
-        artifact_root / "rl-training",
-        artifact_root / "tencent-cloud" / "batch-runs",
+    paths, _scan = summary_artifact_json_paths(
+        artifact_root,
+        artifact_root,
+        max_files_per_root=max_files_per_root,
     )
-    paths: list[Path] = []
-    for root in roots:
-        selected, _total = newest_matching_files(
-            root,
-            ("*.json",),
-            recursive=True,
-            limit=max_files_per_root,
-        )
-        paths.extend(selected)
-    for path in sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True):
-        payload = load_json_object(path)
-        if payload is None:
-            continue
-        yield path, payload, artifact_timestamp(path, payload)
+    yield from load_artifact_json_paths(paths)
 
 
 def summary_status_priority(summary: JsonObject) -> int:
@@ -1512,10 +1750,29 @@ def artifact_evidence_summaries(
     *,
     max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
 ) -> tuple[JsonObject, JsonObject]:
+    injection, zero_iteration, _scan = artifact_evidence_summaries_with_scan(
+        artifact_root,
+        repo_root,
+        max_files_per_root=max_files_per_root,
+    )
+    return injection, zero_iteration
+
+
+def artifact_evidence_summaries_with_scan(
+    artifact_root: Path,
+    repo_root: Path,
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     injection: JsonObject | None = None
     trusted_zero_iteration: JsonObject | None = None
     fallback_zero_iteration: JsonObject | None = None
-    for path, payload, timestamp in scan_artifact_json(artifact_root, max_files_per_root=max_files_per_root):
+    paths, scan = summary_artifact_json_paths(
+        artifact_root,
+        repo_root,
+        max_files_per_root=max_files_per_root,
+    )
+    for path, payload, timestamp in load_artifact_json_paths(paths):
         injection = newest_summary(injection, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
         zero_iteration = zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root)
         if as_dict(zero_iteration).get("sourceTrust") == "trusted_training_report":
@@ -1538,6 +1795,7 @@ def artifact_evidence_summaries(
             "latestPath": None,
             "updatedAt": None,
         },
+        scan,
     )
 
 
@@ -1664,6 +1922,83 @@ def project_gate_summary(
     ]
 
 
+def build_bounded_dashboard_sections(
+    repo_root: Path,
+    artifact_root: Path,
+    generated_at: str,
+) -> JsonObject:
+    warnings: list[str] = []
+    control_root = artifact_root / "rl-control-loop"
+    conclusion_artifact = static_dashboard.load_optional_artifact(
+        control_root / "conclusion-registry.json",
+        warnings,
+        repo_root,
+    )
+    latest_training = static_dashboard.latest_artifact(
+        control_root,
+        ("*training-ledger*.json", "*.json"),
+        warnings=warnings,
+        repo_root=repo_root,
+        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "training_ledger",
+    )
+    latest_policy = static_dashboard.latest_artifact(
+        control_root,
+        ("*policy-advantage*.json", "*.json"),
+        warnings=warnings,
+        repo_root=repo_root,
+        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "policy_advantage",
+    )
+    latest_metrics = static_dashboard.latest_artifact(
+        control_root,
+        ("*metrics-observations*.json", "*.json"),
+        warnings=warnings,
+        repo_root=repo_root,
+        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "metrics_observations",
+    )
+    gate = static_dashboard.latest_gate(
+        static_dashboard.discover_gate_infos(
+            artifact_root,
+            repo_root=repo_root,
+            warnings=warnings,
+            latest_training=latest_training,
+            latest_metrics=latest_metrics,
+        )
+    )
+    simulator = static_dashboard.simulator_health(
+        artifact_root,
+        repo_root=repo_root,
+        warnings=warnings,
+        latest_training=latest_training,
+    )
+    training = static_dashboard.training_execution(
+        latest_training,
+        standalone_card_supply_candidates=[],
+        tencent_internal_card_supply_candidates=[],
+    )
+    policy = static_dashboard.policy_advantage(latest_policy, latest_metrics, training=training)
+    lanes = static_dashboard.lane_statuses(gate, simulator, training, policy)
+    return {
+        "generatedAt": generated_at,
+        "repoRoot": repo_root,
+        "artifactRoot": artifact_root,
+        "warnings": warnings,
+        "artifacts": {
+            "conclusionRegistry": conclusion_artifact.path if conclusion_artifact else None,
+            "trainingLedger": latest_training.path if latest_training else None,
+            "policyAdvantage": latest_policy.path if latest_policy else None,
+            "metricsObservations": latest_metrics.path if latest_metrics else None,
+        },
+        "lanes": lanes,
+        "conclusions": static_dashboard.conclusion_summary(conclusion_artifact),
+        "gate": gate,
+        "simulator": simulator,
+        "training": training,
+        "policy": policy,
+        "cardSupply": training.get("cardSupply"),
+        "scan": {"mode": "bounded-live-dashboard-sections"},
+    }
+
+
 def build_live_summary(
     repo_root: Path,
     artifact_root: Path,
@@ -1685,13 +2020,17 @@ def build_live_summary(
         "nextRefreshAt": None,
     }
     db = db_summary if db_summary is not None else sqlite_summary(db_path, repo_root)
-    health = health_with_refresh(health_from_db_summary(db), refresh_summary)
-    raw_dashboard = static_dashboard.build_dashboard(repo_root=repo_root, artifact_root=artifact_root, generated_at=generated)
+    health = health_with_refresh(
+        health_from_db_summary(db),
+        refresh_summary,
+        usable_data=db_summary_has_usable_data(db),
+    )
+    raw_dashboard = build_bounded_dashboard_sections(repo_root, artifact_root, generated)
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
     scorecard = latest_scorecard_summary(artifact_root, repo_root, max_files=scan_file_limit)
     tencent = tencent_batch_summary_at(artifact_root, repo_root, now=generated, max_runs=scan_file_limit)
     safety = safety_summary(dashboard, tencent, scorecard)
-    injection, zero_iteration = artifact_evidence_summaries(
+    injection, zero_iteration, artifact_evidence_scan = artifact_evidence_summaries_with_scan(
         artifact_root,
         repo_root,
         max_files_per_root=scan_file_limit,
@@ -1732,7 +2071,52 @@ def build_live_summary(
         "loopB": loop_b,
         "tencentBatch": tencent,
         "safety": safety,
+        "artifactEvidenceScan": artifact_evidence_scan,
         "warnings": dashboard.get("warnings", []),
+    }
+
+
+def build_refreshing_summary(config: LiveDashboardConfig, dashboard_url: str, refresh: JsonObject) -> JsonObject:
+    generated = utc_now_iso()
+    reason = text_value(refresh.get("activeRefreshReason")) or "metrics"
+    db = refreshing_db_summary(config.db_path, config.repo_root, f"{reason} refresh in progress")
+    health = health_with_refresh(health_from_db_summary(db), refresh)
+    flywheel_stages = [
+        {
+            "stage": "construction-landed",
+            "status": "BLOCKED",
+            "evidence": f"{reason} refresh in progress",
+        }
+    ]
+    empty_status = {"status": "N/A", "evidence": f"{reason} refresh in progress"}
+    project_gates = project_gate_summary(
+        flywheel_stages=flywheel_stages,
+        tencent={},
+        injection=empty_status,
+        zero_iteration=empty_status,
+        refresh=refresh,
+    )
+    return {
+        "type": "screeps-rl-live-dashboard",
+        "generatedAt": generated,
+        "repoRoot": safe_display_path(config.repo_root, config.repo_root),
+        "artifactRoot": safe_display_path(config.artifact_root, config.repo_root),
+        "dashboardUrl": dashboard_url,
+        "health": health,
+        "db": db,
+        "refresh": refresh,
+        "flywheelStages": flywheel_stages,
+        "projectGates": project_gates,
+        "runtimeCandidateInjection": empty_status,
+        "zeroIterationPolicyUpdate": empty_status,
+        "lanes": [],
+        "e1Gate": {},
+        "loopA": {"environment": {}, "training": {}},
+        "loopB": {"onlineUtilityStatus": None, "policy": {}, "scorecard": {}},
+        "tencentBatch": {},
+        "safety": {"status": "N/A"},
+        "artifactEvidenceScan": {"mode": "refresh-in-progress", "truncated": False},
+        "warnings": [f"{reason} refresh in progress"],
     }
 
 
@@ -2077,10 +2461,44 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             config = self.server.config
             generated = utc_now_iso()
-            with self.server.refresh_lock:
-                db = sqlite_summary(config.db_path, config.repo_root)
-                refresh = self.server.refresh_snapshot()
-                health = health_with_refresh(health_from_db_summary(db), refresh)
+            refresh = self.server.refresh_snapshot()
+            if refresh.get("refreshInProgress"):
+                summary = self.server.summary_snapshot(self.server.dashboard_url())
+                db = as_dict(summary.get("db"))
+                refresh = as_dict(summary.get("refresh"))
+                health = as_dict(summary.get("health"))
+            else:
+                acquired = self.server.refresh_lock.acquire(blocking=False)
+                if not acquired:
+                    refresh = self.server.refresh_snapshot()
+                    if refresh.get("refreshInProgress"):
+                        summary = self.server.summary_snapshot(self.server.dashboard_url())
+                        db = as_dict(summary.get("db"))
+                        refresh = as_dict(summary.get("refresh"))
+                        health = as_dict(summary.get("health"))
+                        status = HTTPStatus.OK if health["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
+                        self.write_json(
+                            status,
+                            health
+                            | {
+                                "message": "OK" if health["ok"] else "DEGRADED",
+                                "db": db,
+                                "refresh": refresh,
+                                "generatedAt": generated,
+                            },
+                        )
+                        return
+                    self.server.refresh_lock.acquire()
+                try:
+                    db = sqlite_summary(config.db_path, config.repo_root)
+                    refresh = self.server.refresh_snapshot()
+                    health = health_with_refresh(
+                        health_from_db_summary(db),
+                        refresh,
+                        usable_data=db_summary_has_usable_data(db),
+                    )
+                finally:
+                    self.server.refresh_lock.release()
             status = HTTPStatus.OK if health["ok"] else HTTPStatus.SERVICE_UNAVAILABLE
             self.write_json(
                 status,
@@ -2103,21 +2521,7 @@ class LiveDashboardRequestHandler(BaseHTTPRequestHandler):
         if not self.server.config.enable_refresh_endpoint:
             self.write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "refresh endpoint disabled"})
             return
-        refresh_raised = False
-        with self.server.refresh_lock:
-            try:
-                refresh = refresh_metrics(
-                    self.server.config.db_path,
-                    self.server.config.artifact_root,
-                    max_files_per_root=self.server.config.ingest_file_limit_per_root,
-                )
-            except Exception as error:  # pragma: no cover - defensive handler boundary
-                refresh = {"ok": False, "error": str(error)}
-                refresh_raised = True
-        self.server.record_refresh(refresh)
-        if refresh_raised:
-            self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, refresh)
-            return
+        refresh = self.server.run_refresh_cycle("manual")
         if not refresh_succeeded(refresh):
             self.write_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -2168,6 +2572,7 @@ def build_config(args: argparse.Namespace) -> LiveDashboardConfig:
         refresh_seconds=args.refresh_seconds,
         enable_refresh_endpoint=bool(getattr(args, "enable_refresh_endpoint", False)),
         auto_refresh_seconds=max(0, int(getattr(args, "auto_refresh_seconds", 0) or 0)),
+        initial_refresh_required=bool(getattr(args, "refresh_on_start", False)),
         summary_cache_seconds=max(0.0, float(getattr(args, "summary_cache_seconds", DEFAULT_SUMMARY_CACHE_SECONDS))),
         summary_scan_file_limit=max(0, int(getattr(args, "summary_scan_file_limit", DEFAULT_SUMMARY_SCAN_FILE_LIMIT))),
         ingest_file_limit_per_root=max(
@@ -2219,7 +2624,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_args(serve)
     serve.add_argument("--host", default=DEFAULT_HOST, help="Bind host.")
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help="Bind port.")
-    serve.add_argument("--refresh-on-start", action="store_true", help="Run the metrics ingestor before serving.")
+    serve.add_argument(
+        "--refresh-on-start",
+        action="store_true",
+        help="Run the metrics ingestor in the background after binding and before reporting healthy.",
+    )
     serve.add_argument(
         "--auto-refresh-seconds",
         type=int,
@@ -2323,6 +2732,18 @@ def acceptance_check(label: str, ok: bool, evidence: str) -> JsonObject:
     return {"name": label, "ok": bool(ok), "evidence": evidence}
 
 
+def acceptance_http_timeout(deadline: float, default_timeout: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return 0.05
+    return max(0.05, min(default_timeout, remaining))
+
+
+def refresh_is_in_progress(payload: JsonObject) -> bool:
+    refresh = payload.get("refresh") if isinstance(payload.get("refresh"), dict) else {}
+    return refresh.get("refreshInProgress") is True
+
+
 def validate_acceptance_summary(health: JsonObject, summary: JsonObject) -> list[JsonObject]:
     db = summary.get("db") if isinstance(summary.get("db"), dict) else {}
     refresh = summary.get("refresh") if isinstance(summary.get("refresh"), dict) else {}
@@ -2352,17 +2773,58 @@ def validate_acceptance_summary(health: JsonObject, summary: JsonObject) -> list
 def run_acceptance(base_url: str, timeout: float) -> int:
     health_url = dashboard_endpoint_url(base_url, "/healthz")
     summary_url = dashboard_endpoint_url(base_url, "/api/summary")
+    deadline = time.monotonic() + max(0.0, timeout)
+    last_health_status: int | None = None
+    last_health: JsonObject | None = None
     try:
-        health_status, health = read_acceptance_json_url(health_url, timeout)
-        summary_status, summary = read_acceptance_json_url(summary_url, timeout)
+        while True:
+            request_timeout = acceptance_http_timeout(deadline, timeout)
+            health_status, health = read_acceptance_json_url(health_url, request_timeout)
+            last_health_status = health_status
+            last_health = health
+            if health_status == HTTPStatus.OK and health.get("ok") is True:
+                break
+            if not refresh_is_in_progress(health) or time.monotonic() >= deadline:
+                checks = [
+                    acceptance_check("/healthz reachable", health_status == HTTPStatus.OK, f"status={health_status}"),
+                    acceptance_check(
+                        "/healthz ok=true",
+                        health.get("ok") is True,
+                        f"ok={health.get('ok')}; failures={health.get('failures', [])}",
+                    ),
+                ]
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "message": "FAIL",
+                            "dashboardUrl": None,
+                            "healthUrl": health_url,
+                            "summaryUrl": summary_url,
+                            "db": health.get("db"),
+                            "refresh": health.get("refresh"),
+                            "checks": checks,
+                        },
+                        sort_keys=True,
+                    )
+                )
+                return 1
+            time.sleep(min(0.25, max(0.01, deadline - time.monotonic())))
+        summary_status, summary = read_acceptance_json_url(
+            summary_url,
+            acceptance_http_timeout(deadline, timeout),
+        )
     except DashboardReachabilityError as error:
         print(json.dumps({"ok": False, "message": "FAIL", "error": str(error)}, sort_keys=True))
         return 1
+    if last_health_status is None or last_health is None:
+        print(json.dumps({"ok": False, "message": "FAIL", "error": "health check was not attempted"}, sort_keys=True))
+        return 1
     checks = [
-        acceptance_check("/healthz reachable", health_status == HTTPStatus.OK, f"status={health_status}"),
+        acceptance_check("/healthz reachable", last_health_status == HTTPStatus.OK, f"status={last_health_status}"),
         acceptance_check("/api/summary reachable", summary_status == HTTPStatus.OK, f"status={summary_status}"),
     ]
-    checks.extend(validate_acceptance_summary(health, summary))
+    checks.extend(validate_acceptance_summary(last_health, summary))
     ok = all(check["ok"] for check in checks)
     result = {
         "ok": ok,
@@ -2410,24 +2872,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "serve":
-        initial_refresh: JsonObject | None = None
-        if args.refresh_on_start:
-            refresh = refresh_metrics(
-                config.db_path,
-                config.artifact_root,
-                max_files_per_root=config.ingest_file_limit_per_root,
-            )
-            if not refresh_succeeded(refresh):
-                print(
-                    json.dumps({"ok": False, "error": "refresh-on-start failed", "refresh": refresh}, sort_keys=True),
-                    file=sys.stderr,
-                )
-                return 1
-            initial_refresh = refresh
         server = make_server(args.host, args.port, config)
-        if initial_refresh is not None:
-            server.record_refresh(initial_refresh)
-        server.prime_summary_cache()
+        if args.refresh_on_start:
+            server.start_background_refresh("startup")
         print(f"Serving Screeps RL live dashboard at {server.dashboard_url()}")
         try:
             server.serve_forever()
