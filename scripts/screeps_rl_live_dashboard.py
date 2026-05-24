@@ -238,6 +238,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             self.refresh_state["refreshInProgress"] = False
             self.refresh_state["activeRefreshStartedAt"] = None
             self.refresh_state["activeRefreshReason"] = None
+        self.invalidate_summary_cache()
 
     def mark_refresh_started(self, reason: str) -> str:
         timestamp = utc_now_iso()

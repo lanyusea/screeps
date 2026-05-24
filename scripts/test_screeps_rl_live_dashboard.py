@@ -1288,6 +1288,52 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(third["generatedAt"], "call-2")
         self.assertEqual(len(calls), 2)
 
+    def test_successful_refresh_does_not_cache_in_progress_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                summary_cache_seconds=300,
+            )
+            server = live.LiveDashboardHTTPServer.__new__(live.LiveDashboardHTTPServer)
+            server.config = config
+            server.server_address = ("127.0.0.1", 8765)
+            server.refresh_lock = threading.Lock()
+            server.refresh_state_lock = threading.Lock()
+            server.summary_lock = threading.Lock()
+            server.background_refresh_threads_lock = threading.Lock()
+            server.background_refresh_threads = []
+            server.refresh_stop = threading.Event()
+            server.refresh_thread = None
+            server.summary_cache = None
+            server.summary_cache_dashboard_url = None
+            server.summary_cache_until = 0.0
+            server.summary_cache_generation = 0
+            server.refresh_state = {
+                "mode": "manual",
+                "autoRefreshSeconds": None,
+                "initialRefreshRequired": False,
+                "refreshInProgress": False,
+                "activeRefreshStartedAt": None,
+                "activeRefreshReason": None,
+                "lastRefreshAt": None,
+                "lastRefreshOk": None,
+                "lastRefresh": None,
+                "nextRefreshAt": None,
+            }
+            refresh = server.run_refresh_cycle("manual")
+            first = server.summary_snapshot(server.dashboard_url())
+            second = server.summary_snapshot(server.dashboard_url())
+
+        self.assertTrue(refresh["ok"])
+        self.assertTrue(first["refresh"]["lastRefreshOk"])
+        self.assertFalse(first["refresh"]["refreshInProgress"])
+        self.assertFalse(second["refresh"]["refreshInProgress"])
 
     def test_live_acceptance_passes_running_service(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
