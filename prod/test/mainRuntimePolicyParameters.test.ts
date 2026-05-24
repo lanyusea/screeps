@@ -75,7 +75,7 @@ describe('main runtime policy parameter consumption', () => {
     });
   });
 
-  it('keeps injected runtime evidence unconsumed when the tick does not use the patched strategy', () => {
+  it('records simulator tick consumption once the runtime registry applies the patched strategy', () => {
     installScreepsGlobals();
     const run = jest.fn((_options: KernelRunOptions = {}) => makeRuntimeSummary());
     mockKernel(run);
@@ -96,11 +96,13 @@ describe('main runtime policy parameter consumption', () => {
       (globalThis as { Memory?: { rlRuntimePolicyParameters?: unknown } }).Memory?.rlRuntimePolicyParameters
     ).toMatchObject({
       runtimeParameterInjection: true,
-      consumed: false,
+      consumed: true,
       strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      consumedStrategyVariantId: 'construction-priority.pg.territory-seed.v1',
       parametersSha256: 'runtime-use-sha',
-      appliedStrategyIds: [],
-      reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation',
+      consumedParametersSha256: 'runtime-use-sha',
+      appliedStrategyIds: ['construction-priority.incumbent.v1'],
+      reason: 'runtime policy parameter payload was used by tick runtime strategy evaluation',
       liveEffect: false,
       officialMmoWrites: false,
       officialMmoWritesAllowed: false,

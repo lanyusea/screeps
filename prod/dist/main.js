@@ -46791,12 +46791,14 @@ function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
     evidence,
     memory.rlRuntimePolicyParameters
   );
-  memory.rlRuntimePolicyParameters = {
+  const tick = runtimeTick();
+  const tickedEvidence = {
     ...persistedEvidence,
-    tick: runtimeTick()
+    tick
   };
-  publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
-  emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
+  memory.rlRuntimePolicyParameters = tickedEvidence;
+  publishRuntimePolicyParameterConsumptionEvidence(tickedEvidence);
+  emitRuntimePolicyParameterConsumptionEvidence(tickedEvidence);
 }
 function readRuntimePolicyParameterPayload() {
   const lexicalPayload = runtimePolicyParameterPayloadFromValue(readLexicalRuntimePolicyParameterPayload());
@@ -47623,6 +47625,11 @@ function loop() {
   const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
+  recordAppliedRuntimePolicyParameterStrategies(
+    runtimePolicyParameters.registry,
+    runtimePolicyParameters.evidence.appliedStrategyIds,
+    runtimePolicyParameterConsumption
+  );
   let summary;
   try {
     summary = kernel.run({
@@ -47638,6 +47645,17 @@ function loop() {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+}
+function recordAppliedRuntimePolicyParameterStrategies(registry, appliedStrategyIds, runtimePolicyParameterConsumption) {
+  if (appliedStrategyIds.length === 0) {
+    return;
+  }
+  const appliedIds = new Set(appliedStrategyIds);
+  for (const entry of registry) {
+    if (appliedIds.has(entry.id)) {
+      runtimePolicyParameterConsumption.recordStrategyRuntimeUse(entry);
+    }
+  }
 }
 function runStrategyRolloutMonitoring(summary, registry) {
   let workingRegistry = applyPendingRollbacks(registry);
