@@ -1895,32 +1895,40 @@ cli:
     def test_runtime_parameter_consumption_extracts_shard_wrapped_memory_payload(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
-        payload = {
-            "ok": 1,
-            "data": json.dumps(
-                {
-                    "$activeWorld": {
-                        "shardX": json.dumps(
-                            {
-                                "Memory": {
-                                    "rlRuntimePolicyParameters": evidence,
-                                }
-                            },
-                            sort_keys=True,
-                        )
-                    }
-                },
-                sort_keys=True,
-            ),
-        }
+        for shard_key in ("shardX", "SHARDX"):
+            with self.subTest(shard_key=shard_key):
+                payload = {
+                    "ok": 1,
+                    "data": json.dumps(
+                        {
+                            "$activeWorld": {
+                                shard_key: json.dumps(
+                                    {
+                                        "Memory": {
+                                            "rlRuntimePolicyParameters": evidence,
+                                        }
+                                    },
+                                    sort_keys=True,
+                                )
+                            }
+                        },
+                        sort_keys=True,
+                    ),
+                }
 
-        extracted = harness.find_runtime_parameter_consumption_evidence(payload, injection=injection)
-        consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+                extracted = harness.find_runtime_parameter_consumption_evidence(
+                    payload,
+                    injection=injection,
+                )
+                consumption = harness.runtime_parameter_consumption_check(injection, extracted)
 
-        self.assertEqual(extracted, evidence)
-        self.assertEqual(consumption["status"], "consumed")
-        self.assertEqual(consumption["consumedStrategyVariantId"], injection["strategyVariantId"])
-        self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
+                self.assertEqual(extracted, evidence)
+                self.assertEqual(consumption["status"], "consumed")
+                self.assertEqual(
+                    consumption["consumedStrategyVariantId"],
+                    injection["strategyVariantId"],
+                )
+                self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
 
     def test_console_runtime_parameter_consumption_collector_reads_tick_time_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

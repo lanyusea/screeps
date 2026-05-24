@@ -1884,8 +1884,8 @@ def runtime_parameter_container_key(key: str) -> bool:
     return (
         "runtime" in key_lower
         or "memory" in key_lower
-        or key in {"data", "value", "memory", "Memory", "$activeWorld", "activeWorld"}
-        or re.fullmatch(r"[Ss]hard[\w_-]*", key) is not None
+        or key_lower in {"data", "value", "memory", "$activeworld", "activeworld"}
+        or re.fullmatch(r"shard[\w_-]*", key_lower) is not None
     )
 
 
