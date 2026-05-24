@@ -43,11 +43,11 @@ ANY_HEADING_RE = re.compile(r"^(?P<level>#{1,6})\s+\S")
 CHECKED_LINE_RE = re.compile(r"^\s*[-*]\s+\[[xX]\]\s+(?P<text>.+?)\s*$")
 UNCHECKED_LINE_RE = re.compile(r"^\s*[-*]\s+\[\s\]\s+(?P<text>.+?)\s*$")
 UNRESOLVED_EVIDENCE_RE = re.compile(
-    r"\b(?:pending|blocked|blocker|successor|tbd|todo|remain(?:ing|s)?)\b|"
-    r"\bowner\s+action\b|"
-    r"\bpost[-\s]merge\b|"
+    r"\b(?:pending|blocked|tbd|todo)\b|"
+    r"\bremaining\s+"
+    r"(?:blockers?|work|validation|owner[-\s]action|follow[-\s]?ups?|successors?|"
+    r"post[-\s]merge(?:\s+validation)?)\b|"
     r"\bafter\s+merge\b|"
-    r"\bfollow[-\s]up\b|"
     r"\bnot\s+verified\b|"
     r"\bnot\s+yet\b",
     re.IGNORECASE,
@@ -373,6 +373,14 @@ SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
         None,
     ),
     (
+        "valid_positive_remains_evidence",
+        "Fixes #789\n\n"
+        "## Issue closure gate\n\n"
+        "- [x] #789: System remains stable after validation. No blockers remain.\n",
+        True,
+        None,
+    ),
+    (
         "negated_close",
         "This documents policy and does not close #123.\n",
         False,
@@ -403,6 +411,20 @@ SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
         "pending_evidence",
         "Fixes #123\n\n## Issue closure gate\n\n"
         "- [x] #123: implementation landed; post-merge validation pending.\n",
+        False,
+        "unresolved/blocking language",
+    ),
+    (
+        "remaining_validation_evidence",
+        "Fixes #123\n\n## Issue closure gate\n\n"
+        "- [x] #123: implementation landed; remaining validation is post-merge.\n",
+        False,
+        "unresolved/blocking language",
+    ),
+    (
+        "remaining_blocker_evidence",
+        "Fixes #123\n\n## Issue closure gate\n\n"
+        "- [x] #123: implementation landed; remaining blocker is owner review.\n",
         False,
         "unresolved/blocking language",
     ),
