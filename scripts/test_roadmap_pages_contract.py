@@ -77,6 +77,19 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}", text)
         self.assertIn("git push origin HEAD:main", text)
 
+    def test_roadmap_pages_refresh_collects_live_runtime_summary_before_generation(self) -> None:
+        text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
+
+        self.assertIn("SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}", text)
+        self.assertIn("mkdir -p runtime-artifacts/screeps-monitor runtime-artifacts/runtime-summary-console runtime-artifacts/cron-output", text)
+        self.assertIn("python3 scripts/screeps-runtime-monitor.py summary", text)
+        self.assertIn("--out-dir runtime-artifacts/screeps-monitor", text)
+        self.assertIn("--runtime-summary-out-dir runtime-artifacts/runtime-summary-console", text)
+        self.assertIn("> runtime-artifacts/screeps-monitor/summary.json", text)
+        self.assertIn("SCREEPS_AUTH_TOKEN is not configured; skipping live Screeps runtime summary capture.", text)
+        self.assertIn("--cron-output-root runtime-artifacts/cron-output", text)
+        self.assertNotIn("--room", text)
+
     def test_deploy_process_metric_rejects_bool_values(self) -> None:
         cards = [
             {"label": label, "value": True if label == "Deploys" else 1}
