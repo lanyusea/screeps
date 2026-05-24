@@ -323,6 +323,45 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertFalse(roadmap.should_append_metric_samples(report, metrics))
         self.assertEqual(history, {})
 
+    def test_runtime_capture_error_artifact_is_exposed_without_fake_kpis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            summary_path = repo_root / "runtime-artifacts" / "screeps-monitor" / "summary.json"
+            summary_path.parent.mkdir(parents=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "mode": "summary",
+                        "summary": {"room_count": 0, "objects": 0, "creeps": 0, "hostiles": 0},
+                        "rooms": [],
+                        "runtime_summary_artifact": None,
+                        "runtimeCaptureError": {
+                            "message": "live Screeps runtime summary capture failed",
+                            "exitCode": 1,
+                            "stderrPath": "runtime-artifacts/screeps-monitor/summary.stderr.log",
+                            "stderrExcerpt": "no room snapshots collected",
+                            "timestampUtc": "2026-05-24T00:00:00Z",
+                        },
+                        "warnings": [
+                            "live Screeps runtime summary capture failed; Screeps KPI evidence is unavailable for this refresh"
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            capture = roadmap.load_runtime_capture_summary(repo_root)
+            report = roadmap.empty_runtime_report("no runtime-summary artifacts")
+
+        self.assertTrue(capture["available"])
+        self.assertFalse(capture["ok"])
+        self.assertEqual(capture["runtimeCaptureError"]["message"], "live Screeps runtime summary capture failed")
+        self.assertEqual(capture["runtimeCaptureError"]["exitCode"], 1)
+        self.assertEqual(capture["runtimeCaptureError"]["stderrPath"], "summary.stderr.log")
+        self.assertIn("Screeps KPI evidence is unavailable", " ".join(capture["warnings"]))
+        self.assertEqual(roadmap.runtime_report_runtime_summary_count(report), 0)
+
     def test_lfs_pointer_history_db_reports_cold_start_collecting_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "docs" / "roadmap-kpi.sqlite"

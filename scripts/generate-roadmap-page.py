@@ -30,6 +30,7 @@ KPI_HISTORY_WINDOW_DAYS = 7
 DELIVERY_METRICS_WINDOW_DAYS = 7
 RUNTIME_ARTIFACT_SOURCE_KIND = "runtime-summary-artifact"
 RUNTIME_ARTIFACT_PATHS_ENV = "SCREEPS_ROADMAP_RUNTIME_ARTIFACT_PATHS"
+RUNTIME_CAPTURE_SUMMARY_PATH = Path("runtime-artifacts") / "screeps-monitor" / "summary.json"
 CRON_OUTPUT_ROOT_ENV = "SCREEPS_ROADMAP_CRON_OUTPUT_ROOT"
 SOURCE_EVIDENCE_METRIC_KEYS = frozenset({"runtime_summary_samples", "kpi_artifact_files"})
 DEFAULT_OWNER = "lanyusea"
@@ -2546,6 +2547,7 @@ def build_page_data(
         "runtimeReport": {
             "window": runtime_report.get("window", {}),
             "source": summarize_runtime_source(runtime_report.get("source")),
+            "capture": load_runtime_capture_summary(repo_root),
         },
         "github": github_snapshot,
         "report": build_approved_report_model(
@@ -2573,6 +2575,84 @@ def summarize_runtime_source(source: Any) -> JsonObject:
         "skippedFileCount": source.get("skippedFileCount", 0),
         "reason": source.get("reason", ""),
     }
+
+
+def load_runtime_capture_summary(repo_root: Path) -> JsonObject:
+    summary_path = repo_root / RUNTIME_CAPTURE_SUMMARY_PATH
+    display_path = str(RUNTIME_CAPTURE_SUMMARY_PATH)
+    if not summary_path.exists():
+        return {"available": False, "summaryPath": display_path}
+
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {
+            "available": True,
+            "ok": False,
+            "summaryPath": display_path,
+            "runtimeCaptureError": {"message": f"failed to read runtime capture summary: {error}"},
+            "warnings": ["runtime capture summary artifact was unreadable"],
+        }
+    if not isinstance(payload, dict):
+        return {
+            "available": True,
+            "ok": False,
+            "summaryPath": display_path,
+            "runtimeCaptureError": {"message": "runtime capture summary root was not an object"},
+            "warnings": ["runtime capture summary artifact was malformed"],
+        }
+
+    result: JsonObject = {
+        "available": True,
+        "ok": payload.get("ok") is True,
+        "mode": payload.get("mode") if isinstance(payload.get("mode"), str) else "",
+        "summaryPath": display_path,
+    }
+    rooms = payload.get("rooms")
+    if isinstance(rooms, list):
+        result["rooms"] = [room for room in rooms if isinstance(room, str)]
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        result["warnings"] = [warning for warning in warnings if isinstance(warning, str)]
+    runtime_summary_artifact = payload.get("runtime_summary_artifact")
+    if isinstance(runtime_summary_artifact, str) and runtime_summary_artifact:
+        result["runtimeSummaryArtifact"] = runtime_capture_display_path(repo_root, runtime_summary_artifact)
+
+    capture_error = normalized_runtime_capture_error(payload)
+    if capture_error:
+        result["runtimeCaptureError"] = capture_error
+    elif result["ok"] is False and not result.get("warnings"):
+        result["warnings"] = ["runtime capture did not report ok=true"]
+    return result
+
+
+def normalized_runtime_capture_error(payload: JsonObject) -> JsonObject:
+    capture_error = payload.get("runtimeCaptureError")
+    if isinstance(capture_error, dict):
+        result: JsonObject = {}
+        for key in ("message", "exitCode", "stderrExcerpt", "timestampUtc"):
+            value = capture_error.get(key)
+            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+                result[key] = value
+        stderr_path = capture_error.get("stderrPath")
+        if isinstance(stderr_path, str) and stderr_path:
+            result["stderrPath"] = Path(stderr_path).name
+        return result
+
+    error_text = payload.get("error")
+    if isinstance(error_text, str) and error_text:
+        return {"message": error_text}
+    return {}
+
+
+def runtime_capture_display_path(repo_root: Path, path_text: str) -> str:
+    path = Path(path_text)
+    if not path.is_absolute():
+        return path_text
+    try:
+        return str(path.resolve().relative_to(repo_root.resolve()))
+    except (OSError, ValueError):
+        return path.name
 
 
 def build_approved_report_model(

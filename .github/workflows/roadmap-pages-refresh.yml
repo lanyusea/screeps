@@ -59,16 +59,85 @@ jobs:
           git lfs install --local
 
       - name: Capture live Screeps runtime summary
+        env:
+          SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
+          SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/screeps-monitor/state.json
         run: |
           mkdir -p runtime-artifacts/screeps-monitor runtime-artifacts/runtime-summary-console runtime-artifacts/cron-output
           if [ -z "${SCREEPS_AUTH_TOKEN:-}" ]; then
             echo "::warning::SCREEPS_AUTH_TOKEN is not configured; skipping live Screeps runtime summary capture."
+            python3 - > runtime-artifacts/screeps-monitor/summary.json <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+          payload = {
+              "ok": False,
+              "mode": "summary",
+              "summary": {"room_count": 0, "objects": 0, "creeps": 0, "hostiles": 0},
+              "images": [],
+              "rooms": [],
+              "room_summaries": [],
+              "runtime_summary_artifact": None,
+              "runtimeCaptureError": {
+                  "message": "SCREEPS_AUTH_TOKEN is not configured",
+                  "timestampUtc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              },
+              "warnings": ["live Screeps runtime summary capture skipped because SCREEPS_AUTH_TOKEN is not configured"],
+          }
+          json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+          sys.stdout.write("\n")
+          PY
             exit 0
           fi
-          python3 scripts/screeps-runtime-monitor.py summary \
+          summary_tmp="$(mktemp runtime-artifacts/screeps-monitor/summary.XXXXXX.json)"
+          summary_stderr="runtime-artifacts/screeps-monitor/summary.stderr.log"
+          if python3 scripts/screeps-runtime-monitor.py summary \
             --out-dir runtime-artifacts/screeps-monitor \
             --runtime-summary-out-dir runtime-artifacts/runtime-summary-console \
-            > runtime-artifacts/screeps-monitor/summary.json
+            > "${summary_tmp}" 2> "${summary_stderr}"; then
+            mv "${summary_tmp}" runtime-artifacts/screeps-monitor/summary.json
+          else
+            status="$?"
+            echo "::warning::Screeps runtime summary capture failed with exit code ${status}; writing runtimeCaptureError artifact."
+            python3 - "${status}" "${summary_stderr}" > runtime-artifacts/screeps-monitor/summary.json <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+
+          exit_code = int(sys.argv[1])
+          stderr_path = sys.argv[2]
+          token = os.environ.get("SCREEPS_AUTH_TOKEN", "")
+          try:
+              stderr_text = open(stderr_path, encoding="utf-8").read()
+          except OSError as error:
+              stderr_text = f"failed to read stderr artifact: {error}"
+          if token:
+              stderr_text = stderr_text.replace(token, "[redacted]")
+          stderr_excerpt = stderr_text.strip()[-2000:]
+          payload = {
+              "ok": False,
+              "mode": "summary",
+              "summary": {"room_count": 0, "objects": 0, "creeps": 0, "hostiles": 0},
+              "images": [],
+              "rooms": [],
+              "room_summaries": [],
+              "runtime_summary_artifact": None,
+              "runtimeCaptureError": {
+                  "message": "live Screeps runtime summary capture failed",
+                  "exitCode": exit_code,
+                  "stderrPath": stderr_path,
+                  "stderrExcerpt": stderr_excerpt,
+                  "timestampUtc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              },
+              "warnings": ["live Screeps runtime summary capture failed; Screeps KPI evidence is unavailable for this refresh"],
+          }
+          json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+          sys.stdout.write("\n")
+          PY
+            rm -f "${summary_tmp}"
+          fi
 
       - name: Generate roadmap Pages artifacts
         run: |
