@@ -76,6 +76,9 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(merged["summary"]["new"], 1)
         self.assertEqual(merged["summary"]["closedThisWindow"], 1)
         self.assertEqual(merged["summary"]["actioned"], 1)
+        self.assertEqual(merged["summary"]["countsByStatus"]["ACTIONED"], 1)
+        self.assertEqual(merged["summary"]["countsByStatus"]["CLOSED"], 1)
+        self.assertEqual(merged["summary"]["countsByStatus"]["OPEN"], 1)
 
     def test_merge_prunes_omitted_records_owned_by_current_owner_only(self) -> None:
         existing = {
@@ -167,6 +170,8 @@ class RlConclusionRegistryTest(unittest.TestCase):
 
         self.assertEqual(merged["summary"]["total"], 2)
         self.assertEqual(merged["summary"]["unknown"], 2)
+        self.assertEqual(merged["summary"]["countsByStatus"]["UNKNOWN"], 1)
+        self.assertEqual(merged["summary"]["countsByStatus"]["DEFERRED"], 1)
 
     def test_normalize_conclusions_rejects_duplicate_conclusion_ids(self) -> None:
         with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
@@ -226,6 +231,101 @@ class RlConclusionRegistryTest(unittest.TestCase):
                 [call.args[1] for call in flock.call_args_list],
                 [registry.fcntl.LOCK_EX, registry.fcntl.LOCK_UN],
             )
+
+    def test_merge_registry_file_normalizes_legacy_list_and_recomputes_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "conclusion-registry.json"
+            path.write_text(
+                registry.canonical_json(
+                    {
+                        "schemaVersion": 1,
+                        "registryType": "rl-conclusion-registry",
+                        "lastUpdatedAt": "2026-05-24T04:00:00Z",
+                        "updatedBy": "legacy-writer",
+                        "summary": {
+                            "total": 2,
+                            "open": 99,
+                            "actioned": 0,
+                            "validating": 0,
+                            "closedThisWindow": 12,
+                            "staleOrEscalated": 0,
+                            "countsByStatus": {"ACTIONED": 2, "OPEN": 2, "STALE": 5},
+                            "lastUpdateReason": "stale PR state from a previous writer",
+                        },
+                        "conclusions": [
+                            {
+                                "conclusionId": "LEGACY-UNOWNED-OPEN",
+                                "status": "OPEN",
+                                "statement": "Unowned legacy conclusion must survive E1 writes.",
+                            },
+                            {
+                                "conclusionId": "LOOP-B-ACTIONED",
+                                "ownerCron": "01609968392a",
+                                "status": "ACTIONED",
+                                "statement": "Loop B action still needs sustained-output validation.",
+                            },
+                            {
+                                "conclusionId": "LOOP-A-STALE",
+                                "ownerCron": "loop-a-policy-gradient",
+                                "status": "STALE",
+                                "statement": "Loop A conclusion remains stale until refreshed.",
+                            },
+                            {
+                                "conclusionId": "E1-GATE-STATUS",
+                                "ownerCron": "d6cff532edd4",
+                                "status": "OPEN",
+                                "statement": "Previous E1 gate failed.",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            merged = registry.merge_registry_file(
+                path,
+                [
+                    {
+                        "conclusionId": "E1-GATE-STATUS",
+                        "status": "CLOSED",
+                        "statement": "Current E1 gate passed.",
+                    },
+                    {
+                        "conclusionId": "E1-SUSTAINED-OUTPUT",
+                        "status": "VALIDATING",
+                        "statement": "E1 closure is waiting for sustained-output evidence.",
+                    },
+                ],
+                owner_cron="d6cff532edd4",
+                updated_at="2026-05-24T05:00:00Z",
+            )
+            saved = read_json(path)
+
+        self.assertEqual(saved, merged)
+        self.assertIsInstance(saved["conclusions"], dict)
+        self.assertEqual(saved["conclusions"]["LEGACY-UNOWNED-OPEN"]["status"], "OPEN")
+        self.assertNotIn("ownerCron", saved["conclusions"]["LEGACY-UNOWNED-OPEN"])
+        self.assertEqual(saved["conclusions"]["LOOP-B-ACTIONED"]["ownerCron"], "01609968392a")
+        self.assertEqual(saved["conclusions"]["LOOP-A-STALE"]["ownerCron"], "loop-a-policy-gradient")
+        self.assertEqual(saved["conclusions"]["E1-GATE-STATUS"]["ownerCron"], "d6cff532edd4")
+        self.assertEqual(saved["summary"]["total"], len(saved["conclusions"]))
+        self.assertEqual(saved["summary"]["open"], 1)
+        self.assertEqual(saved["summary"]["actioned"], 1)
+        self.assertEqual(saved["summary"]["validating"], 1)
+        self.assertEqual(saved["summary"]["closedThisWindow"], 1)
+        self.assertEqual(saved["summary"]["staleOrEscalated"], 1)
+        self.assertNotIn("lastUpdateReason", saved["summary"])
+        self.assertEqual(
+            saved["summary"]["countsByStatus"],
+            {
+                "ACTIONED": 1,
+                "CLOSED": 1,
+                "ESCALATED": 0,
+                "OPEN": 1,
+                "STALE": 1,
+                "VALIDATING": 1,
+            },
+        )
 
     def test_merge_rejects_cross_owner_conclusion_id_collision_without_rewriting_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
