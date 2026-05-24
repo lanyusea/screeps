@@ -648,6 +648,45 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         )
         self.assertLess(control_source["jsonFilesDeserialized"], irrelevant_count + 3)
 
+    def test_discovery_limited_file_scan_selects_newest_before_truncating(self) -> None:
+        original_glob = Path.glob
+        original_iterdir = Path.iterdir
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = root / "old.json"
+            middle = root / "middle.json"
+            newest = root / "newest.json"
+            for path, mtime in ((old, 1_771_000_000), (middle, 1_771_000_100), (newest, 1_771_000_200)):
+                write_json(path, {"path": path.name})
+                os.utime(path, (mtime, mtime))
+
+            def stale_first_glob(self: Path, pattern: str) -> Any:
+                if self == root and pattern == "*.json":
+                    return iter((old, middle, newest))
+                return original_glob(self, pattern)
+
+            def stale_first_iterdir(self: Path) -> Any:
+                if self == root:
+                    return iter((old, middle, newest))
+                return original_iterdir(self)
+
+            Path.glob = stale_first_glob  # type: ignore[method-assign]
+            Path.iterdir = stale_first_iterdir  # type: ignore[method-assign]
+            try:
+                selected, discovered, truncated = live.newest_matching_files_with_discovery_limit(
+                    root,
+                    ("*.json",),
+                    discovery_limit=1,
+                )
+            finally:
+                Path.glob = original_glob  # type: ignore[method-assign]
+                Path.iterdir = original_iterdir  # type: ignore[method-assign]
+
+        self.assertEqual(selected, [newest])
+        self.assertEqual(discovered, 1)
+        self.assertTrue(truncated)
+
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -1878,6 +1917,40 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
         self.assertTrue(control_source["truncated"])
         self.assertEqual(control_source["fileLimit"], 1)
+
+    def test_artifact_evidence_summary_scan_uses_bounded_discovery(self) -> None:
+        original_newest_matching_files = live.newest_matching_files
+
+        def forbidden_newest_matching_files(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("unbounded newest_matching_files scan attempted")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "runtime-blocked.json",
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+
+            live.newest_matching_files = forbidden_newest_matching_files
+            try:
+                injection, zero_iteration, scan = live.artifact_evidence_summaries_with_scan(
+                    artifact_root,
+                    repo_root,
+                    max_files_per_root=1,
+                )
+            finally:
+                live.newest_matching_files = original_newest_matching_files
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertTrue(injection["latestPath"].endswith("runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "N/A")
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertEqual(control_source["filesScanned"], 1)
+        self.assertFalse(control_source["filesDiscoveredIsLowerBound"])
 
     def test_artifact_evidence_scan_avoids_recursive_whole_tree_discovery(self) -> None:
         original_rglob = Path.rglob

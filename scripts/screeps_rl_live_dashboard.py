@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import html
 import json
 import sqlite3
@@ -630,6 +631,39 @@ def newest_matching_files(
     return ordered, len(ordered)
 
 
+def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
+    parts = tuple(part for part in pattern.split("/") if part not in ("", "."))
+
+    def ordered_children(base: Path, name_pattern: str | None = None) -> list[Path]:
+        try:
+            children = list(base.iterdir())
+        except OSError:
+            return []
+        if name_pattern is not None:
+            children = [child for child in children if fnmatch.fnmatchcase(child.name, name_pattern)]
+        return sorted(children, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+
+    def walk(base: Path, remaining: tuple[str, ...]) -> Iterator[Path]:
+        if not remaining:
+            yield base
+            return
+        part = remaining[0]
+        tail = remaining[1:]
+        if part == "**":
+            yield from walk(base, tail)
+            for child in ordered_children(base):
+                if child.is_dir():
+                    yield from walk(child, remaining)
+            return
+        if any(char in part for char in "*?["):
+            for child in ordered_children(base, part):
+                yield from walk(child, tail)
+            return
+        yield from walk(base / part, tail)
+
+    yield from walk(root, parts)
+
+
 def newest_matching_files_with_discovery_limit(
     root: Path,
     patterns: Sequence[str],
@@ -643,7 +677,7 @@ def newest_matching_files_with_discovery_limit(
     seen: set[Path] = set()
     for pattern in patterns:
         try:
-            for path in root.glob(pattern):
+            for path in newest_first_pattern_matches(root, pattern):
                 if not path.is_file():
                     continue
                 try:
@@ -1458,9 +1492,12 @@ def summary_artifact_json_paths(
     for source, patterns in SUMMARY_ARTIFACT_SOURCE_PATTERNS:
         root = summary_artifact_source_root(artifact_root, source)
         if artifact_kind_filter is None:
-            selected, total = newest_matching_files(root, patterns, limit=bounded_limit)
+            selected, total, truncated = newest_matching_files_with_discovery_limit(
+                root,
+                patterns,
+                discovery_limit=bounded_limit,
+            )
             semantic_total: int | None = None
-            truncated = total > len(selected)
         else:
             selected, total, semantic_total, semantic_scan = newest_semantic_artifact_files(
                 root,
@@ -1494,6 +1531,8 @@ def summary_artifact_json_paths(
             source_summary["semanticFilesDiscovered"] = semantic_total
             source_summary["fileLimitPerKind"] = bounded_limit
             source_summary.update(semantic_scan)
+        else:
+            source_summary["filesDiscoveredIsLowerBound"] = truncated
         source_summaries.append(source_summary)
     ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
     return ordered, {
