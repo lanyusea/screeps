@@ -412,8 +412,10 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertFalse(configs[0]["safety"]["officialMmoWrites"])
 
     def test_private_server_active_branch_aliases_are_normalized(self) -> None:
-        self.assertEqual(harness.normalize_private_server_code_branch("activeWorld"), "$activeWorld")
-        self.assertEqual(harness.normalize_private_server_code_branch("activeSim"), "$activeSim")
+        self.assertEqual(harness.normalize_private_server_code_branch("$activeWorld"), "default")
+        self.assertEqual(harness.normalize_private_server_code_branch("activeWorld"), "default")
+        self.assertEqual(harness.normalize_private_server_code_branch("$activeSim"), "default")
+        self.assertEqual(harness.normalize_private_server_code_branch("activeSim"), "default")
         self.assertEqual(harness.normalize_private_server_code_branch("default"), "default")
 
     def test_resolve_bot_commit_falls_back_when_git_detection_is_unknown(self) -> None:
@@ -4121,10 +4123,274 @@ cli:
                 )
 
         self.assertEqual(captured_server_urls, ["http://127.0.0.1:21125"])
-        self.assertEqual(captured_branches, ["$activeWorld"])
+        self.assertEqual(captured_branches, ["default"])
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "stop before side effects")
         self.assertIsNone(result["launcherRepairMod"])
+
+    def test_run_variant_active_world_alias_uploads_executable_branch_for_runtime_consumption(self) -> None:
+        variant_id = "construction-priority.pg.territory-seed.v1"
+        parameters = {
+            "baseScoreWeight": 1,
+            "territorySignalWeight": 22,
+            "resourceSignalWeight": 3,
+            "killSignalWeight": 5,
+            "riskPenalty": 4,
+        }
+
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def config_path(self) -> Path:
+                return self.work_dir / "config.yml"
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class Result:
+            def __init__(self, status: int, payload: object) -> None:
+                self.status = status
+                self.payload = payload
+                self.headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = ""
+
+            def __init__(self) -> None:
+                self.uploaded_branch: str | None = None
+                self.runtime_payload: dict[str, object] | None = None
+                self.gametime = 0
+                self.room = "E1S1"
+                self.username = "rl-sim"
+
+            def host_port_unavailable_reason(self, host: str, port: int) -> str | None:
+                _ = host, port
+                return None
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                self.room = str(cfg.room)
+                self.username = str(cfg.username)
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                _ = work_dir
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                _ = cfg
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+
+            def build_launcher_config(self, cfg: FakeSmokeConfig) -> str:
+                _ = cfg
+                return "serverConfig:\n  shardName: shardX\n  mapFile: /screeps/maps/map-0b6758af.json\n"
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                _ = work_dir, path, text
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: FakeSmokeConfig,
+                *,
+                timeout: int,
+                output_limit: int | None = None,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": 0, "elapsed_seconds": 0.0, "output_excerpt": ""}
+
+            def run_launcher_cli(self, compose: list[str], cfg: FakeSmokeConfig, expression: str) -> dict[str, object]:
+                _ = compose, cfg, expression
+                return {"status": 200, "response_excerpt": "undefined\n"}
+
+            def wait_for_http(self, cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = cfg, timeout
+                return {"ok": True}
+
+            def token_headers(self, token: str | None) -> dict[str, str]:
+                return {"X-Token": token or ""}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                _ = headers
+                return token
+
+            def build_register_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"username": cfg.username, "email": cfg.email, "password": cfg.password}
+
+            def build_signin_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"email": cfg.email, "password": cfg.password}
+
+            def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
+                self.uploaded_branch = str(cfg.branch)
+                prefix = f"var {harness.RUNTIME_PARAMETER_INJECTION_GLOBAL} = "
+                start = code.find(prefix)
+                if start >= 0:
+                    end = code.find(";\n", start)
+                    self.runtime_payload = json.loads(code[start + len(prefix):end])
+                return {"branch": cfg.branch, "modules": {"main": code}}
+
+            def build_spawn_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"room": cfg.room, "name": cfg.spawn_name, "x": cfg.spawn_x, "y": cfg.spawn_y}
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok") in (1, True)
+
+            def upload_code_succeeded(self, result: Result) -> bool:
+                return self.api_dict_succeeded(result)
+
+            def collect_mongo_summary(self, compose: list[str], cfg: FakeSmokeConfig) -> dict[str, object]:
+                _ = compose
+                return {
+                    "ok": True,
+                    "summary": {
+                        "room": cfg.room,
+                        "user": {"id": "user-1", "username": cfg.username},
+                        "controller": {"level": 1, "my": True, "owner": {"username": cfg.username}},
+                        "spawns": [{"name": cfg.spawn_name, "user": "user-1", "store": {"energy": 300}}],
+                        "creeps": [{"name": "worker-1", "user": "user-1", "memory": {"role": "worker"}}],
+                        "ownStructureCounts": {"spawn": 1},
+                        "creepCounts": {"worker": 1},
+                        "ownCreeps": 1,
+                        "ownStructures": 1,
+                        "storedEnergy": 300,
+                        "energyCapacity": 300,
+                    },
+                }
+
+            def runtime_consumption_evidence(self) -> dict[str, object] | None:
+                if self.uploaded_branch != "default" or self.runtime_payload is None:
+                    return None
+                payload = self.runtime_payload
+                return {
+                    "type": harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+                    "consumerMarker": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+                    "consumerVersion": harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
+                    "runtimeParameterInjection": True,
+                    "consumed": True,
+                    "strategyVariantId": payload.get("strategyVariantId"),
+                    "candidatePolicyId": payload.get("candidatePolicyId"),
+                    "family": payload.get("family"),
+                    "parameters": copy.deepcopy(payload.get("parameters")),
+                    "parametersSha256": payload.get("parametersSha256"),
+                    "consumedStrategyVariantId": payload.get("strategyVariantId"),
+                    "consumedParametersSha256": payload.get("parametersSha256"),
+                    "appliedStrategyIds": [payload.get("sourceStrategyId")],
+                    "tick": self.gametime,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                }
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, base_url, args
+                if path == "/api/game/room-terrain":
+                    return Result(200, {"terrain": [{"room": self.room, "terrain": "0" * 2500}]})
+                if path == "/api/register/submit":
+                    return Result(200, {"ok": 1})
+                if path == "/api/auth/signin":
+                    return Result(200, {"ok": 1, "token": "token"})
+                if path == "/api/user/code":
+                    return Result(200, {"ok": 1})
+                if path == "/api/game/place-spawn":
+                    return Result(200, {"ok": 1})
+                if path == "/api/user/overview":
+                    return Result(200, {"ok": 1, "rooms": [self.room], "gametime": self.gametime})
+                if path == "/stats":
+                    self.gametime += 1
+                    return Result(200, {"gametime": self.gametime})
+                if path == "/api/game/room-overview":
+                    requested_room = self.room
+                    params = kwargs.get("params")
+                    if isinstance(params, dict) and isinstance(params.get("room"), str):
+                        requested_room = params["room"]
+                    return Result(
+                        200,
+                        {
+                            "ok": 1,
+                            "room": requested_room,
+                            "roomData": {
+                                "room": requested_room,
+                                "user": {"id": "user-1", "username": self.username},
+                                "controller": {
+                                    "level": 1,
+                                    "my": True,
+                                    "owner": {"username": self.username},
+                                },
+                                "objects": [
+                                    {"type": "spawn", "user": "user-1", "store": {"energy": 300}},
+                                    {"type": "creep", "user": "user-1", "memory": {"role": "worker"}},
+                                ],
+                                "creeps": 1,
+                                "energy": 300,
+                            },
+                        },
+                    )
+                if path == "/api/user/memory":
+                    evidence = self.runtime_consumption_evidence()
+                    data = json.dumps({"rlRuntimePolicyParameters": evidence}, sort_keys=True) if evidence else None
+                    return Result(200, {"ok": 1, "data": data})
+                raise AssertionError(path)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text(
+                '"use strict";\n'
+                f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() { return 1; };\n",
+                encoding="utf-8",
+            )
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            fake_smoke = FakeSmoke()
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=fake_smoke):
+                result = harness._run_variant(
+                    0,
+                    variant_id,
+                    run_id="runtime-consumption",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                    variant_configs={
+                        variant_id: {
+                            "id": variant_id,
+                            "candidatePolicyId": variant_id,
+                            "sourceStrategyId": "construction-priority.territory-shadow.v1",
+                            "family": "construction-priority",
+                            "parameters": parameters,
+                        }
+                    },
+                )
+
+        self.assertEqual(fake_smoke.uploaded_branch, "default")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["scenario"]["activeWorldBranch"], "default")
+        self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertEqual(result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertTrue(result["runtimeParameterConsumption"]["runtimeParameterConsumption"])
+        self.assertEqual(result["runtimeParameterConsumption"]["source"], "Memory.rlRuntimePolicyParameters")
+        self.assertEqual(result["runtimeParameterConsumption"]["evaluatedParameters"], parameters)
+        self.assertEqual(
+            result["runtimeParameterConsumption"]["consumedStrategyVariantId"],
+            variant_id,
+        )
 
     def test_run_variant_uses_private_smoke_map_url_when_default_map_file_is_missing(self) -> None:
         captured_map_sources: list[object] = []
