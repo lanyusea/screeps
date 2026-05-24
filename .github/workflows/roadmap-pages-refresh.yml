@@ -22,19 +22,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
-      GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+      GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
       SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
       PAGES_REFRESH_BRANCH: automation/roadmap-pages-refresh
 
     steps:
+      - name: Require roadmap automation token
+        env:
+          SCREEPS_ROADMAP_TOKEN_CONFIGURED: ${{ secrets.SCREEPS_ROADMAP_TOKEN != '' }}
+        run: |
+          if [ "${SCREEPS_ROADMAP_TOKEN_CONFIGURED}" != "true" ]; then
+            echo "::error::SCREEPS_ROADMAP_TOKEN is required so generated artifact PRs trigger normal repository checks."
+            exit 1
+          fi
+
       - name: Checkout main
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: main
           fetch-depth: 0
           lfs: true
-          token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+          token: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
           persist-credentials: true
 
       - name: Report toolchain

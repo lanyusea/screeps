@@ -74,7 +74,16 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertNotIn("bearer ***", text)
         self.assertNotIn(".extraheader=AUTHORIZATION: bearer", text)
         self.assertIn("persist-credentials: true", text)
-        self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}", text)
+        self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}", text)
+        self.assertNotIn("secrets.SCREEPS_ROADMAP_TOKEN || github.token", text)
+
+    def test_roadmap_pages_refresh_requires_automation_token_for_check_triggering(self) -> None:
+        text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
+
+        self.assertIn("GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}", text)
+        self.assertIn("GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}", text)
+        self.assertIn("SCREEPS_ROADMAP_TOKEN_CONFIGURED: ${{ secrets.SCREEPS_ROADMAP_TOKEN != '' }}", text)
+        self.assertIn("SCREEPS_ROADMAP_TOKEN is required so generated artifact PRs trigger normal repository checks.", text)
 
     def test_roadmap_pages_refresh_routes_changed_artifacts_through_pull_request(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
