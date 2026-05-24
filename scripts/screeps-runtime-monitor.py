@@ -951,7 +951,8 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
             warnings.extend(room_warnings)
 
     if not snapshots:
-        raise RuntimeError("no room snapshots collected")
+        detail = "; ".join(warnings[-12:]) if warnings else "no collection warnings recorded"
+        raise RuntimeError(f"no room snapshots collected: {detail}")
     return snapshots, warnings, overview_refs
 
 

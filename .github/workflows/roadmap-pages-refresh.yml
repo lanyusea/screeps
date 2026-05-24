@@ -25,6 +25,8 @@ jobs:
       GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN }}
       SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
+      SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
+      SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/screeps-monitor/state.json
       PAGES_REFRESH_BRANCH: automation/roadmap-pages-refresh
 
     steps:
@@ -65,10 +67,34 @@ jobs:
             echo "::warning::SCREEPS_AUTH_TOKEN is not configured; skipping live Screeps runtime summary capture."
             exit 0
           fi
+          set +e
           python3 scripts/screeps-runtime-monitor.py summary \
             --out-dir runtime-artifacts/screeps-monitor \
             --runtime-summary-out-dir runtime-artifacts/runtime-summary-console \
             > runtime-artifacts/screeps-monitor/summary.json
+          summary_status=$?
+          set -e
+          if [ "${summary_status}" -ne 0 ]; then
+            echo "::error::Live Screeps runtime summary capture failed; sanitized monitor payload follows."
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload_path = Path("runtime-artifacts/screeps-monitor/summary.json")
+          try:
+              payload = json.loads(payload_path.read_text(encoding="utf-8"))
+          except Exception as exc:  # noqa: BLE001 - diagnostics only
+              print(f"summary_payload_unavailable={exc.__class__.__name__}: {exc}")
+          else:
+              print("summary_ok=", payload.get("ok"))
+              print("summary_mode=", payload.get("mode"))
+              print("summary_error=", payload.get("error"))
+              warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
+              print("summary_warning_count=", len(warnings))
+              for warning in warnings[:12]:
+                  print("summary_warning=", str(warning)[:500])
+          PY
+            exit "${summary_status}"
+          fi
 
       - name: Generate roadmap Pages artifacts
         run: |

@@ -733,6 +733,7 @@ def runtime_parameter_consumption_check(
 
     parameters = copy.deepcopy(evidence["parameters"])
     parameters_hash = runtime_consumption_parameters_hash(evidence)
+    consumed_tick = _coerce_int(evidence.get("tick"))
     payload = {
         **{key: value for key, value in base.items() if value is not None},
         "status": "consumed",
@@ -748,6 +749,8 @@ def runtime_parameter_consumption_check(
         "appliedStrategyIds": copy.deepcopy(evidence.get("appliedStrategyIds", [])),
         "evidence": copy.deepcopy(evidence),
     }
+    if consumed_tick is not None and consumed_tick >= 0:
+        payload["consumedTick"] = consumed_tick
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -770,6 +773,8 @@ def apply_runtime_parameter_consumption_to_injection(
         updated["consumedParametersSha256"] = consumption.get("consumedParametersSha256")
     if consumption.get("status") == "consumed" and consumption.get("consumedStrategyVariantId"):
         updated["consumedStrategyVariantId"] = consumption.get("consumedStrategyVariantId")
+    if consumption.get("status") == "consumed" and consumption.get("consumedTick") is not None:
+        updated["consumedTick"] = consumption.get("consumedTick")
     return updated
 
 

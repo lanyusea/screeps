@@ -1191,8 +1191,12 @@ def build_report_runtime_parameter_injection_summary(
                 "runtimeParameterConsumptionStatus",
                 "runtimeParameterConsumptionSource",
                 "runtimeParameterConsumer",
+                "runtimeParameterConsumerVersion",
                 "evaluatedParametersSource",
                 "evaluatedParametersSha256",
+                "consumedParametersSha256",
+                "consumedStrategyVariantId",
+                "consumedTick",
                 "appliedStrategyIds",
             ):
                 if field in injection:
@@ -4582,6 +4586,7 @@ def summarize_runtime_parameter_injection_attempt(
         row["runtimeParameterConsumerVersion"] = consumption.get("consumerVersion")
         row["consumedParametersSha256"] = consumption.get("consumedParametersSha256")
         row["consumedStrategyVariantId"] = consumption.get("consumedStrategyVariantId")
+        row["consumedTick"] = consumption.get("consumedTick")
         applied_strategy_ids = consumption.get("appliedStrategyIds")
         if isinstance(applied_strategy_ids, list):
             row["appliedStrategyIds"] = [
@@ -4817,6 +4822,7 @@ def summarize_variant_runtime_parameter_injection(
             "evaluatedParametersSha256",
             "consumedParametersSha256",
             "consumedStrategyVariantId",
+            "consumedTick",
             "appliedStrategyIds",
         ):
             if field in first_injected:

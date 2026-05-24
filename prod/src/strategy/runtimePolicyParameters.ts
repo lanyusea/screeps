@@ -22,6 +22,7 @@ export interface RuntimePolicyParameterConsumptionEvidence {
   consumedStrategyVariantId?: string;
   consumedParametersSha256?: string;
   appliedStrategyIds: string[];
+  tick?: number;
   reason?: string;
   liveEffect: false;
   officialMmoWrites: false;
@@ -178,12 +179,14 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
     evidence,
     memory.rlRuntimePolicyParameters
   );
-  memory.rlRuntimePolicyParameters = {
+  const tick = runtimeTick();
+  const tickedEvidence = {
     ...persistedEvidence,
-    tick: runtimeTick()
+    tick
   };
-  publishRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
-  emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
+  memory.rlRuntimePolicyParameters = tickedEvidence;
+  publishRuntimePolicyParameterConsumptionEvidence(tickedEvidence);
+  emitRuntimePolicyParameterConsumptionEvidence(tickedEvidence);
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {

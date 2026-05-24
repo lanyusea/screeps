@@ -117,6 +117,9 @@ class RoadmapPagesContractTests(unittest.TestCase):
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
 
         self.assertIn("SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}", text)
+        self.assertIn("SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache", text)
+        self.assertIn("SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/screeps-monitor/state.json", text)
+        self.assertNotIn("SCREEPS_MONITOR_CACHE_DIR: /root/", text)
         self.assertIn("mkdir -p runtime-artifacts/screeps-monitor runtime-artifacts/runtime-summary-console runtime-artifacts/cron-output", text)
         self.assertIn("python3 scripts/screeps-runtime-monitor.py summary", text)
         self.assertIn("--out-dir runtime-artifacts/screeps-monitor", text)
