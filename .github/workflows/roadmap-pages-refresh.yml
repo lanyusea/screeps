@@ -24,6 +24,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
       GITHUB_TOKEN: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+      SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
 
     steps:
       - name: Checkout main
@@ -47,12 +48,25 @@ jobs:
           git config user.email "lanyusea@gmail.com"
           git lfs install --local
 
+      - name: Capture live Screeps runtime summary
+        run: |
+          mkdir -p runtime-artifacts/screeps-monitor runtime-artifacts/runtime-summary-console runtime-artifacts/cron-output
+          if [ -z "${SCREEPS_AUTH_TOKEN:-}" ]; then
+            echo "::warning::SCREEPS_AUTH_TOKEN is not configured; skipping live Screeps runtime summary capture."
+            exit 0
+          fi
+          python3 scripts/screeps-runtime-monitor.py summary \
+            --out-dir runtime-artifacts/screeps-monitor \
+            --runtime-summary-out-dir runtime-artifacts/runtime-summary-console \
+            > runtime-artifacts/screeps-monitor/summary.json
+
       - name: Generate roadmap Pages artifacts
         run: |
           python3 scripts/generate-roadmap-page.py \
             --repo . \
             --docs-dir docs \
-            --db docs/roadmap-kpi.sqlite
+            --db docs/roadmap-kpi.sqlite \
+            --cron-output-root runtime-artifacts/cron-output
           rm -f docs/roadmap-kpi.sqlite-wal docs/roadmap-kpi.sqlite-shm
           test ! -e docs/roadmap-kpi.sqlite-wal
           test ! -e docs/roadmap-kpi.sqlite-shm
