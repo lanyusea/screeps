@@ -931,7 +931,7 @@ describe('runtime telemetry summaries', () => {
           id: 'rampart-damaged',
           structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
           my: true,
-          hits: 90_000,
+          hits: 121_001,
           hitsMax: 300_000
         },
         {
@@ -985,7 +985,7 @@ describe('runtime telemetry summaries', () => {
       constructionSiteCount: 2,
       constructionDeadlockTicks: 0,
       pendingBuildProgress: 95,
-      repairBacklogHits: 14100,
+      repairBacklogHits: 33099,
       controllerProgressRemaining: 43766
     });
   });
