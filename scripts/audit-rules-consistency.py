@@ -90,7 +90,7 @@ def check_repo_files(root: Path, errors: list[str], warnings: list[str]) -> None
     for token in ["Domain", "Kind", "Project", "QA", "Deployment Floor"]:
         if token not in pr_template:
             add(errors, f"PR template missing {token} gate")
-    for token in ["Issue closure gate", "Related to issue", "non-closing"]:
+    for token in ["Issue closure gate", "Related to issue", "non-closing", "Commit messages"]:
         if token not in pr_template:
             add(errors, f"PR template missing acceptance-first closure guidance token: {token}")
 
@@ -106,11 +106,19 @@ def check_repo_files(root: Path, errors: list[str], warnings: list[str]) -> None
         "docs/ops/github-issue-management.md",
         "docs/ops/github-roadmap-management.md",
         "docs/ops/agent-operating-system.md",
+        "docs/ops/rules-registry.md",
     ]
     for rel in acceptance_files:
         text = (root / rel).read_text(errors="ignore")
         if "acceptance-first" not in text.lower():
             add(errors, f"{rel} missing acceptance-first issue closure rule")
+        if "commit message" not in text.lower():
+            add(errors, f"{rel} missing commit-message closing-keyword ban")
+
+    gate_script = (root / "scripts/check_issue_completion_gate.py").read_text(errors="ignore")
+    for token in ["fetch_pr_commits", "validate_commit_messages", "commit messages cannot carry PR Issue closure gate evidence"]:
+        if token not in gate_script:
+            add(errors, f"scripts/check_issue_completion_gate.py missing commit-message validation token: {token}")
     for rel in [
         ".github/ISSUE_TEMPLATE/known_problem.yml",
         "docs/ops/github-issue-management.md",

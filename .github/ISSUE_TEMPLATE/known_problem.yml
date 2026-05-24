@@ -105,6 +105,7 @@ body:
         - Use a GitHub closing keyword only when the PR satisfies every original acceptance criterion for this issue at merge time.
         - Use "Related to issue <number>" for enabling work, post-merge validation, owner-action blockers, live service/process proof, successors, or partial fixes.
         - Do not use negated close-keyword phrases such as "does not close #123"; GitHub may still treat the keyword and reference as an auto-close instruction.
+        - Do not put GitHub closing keywords for tracked issues in commit messages; intentional closure must happen in the PR body with the Issue closure gate, or not at all.
         - Any PR that intentionally closes this issue must include an Issue closure gate line with checked evidence for this issue and no remaining runtime, owner-action, post-merge, successor, or partial-fix blocker.
     validations:
       required: true

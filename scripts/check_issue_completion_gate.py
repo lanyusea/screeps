@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate acceptance-first issue closure linkage in PR bodies."""
+"""Validate acceptance-first issue closure linkage in PR bodies and commits."""
 from __future__ import annotations
 
 import argparse
@@ -66,6 +66,12 @@ class GateLine:
     number: int
     text: str
     checked: bool
+
+
+@dataclass(frozen=True)
+class PullRequestCommit:
+    sha: str
+    message: str
 
 
 def issue_number_from_ref(ref: str) -> int | None:
@@ -162,6 +168,10 @@ def evidence_without_refs(text: str) -> str:
     return ISSUE_REF_RE.sub("", text).strip(" \t:-;,./")
 
 
+def format_issue_list(issue_numbers: list[int]) -> str:
+    return ", ".join(f"#{number}" for number in issue_numbers)
+
+
 def validate_body(body: str) -> list[str]:
     body = visible_markdown(body)
     negated_errors = find_negated_phrases(body)
@@ -219,6 +229,35 @@ def closed_issue_numbers(body: str) -> list[int]:
     return sorted({ref.number for ref in find_closing_refs(body)})
 
 
+def short_sha(sha: str) -> str:
+    return sha[:7] if sha else "<unknown>"
+
+
+def validate_commit_messages(commits: list[PullRequestCommit]) -> list[str]:
+    errors: list[str] = []
+    for commit in commits:
+        negated_errors = find_negated_phrases(commit.message)
+        if negated_errors:
+            for error in negated_errors:
+                errors.append(
+                    f"commit {short_sha(commit.sha)}: {error}; "
+                    "commit messages cannot carry PR Issue closure gate evidence"
+                )
+            continue
+
+        closing_refs = find_closing_refs(commit.message)
+        if not closing_refs:
+            continue
+
+        issue_list = format_issue_list(sorted({ref.number for ref in closing_refs}))
+        errors.append(
+            f"commit {short_sha(commit.sha)}: commit message contains GitHub closing keyword "
+            f"for {issue_list}; commit messages cannot carry PR Issue closure gate evidence, "
+            "so move intentional closure to the PR body Issue closure gate or use non-closing wording"
+        )
+    return errors
+
+
 def fetch_pr_body(pr_number: int, repo: str | None) -> str:
     cmd = ["gh", "pr", "view", str(pr_number), "--json", "body"]
     if repo:
@@ -232,6 +271,64 @@ def fetch_pr_body(pr_number: int, repo: str | None) -> str:
     )
     payload = json.loads(completed.stdout)
     return payload.get("body") or ""
+
+
+def resolve_repo(repo: str | None) -> str:
+    if repo:
+        return repo
+    completed = subprocess.run(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    resolved = completed.stdout.strip()
+    if not resolved:
+        raise RuntimeError("gh repo view returned an empty repository name")
+    return resolved
+
+
+def parse_paginated_json(output: str) -> list[object]:
+    decoder = json.JSONDecoder()
+    values: list[object] = []
+    index = 0
+    while index < len(output):
+        while index < len(output) and output[index].isspace():
+            index += 1
+        if index >= len(output):
+            break
+        value, index = decoder.raw_decode(output, index)
+        if isinstance(value, list):
+            values.extend(value)
+        else:
+            values.append(value)
+    return values
+
+
+def fetch_pr_commits(pr_number: int, repo: str | None) -> list[PullRequestCommit]:
+    resolved_repo = resolve_repo(repo)
+    completed = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{resolved_repo}/pulls/{pr_number}/commits",
+            "--paginate",
+        ],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    payload = parse_paginated_json(completed.stdout)
+    return [
+        PullRequestCommit(
+            sha=str(item.get("sha") or ""),
+            message=str((item.get("commit") or {}).get("message") or ""),
+        )
+        for item in payload
+        if isinstance(item, dict)
+    ]
 
 
 def read_body_file(path: str) -> str:
@@ -325,6 +422,28 @@ SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
 )
 
 
+COMMIT_SELF_TESTS: tuple[tuple[str, PullRequestCommit, bool, str | None], ...] = (
+    (
+        "commit_clean_message",
+        PullRequestCommit("abc1234567890", "docs: clarify non-closing linkage\n\nRelated to issue 123."),
+        True,
+        None,
+    ),
+    (
+        "commit_closing_keyword",
+        PullRequestCommit("abc1234567890", "fix(agent-os): fixes #123"),
+        False,
+        "commit abc1234: commit message contains GitHub closing keyword for #123",
+    ),
+    (
+        "commit_negated_close",
+        PullRequestCommit("fedcba9876543", "docs: does not close #123"),
+        False,
+        "commit fedcba9: line 1: ambiguous negated close-keyword phrase",
+    ),
+)
+
+
 def run_self_tests() -> int:
     failures: list[str] = []
     for name, body, expect_pass, expected_message in SELF_TESTS:
@@ -335,12 +454,23 @@ def run_self_tests() -> int:
             continue
         if expected_message and not any(expected_message in error for error in errors):
             failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, commit, expect_pass, expected_message in COMMIT_SELF_TESTS:
+        errors = validate_commit_messages([commit])
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    paginated = parse_paginated_json('[{"sha": "a"}]\n[{"sha": "b"}]\n')
+    if paginated != [{"sha": "a"}, {"sha": "b"}]:
+        failures.append(f"paginated_json: expected two flattened objects, got {paginated!r}")
     if failures:
         print("FAIL: self-test")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print(f"PASS: self-test ({len(SELF_TESTS)} fixture(s))")
+    print(f"PASS: self-test ({len(SELF_TESTS) + len(COMMIT_SELF_TESTS)} fixture(s))")
     return 0
 
 
@@ -382,10 +512,12 @@ def main() -> int:
     elif args.pr is not None:
         try:
             body = fetch_pr_body(args.pr, args.repo)
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-            print(f"FAIL: unable to read PR body with gh pr view: {exc}")
+            commits = fetch_pr_commits(args.pr, args.repo)
+        except (OSError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            print(f"FAIL: unable to read PR data with gh: {exc}")
             return 1
-        exit_code = max(exit_code, print_validation_result(body, validate_body(body)))
+        errors = [*validate_body(body), *validate_commit_messages(commits)]
+        exit_code = max(exit_code, print_validation_result(body, errors))
 
     return exit_code
 
