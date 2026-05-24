@@ -3772,6 +3772,125 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertIn("STEAM_KEY=[REDACTED]", stderr["tail"])
             self.assertNotIn("secret-value", stderr["tail"])
 
+    def test_run_remote_training_classifies_ssh_server_timeout(self) -> None:
+        args = controller_args()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_ssh_cmd(
+                _name: str,
+                _remote_command: str,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(
+                    ["ssh"],
+                    255,
+                    "",
+                    "Timeout, server 43.134.24.175 not responding.\n",
+                )
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(
+                    controller,
+                    "collect_remote_artifacts",
+                    side_effect=runner.BatchRunError("worker still unreachable"),
+                ),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "Timeout, server 43.134.24.175 not responding"):
+                    controller.run_remote_training()
+
+            failure = controller.result["remoteTrainingFailure"]
+
+        self.assertEqual(failure["failureClass"], "network_unreachable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("worker still unreachable", failure["collectionError"])
+
+    def test_run_remote_training_classifies_resource_guard_failure_artifact(self) -> None:
+        args = controller_args()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_ssh_cmd(
+                _name: str,
+                _remote_command: str,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(["ssh"], 2, "", "")
+
+            def fake_collect_remote_artifacts() -> None:
+                remote = root / "remote"
+                simulator = remote / "simulator-artifacts" / "run-test"
+                simulator.mkdir(parents=True)
+                (remote / "training-stderr.log").write_text(
+                    "error: resource guard rejected simulator scale run: "
+                    "workers=5 effectiveWorkers=5 requires 34036 MiB memory/swap; "
+                    "15 active rl-sim/private-smoke Docker container(s) already running\n",
+                    encoding="utf-8",
+                )
+                (remote / "training-summary.json").write_text("", encoding="utf-8")
+                (remote / "card-validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+                (remote / "report-extract.json").write_text("", encoding="utf-8")
+                (simulator / "resource_guard_failure.json").write_text(
+                    json.dumps(
+                        {
+                            "type": "screeps-rl-simulator-resource-guard-failure",
+                            "phase": "resource-guard",
+                            "resourceGuard": {
+                                "decision": "rejected",
+                                "requestedWorkers": 5,
+                                "effectiveWorkers": 5,
+                                "guardedWorkerEstimate": 5,
+                                "reasons": [
+                                    "workers=5 effectiveWorkers=5 requires 34036 MiB memory/swap; host reports 14242 MiB",
+                                    "15 active rl-sim/private-smoke Docker container(s) already running",
+                                ],
+                                "host": {
+                                    "memoryAndSwapAvailableMiB": 14242,
+                                    "activeSimulatorContainerCount": 15,
+                                    "activeRlSimulatorContainerCount": 0,
+                                    "activePrivateSmokeContainerCount": 15,
+                                },
+                                "estimate": {
+                                    "requiredMemoryAndSwapMiB": 34036,
+                                    "hostReserveMiB": 1536,
+                                    "memoryPerWorkerMiB": 2300,
+                                    "activeStackMemoryMiB": 1400,
+                                },
+                                "scaleValidation": {
+                                    "minConcurrentEnvironments": 5,
+                                    "targetConcurrencyMet": True,
+                                    "recommendations": [
+                                        "stop 15 active rl-sim/private-smoke Docker container(s) before the scale proof",
+                                    ],
+                                },
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(controller, "collect_remote_artifacts", side_effect=fake_collect_remote_artifacts),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "resource guard rejected simulator scale run"):
+                    controller.run_remote_training()
+
+            failure = controller.result["remoteTrainingFailure"]
+
+        self.assertEqual(failure["failureClass"], "simulator_resource_guard_rejected")
+        self.assertFalse(failure["retryable"])
+        self.assertEqual(failure["resourceGuard"]["effectiveWorkers"], 5)
+        self.assertEqual(failure["resourceGuard"]["host"]["activePrivateSmokeContainerCount"], 15)
+        self.assertEqual(failure["resourceGuard"]["estimate"]["requiredMemoryAndSwapMiB"], 34036)
+        self.assertIn(
+            "simulator-artifacts/run-test/resource_guard_failure.json",
+            failure["diagnostics"],
+        )
+
     def test_diagnostic_redaction_covers_common_secret_formats(self) -> None:
         raw = (
             "STEAM_KEY=steam-secret\n"
@@ -3855,6 +3974,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn("mkdir -p repo/runtime-artifacts/rl-training", scripts[0])
         self.assertIn(
             "touch card-validation.json training-summary.json training-stderr.log report-extract.json",
+            scripts[0],
+        )
+        self.assertIn(
+            "for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json",
             scripts[0],
         )
 
