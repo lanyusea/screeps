@@ -3392,27 +3392,37 @@ def build_agent_process_cards(
 
     if codex_metrics.session_count == 0 or not codex_metrics.window_reliable:
         codex_unavailable_detail = local_codex_unavailable_detail(codex_metrics, delivery_window_days)
-        token_card = unavailable_local_cache_process_card(
+        token_card = retained_or_unavailable_local_cache_process_card(
+            cached_process_cards,
             "Agent tokens",
             codex_unavailable_detail,
             codex_provenance,
+            generated_at,
+            delivery_window_days,
         )
-        runtime_card = unavailable_local_cache_process_card(
+        runtime_card = retained_or_unavailable_local_cache_process_card(
+            cached_process_cards,
             "Codex runtime",
             codex_unavailable_detail,
             codex_provenance,
+            generated_at,
+            delivery_window_days,
         )
-        runtime_card["provenance"] = codex_provenance
-        runs_card = unavailable_local_cache_process_card(
+        runs_card = retained_or_unavailable_local_cache_process_card(
+            cached_process_cards,
             "Codex runs",
             codex_unavailable_detail,
             codex_provenance,
+            generated_at,
+            delivery_window_days,
         )
-        runs_card["provenance"] = codex_provenance
-        longest_card = unavailable_local_cache_process_card(
+        longest_card = retained_or_unavailable_local_cache_process_card(
+            cached_process_cards,
             "Longest Codex run",
             codex_unavailable_detail,
             codex_provenance,
+            generated_at,
+            delivery_window_days,
         )
     else:
         token_value: str = "unavailable"
@@ -3519,10 +3529,13 @@ def build_agent_process_cards(
             "provenance": automation_provenance,
         }
     else:
-        automation_card = unavailable_local_cache_process_card(
+        automation_card = retained_or_unavailable_local_cache_process_card(
+            cached_process_cards,
             "Cron runs",
             local_cron_unavailable_detail(automation_metrics, delivery_window_days),
             automation_provenance,
+            generated_at,
+            delivery_window_days,
         )
 
     return [token_card, runtime_card, runs_card, automation_card, longest_card]
@@ -3601,6 +3614,65 @@ def unavailable_local_cache_process_card(
         "source": "local cache",
         "provenance": provenance,
     }
+
+
+def retained_or_unavailable_local_cache_process_card(
+    cached_process_cards: Sequence[JsonObject],
+    label: str,
+    detail: str,
+    provenance: JsonObject,
+    generated_at: str | None,
+    retention_days: int,
+) -> JsonObject:
+    retained = retained_local_cache_process_card(cached_process_cards, label, generated_at, retention_days)
+    if retained:
+        return retained
+    return unavailable_local_cache_process_card(label, detail, provenance)
+
+
+def retained_local_cache_process_card(
+    cached_process_cards: Sequence[JsonObject],
+    label: str,
+    generated_at: str | None,
+    retention_days: int,
+) -> JsonObject:
+    cached_card = cached_process_card(cached_process_cards, label)
+    if not should_retain_local_cache_process_card(cached_card, generated_at, retention_days):
+        return {}
+    retained = deepcopy(cached_card)
+    retained["detail"] = retained_local_cache_detail(cached_card)
+    retained["delta"] = "cached"
+    retained["source"] = "cached local cache"
+    return retained
+
+
+def should_retain_local_cache_process_card(
+    cached_card: Mapping[str, Any],
+    generated_at: str | None,
+    retention_days: int,
+) -> bool:
+    if not cached_card or str(cached_card.get("value") or "").lower() == "unavailable":
+        return False
+    if "rawValue" not in cached_card and "rawValueSeconds" not in cached_card:
+        return False
+    provenance = cached_card.get("provenance")
+    if not isinstance(provenance, Mapping) or provenance.get("localCacheOnly") is not True:
+        return False
+    current_time = parse_timestamp(str(generated_at or ""))
+    window = provenance.get("window")
+    window_end = parse_timestamp(str(window.get("end") if isinstance(window, Mapping) else ""))
+    if current_time is None or window_end is None:
+        return False
+    max_age = timedelta(days=max(1, retention_days))
+    return current_time.astimezone(timezone.utc) - window_end.astimezone(timezone.utc) <= max_age
+
+
+def retained_local_cache_detail(cached_card: Mapping[str, Any]) -> str:
+    cached_detail = str(cached_card.get("detail") or "").strip()
+    cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
+    if not cached_detail:
+        cached_detail = "last known local delivery metric"
+    return f"{cached_detail} · cached from prior local cache snapshot; current refresh found no local cache evidence"
 
 
 def append_local_cache_detail(detail: str) -> str:
