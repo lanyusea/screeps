@@ -31,6 +31,7 @@ DELIVERY_METRICS_WINDOW_DAYS = 7
 RUNTIME_ARTIFACT_SOURCE_KIND = "runtime-summary-artifact"
 RUNTIME_ARTIFACT_PATHS_ENV = "SCREEPS_ROADMAP_RUNTIME_ARTIFACT_PATHS"
 CRON_OUTPUT_ROOT_ENV = "SCREEPS_ROADMAP_CRON_OUTPUT_ROOT"
+SOURCE_EVIDENCE_METRIC_KEYS = frozenset({"runtime_summary_samples", "kpi_artifact_files"})
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
@@ -797,7 +798,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         write_metric_definitions(conn)
         migrate_legacy_kpi_samples(conn)
-        append_metric_samples(conn, generated_at, metrics)
+        if should_append_metric_samples(runtime_report, metrics):
+            append_metric_samples(conn, generated_at, metrics)
         history = load_metric_history(conn)
     finally:
         conn.close()
@@ -1538,6 +1540,26 @@ def append_metric_samples(conn: sqlite3.Connection, sampled_at: str, metrics: Se
     conn.commit()
 
 
+def should_append_metric_samples(runtime_report: JsonObject, metrics: Sequence[JsonObject]) -> bool:
+    if runtime_report_runtime_summary_count(runtime_report) <= 0:
+        return False
+    return any(is_observed_runtime_kpi_metric(metric) for metric in metrics)
+
+
+def runtime_report_runtime_summary_count(runtime_report: JsonObject) -> int:
+    source = runtime_report.get("source")
+    value = as_number(source.get("runtimeSummaryLines")) if isinstance(source, dict) else None
+    if value is None:
+        value = as_number(get_path(runtime_report, ("input", "runtimeSummaryCount")))
+    return max(0, int(value)) if value is not None else 0
+
+
+def is_observed_runtime_kpi_metric(metric: JsonObject) -> bool:
+    if metric.get("key") in SOURCE_EVIDENCE_METRIC_KEYS:
+        return False
+    return bool(metric.get("observed")) and chart_number(metric.get("value")) is not None
+
+
 def load_metric_history(conn: sqlite3.Connection) -> JsonObject:
     rows = conn.execute(
         """
@@ -1700,7 +1722,7 @@ def roadmap_cron_output_root(repo_root: Path, explicit_root: str | None = None) 
         return normalize_repo_scoped_path(repo_root, configured)
     if HERMES_CRON_OUTPUT_ROOT != HOST_HERMES_CRON_OUTPUT_ROOT:
         return HERMES_CRON_OUTPUT_ROOT
-    if HERMES_CRON_OUTPUT_ROOT.exists():
+    if path_exists_without_error(HERMES_CRON_OUTPUT_ROOT):
         return HERMES_CRON_OUTPUT_ROOT
     return repo_root / "runtime-artifacts" / "cron-output"
 
@@ -1710,6 +1732,13 @@ def normalize_repo_scoped_path(repo_root: Path, path_text: str) -> Path:
     if not path.is_absolute():
         path = repo_root / path
     return path
+
+
+def path_exists_without_error(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
 
 
 def runtime_history_input_path_labels(input_paths: Sequence[str]) -> list[str]:
@@ -2652,7 +2681,8 @@ def metric_history_values(history: JsonObject, metric_key: str, buckets: Sequenc
         sampled_at = parse_timestamp(str(point.get("sampledAt") or ""))
         if sampled_at is None:
             continue
-        latest_by_day[sampled_at.astimezone(CST).date()] = point
+        sampled_day = sampled_at.astimezone(CST).date()
+        latest_by_day[sampled_day] = preferred_daily_metric_point(latest_by_day.get(sampled_day), point)
 
     values: list[int | float | None] = []
     statuses: list[str] = []
@@ -2669,6 +2699,20 @@ def metric_history_values(history: JsonObject, metric_key: str, buckets: Sequenc
         else:
             values.append(None)
     return values, statuses
+
+
+def preferred_daily_metric_point(current: JsonObject | None, candidate: JsonObject) -> JsonObject:
+    if current is None:
+        return candidate
+
+    current_observed = bool(current.get("observed"))
+    candidate_observed = bool(candidate.get("observed"))
+    if current_observed != candidate_observed:
+        return candidate if candidate_observed else current
+
+    current_timestamp = parse_timestamp(str(current.get("sampledAt") or "")) or datetime.min.replace(tzinfo=timezone.utc)
+    candidate_timestamp = parse_timestamp(str(candidate.get("sampledAt") or "")) or datetime.min.replace(tzinfo=timezone.utc)
+    return candidate if candidate_timestamp >= current_timestamp else current
 
 
 def chart_number(value: Any) -> int | float | None:

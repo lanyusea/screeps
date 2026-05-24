@@ -287,6 +287,42 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertTrue(territory["history"]["insufficient"])
         self.assertIn("History collecting (2/7 days observed; insufficient for a complete 7d trend)", territory["footer"])
 
+    def test_metric_history_prefers_observed_point_over_later_unavailable_same_day(self) -> None:
+        history = {
+            "owned_rooms": [
+                metric_history_point("2026-05-01T12:00:00Z", 2),
+                {
+                    "sampledAt": "2026-05-01T18:00:00Z",
+                    "value": None,
+                    "instrumented": False,
+                    "observed": False,
+                    "status": "not instrumented",
+                },
+            ]
+        }
+
+        values, statuses = roadmap.metric_history_values(history, "owned_rooms", [datetime(2026, 5, 1).date()])
+
+        self.assertEqual(values, [2])
+        self.assertEqual(statuses, ["observed"])
+
+    def test_empty_runtime_report_samples_are_not_appended_to_history(self) -> None:
+        report = roadmap.empty_runtime_report("no runtime-summary artifacts")
+        metrics = roadmap.build_current_metrics(report)
+        conn = sqlite3.connect(":memory:")
+        conn.execute("PRAGMA foreign_keys=ON")
+        roadmap.ensure_schema(conn)
+        roadmap.write_metric_definitions(conn)
+        try:
+            if roadmap.should_append_metric_samples(report, metrics):
+                roadmap.append_metric_samples(conn, "2026-05-01T18:00:00Z", metrics)
+            history = roadmap.load_metric_history(conn)
+        finally:
+            conn.close()
+
+        self.assertFalse(roadmap.should_append_metric_samples(report, metrics))
+        self.assertEqual(history, {})
+
     def test_lfs_pointer_history_db_reports_cold_start_collecting_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "docs" / "roadmap-kpi.sqlite"
@@ -429,6 +465,26 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             with (
                 patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
                 patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+            ):
+                path = roadmap.roadmap_cron_output_root(repo_root)
+
+        self.assertEqual(path, repo_root / "runtime-artifacts" / "cron-output")
+
+    def test_cron_output_root_permission_error_falls_back_to_repo_local_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            host_root = repo_root / "host-cron-output"
+            original_exists = type(host_root).exists
+
+            def inaccessible_exists(path: Path) -> bool:
+                if path == host_root:
+                    raise PermissionError("permission denied")
+                return original_exists(path)
+
+            with (
+                patch.object(roadmap, "HOST_HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", host_root),
+                patch.object(type(host_root), "exists", inaccessible_exists),
             ):
                 path = roadmap.roadmap_cron_output_root(repo_root)
 
