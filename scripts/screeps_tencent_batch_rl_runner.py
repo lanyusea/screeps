@@ -29,7 +29,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from screeps_rl_experiment_card import (
     CardValidationError,
@@ -64,6 +64,13 @@ REMOTE_TRAINING_DIAGNOSTIC_FILES = (
     "training-summary.json",
     "card-validation.json",
     "report-extract.json",
+)
+REMOTE_SIMULATOR_DIAGNOSTIC_FILES = (
+    "run_summary.json",
+    "resource_guard_failure.json",
+    "setup_failure.json",
+    "run_failure.json",
+    "owned_room_scorecard.json",
 )
 DIAGNOSTIC_FILE_TAIL_BYTES = 64 * 1024
 E1S1_REPEAT_GUARD_TYPE = "screeps-tencent-batch-rl-launch-guard"
@@ -107,7 +114,13 @@ SSH_HOST_KEY_MISMATCH_RE = re.compile(
 SSH_NETWORK_UNREACHABLE_RE = re.compile(
     r"(?:Connection refused|Connection timed out|No route to host|Network is unreachable|"
     r"Operation timed out|Connection reset by peer|Connection closed by remote host|"
+    r"Timeout, server .* not responding|"
     r"kex_exchange_identification:.*closed|Could not resolve hostname|Name or service not known)",
+    re.IGNORECASE,
+)
+REMOTE_RESOURCE_GUARD_RE = re.compile(
+    r"(?:resource guard rejected simulator scale run|screeps-rl-simulator-resource-guard-failure|"
+    r'"phase"\s*:\s*"resource-guard")',
     re.IGNORECASE,
 )
 SECRET_KEY_CANDIDATE_PATTERN = r"[A-Za-z_][A-Za-z0-9_-]{0,80}"
@@ -1450,6 +1463,8 @@ PY
         diagnostics = remote_training_failure_diagnostics(
             self.artifact_dir,
             cp.returncode,
+            run_id=self.run_id,
+            process_failure_class=classify_ssh_process_failure(cp),
             collection_error=collection_error,
         )
         self.result["remoteTrainingFailure"] = diagnostics
@@ -1468,16 +1483,15 @@ touch card-validation.json training-summary.json training-stderr.log report-extr
 if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
   cp training-summary.json report-extract.json
 fi
-simulator_summaries=()
-if [ -f "simulator-artifacts/$RUN_ID/run_summary.json" ]; then
-  simulator_summaries+=("simulator-artifacts/$RUN_ID/run_summary.json")
-fi
-if [ -f "simulator-artifacts/$RUN_ID/owned_room_scorecard.json" ]; then
-  simulator_summaries+=("simulator-artifacts/$RUN_ID/owned_room_scorecard.json")
-fi
+simulator_diagnostics=()
+for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json; do
+  if [ -f "simulator-artifacts/$RUN_ID/$simulator_file" ]; then
+    simulator_diagnostics+=("simulator-artifacts/$RUN_ID/$simulator_file")
+  fi
+done
 tar -czf remote-artifacts.tar.gz \
   experiment_card.json card-validation.json training-summary.json training-stderr.log report-extract.json \
-  "${simulator_summaries[@]}" \
+  "${simulator_diagnostics[@]}" \
   -C repo runtime-artifacts/rl-training
 """.strip()
         env_prefix = " ".join(
@@ -2088,15 +2102,24 @@ def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
     return artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{run_id}.json"
 
 
+def remote_training_diagnostic_files(run_id: str | None = None) -> tuple[str, ...]:
+    files = list(REMOTE_TRAINING_DIAGNOSTIC_FILES)
+    if isinstance(run_id, str) and RUN_ID_RE.match(run_id):
+        files.extend(f"simulator-artifacts/{run_id}/{filename}" for filename in REMOTE_SIMULATOR_DIAGNOSTIC_FILES)
+    return tuple(files)
+
+
 def remote_training_failure_diagnostics(
     artifact_dir: Path,
     returncode: int,
     *,
+    run_id: str | None = None,
+    process_failure_class: str | None = None,
     collection_error: str | None = None,
 ) -> dict[str, Any]:
     remote_dir = artifact_dir / "remote"
     files: dict[str, dict[str, Any]] = {}
-    for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
+    for filename in remote_training_diagnostic_files(run_id):
         path = remote_dir / filename
         entry: dict[str, Any] = {"path": str(path)}
         try:
@@ -2108,15 +2131,109 @@ def remote_training_failure_diagnostics(
             entry["missing"] = True
             entry["error"] = str(error)
         files[filename] = entry
+    failure_class = classify_remote_training_failure(
+        files,
+        returncode=returncode,
+        process_failure_class=process_failure_class,
+    )
     payload: dict[str, Any] = {
         "status": "failed_exit",
+        "failureClass": failure_class,
+        "retryable": failure_class in {"network_unreachable"},
         "returncode": returncode,
         "artifactDir": str(remote_dir),
         "diagnostics": files,
     }
+    resource_guard = remote_training_resource_guard_summary(artifact_dir, run_id)
+    if resource_guard is not None:
+        payload["resourceGuard"] = resource_guard
     if collection_error:
         payload["collectionError"] = diagnostic_tail(collection_error)
     return payload
+
+
+def classify_remote_training_failure(
+    files: Mapping[str, dict[str, Any]],
+    *,
+    returncode: int,
+    process_failure_class: str | None = None,
+) -> str:
+    diagnostic_text = "\n".join(
+        tail for entry in files.values() for tail in [entry.get("tail")] if isinstance(tail, str)
+    )
+    if REMOTE_RESOURCE_GUARD_RE.search(diagnostic_text):
+        return "simulator_resource_guard_rejected"
+    if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
+        return process_failure_class
+    if returncode == 255:
+        return "ssh_transport_failed"
+    return "remote_process_failed"
+
+
+def remote_training_resource_guard_summary(artifact_dir: Path, run_id: str | None) -> dict[str, Any] | None:
+    if not isinstance(run_id, str) or not RUN_ID_RE.match(run_id):
+        return None
+    remote_dir = artifact_dir / "remote" / "simulator-artifacts" / run_id
+    for filename in ("resource_guard_failure.json", "run_summary.json"):
+        path = remote_dir / filename
+        payload = read_diagnostic_json_object(path)
+        if payload is None:
+            continue
+        resource_guard = payload.get("resourceGuard")
+        if isinstance(resource_guard, dict):
+            return compact_resource_guard_summary(resource_guard, path)
+    return None
+
+
+def read_diagnostic_json_object(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def compact_resource_guard_summary(resource_guard: dict[str, Any], path: Path) -> dict[str, Any]:
+    host = resource_guard.get("host")
+    estimate = resource_guard.get("estimate")
+    scale_validation = resource_guard.get("scaleValidation")
+    summary: dict[str, Any] = {
+        "path": str(path),
+        "decision": resource_guard.get("decision"),
+        "requestedWorkers": resource_guard.get("requestedWorkers"),
+        "effectiveWorkers": resource_guard.get("effectiveWorkers"),
+        "guardedWorkerEstimate": resource_guard.get("guardedWorkerEstimate"),
+        "reasons": [
+            redact_secret_text(str(reason))[:500]
+            for reason in resource_guard.get("reasons", [])
+            if isinstance(reason, str)
+        ][:10],
+    }
+    if isinstance(host, dict):
+        summary["host"] = {
+            "memoryAndSwapAvailableMiB": host.get("memoryAndSwapAvailableMiB"),
+            "activeSimulatorContainerCount": host.get("activeSimulatorContainerCount"),
+            "activeRlSimulatorContainerCount": host.get("activeRlSimulatorContainerCount"),
+            "activePrivateSmokeContainerCount": host.get("activePrivateSmokeContainerCount"),
+        }
+    if isinstance(estimate, dict):
+        summary["estimate"] = {
+            "requiredMemoryAndSwapMiB": estimate.get("requiredMemoryAndSwapMiB"),
+            "hostReserveMiB": estimate.get("hostReserveMiB"),
+            "memoryPerWorkerMiB": estimate.get("memoryPerWorkerMiB"),
+            "activeStackMemoryMiB": estimate.get("activeStackMemoryMiB"),
+        }
+    if isinstance(scale_validation, dict):
+        summary["scaleValidation"] = {
+            "minConcurrentEnvironments": scale_validation.get("minConcurrentEnvironments"),
+            "targetConcurrencyMet": scale_validation.get("targetConcurrencyMet"),
+            "recommendations": [
+                redact_secret_text(str(item))[:500]
+                for item in scale_validation.get("recommendations", [])
+                if isinstance(item, str)
+            ][:10],
+        }
+    return summary
 
 
 def remote_training_failure_message(
@@ -2125,8 +2242,7 @@ def remote_training_failure_message(
 ) -> str:
     raw_files = diagnostics.get("diagnostics")
     if isinstance(raw_files, dict):
-        for filename in REMOTE_TRAINING_DIAGNOSTIC_FILES:
-            entry = raw_files.get(filename)
+        for filename, entry in raw_files.items():
             if isinstance(entry, dict):
                 tail = entry.get("tail")
                 if isinstance(tail, str) and tail.strip():
