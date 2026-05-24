@@ -45,9 +45,9 @@ const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
+  const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled =
-    runtimePolicyParameters.evidence.runtimeParameterInjection === true &&
-    runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
+    runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   let summary: RuntimeSummary | undefined;
   try {
@@ -55,7 +55,11 @@ export function loop(): void {
       strategyRegistry: runtimePolicyParameters.registry,
       ...(runtimePolicyParameterPlanningEnabled
         ? {
-            runtimeStrategyConstructionEnabled: true,
+            runtimeStrategyConstructionEnabled: true
+          }
+        : {}),
+      ...(hasPatchedRuntimeStrategies
+        ? {
             onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
           }
         : {})
@@ -63,7 +67,7 @@ export function loop(): void {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, runtimePolicyParameters.registry);
+  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 
 function runStrategyRolloutMonitoring(

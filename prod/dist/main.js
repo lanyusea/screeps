@@ -47600,21 +47600,24 @@ var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
-  const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
+  const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
+  const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
   let summary;
   try {
     summary = kernel.run({
       strategyRegistry: runtimePolicyParameters.registry,
       ...runtimePolicyParameterPlanningEnabled ? {
-        runtimeStrategyConstructionEnabled: true,
+        runtimeStrategyConstructionEnabled: true
+      } : {},
+      ...hasPatchedRuntimeStrategies ? {
         onStrategyRegistryRuntimeUse: runtimePolicyParameterConsumption.recordStrategyRuntimeUse
       } : {}
     });
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, runtimePolicyParameters.registry);
+  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
 }
 function runStrategyRolloutMonitoring(summary, registry) {
   let workingRegistry = applyPendingRollbacks(registry);
