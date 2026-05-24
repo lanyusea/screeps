@@ -89,7 +89,7 @@ A meaningful task is not complete until:
 1. The linked issue/PR is current in Project `screeps` #3.
 2. `Status`, `Evidence`, and `Next action` are accurate.
 3. If blocked, the item has both a `blocked` label and a non-empty `Blocked by` field, with a concrete unblock action.
-4. PRs use a closing keyword (`Fixes #...`, `Closes #...`, or `Resolves #...`) when they complete a tracked issue.
+4. Acceptance-first PR bodies may use a closing keyword (`Fixes #...`, `Closes #...`, or `Resolves #...`) only when they complete a tracked issue and include the Issue closure gate; commit messages must not contain GitHub closing keywords for tracked issues.
 5. Required checks, automated review findings, review threads, QA gate, and elapsed review window are satisfied before merge.
 6. Gameplay/runtime-affecting merged work also satisfies the Deployment Floor: official deploy evidence plus post-deploy observation, or an explicit HELD blocker.
 
