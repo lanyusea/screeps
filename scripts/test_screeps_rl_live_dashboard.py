@@ -558,6 +558,96 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(control_source["filesScanned"], 3)
         self.assertEqual(control_source["fileLimitPerKind"], 1)
 
+    def test_bounded_dashboard_semantic_scan_caps_irrelevant_deserialization(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            fallback_limit = live.semantic_fallback_scan_limit(1, len(live.SUMMARY_DASHBOARD_ARTIFACT_KINDS))
+            irrelevant_count = fallback_limit + 25
+            for index in range(irrelevant_count):
+                path = control_root / f"decision-{index:03d}.json"
+                write_json(
+                    path,
+                    {
+                        "type": "screeps-rl-iteration-decision",
+                        "decisionId": f"decision-{index}",
+                        "createdAt": f"2026-05-18T11:{index % 60:02d}:00Z",
+                    },
+                )
+                os.utime(path, (1_771_002_000 + index, 1_771_002_000 + index))
+            training_path = control_root / "training-ledger.json"
+            write_json(
+                training_path,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 3, "policyUpdateIterations": 1, "simulatorTicksRun": 600},
+                    "environmentExecution": {"completed": 1, "failed": 0, "lastNewRunAt": "2026-05-18T10:00:00Z"},
+                    "createdAt": "2026-05-18T10:00:00Z",
+                },
+            )
+            policy_path = control_root / "policy-advantage.json"
+            write_json(
+                policy_path,
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "PROVEN",
+                    "candidatePolicyId": "candidate-policy",
+                    "baselinePolicyId": "baseline-policy",
+                    "createdAt": "2026-05-18T10:01:00Z",
+                },
+            )
+            metrics_path = control_root / "metrics-observations.json"
+            write_json(
+                metrics_path,
+                {
+                    "type": "screeps-rl-metrics-observations-report",
+                    "observations": [],
+                    "createdAt": "2026-05-18T10:02:00Z",
+                },
+            )
+            for path in (training_path, policy_path, metrics_path):
+                os.utime(path, (1_771_000_000, 1_771_000_000))
+
+            load_attempts: list[Path] = []
+            original_load_json_object = live.load_json_object
+
+            def counting_load_json_object(path: Path) -> JsonObject | None:
+                load_attempts.append(path)
+                return original_load_json_object(path)
+
+            live.load_json_object = counting_load_json_object
+            try:
+                artifacts, scan = live.load_bounded_dashboard_artifacts(
+                    artifact_root,
+                    repo_root,
+                    [],
+                    max_files_per_root=1,
+                )
+            finally:
+                live.load_json_object = original_load_json_object
+
+        artifacts_by_kind = {
+            live.static_dashboard.artifact_kind(artifact.path, artifact.payload): artifact
+            for artifact in artifacts
+        }
+        self.assertTrue(str(artifacts_by_kind["training_ledger"].path).endswith("training-ledger.json"))
+        self.assertTrue(str(artifacts_by_kind["policy_advantage"].path).endswith("policy-advantage.json"))
+        self.assertTrue(str(artifacts_by_kind["metrics_observations"].path).endswith("metrics-observations.json"))
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertTrue(control_source["candidateScanTruncated"])
+        self.assertTrue(control_source["candidateFilesDiscoveredIsLowerBound"])
+        self.assertEqual(control_source["fallbackScanLimit"], fallback_limit)
+        self.assertEqual(control_source["semanticFilesDiscovered"], 3)
+        self.assertEqual(len(load_attempts), control_source["jsonFilesDeserialized"])
+        self.assertLessEqual(
+            control_source["jsonFilesDeserialized"],
+            fallback_limit + len(live.SUMMARY_DASHBOARD_ARTIFACT_KINDS),
+        )
+        self.assertLess(control_source["jsonFilesDeserialized"], irrelevant_count + 3)
+
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

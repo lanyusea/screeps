@@ -146,6 +146,17 @@ SUMMARY_ARTIFACT_SOURCE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 SUMMARY_DASHBOARD_ARTIFACT_KINDS = frozenset(
     ("training_ledger", "policy_advantage", "metrics_observations")
 )
+SUMMARY_SEMANTIC_ARTIFACT_FILENAME_PATTERNS: dict[str, tuple[str, ...]] = {
+    "training_ledger": ("*training-ledger*.json", "*training-execution-ledger*.json"),
+    "policy_advantage": (
+        "*policy-advantage*.json",
+        "*policy-online-advantage*.json",
+        "*policyadvantage*.json",
+    ),
+    "metrics_observations": ("*metrics-observations*.json", "*metrics-observation*.json"),
+}
+SUMMARY_SEMANTIC_SCAN_MULTIPLIER = 4
+SUMMARY_SEMANTIC_MIN_FALLBACK_SCAN_LIMIT = 32
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
@@ -617,6 +628,42 @@ def newest_matching_files(
     if bounded_limit is not None:
         return ordered[:bounded_limit], len(ordered)
     return ordered, len(ordered)
+
+
+def newest_matching_files_with_discovery_limit(
+    root: Path,
+    patterns: Sequence[str],
+    *,
+    discovery_limit: int,
+) -> tuple[list[Path], int, bool]:
+    bounded_limit = max(0, discovery_limit)
+    if bounded_limit == 0 or not root.exists():
+        return [], 0, False
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        try:
+            for path in root.glob(pattern):
+                if not path.is_file():
+                    continue
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    resolved = path
+                if resolved in seen:
+                    continue
+                if len(paths) >= bounded_limit:
+                    return (
+                        sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True),
+                        len(paths),
+                        True,
+                    )
+                seen.add(resolved)
+                paths.append(path)
+        except OSError:
+            continue
+    ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+    return ordered, len(paths), False
 
 
 def latest_json_artifact(
@@ -1363,6 +1410,39 @@ def summary_artifact_source_root(artifact_root: Path, source: str) -> Path:
     return artifact_root.joinpath(*source.split("/"))
 
 
+def semantic_filename_scan_limit(limit_per_kind: int) -> int:
+    bounded_limit = max(0, limit_per_kind)
+    if bounded_limit == 0:
+        return 0
+    return max(bounded_limit, bounded_limit * SUMMARY_SEMANTIC_SCAN_MULTIPLIER)
+
+
+def semantic_fallback_scan_limit(limit_per_kind: int, artifact_kind_count: int) -> int:
+    bounded_limit = max(0, limit_per_kind)
+    bounded_kind_count = max(0, artifact_kind_count)
+    if bounded_limit == 0 or bounded_kind_count == 0:
+        return 0
+    return max(
+        SUMMARY_SEMANTIC_MIN_FALLBACK_SCAN_LIMIT,
+        bounded_limit * bounded_kind_count * SUMMARY_SEMANTIC_SCAN_MULTIPLIER,
+    )
+
+
+def semantic_filename_patterns(patterns: Sequence[str], artifact_kind: str) -> tuple[str, ...]:
+    filename_patterns = SUMMARY_SEMANTIC_ARTIFACT_FILENAME_PATTERNS.get(artifact_kind, ())
+    specialized: list[str] = []
+    seen: set[str] = set()
+    for pattern in patterns:
+        prefix = pattern.rsplit("/", 1)[0] + "/" if "/" in pattern else ""
+        for filename_pattern in filename_patterns:
+            specialized_pattern = f"{prefix}{filename_pattern}"
+            if specialized_pattern in seen:
+                continue
+            seen.add(specialized_pattern)
+            specialized.append(specialized_pattern)
+    return tuple(specialized)
+
+
 def summary_artifact_json_paths(
     artifact_root: Path,
     repo_root: Path,
@@ -1382,13 +1462,13 @@ def summary_artifact_json_paths(
             semantic_total: int | None = None
             truncated = total > len(selected)
         else:
-            selected, total, semantic_total = newest_semantic_artifact_files(
+            selected, total, semantic_total, semantic_scan = newest_semantic_artifact_files(
                 root,
                 patterns,
                 artifact_kind_filter,
                 limit_per_kind=bounded_limit,
             )
-            truncated = semantic_total > len(selected)
+            truncated = semantic_total > len(selected) or bool(semantic_scan.get("candidateScanTruncated"))
         source_paths: list[Path] = []
         for path in selected:
             try:
@@ -1413,6 +1493,7 @@ def summary_artifact_json_paths(
             source_summary["artifactKinds"] = sorted(artifact_kind_filter)
             source_summary["semanticFilesDiscovered"] = semantic_total
             source_summary["fileLimitPerKind"] = bounded_limit
+            source_summary.update(semantic_scan)
         source_summaries.append(source_summary)
     ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
     return ordered, {
@@ -1430,27 +1511,90 @@ def newest_semantic_artifact_files(
     artifact_kinds: set[str],
     *,
     limit_per_kind: int,
-) -> tuple[list[Path], int, int]:
-    matched, total = newest_matching_files(root, patterns)
-    paths_by_kind: dict[str, list[Path]] = {kind: [] for kind in artifact_kinds}
+) -> tuple[list[Path], int, int, JsonObject]:
+    bounded_limit = max(0, limit_per_kind)
+    artifact_kind_list = sorted(artifact_kinds)
+    filename_scan_limit = semantic_filename_scan_limit(bounded_limit)
+    fallback_scan_limit = semantic_fallback_scan_limit(bounded_limit, len(artifact_kind_list))
+    candidate_scan_limit = fallback_scan_limit + filename_scan_limit * len(artifact_kind_list)
+    scan: JsonObject = {
+        "candidateScanLimit": candidate_scan_limit,
+        "candidateScanTruncated": False,
+        "candidateFilesDiscovered": 0,
+        "candidateFilesDiscoveredIsLowerBound": False,
+        "filenameHintScanLimitPerKind": filename_scan_limit,
+        "filenameHintFilesDiscovered": 0,
+        "filenameHintScanTruncated": False,
+        "fallbackScanLimit": fallback_scan_limit,
+        "fallbackFilesDiscovered": 0,
+        "fallbackScanTruncated": False,
+        "jsonFilesDeserialized": 0,
+    }
+    if bounded_limit == 0 or not artifact_kind_list:
+        return [], 0, 0, scan
+    paths_by_kind: dict[str, list[Path]] = {kind: [] for kind in artifact_kind_list}
+    candidate_seen: set[Path] = set()
+    classified_seen: set[Path] = set()
+    semantic_seen: set[Path] = set()
     semantic_total = 0
-    for path in matched:
+
+    def resolve_candidate(path: Path) -> Path:
+        try:
+            return path.resolve()
+        except OSError:
+            return path
+
+    def classify_candidate(path: Path) -> None:
+        nonlocal semantic_total
+        resolved = resolve_candidate(path)
+        candidate_seen.add(resolved)
+        if resolved in classified_seen:
+            return
+        classified_seen.add(resolved)
+        scan["jsonFilesDeserialized"] = int(scan["jsonFilesDeserialized"]) + 1
         payload = load_json_object(path)
         if payload is None:
-            continue
+            return
         kind = static_dashboard.artifact_kind(path, payload)
         if kind not in artifact_kinds:
-            continue
-        semantic_total += 1
-        if len(paths_by_kind[kind]) < limit_per_kind:
+            return
+        if resolved not in semantic_seen:
+            semantic_seen.add(resolved)
+            semantic_total += 1
+        if len(paths_by_kind[kind]) < bounded_limit:
             paths_by_kind[kind].append(path)
+
+    for kind in artifact_kind_list:
+        kind_candidates, discovered, truncated = newest_matching_files_with_discovery_limit(
+            root,
+            semantic_filename_patterns(patterns, kind),
+            discovery_limit=filename_scan_limit,
+        )
+        scan["filenameHintFilesDiscovered"] = int(scan["filenameHintFilesDiscovered"]) + discovered
+        scan["filenameHintScanTruncated"] = bool(scan["filenameHintScanTruncated"]) or truncated
+        for path in kind_candidates:
+            classify_candidate(path)
+
+    fallback_candidates, discovered, truncated = newest_matching_files_with_discovery_limit(
+        root,
+        patterns,
+        discovery_limit=fallback_scan_limit,
+    )
+    scan["fallbackFilesDiscovered"] = discovered
+    scan["fallbackScanTruncated"] = truncated
+    for path in fallback_candidates:
+        classify_candidate(path)
+
+    scan["candidateFilesDiscovered"] = len(candidate_seen)
+    scan["candidateScanTruncated"] = bool(scan["filenameHintScanTruncated"]) or bool(scan["fallbackScanTruncated"])
+    scan["candidateFilesDiscoveredIsLowerBound"] = bool(scan["candidateScanTruncated"])
     selected = [
         path
         for kind_paths in paths_by_kind.values()
         for path in kind_paths
     ]
     selected.sort(key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
-    return selected, total, semantic_total
+    return selected, len(candidate_seen), semantic_total, scan
 
 
 def load_artifact_json_paths(paths: Iterable[Path]) -> Iterator[ArtifactJson]:
