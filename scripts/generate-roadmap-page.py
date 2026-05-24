@@ -3830,7 +3830,8 @@ def summarize_codex_sessions(
 ) -> CodexSessionMetrics:
     window_start, window_end = delivery_metric_window(generated_at, window_days)
     apply_window = generated_at is not None
-    if not session_root.exists():
+
+    def unavailable_metrics() -> CodexSessionMetrics:
         return CodexSessionMetrics(
             0,
             0,
@@ -3844,6 +3845,9 @@ def summarize_codex_sessions(
             source_root=session_root,
             source_exists=False,
         )
+
+    if not path_exists_without_error(session_root):
+        return unavailable_metrics()
 
     attribution = attribution or build_repo_attribution(None, None)
     session_count = 0
@@ -3860,7 +3864,11 @@ def summarize_codex_sessions(
     longest_elapsed_seconds = 0
     captured_times: list[datetime] = []
     counted_ids: list[str] = []
-    for path in sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}")):
+    try:
+        session_paths = sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}"))
+    except OSError:
+        return unavailable_metrics()
+    for path in session_paths:
         if not path.is_file():
             continue
         candidate_count += 1
