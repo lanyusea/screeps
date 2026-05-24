@@ -675,7 +675,9 @@ def newest_matching_files_with_discovery_limit(
         return [], 0, False
     paths: list[Path] = []
     seen: set[Path] = set()
+    truncated = False
     for pattern in patterns:
+        pattern_seen: set[Path] = set()
         try:
             for path in newest_first_pattern_matches(root, pattern):
                 if not path.is_file():
@@ -684,20 +686,20 @@ def newest_matching_files_with_discovery_limit(
                     resolved = path.resolve()
                 except OSError:
                     resolved = path
+                if resolved in pattern_seen:
+                    continue
+                if len(pattern_seen) >= bounded_limit:
+                    truncated = True
+                    break
+                pattern_seen.add(resolved)
                 if resolved in seen:
                     continue
-                if len(paths) >= bounded_limit:
-                    return (
-                        sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True),
-                        len(paths),
-                        True,
-                    )
                 seen.add(resolved)
                 paths.append(path)
         except OSError:
             continue
     ordered = sorted(paths, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
-    return ordered, len(paths), False
+    return ordered[:bounded_limit], len(paths), truncated or len(paths) > bounded_limit
 
 
 def latest_json_artifact(

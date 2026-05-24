@@ -1991,6 +1991,40 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(control_source["truncated"])
         self.assertEqual(control_source["fileLimit"], 1)
 
+    def test_artifact_evidence_scan_visits_later_patterns_after_broad_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            for index in range(3):
+                path = control_root / f"decision-{index}.json"
+                write_json(path, {"createdAt": f"2026-05-18T09:0{index}:00Z", "irrelevant": True})
+                os.utime(path, (1_771_000_000 + index, 1_771_000_000 + index))
+            nested = control_root / "scorecards" / "runtime-blocked.json"
+            write_json(
+                nested,
+                {
+                    "createdAt": "2026-05-18T10:10:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+            os.utime(nested, (1_771_001_000, 1_771_001_000))
+
+            injection, zero_iteration, scan = live.artifact_evidence_summaries_with_scan(
+                artifact_root,
+                repo_root,
+                max_files_per_root=1,
+            )
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertEqual(injection["evidence"], "runtime_parameter_injection=False")
+        self.assertTrue(injection["latestPath"].endswith("scorecards/runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "N/A")
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertEqual(control_source["filesScanned"], 1)
+        self.assertGreaterEqual(control_source["filesDiscovered"], 2)
+        self.assertTrue(control_source["truncated"])
+
     def test_artifact_evidence_summary_scan_uses_bounded_discovery(self) -> None:
         original_newest_matching_files = live.newest_matching_files
 
