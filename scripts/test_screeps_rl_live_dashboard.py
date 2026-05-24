@@ -607,6 +607,55 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(control_source["semanticFilesDiscovered"], 2)
         self.assertEqual(control_source["filesScanned"], 1)
 
+    def test_semantic_scan_prefers_payload_timestamp_over_newer_file_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            stale_copy = control_root / "training-ledger-copy.json"
+            true_latest = control_root / "training-ledger-current.json"
+            write_json(
+                stale_copy,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 1, "policyUpdateIterations": 0, "simulatorTicksRun": 100},
+                    "environmentExecution": {"completed": 1, "failed": 0, "lastNewRunAt": "2026-05-18T10:00:00Z"},
+                    "createdAt": "2026-05-18T10:00:00Z",
+                },
+            )
+            write_json(
+                true_latest,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 9, "policyUpdateIterations": 2, "simulatorTicksRun": 900},
+                    "environmentExecution": {"completed": 4, "failed": 0, "lastNewRunAt": "2026-05-18T10:10:00Z"},
+                    "createdAt": "2026-05-18T10:10:00Z",
+                },
+            )
+            os.utime(stale_copy, (1_771_002_000, 1_771_002_000))
+            os.utime(true_latest, (1_771_001_000, 1_771_001_000))
+
+            artifacts, scan = live.load_bounded_dashboard_artifacts(
+                artifact_root,
+                repo_root,
+                [],
+                max_files_per_root=1,
+            )
+
+        artifacts_by_kind = {
+            live.static_dashboard.artifact_kind(artifact.path, artifact.payload): artifact
+            for artifact in artifacts
+        }
+        self.assertTrue(str(artifacts_by_kind["training_ledger"].path).endswith("training-ledger-current.json"))
+        self.assertEqual(artifacts_by_kind["training_ledger"].payload["iterationExecution"]["episodesRun"], 9)
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertEqual(control_source["semanticFilesDiscovered"], 2)
+        self.assertEqual(control_source["filesScanned"], 1)
+
     def test_bounded_dashboard_semantic_scan_caps_irrelevant_deserialization(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -757,6 +806,51 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(selected, [fresh_file_old_dir])
         self.assertEqual(discovered, 1)
         self.assertTrue(truncated)
+
+    def test_wildcard_directory_scan_stops_at_bounded_fanout(self) -> None:
+        original_iterdir = Path.iterdir
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            batch_root = root / "batch-runs"
+            run_dirs: list[Path] = []
+            for index in range(80):
+                run_dir = batch_root / f"run-{index:03d}"
+                summary = run_dir / "controller-summary.json"
+                write_json(summary, {"runId": run_dir.name, "createdAt": f"2026-05-18T10:{index % 60:02d}:00Z"})
+                mtime = 1_771_002_000 - index
+                os.utime(summary, (mtime, mtime))
+                os.utime(run_dir, (mtime, mtime))
+                run_dirs.append(run_dir)
+            scanned_children: list[Path] = []
+            fanout_scan_limit = live.bounded_discovery_fanout_scan_limit(1)
+
+            def counted_iterdir(self: Path) -> Any:
+                if self == batch_root:
+                    def generate() -> Any:
+                        for run_dir in run_dirs:
+                            scanned_children.append(run_dir)
+                            if len(scanned_children) > fanout_scan_limit + 1:
+                                raise AssertionError("unbounded wildcard fan-out scan")
+                            yield run_dir
+
+                    return generate()
+                return original_iterdir(self)
+
+            Path.iterdir = counted_iterdir  # type: ignore[method-assign]
+            try:
+                selected, discovered, truncated = live.newest_matching_files_with_discovery_limit(
+                    batch_root,
+                    ("*/controller-summary.json",),
+                    discovery_limit=1,
+                )
+            finally:
+                Path.iterdir = original_iterdir  # type: ignore[method-assign]
+
+        self.assertEqual(selected, [run_dirs[0] / "controller-summary.json"])
+        self.assertEqual(discovered, 1)
+        self.assertTrue(truncated)
+        self.assertLessEqual(len(scanned_children), fanout_scan_limit + 1)
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

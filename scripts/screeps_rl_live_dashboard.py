@@ -170,9 +170,12 @@ SUMMARY_SEMANTIC_ARTIFACT_FILENAME_PATTERNS: dict[str, tuple[str, ...]] = {
 }
 SUMMARY_SEMANTIC_SCAN_MULTIPLIER = 4
 SUMMARY_SEMANTIC_MIN_FALLBACK_SCAN_LIMIT = 32
+SUMMARY_DISCOVERY_FANOUT_SCAN_MULTIPLIER = 4
+SUMMARY_DISCOVERY_MIN_FANOUT_SCAN_LIMIT = 64
 
 JsonObject = dict[str, Any]
 ArtifactJson = tuple[Path, JsonObject, datetime]
+SemanticArtifactCandidate = tuple[Path, datetime]
 ClientDisconnectError = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
 
 
@@ -643,23 +646,43 @@ def newest_matching_files(
     return ordered, len(ordered)
 
 
-def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
+def bounded_discovery_fanout_scan_limit(discovery_limit: int) -> int:
+    bounded_limit = max(0, discovery_limit)
+    if bounded_limit == 0:
+        return 0
+    return max(
+        SUMMARY_DISCOVERY_MIN_FANOUT_SCAN_LIMIT,
+        bounded_limit * SUMMARY_DISCOVERY_FANOUT_SCAN_MULTIPLIER,
+    )
+
+
+def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: int) -> tuple[list[Path], bool]:
     parts = tuple(part for part in pattern.split("/") if part not in ("", "."))
     newest_match_cache: dict[tuple[Path, tuple[str, ...]], tuple[bool, float, str]] = {}
+    fanout_scan_limit = bounded_discovery_fanout_scan_limit(discovery_limit)
+    scan_truncated = False
 
-    def listed_children(base: Path) -> list[Path]:
+    def listed_children(base: Path) -> tuple[list[Path], bool]:
+        if fanout_scan_limit == 0:
+            return [], False
+        children: list[Path] = []
         try:
-            return list(base.iterdir())
+            for child in base.iterdir():
+                if len(children) >= fanout_scan_limit:
+                    return children, True
+                children.append(child)
         except OSError:
-            return []
+            return [], False
+        return children, False
 
-    def matched_children(base: Path, name_pattern: str | None = None) -> list[Path]:
-        children = listed_children(base)
+    def matched_children(base: Path, name_pattern: str | None = None) -> tuple[list[Path], bool]:
+        children, truncated = listed_children(base)
         if name_pattern is not None:
             children = [child for child in children if fnmatch.fnmatchcase(child.name, name_pattern)]
-        return children
+        return children, truncated
 
     def newest_match_sort_key(base: Path, remaining: tuple[str, ...]) -> tuple[bool, float, str]:
+        nonlocal scan_truncated
         cache_key = (base, remaining)
         cached = newest_match_cache.get(cache_key)
         if cached is not None:
@@ -676,14 +699,18 @@ def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
         tail = remaining[1:]
         if part == "**":
             result = newest_match_sort_key(base, tail)
-            for child in listed_children(base):
+            children, truncated = listed_children(base)
+            scan_truncated = scan_truncated or truncated
+            for child in children:
                 if child.is_dir():
                     result = max(result, newest_match_sort_key(child, remaining))
             newest_match_cache[cache_key] = result
             return result
         if any(char in part for char in "*?["):
             result = (False, file_mtime(base), base.as_posix())
-            for child in matched_children(base, part):
+            children, truncated = matched_children(base, part)
+            scan_truncated = scan_truncated or truncated
+            for child in children:
                 result = max(result, newest_match_sort_key(child, tail))
             newest_match_cache[cache_key] = result
             return result
@@ -694,7 +721,9 @@ def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
         return result
 
     def ordered_children(base: Path, name_pattern: str | None = None, tail: tuple[str, ...] = ()) -> list[Path]:
-        children = matched_children(base, name_pattern)
+        nonlocal scan_truncated
+        children, truncated = matched_children(base, name_pattern)
+        scan_truncated = scan_truncated or truncated
         return sorted(
             children,
             key=lambda candidate: newest_match_sort_key(candidate, tail)
@@ -721,7 +750,13 @@ def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
             return
         yield from walk(base / part, tail)
 
-    yield from walk(root, parts)
+    matches: list[Path] = []
+    for path in walk(root, parts):
+        if len(matches) >= fanout_scan_limit:
+            scan_truncated = True
+            break
+        matches.append(path)
+    return matches, scan_truncated
 
 
 def newest_matching_files_with_discovery_limit(
@@ -739,7 +774,13 @@ def newest_matching_files_with_discovery_limit(
     for pattern in patterns:
         pattern_seen: set[Path] = set()
         try:
-            for path in newest_first_pattern_matches(root, pattern):
+            matches, scan_truncated = newest_first_pattern_matches(
+                root,
+                pattern,
+                discovery_limit=bounded_limit,
+            )
+            truncated = truncated or scan_truncated
+            for path in matches:
                 if not path.is_file():
                     continue
                 try:
@@ -1661,7 +1702,7 @@ def newest_semantic_artifact_files(
     }
     if bounded_limit == 0 or not artifact_kind_list:
         return [], 0, 0, scan
-    paths_by_kind: dict[str, list[Path]] = {kind: [] for kind in artifact_kind_list}
+    candidates_by_kind: dict[str, list[SemanticArtifactCandidate]] = {kind: [] for kind in artifact_kind_list}
     candidate_seen: set[Path] = set()
     classified_seen: set[Path] = set()
     semantic_seen: set[Path] = set()
@@ -1690,12 +1731,13 @@ def newest_semantic_artifact_files(
         if resolved not in semantic_seen:
             semantic_seen.add(resolved)
             semantic_total += 1
-        paths_by_kind[kind].append(path)
-        paths_by_kind[kind].sort(
-            key=lambda candidate: (file_mtime(candidate), candidate.as_posix()),
+        timestamp = static_dashboard.artifact_timestamp(path, payload)
+        candidates_by_kind[kind].append((path, timestamp))
+        candidates_by_kind[kind].sort(
+            key=lambda candidate: (candidate[1], file_mtime(candidate[0]), candidate[0].as_posix()),
             reverse=True,
         )
-        del paths_by_kind[kind][bounded_limit:]
+        del candidates_by_kind[kind][bounded_limit:]
 
     for kind in artifact_kind_list:
         kind_candidates, discovered, truncated = newest_matching_files_with_discovery_limit(
@@ -1721,12 +1763,16 @@ def newest_semantic_artifact_files(
     scan["candidateFilesDiscovered"] = len(candidate_seen)
     scan["candidateScanTruncated"] = bool(scan["filenameHintScanTruncated"]) or bool(scan["fallbackScanTruncated"])
     scan["candidateFilesDiscoveredIsLowerBound"] = bool(scan["candidateScanTruncated"])
-    selected = [
-        path
-        for kind_paths in paths_by_kind.values()
-        for path in kind_paths
+    selected_candidates = [
+        candidate
+        for kind_candidates in candidates_by_kind.values()
+        for candidate in kind_candidates
     ]
-    selected.sort(key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+    selected_candidates.sort(
+        key=lambda candidate: (candidate[1], file_mtime(candidate[0]), candidate[0].as_posix()),
+        reverse=True,
+    )
+    selected = [path for path, _timestamp in selected_candidates]
     return selected, len(candidate_seen), semantic_total, scan
 
 
