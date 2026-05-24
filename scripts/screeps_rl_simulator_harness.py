@@ -1839,10 +1839,12 @@ def parse_run_id_token(value: str) -> str:
 
 
 def normalize_private_server_code_branch(branch: str) -> str:
-    """Normalize user-facing active branch names for private-server /api/user/code."""
+    """Normalize user-facing active branch aliases to a concrete private-server upload branch."""
     aliases = {
-        "activeWorld": "$activeWorld",
-        "activeSim": "$activeSim",
+        "$activeWorld": "default",
+        "activeWorld": "default",
+        "$activeSim": "default",
+        "activeSim": "default",
     }
     return aliases.get(branch, branch)
 
@@ -6599,8 +6601,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--branch",
         default=DEFAULT_ACTIVE_WORLD_BRANCH,
         help=(
-            "Code branch for /api/user/code. Private-server active aliases activeWorld/activeSim are "
-            f"normalized to $activeWorld/$activeSim. Default: {DEFAULT_ACTIVE_WORLD_BRANCH}."
+            "Code branch for /api/user/code. Private-server active aliases activeWorld/activeSim and "
+            f"$activeWorld/$activeSim are normalized to the concrete default branch. Default: {DEFAULT_ACTIVE_WORLD_BRANCH}."
         ),
     )
     run.add_argument(
