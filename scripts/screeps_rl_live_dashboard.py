@@ -645,15 +645,63 @@ def newest_matching_files(
 
 def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
     parts = tuple(part for part in pattern.split("/") if part not in ("", "."))
+    newest_match_cache: dict[tuple[Path, tuple[str, ...]], tuple[bool, float, str]] = {}
 
-    def ordered_children(base: Path, name_pattern: str | None = None) -> list[Path]:
+    def listed_children(base: Path) -> list[Path]:
         try:
-            children = list(base.iterdir())
+            return list(base.iterdir())
         except OSError:
             return []
+
+    def matched_children(base: Path, name_pattern: str | None = None) -> list[Path]:
+        children = listed_children(base)
         if name_pattern is not None:
             children = [child for child in children if fnmatch.fnmatchcase(child.name, name_pattern)]
-        return sorted(children, key=lambda candidate: (file_mtime(candidate), candidate.as_posix()), reverse=True)
+        return children
+
+    def newest_match_sort_key(base: Path, remaining: tuple[str, ...]) -> tuple[bool, float, str]:
+        cache_key = (base, remaining)
+        cached = newest_match_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if not remaining:
+            try:
+                exists = base.exists()
+            except OSError:
+                exists = False
+            result = (exists, file_mtime(base), base.as_posix())
+            newest_match_cache[cache_key] = result
+            return result
+        part = remaining[0]
+        tail = remaining[1:]
+        if part == "**":
+            result = newest_match_sort_key(base, tail)
+            for child in listed_children(base):
+                if child.is_dir():
+                    result = max(result, newest_match_sort_key(child, remaining))
+            newest_match_cache[cache_key] = result
+            return result
+        if any(char in part for char in "*?["):
+            result = (False, file_mtime(base), base.as_posix())
+            for child in matched_children(base, part):
+                result = max(result, newest_match_sort_key(child, tail))
+            newest_match_cache[cache_key] = result
+            return result
+        result = newest_match_sort_key(base / part, tail)
+        if not result[0]:
+            result = (False, file_mtime(base), base.as_posix())
+        newest_match_cache[cache_key] = result
+        return result
+
+    def ordered_children(base: Path, name_pattern: str | None = None, tail: tuple[str, ...] = ()) -> list[Path]:
+        children = matched_children(base, name_pattern)
+        return sorted(
+            children,
+            key=lambda candidate: newest_match_sort_key(candidate, tail)
+            if tail
+            else (True, file_mtime(candidate), candidate.as_posix()),
+            reverse=True,
+        )
 
     def walk(base: Path, remaining: tuple[str, ...]) -> Iterator[Path]:
         if not remaining:
@@ -663,12 +711,12 @@ def newest_first_pattern_matches(root: Path, pattern: str) -> Iterator[Path]:
         tail = remaining[1:]
         if part == "**":
             yield from walk(base, tail)
-            for child in ordered_children(base):
+            for child in ordered_children(base, tail=remaining):
                 if child.is_dir():
                     yield from walk(child, remaining)
             return
         if any(char in part for char in "*?["):
-            for child in ordered_children(base, part):
+            for child in ordered_children(base, part, tail):
                 yield from walk(child, tail)
             return
         yield from walk(base / part, tail)
@@ -1494,6 +1542,16 @@ def semantic_fallback_scan_limit(limit_per_kind: int, artifact_kind_count: int) 
     )
 
 
+def artifact_evidence_candidate_scan_limit(max_files_per_root: int) -> int:
+    bounded_limit = max(0, max_files_per_root)
+    if bounded_limit == 0:
+        return 0
+    return max(
+        SUMMARY_SEMANTIC_MIN_FALLBACK_SCAN_LIMIT,
+        bounded_limit * 2 * SUMMARY_SEMANTIC_SCAN_MULTIPLIER,
+    )
+
+
 def semantic_filename_patterns(patterns: Sequence[str], artifact_kind: str) -> tuple[str, ...]:
     filename_patterns = SUMMARY_SEMANTIC_ARTIFACT_FILENAME_PATTERNS.get(artifact_kind, ())
     specialized: list[str] = []
@@ -1632,8 +1690,12 @@ def newest_semantic_artifact_files(
         if resolved not in semantic_seen:
             semantic_seen.add(resolved)
             semantic_total += 1
-        if len(paths_by_kind[kind]) < bounded_limit:
-            paths_by_kind[kind].append(path)
+        paths_by_kind[kind].append(path)
+        paths_by_kind[kind].sort(
+            key=lambda candidate: (file_mtime(candidate), candidate.as_posix()),
+            reverse=True,
+        )
+        del paths_by_kind[kind][bounded_limit:]
 
     for kind in artifact_kind_list:
         kind_candidates, discovered, truncated = newest_matching_files_with_discovery_limit(
@@ -2066,19 +2128,69 @@ def artifact_evidence_summaries_with_scan(
     injection: JsonObject | None = None
     trusted_zero_iteration: JsonObject | None = None
     fallback_zero_iteration: JsonObject | None = None
-    paths, scan = summary_artifact_json_paths(
-        artifact_root,
-        repo_root,
-        max_files_per_root=max_files_per_root,
-    )
-    for path, payload, timestamp in load_artifact_json_paths(paths):
-        injection = newest_summary(injection, runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root))
-        zero_iteration = zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root)
-        if as_dict(zero_iteration).get("sourceTrust") == "trusted_training_report":
-            trusted_zero_iteration = newest_summary(trusted_zero_iteration, zero_iteration)
-        else:
-            fallback_zero_iteration = newest_summary(fallback_zero_iteration, zero_iteration)
+    bounded_limit = max(0, max_files_per_root)
+    candidate_scan_limit = artifact_evidence_candidate_scan_limit(bounded_limit)
+    source_summaries: list[JsonObject] = []
+    seen: set[Path] = set()
+    total_files_scanned = 0
+    total_evidence_files = 0
+    for source, patterns in SUMMARY_ARTIFACT_SOURCE_PATTERNS:
+        root = summary_artifact_source_root(artifact_root, source)
+        candidates, discovered, truncated = newest_matching_files_with_discovery_limit(
+            root,
+            patterns,
+            discovery_limit=candidate_scan_limit,
+        )
+        files_scanned = 0
+        evidence_files = 0
+        for path in candidates:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            payload = load_json_object(path)
+            if payload is None:
+                continue
+            files_scanned += 1
+            total_files_scanned += 1
+            timestamp = artifact_timestamp(path, payload)
+            runtime_evidence = runtime_candidate_injection_from_artifact(path, payload, timestamp, repo_root)
+            zero_iteration = zero_iteration_policy_update_from_artifact(path, payload, timestamp, repo_root)
+            if runtime_evidence is not None or zero_iteration is not None:
+                evidence_files += 1
+                total_evidence_files += 1
+            injection = newest_summary(injection, runtime_evidence)
+            if as_dict(zero_iteration).get("sourceTrust") == "trusted_training_report":
+                trusted_zero_iteration = newest_summary(trusted_zero_iteration, zero_iteration)
+            else:
+                fallback_zero_iteration = newest_summary(fallback_zero_iteration, zero_iteration)
+        source_summaries.append(
+            {
+                "source": source,
+                "root": safe_display_path(root, repo_root),
+                "patterns": list(patterns),
+                "filesDiscovered": discovered,
+                "filesScanned": files_scanned,
+                "evidenceFilesSelected": evidence_files,
+                "fileLimit": bounded_limit,
+                "candidateScanLimit": candidate_scan_limit,
+                "truncated": truncated,
+                "filesDiscoveredIsLowerBound": truncated,
+            }
+        )
     zero_iteration = preferred_policy_update_summary(trusted_zero_iteration, fallback_zero_iteration)
+    scan: JsonObject = {
+        "mode": "bounded-classified-evidence-json",
+        "filesScanned": total_files_scanned,
+        "evidenceFilesSelected": total_evidence_files,
+        "fileLimitPerSource": bounded_limit,
+        "candidateScanLimitPerSource": candidate_scan_limit,
+        "sources": source_summaries,
+        "truncated": any(source.get("truncated") is True for source in source_summaries),
+    }
     return (
         injection
         or {
@@ -3033,9 +3145,14 @@ def acceptance_http_timeout(deadline: float, default_timeout: float) -> float:
     return max(0.05, min(default_timeout, remaining))
 
 
+def startup_refresh_reason(value: Any) -> bool:
+    return normalized_key(text_value(value) or "") in {"startup", "startupsummary"}
+
+
 def refresh_may_be_pending_for_acceptance(payload: JsonObject) -> bool:
     refresh = payload.get("refresh") if isinstance(payload.get("refresh"), dict) else {}
-    if refresh.get("refreshInProgress") is True:
+    reason = refresh.get("activeRefreshReason", refresh.get("reason"))
+    if refresh.get("refreshInProgress") is True and startup_refresh_reason(reason):
         return True
     return (
         refresh.get("initialRefreshRequired") is True

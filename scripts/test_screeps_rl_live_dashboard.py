@@ -558,6 +558,55 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(control_source["filesScanned"], 3)
         self.assertEqual(control_source["fileLimitPerKind"], 1)
 
+    def test_semantic_scan_keeps_newer_payload_only_fallback_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            hinted_training = control_root / "training-ledger.json"
+            payload_only_training = control_root / "candidate-output.json"
+            write_json(
+                hinted_training,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 1, "policyUpdateIterations": 0, "simulatorTicksRun": 100},
+                    "environmentExecution": {"completed": 1, "failed": 0, "lastNewRunAt": "2026-05-18T10:00:00Z"},
+                    "createdAt": "2026-05-18T10:00:00Z",
+                },
+            )
+            write_json(
+                payload_only_training,
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 9, "policyUpdateIterations": 2, "simulatorTicksRun": 900},
+                    "environmentExecution": {"completed": 4, "failed": 0, "lastNewRunAt": "2026-05-18T10:09:00Z"},
+                    "createdAt": "2026-05-18T10:09:00Z",
+                },
+            )
+            os.utime(hinted_training, (1_771_000_000, 1_771_000_000))
+            os.utime(payload_only_training, (1_771_000_900, 1_771_000_900))
+
+            artifacts, scan = live.load_bounded_dashboard_artifacts(
+                artifact_root,
+                repo_root,
+                [],
+                max_files_per_root=1,
+            )
+
+        artifacts_by_kind = {
+            live.static_dashboard.artifact_kind(artifact.path, artifact.payload): artifact
+            for artifact in artifacts
+        }
+        self.assertTrue(str(artifacts_by_kind["training_ledger"].path).endswith("candidate-output.json"))
+        self.assertEqual(artifacts_by_kind["training_ledger"].payload["iterationExecution"]["episodesRun"], 9)
+        control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
+        self.assertEqual(control_source["semanticFilesDiscovered"], 2)
+        self.assertEqual(control_source["filesScanned"], 1)
+
     def test_bounded_dashboard_semantic_scan_caps_irrelevant_deserialization(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -684,6 +733,28 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 Path.iterdir = original_iterdir  # type: ignore[method-assign]
 
         self.assertEqual(selected, [newest])
+        self.assertEqual(discovered, 1)
+        self.assertTrue(truncated)
+
+    def test_wildcard_directory_scan_orders_by_matched_file_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fresh_file_old_dir = root / "old-dir" / "gate_summary.json"
+            old_file_fresh_dir = root / "fresh-dir" / "gate_summary.json"
+            write_json(fresh_file_old_dir, {"path": "old-dir/gate_summary.json"})
+            write_json(old_file_fresh_dir, {"path": "fresh-dir/gate_summary.json"})
+            os.utime(fresh_file_old_dir, (1_771_000_200, 1_771_000_200))
+            os.utime(old_file_fresh_dir, (1_771_000_100, 1_771_000_100))
+            os.utime(fresh_file_old_dir.parent, (1_771_000_000, 1_771_000_000))
+            os.utime(old_file_fresh_dir.parent, (1_771_000_300, 1_771_000_300))
+
+            selected, discovered, truncated = live.newest_matching_files_with_discovery_limit(
+                root,
+                ("*/gate_summary.json",),
+                discovery_limit=1,
+            )
+
+        self.assertEqual(selected, [fresh_file_old_dir])
         self.assertEqual(discovered, 1)
         self.assertTrue(truncated)
 
@@ -2092,6 +2163,50 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(payload["message"], "PASS")
         self.assertTrue(payload["refresh"]["lastRefreshOk"])
 
+    def test_live_acceptance_does_not_retry_auto_refresh_degraded_health(self) -> None:
+        original_read_acceptance_json_url = live.read_acceptance_json_url
+        original_sleep = live.time.sleep
+        calls: list[str] = []
+        degraded_health: JsonObject = {
+            "ok": False,
+            "failures": ["auto refresh is in progress"],
+            "db": {"exists": False},
+            "refresh": {
+                "initialRefreshRequired": False,
+                "refreshInProgress": True,
+                "activeRefreshReason": "auto",
+                "lastRefreshAt": "2026-05-18T10:09:00Z",
+                "lastRefreshOk": False,
+            },
+        }
+
+        def fake_read_acceptance_json_url(url: str, _timeout: float) -> tuple[int, JsonObject]:
+            calls.append(url)
+            if url.endswith("/healthz"):
+                return HTTPStatus.SERVICE_UNAVAILABLE, degraded_health
+            raise AssertionError(f"unexpected URL: {url}")
+
+        def forbidden_sleep(_seconds: float) -> None:
+            raise AssertionError("acceptance retried a non-startup refresh")
+
+        live.read_acceptance_json_url = fake_read_acceptance_json_url
+        live.time.sleep = forbidden_sleep
+        try:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = live.run_acceptance("http://127.0.0.1:48840/", timeout=2.0)
+            payload = json.loads(output.getvalue())
+        finally:
+            live.read_acceptance_json_url = original_read_acceptance_json_url
+            live.time.sleep = original_sleep
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(sum(1 for call in calls if call.endswith("/healthz")), 1)
+        self.assertEqual(sum(1 for call in calls if call.endswith("/api/summary")), 0)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["message"], "FAIL")
+        self.assertEqual(payload["refresh"]["activeRefreshReason"], "auto")
+
     def test_artifact_evidence_summary_scan_is_bounded_to_newest_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -2122,8 +2237,56 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(injection["latestPath"].endswith("new-runtime-blocked.json"))
         self.assertEqual(zero_iteration["status"], "N/A")
         control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
-        self.assertTrue(control_source["truncated"])
         self.assertEqual(control_source["fileLimit"], 1)
+        self.assertEqual(control_source["candidateScanLimit"], live.artifact_evidence_candidate_scan_limit(1))
+        self.assertEqual(control_source["evidenceFilesSelected"], 1)
+
+    def test_artifact_evidence_scan_classifies_before_evidence_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            control_root = artifact_root / "rl-control-loop"
+            training_root = artifact_root / "rl-training"
+            for index in range(3):
+                control_irrelevant = control_root / f"new-control-{index}.json"
+                training_irrelevant = training_root / f"new-training-{index}.json"
+                write_json(control_irrelevant, {"createdAt": f"2026-05-18T10:0{index}:00Z", "irrelevant": True})
+                write_json(training_irrelevant, {"createdAt": f"2026-05-18T10:0{index}:00Z", "irrelevant": True})
+                os.utime(control_irrelevant, (1_771_001_000 + index, 1_771_001_000 + index))
+                os.utime(training_irrelevant, (1_771_001_000 + index, 1_771_001_000 + index))
+            runtime_evidence = control_root / "old-runtime-blocked.json"
+            policy_evidence = training_root / "old-training-report.json"
+            write_json(
+                runtime_evidence,
+                {
+                    "createdAt": "2026-05-18T09:00:00Z",
+                    "runtime_parameter_injection": False,
+                },
+            )
+            write_json(
+                policy_evidence,
+                {
+                    "createdAt": "2026-05-18T09:01:00Z",
+                    "policyUpdateIterations": 0,
+                },
+            )
+            os.utime(runtime_evidence, (1_771_000_000, 1_771_000_000))
+            os.utime(policy_evidence, (1_771_000_100, 1_771_000_100))
+
+            injection, zero_iteration, scan = live.artifact_evidence_summaries_with_scan(
+                artifact_root,
+                repo_root,
+                max_files_per_root=1,
+            )
+
+        self.assertEqual(injection["status"], "BLOCKED")
+        self.assertTrue(injection["latestPath"].endswith("old-runtime-blocked.json"))
+        self.assertEqual(zero_iteration["status"], "OK")
+        self.assertTrue(zero_iteration["latestPath"].endswith("old-training-report.json"))
+        sources = {source["source"]: source for source in scan["sources"]}
+        self.assertEqual(sources["rl-control-loop"]["evidenceFilesSelected"], 1)
+        self.assertEqual(sources["rl-training"]["evidenceFilesSelected"], 1)
+        self.assertGreater(sources["rl-control-loop"]["filesScanned"], sources["rl-control-loop"]["fileLimit"])
 
     def test_artifact_evidence_scan_visits_later_patterns_after_broad_cap(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2155,9 +2318,9 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(injection["latestPath"].endswith("scorecards/runtime-blocked.json"))
         self.assertEqual(zero_iteration["status"], "N/A")
         control_source = {source["source"]: source for source in scan["sources"]}["rl-control-loop"]
-        self.assertEqual(control_source["filesScanned"], 1)
-        self.assertGreaterEqual(control_source["filesDiscovered"], 2)
-        self.assertTrue(control_source["truncated"])
+        self.assertEqual(control_source["evidenceFilesSelected"], 1)
+        self.assertGreaterEqual(control_source["filesDiscovered"], 4)
+        self.assertFalse(control_source["filesDiscoveredIsLowerBound"])
 
     def test_artifact_evidence_summary_scan_uses_bounded_discovery(self) -> None:
         original_newest_matching_files = live.newest_matching_files
