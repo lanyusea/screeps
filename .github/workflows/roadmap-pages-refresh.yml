@@ -32,7 +32,8 @@ jobs:
           ref: main
           fetch-depth: 0
           lfs: true
-          persist-credentials: false
+          token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}
+          persist-credentials: true
 
       - name: Report toolchain
         run: |
@@ -73,7 +74,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(roadmap): refresh Pages artifacts [skip ci]"
-          git -c "http.${GITHUB_SERVER_URL}/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" push origin HEAD:main
+          git push origin HEAD:main
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Request legacy Pages rebuild

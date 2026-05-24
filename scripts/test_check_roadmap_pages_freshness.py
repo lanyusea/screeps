@@ -30,6 +30,7 @@ def live_github_snapshot() -> dict[str, Any]:
         "fetched": True,
         "sourceMode": "live",
         "projectItemsSource": "live",
+        "projectItemsCompleteness": {"complete": True, "returnedCount": 1332, "totalCount": 1332, "limit": 2000},
         "fetchErrors": [],
     }
 
@@ -135,7 +136,29 @@ class RoadmapPagesFreshnessTests(unittest.TestCase):
         self.assertIn("github.fetched must be true", failure_text)
         self.assertIn("github.sourceMode must be live", failure_text)
         self.assertIn("github.projectItemsSource must be live", failure_text)
+        self.assertIn("github.projectItemsCompleteness must be present", failure_text)
         self.assertIn("github.fetchErrors must be empty", failure_text)
+
+    def test_require_live_github_rejects_incomplete_project_metadata(self) -> None:
+        github = live_github_snapshot()
+        github["projectItemsCompleteness"] = {
+            "complete": False,
+            "returnedCount": 500,
+            "totalCount": 1332,
+            "limit": 500,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            write_pages(repo_root, generated_at="2026-05-23T04:00:00Z", github=github)
+
+            failures = checker.check_pages_freshness(
+                repo_root,
+                max_age_hours=168,
+                now=datetime(2026, 5, 23, 5, tzinfo=timezone.utc),
+                require_live_github=True,
+            )
+
+        self.assertIn("github.projectItemsCompleteness.complete must be true", "\n".join(failures))
 
 
 if __name__ == "__main__":

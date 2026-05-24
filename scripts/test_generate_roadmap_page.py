@@ -1188,6 +1188,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         github_snapshot = {
             "sourceMode": "live",
             "projectItemsSource": "live",
+            "projectItemsCompleteness": {"complete": True, "returnedCount": 7, "totalCount": 7, "limit": 2000},
             "projectItems": [
                 {
                     "type": "Issue",
@@ -1289,9 +1290,16 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in territory_column["items"]], [223])
 
     def test_project_data_live_gate_uses_project_specific_signals(self) -> None:
+        complete = {"complete": True, "returnedCount": 2, "totalCount": 2, "limit": 2000}
         self.assertTrue(
             roadmap.github_project_data_is_live(
-                {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "live"}
+                {
+                    "sourceMode": "live",
+                    "fetched": True,
+                    "fetchErrors": [],
+                    "projectItemsSource": "live",
+                    "projectItemsCompleteness": complete,
+                }
             )
         )
         self.assertTrue(
@@ -1301,16 +1309,19 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "fetched": False,
                     "fetchErrors": [{"source": "issues"}, {"source": "pullRequests"}],
                     "projectItemsSource": "live",
+                    "projectItemsCompleteness": complete,
                 }
             )
         )
 
         stale_snapshots = [
-            {"sourceMode": "cached", "fetched": False, "fetchErrors": [], "projectItemsSource": "cached"},
-            {"sourceMode": "live", "fetched": True, "fetchErrors": [{"source": "project"}], "projectItemsSource": "live"},
-            {"sourceMode": "live", "fetched": True, "fetchErrors": ["project"], "projectItemsSource": "live"},
-            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "cached"},
-            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "unavailable"},
+            {"sourceMode": "cached", "fetched": False, "fetchErrors": [], "projectItemsSource": "cached", "projectItemsCompleteness": complete},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [{"source": "project"}], "projectItemsSource": "live", "projectItemsCompleteness": complete},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": ["project"], "projectItemsSource": "live", "projectItemsCompleteness": complete},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "cached", "projectItemsCompleteness": complete},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "unavailable", "projectItemsCompleteness": complete},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "live"},
+            {"sourceMode": "live", "fetched": True, "fetchErrors": [], "projectItemsSource": "live", "projectItemsCompleteness": {"complete": False, "returnedCount": 500, "totalCount": 1332, "limit": 500}},
             {"sourceMode": "live", "fetched": True, "fetchErrors": []},
         ]
         for snapshot in stale_snapshots:
@@ -1363,6 +1374,146 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertIn("Source: cached", runtime_column["items"][0]["description"])
         self.assertNotEqual(runtime_column["items"][0].get("number"), 29)
 
+    def test_fetch_github_snapshot_rejects_incomplete_project_payload(self) -> None:
+        project_payload = {
+            "totalCount": 3,
+            "items": [
+                {
+                    "type": "Issue",
+                    "number": 1001,
+                    "title": "Old completed runtime work",
+                    "Status": "Done",
+                    "Project Domain": "Runtime monitor",
+                },
+                {
+                    "type": "Issue",
+                    "number": 1002,
+                    "title": "Old completed release work",
+                    "Status": "Done",
+                    "Project Domain": "Release/deploy",
+                },
+            ],
+        }
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            del cwd, timeout
+            if command[:3] == ["gh", "issue", "list"]:
+                return [], None
+            if command[:3] == ["gh", "pr", "list"]:
+                return [], None
+            if command[:3] == ["gh", "project", "item-list"]:
+                self.assertIn("--limit", command)
+                self.assertEqual(command[command.index("--limit") + 1], "2000")
+                return project_payload, None
+            raise AssertionError(f"unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(roadmap, "run_json", side_effect=fake_run_json):
+                snapshot = roadmap.fetch_github_snapshot(
+                    Path(tmp),
+                    "lanyusea/screeps",
+                    "lanyusea",
+                    3,
+                    None,
+                )
+
+        self.assertFalse(snapshot["fetched"])
+        self.assertEqual(snapshot["sourceMode"], "incomplete")
+        self.assertEqual(snapshot["projectItemsSource"], "unavailable")
+        self.assertEqual(snapshot["projectItems"], [])
+        self.assertEqual(
+            snapshot["projectItemsCompleteness"],
+            {"complete": False, "returnedCount": 2, "totalCount": 3, "limit": 2000},
+        )
+        project_errors = [error for error in snapshot["fetchErrors"] if error.get("source") == "project"]
+        self.assertEqual(len(project_errors), 1)
+        self.assertEqual(project_errors[0]["reason"], "incomplete")
+        self.assertEqual(project_errors[0]["returnedCount"], 2)
+        self.assertEqual(project_errors[0]["totalCount"], 3)
+
+        repo = {
+            "fullName": "lanyusea/screeps",
+            "url": "https://github.com/lanyusea/screeps",
+            "projectUrl": "https://github.com/users/lanyusea/projects/3",
+        }
+        roadmap_cards = roadmap.build_report_roadmap_cards(snapshot, repo)
+        domain_board = roadmap.build_report_domain_kanban(snapshot)
+        self.assertTrue(all(card["progress"] is None for card in roadmap_cards))
+        self.assertTrue(all(column["items"] for column in domain_board))
+        self.assertEqual(domain_board[0]["items"][0]["title"], "Stale - Project data unavailable")
+        self.assertIn("Source: incomplete", domain_board[0]["items"][0]["description"])
+
+    def test_fetch_github_snapshot_accepts_complete_project_payload_with_active_items(self) -> None:
+        project_payload = {
+            "totalCount": 2,
+            "items": [
+                {
+                    "type": "Issue",
+                    "number": 1375,
+                    "title": "Fix Pages roadmap data",
+                    "url": "https://github.com/lanyusea/screeps/issues/1375",
+                    "Status": "In progress",
+                    "Priority": "P1",
+                    "Project Domain": "Runtime monitor",
+                    "Next action": "Fetch complete Project data before rendering.",
+                },
+                {
+                    "type": "Issue",
+                    "number": 1376,
+                    "title": "Prepare release verification",
+                    "url": "https://github.com/lanyusea/screeps/issues/1376",
+                    "Status": "Ready",
+                    "Priority": "P1",
+                    "Project Domain": "Release/deploy",
+                    "Next action": "Verify the scheduled Pages refresh.",
+                },
+            ],
+        }
+
+        def fake_run_json(command: list[str], cwd: Path, timeout: int = 30) -> tuple[Any | None, dict[str, Any] | None]:
+            del cwd, timeout
+            if command[:3] == ["gh", "issue", "list"]:
+                return [], None
+            if command[:3] == ["gh", "pr", "list"]:
+                return [], None
+            if command[:3] == ["gh", "project", "item-list"]:
+                return project_payload, None
+            raise AssertionError(f"unexpected command: {command}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(roadmap, "run_json", side_effect=fake_run_json):
+                snapshot = roadmap.fetch_github_snapshot(
+                    Path(tmp),
+                    "lanyusea/screeps",
+                    "lanyusea",
+                    3,
+                    None,
+                )
+
+        self.assertTrue(snapshot["fetched"])
+        self.assertEqual(snapshot["sourceMode"], "live")
+        self.assertEqual(snapshot["projectItemsSource"], "live")
+        self.assertEqual(snapshot["projectItemsCompleteness"]["complete"], True)
+        self.assertEqual(snapshot["projectItemsCompleteness"]["returnedCount"], 2)
+        self.assertEqual(snapshot["projectItemsCompleteness"]["totalCount"], 2)
+        self.assertEqual([item["number"] for item in snapshot["projectItems"]], [1375, 1376])
+
+        repo = {
+            "fullName": "lanyusea/screeps",
+            "url": "https://github.com/lanyusea/screeps",
+            "projectUrl": "https://github.com/users/lanyusea/projects/3",
+        }
+        roadmap_cards = roadmap.build_report_roadmap_cards(snapshot, repo)
+        domain_board = roadmap.build_report_domain_kanban(snapshot)
+        runtime_card = next(card for card in roadmap_cards if card["title"] == "Runtime monitor")
+        runtime_column = next(column for column in domain_board if column["title"] == "Runtime monitor")
+        release_column = next(column for column in domain_board if column["title"] == "Release/deploy")
+
+        self.assertEqual(runtime_card["activeItems"], 1)
+        self.assertEqual(runtime_card["doneItems"], 0)
+        self.assertEqual([item["number"] for item in runtime_column["items"]], [1375])
+        self.assertEqual([item["number"] for item in release_column["items"]], [1376])
+
     def test_fetch_github_snapshot_marks_cached_project_items_when_project_fetch_fails(self) -> None:
         cached_snapshot = {
             "projectItems": [
@@ -1407,6 +1558,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(snapshot["projectItems"][0]["sourceCollection"], "projectItems")
         self.assertNotIn(935, [card.get("number") for card in snapshot["roadmapCards"]])
         self.assertNotIn(935, [card.get("number") for card in snapshot["kanban"]["cards"]])
+        self.assertEqual(snapshot["projectItemsCompleteness"]["complete"], False)
 
     def test_project_domain_requires_explicit_recognized_value(self) -> None:
         self.assertEqual(roadmap.project_domain({"domain": "runtime monitor"}), "Runtime monitor")
@@ -1489,6 +1641,12 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertNotIn("Resource Economy", html)
         self.assertNotIn("Reliability / P0", html)
         self.assertNotIn("Foundation Gates", html)
+
+    def test_empty_kanban_column_uses_explicit_live_empty_text(self) -> None:
+        html = roadmap.render_kanban_column({"title": "Runtime monitor", "items": []})
+
+        self.assertIn('<div class="kanban-empty">No Live cards</div>', html)
+        self.assertNotIn('<div class="kanban-empty">—</div>', html)
 
 
 if __name__ == "__main__":
