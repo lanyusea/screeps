@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -22,7 +23,7 @@ E1_POSTMERGE_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z-postmerge\d+$"
 E1_CURRENT_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z$")
 E1_HASH_DATASET_GATE_ID_RE = re.compile(r"^rl-gate-[0-9a-f]{12}$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
-ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
@@ -38,6 +39,8 @@ LOOP_A_CARD_SUPPLY_CONSUMER = "loop-a-policy-gradient"
 LOOP_A_CARD_SUPPLY_AVAILABLE = "available"
 LOOP_A_CARD_SUPPLY_CONSUMED = "consumed"
 LOOP_A_CARD_SUPPLY_STATES = (LOOP_A_CARD_SUPPLY_AVAILABLE, LOOP_A_CARD_SUPPLY_CONSUMED)
+LOOP_A_CARD_SUFFIX_ENTROPY_BYTES = 3
+LOOP_A_CARD_SUFFIX_ENTROPY_RE = re.compile(r"^[0-9a-f]{6}$")
 SOURCE_GATE_TYPE = "screeps-rl-dataset-evaluation-gate"
 DATASET_GATE_REPORT_FILENAME = "gate_report.json"
 DEFAULT_STRATEGY_VARIANTS = (
@@ -151,7 +154,7 @@ class CardValidationError(ValueError):
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def canonical_json(value: Any) -> str:
@@ -191,7 +194,7 @@ def validate_code_commit(commit: str) -> None:
 
 def validate_created_at(created_at: str) -> None:
     if not ISO_TIMESTAMP_RE.fullmatch(created_at):
-        raise CardValidationError("created_at must be an ISO UTC timestamp like 2026-05-03T00:00:00Z")
+        raise CardValidationError("created_at must be an ISO UTC timestamp like 2026-05-03T00:00:00.000000Z")
 
 
 def reward_model() -> JsonObject:
@@ -626,6 +629,77 @@ def paths_refer_to_same_file(left: str, right: str) -> bool:
     return resolve_repo_path(left).resolve(strict=False) == resolve_repo_path(right).resolve(strict=False)
 
 
+def card_id_base(dataset_run_id: str, code_commit: str) -> str:
+    return f"rl-exp-{dataset_run_id}-{code_commit[:12].lower()}"
+
+
+def loop_a_card_created_at_suffix(created_at: str) -> str:
+    validate_created_at(created_at)
+    return created_at.replace("-", "").replace(":", "").replace(".", "")
+
+
+def loop_a_card_generation_suffix(created_at: str) -> str:
+    return (
+        f"{loop_a_card_created_at_suffix(created_at)}"
+        f"{secrets.token_hex(LOOP_A_CARD_SUFFIX_ENTROPY_BYTES)}"
+    )
+
+
+def legacy_loop_a_card_id(dataset_run_id: str, code_commit: str, created_at: str) -> str:
+    return f"{card_id_base(dataset_run_id, code_commit)}-{loop_a_card_created_at_suffix(created_at)}"
+
+
+def loop_a_card_id(dataset_run_id: str, code_commit: str, created_at: str) -> str:
+    return f"{card_id_base(dataset_run_id, code_commit)}-{loop_a_card_generation_suffix(created_at)}"
+
+
+def matches_loop_a_generated_card_id(
+    card_id: str,
+    dataset_run_id: str,
+    code_commit: str,
+    created_at: str,
+) -> bool:
+    generated_prefix = legacy_loop_a_card_id(dataset_run_id, code_commit, created_at)
+    if not card_id.startswith(generated_prefix):
+        return False
+    return LOOP_A_CARD_SUFFIX_ENTROPY_RE.fullmatch(card_id[len(generated_prefix) :]) is not None
+
+
+def expected_card_ids(card: JsonObject) -> tuple[str, ...]:
+    dataset_run_id = require_string(card, "dataset_run_id")
+    code_commit = require_string(card, "code_commit")
+    created_at = require_string(card, "created_at")
+    base = card_id_base(dataset_run_id, code_commit)
+    supply = first_present(card, ("card_supply", "cardSupply"))
+    if is_loop_a_card_supply_metadata(supply):
+        return (base, legacy_loop_a_card_id(dataset_run_id, code_commit, created_at))
+    return (base,)
+
+
+def expected_card_id_descriptions(card: JsonObject) -> tuple[str, ...]:
+    exact = expected_card_ids(card)
+    supply = first_present(card, ("card_supply", "cardSupply"))
+    if not is_loop_a_card_supply_metadata(supply):
+        return exact
+    dataset_run_id = require_string(card, "dataset_run_id")
+    code_commit = require_string(card, "code_commit")
+    created_at = require_string(card, "created_at")
+    legacy = legacy_loop_a_card_id(dataset_run_id, code_commit, created_at)
+    return (*exact, f"{legacy}[0-9a-f]{{6}}")
+
+
+def card_id_matches_expected(card_id: str, card: JsonObject) -> bool:
+    dataset_run_id = require_string(card, "dataset_run_id")
+    code_commit = require_string(card, "code_commit")
+    created_at = require_string(card, "created_at")
+    if card_id in expected_card_ids(card):
+        return True
+    supply = first_present(card, ("card_supply", "cardSupply"))
+    if is_loop_a_card_supply_metadata(supply):
+        return matches_loop_a_generated_card_id(card_id, dataset_run_id, code_commit, created_at)
+    return False
+
+
 def build_card(
     *,
     dataset_run_id: str,
@@ -677,8 +751,13 @@ def build_card(
     )
 
     commit_prefix = code_commit[:12].lower()
+    card_id = (
+        loop_a_card_id(dataset_run_id, code_commit, created_at)
+        if loop_a_card_supply
+        else f"rl-exp-{dataset_run_id}-{commit_prefix}"
+    )
     card = {
-        "card_id": f"rl-exp-{dataset_run_id}-{commit_prefix}",
+        "card_id": card_id,
         "code_commit": code_commit.lower(),
         "conservative_actions_only": True,
         "created_at": created_at,
@@ -1070,9 +1149,9 @@ def validate_card(raw: Any) -> None:
     if raw.get("status") != "shadow":
         raise CardValidationError("status must be shadow")
 
-    expected_card_id = f"rl-exp-{dataset_run_id}-{code_commit[:12].lower()}"
-    if card_id != expected_card_id:
-        raise CardValidationError(f"card_id must be {expected_card_id}")
+    if not card_id_matches_expected(card_id, raw):
+        expected = " or ".join(expected_card_id_descriptions(raw))
+        raise CardValidationError(f"card_id must be {expected}")
 
     validate_safety(raw)
     validate_reward_model(raw.get("reward_model"))
@@ -1460,7 +1539,7 @@ def parse_iso_utc_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or ISO_TIMESTAMP_RE.fullmatch(value) is None:
         return None
     try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return None
 
@@ -2436,7 +2515,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--created-at",
-        help="ISO UTC timestamp to record. Defaults to current UTC second.",
+        help="ISO UTC timestamp to record. Defaults to current UTC time with microseconds.",
     )
     parser.add_argument(
         "--ticks",
