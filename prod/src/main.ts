@@ -49,6 +49,11 @@ export function loop(): void {
   const runtimePolicyParameterPlanningEnabled =
     runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
   const runtimePolicyParameterConsumption = createRuntimePolicyParameterConsumptionRecorder();
+  recordAppliedRuntimePolicyParameterStrategies(
+    runtimePolicyParameters.registry,
+    runtimePolicyParameters.evidence.appliedStrategyIds,
+    runtimePolicyParameterConsumption
+  );
   let summary: RuntimeSummary | undefined;
   try {
     summary = kernel.run({
@@ -68,6 +73,23 @@ export function loop(): void {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
   strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+}
+
+function recordAppliedRuntimePolicyParameterStrategies(
+  registry: StrategyRegistryEntry[],
+  appliedStrategyIds: string[],
+  runtimePolicyParameterConsumption: { recordStrategyRuntimeUse: (entry: StrategyRegistryEntry) => void }
+): void {
+  if (appliedStrategyIds.length === 0) {
+    return;
+  }
+
+  const appliedIds = new Set(appliedStrategyIds);
+  for (const entry of registry) {
+    if (appliedIds.has(entry.id)) {
+      runtimePolicyParameterConsumption.recordStrategyRuntimeUse(entry);
+    }
+  }
 }
 
 function runStrategyRolloutMonitoring(

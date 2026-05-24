@@ -296,6 +296,11 @@ class MockSimulator:
                     "officialMmoWrites": False,
                     "officialMmoWritesAllowed": False,
                 }
+                tick_log = result.get("tick_log")
+                if isinstance(tick_log, list) and tick_log and isinstance(tick_log[-1], dict):
+                    tick_number = tick_log[-1].get("tick")
+                    if isinstance(tick_number, int):
+                        consumption_evidence["tick"] = tick_number
                 if self.include_runtime_consumption_evidence:
                     result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
                         result["runtimeParameterInjection"],
@@ -4204,12 +4209,19 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(len(set(expected_hashes_by_base_id.values())), len(expected_hashes_by_base_id))
         self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
         self.assertEqual(report["runtimeParameterInjection"]["candidateParameterScope"], "runtime_injected")
         self.assertEqual(report["runtimeParameterInjection"]["injectedVariantCount"], len(expanded_ids))
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], len(expanded_ids))
         report_rows = {
             row["variantId"]: row
             for row in report["runtimeParameterInjection"]["variants"]
         }
+        self.assertTrue(all(row["runtimeParameterConsumption"] for row in report_rows.values()))
+        self.assertEqual({row.get("consumedTick") for row in report_rows.values()}, {2})
+        self.assertTrue(
+            all(isinstance(row.get("consumedParametersSha256"), str) for row in report_rows.values())
+        )
         self.assertEqual(
             report_rows["construction-priority.pg.resource-seed.v1.scale-env-03"]["sourceStrategyId"],
             "construction-priority.incumbent.v1",

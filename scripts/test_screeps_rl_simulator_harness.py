@@ -1763,6 +1763,7 @@ cli:
     def test_runtime_parameter_consumption_accepts_matching_memory_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence["tick"] = 123
 
         consumption = harness.runtime_parameter_consumption_check(injection, evidence)
         updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
@@ -1774,10 +1775,12 @@ cli:
         self.assertEqual(consumption["evaluatedParametersSha256"], injection["parametersSha256"])
         self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
         self.assertEqual(consumption["consumedStrategyVariantId"], injection["strategyVariantId"])
+        self.assertEqual(consumption["consumedTick"], 123)
         self.assertTrue(updated["runtimeParameterConsumption"])
         self.assertEqual(updated["runtimeParameterConsumptionStatus"], "consumed")
         self.assertEqual(updated["runtimeParameterConsumerVersion"], harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION)
         self.assertEqual(updated["consumedParametersSha256"], injection["parametersSha256"])
+        self.assertEqual(updated["consumedTick"], 123)
 
     def test_runtime_parameter_consumption_accepts_javascript_numeric_canonicalization(self) -> None:
         variant = {
