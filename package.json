@@ -4,6 +4,7 @@
     "rl-dashboard": "python3 scripts/screeps_rl_dashboard.py",
     "rl-dashboard-live": "python3 scripts/screeps_rl_live_dashboard.py serve --refresh-on-start --auto-refresh-seconds 300",
     "rl-dashboard-live:health": "python3 scripts/screeps_rl_live_dashboard.py healthcheck",
+    "rl-dashboard-live:acceptance": "python3 scripts/screeps_rl_live_dashboard.py acceptance",
     "rl-metrics-refresh": "python3 scripts/screeps_rl_live_dashboard.py refresh"
   },
   "devDependencies": {

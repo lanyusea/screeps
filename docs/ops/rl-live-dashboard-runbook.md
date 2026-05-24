@@ -60,6 +60,20 @@ python3 scripts/screeps_rl_live_dashboard.py healthcheck --url http://127.0.0.1:
 
 Expected healthy output includes JSON with `"ok": true` and `"message": "OK"`. The command checks the running local dashboard, so start `npm run rl-dashboard-live` first.
 
+Run the task-level live acceptance guard before claiming the owner-facing surface is Done:
+
+```bash
+npm run rl-dashboard-live:acceptance
+```
+
+Equivalent direct check:
+
+```bash
+python3 scripts/screeps_rl_live_dashboard.py acceptance --url http://127.0.0.1:8790/
+```
+
+The acceptance command must PASS against the running service. It checks `/healthz` and `/api/summary`, requires `dashboardUrl`, `db.path`, SQLite table counts and `db.latestObservedAt`, `refresh.lastRefreshOk=true`, `refresh.lastRefreshAt`, and visible E1 gate, Loop A, Loop B, Tencent utilization, scorecard, safety, and Project gate sections. If the service is not listening, it fails with a clear `live dashboard service is not running/reachable` message.
+
 For a one-shot foreground start with an explicit cadence:
 
 ```bash
@@ -93,13 +107,14 @@ The live page and `/api/summary` cover:
 | Project gates | Local evidence status for #879, #1032, #1229, #1233, and #1234. |
 | #924 scorecard | Latest scorecard status, required actions, missing evidence, safety regressions, candidate, and baseline. |
 
-Owner evidence for #879 can be copied from `/api/summary`:
+Owner evidence for #879 can be copied from `/api/summary` and from `npm run rl-dashboard-live:acceptance` PASS output:
 
 ```text
 dashboardUrl
 db.path
 db.latestObservedAt
 db.tables
+refresh.lastRefreshOk
 refresh.lastRefreshAt
 ```
 
@@ -118,6 +133,42 @@ runtime-artifacts/rl-dashboard.html
 ```
 
 Use this static command when refreshing local RL evidence for the GitHub Pages roadmap. Do not schedule or attach a Discord roadmap update for this artifact.
+
+
+## #1381 Closure Gate
+
+Issue #1381 is a false-completion repair for closed #1184/#1237/#1350. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Closure requires all of the following live evidence in #879/#1381 Project Evidence:
+
+1. A running dashboard process/listener at the owner-facing URL (`http://127.0.0.1:8790/` by default).
+2. `npm run rl-dashboard-live:health` output showing `/healthz` with `ok=true`.
+3. `npm run rl-dashboard-live:acceptance` output with `ok=true` / `message=PASS`.
+4. `/api/summary` evidence including `dashboardUrl`, `db.path`, `db.tables`, `db.latestObservedAt`, `refresh.lastRefreshOk=true`, and `refresh.lastRefreshAt`.
+5. Visible dashboard/API sections for E1 gate, Loop A, Loop B, Tencent utilization, scorecard, safety, and Project gates.
+6. The #879 Project item Evidence and Next action fields updated with the health/acceptance timestamp, DB counts/freshness, and remaining RL flywheel blocker if any.
+
+A one-time foreground proof is acceptable for local QA, but durable owner-facing operation must include an explicit process owner/launch recipe or service handoff before the work is considered operationally complete.
+
+### Optional persistent launch recipe
+
+Do not install this automatically from the repo. If the owner approves a user service, use this as the operator-managed template:
+
+```ini
+[Unit]
+Description=Screeps RL live dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/screeps
+ExecStart=/usr/bin/npm run rl-dashboard-live
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+After starting any persistent service, rerun both health and acceptance commands and record the exact output in Project Evidence.
 
 ## Health Semantics
 
