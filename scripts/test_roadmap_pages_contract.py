@@ -68,14 +68,41 @@ class RoadmapPagesContractTests(unittest.TestCase):
                     self.assertNotIn(pattern, text)
                 self.assertIn(PAGES_URL, text)
 
-    def test_roadmap_pages_refresh_push_uses_safe_checkout_credentials(self) -> None:
+    def test_roadmap_pages_refresh_uses_safe_checkout_credentials(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
 
         self.assertNotIn("bearer ***", text)
         self.assertNotIn(".extraheader=AUTHORIZATION: bearer", text)
         self.assertIn("persist-credentials: true", text)
         self.assertIn("token: ${{ secrets.SCREEPS_ROADMAP_TOKEN || github.token }}", text)
-        self.assertIn("git push origin HEAD:main", text)
+
+    def test_roadmap_pages_refresh_routes_changed_artifacts_through_pull_request(self) -> None:
+        text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
+
+        self.assertNotIn("git push origin HEAD:main", text)
+        self.assertNotIn("HEAD:main", text)
+        self.assertIn("pull-requests: write", text)
+        self.assertIn("PAGES_REFRESH_BRANCH: automation/roadmap-pages-refresh", text)
+        self.assertIn('git commit -m "chore(roadmap): refresh Pages artifacts"', text)
+        self.assertNotIn("[skip ci]", text)
+        self.assertIn('git push --force-with-lease origin HEAD:"${PAGES_REFRESH_BRANCH}"', text)
+        self.assertIn("if: steps.commit.outputs.changed == 'true'", text)
+        self.assertIn(
+            'gh pr list --base main --head "${PAGES_REFRESH_BRANCH}" --state open --limit 1 --json number',
+            text,
+        )
+        self.assertIn('gh pr edit "${existing_pr}" --title "${PR_TITLE}" --body "${PR_BODY}"', text)
+        self.assertIn(
+            'gh pr create --base main --head "${PAGES_REFRESH_BRANCH}" --title "${PR_TITLE}" --body "${PR_BODY}"',
+            text,
+        )
+
+    def test_roadmap_pages_refresh_rebuilds_legacy_pages_when_no_artifacts_changed(self) -> None:
+        text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
+
+        self.assertIn('echo "changed=false" >> "$GITHUB_OUTPUT"', text)
+        self.assertIn("if: steps.commit.outputs.changed == 'false'", text)
+        self.assertIn('gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent', text)
 
     def test_roadmap_pages_refresh_collects_live_runtime_summary_before_generation(self) -> None:
         text = self.read(Path(".github/workflows/roadmap-pages-refresh.yml"))
