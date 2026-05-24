@@ -1,6 +1,10 @@
-## Linked issue
+## Linked issues
 
-- Fixes #<!-- required: every tracked PR must link one or more GitHub issues with a closing keyword -->
+Intentional closing linkage:
+- <!-- Use a GitHub closing keyword only when this PR satisfies ALL original acceptance criteria for the issue at merge time. Example: Fixes #123 -->
+
+Related / non-closing linkage:
+- <!-- Use wording such as "Related to issue 123" for enabling work, post-merge validation, owner-action blockers, live service/process proof, successors, or partial fixes. Do not use negated close-keyword phrases such as "does not close #123". -->
 
 ## Domain / Kind
 
@@ -18,6 +22,13 @@
 - [ ] Automated review has no blocking findings and review threads are resolved/outdated/non-blocking.
 - [ ] QA gate: <!-- PASS / not required with reason -->
 - [ ] No secrets, unsafe local paths, or owner-facing raw attachment trigger lines are included.
+
+## Issue closure gate
+
+For every issue linked above with a closing keyword:
+
+- [ ] #<!-- issue number -->: <!-- checked evidence that all original issue acceptance criteria are satisfied now, before merge -->
+- [ ] No closed issue still needs post-merge validation, runtime/process proof, owner action, successor/follow-up work, partial-fix completion, or any other blocker.
 
 ## Runtime / deployment impact
 

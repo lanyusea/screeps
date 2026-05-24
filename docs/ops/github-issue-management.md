@@ -39,7 +39,7 @@ Also apply a priority label (`priority:p0`, `priority:p1`, `priority:p2`) and ki
 
 ## PR requirements
 
-Every PR that fixes a known problem must link its issue in the PR body with a GitHub closing keyword before merge:
+Use acceptance-first issue closure. A PR may use a GitHub closing keyword only when the PR satisfies every original acceptance criterion for that issue at merge time:
 
 ```text
 Fixes #123
@@ -47,7 +47,15 @@ Closes #123
 Resolves #123
 ```
 
-If a PR touches multiple tracked problems, list every linked issue. A PR that only documents or enables issue-management policy should still link the policy issue.
+If a PR touches multiple tracked problems, list every issue. Use closing keywords only for the issues that are complete at merge time. For enabling work, post-merge validation, owner-action blockers, live service/process proof, successors, or partial fixes, use non-closing wording such as:
+
+```text
+Related to issue 123
+```
+
+Do not write negated close-keyword phrases such as `does not close #123`, `not close #123`, `must not close #123`, or `without closing #123`. GitHub can still interpret the keyword plus issue reference as an auto-close instruction. Reword those cases as related/non-closing linkage.
+
+Any PR body with an intentional closing keyword must include an `Issue closure gate` section. For each closed issue, the section must include a checked line with issue-specific evidence that all original acceptance criteria are satisfied and that no post-merge/runtime/owner-action/successor/partial-fix blocker remains. Any unchecked checkbox line left in that section blocks validation, including the generic no-remaining-blocker line.
 
 The normal project PR gates still apply: worktree branch, no direct `main` edits, at least 15 minutes after PR creation before merge, all discussions resolved, automated review口径 satisfied (CodeRabbit/Gemini no blocking findings; formal GitHub approval is not required), and green required checks once configured. Every active agent PR must be added to Project `screeps` and keep `Status`, `Evidence`, and `Next action` current until it is merged or explicitly closed.
 

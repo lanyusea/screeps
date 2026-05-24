@@ -98,9 +98,13 @@ body:
   - type: textarea
     id: fix_pr
     attributes:
-      label: Fix PR linkage
-      description: 修复 PR 必须在 PR body 写 `Fixes #<issue>` / `Closes #<issue>` / `Resolves #<issue>`。
+      label: PR linkage and closure gate
+      description: 只有 PR 在合并时满足原始验收条件，才使用 closing keyword；否则使用非关闭关联。
       value: |
-        Fix PR must link this issue with a closing keyword before merge.
+        Acceptance-first close rule:
+        - Use a GitHub closing keyword only when the PR satisfies every original acceptance criterion for this issue at merge time.
+        - Use "Related to issue <number>" for enabling work, post-merge validation, owner-action blockers, live service/process proof, successors, or partial fixes.
+        - Do not use negated close-keyword phrases such as "does not close #123"; GitHub may still treat the keyword and reference as an auto-close instruction.
+        - Any PR that intentionally closes this issue must include an Issue closure gate line with checked evidence for this issue and no remaining runtime, owner-action, post-merge, successor, or partial-fix blocker.
     validations:
       required: true
