@@ -184,9 +184,11 @@ def summarize_conclusions(
     closed_this_window: int = 0,
 ) -> JsonObject:
     status_counts = {status: 0 for status in CONCLUSION_STATUSES}
+    counts_by_status = {status: 0 for status in CONCLUSION_STATUSES}
     unknown_count = 0
     for record in records.values():
         status = str(record.get("status", "UNKNOWN")).upper()
+        counts_by_status[status] = counts_by_status.get(status, 0) + 1
         if status in status_counts:
             status_counts[status] += 1
         else:
@@ -200,6 +202,7 @@ def summarize_conclusions(
         "validating": status_counts["VALIDATING"],
         "closedThisWindow": closed_this_window,
         "staleOrEscalated": status_counts["STALE"] + status_counts["ESCALATED"],
+        "countsByStatus": counts_by_status,
         "unknown": unknown_count,
     }
 

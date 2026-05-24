@@ -30,6 +30,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8790
 DEFAULT_REFRESH_SECONDS = 60
 DEFAULT_AUTO_REFRESH_SECONDS = 300
+DEFAULT_DASHBOARD_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/"
 DEFAULT_HEALTHCHECK_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}/healthz"
 DEFAULT_SUMMARY_CACHE_SECONDS = DEFAULT_AUTO_REFRESH_SECONDS
 DEFAULT_SUMMARY_SCAN_FILE_LIMIT = 200
@@ -2250,6 +2251,10 @@ def build_parser() -> argparse.ArgumentParser:
     health = subparsers.add_parser("healthcheck", help="check a running dashboard /healthz endpoint")
     health.add_argument("--url", default=DEFAULT_HEALTHCHECK_URL, help="Health URL.")
     health.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout seconds.")
+
+    acceptance = subparsers.add_parser("acceptance", help="verify the running owner-facing dashboard surface")
+    acceptance.add_argument("--url", default=DEFAULT_DASHBOARD_URL, help="Dashboard base URL.")
+    acceptance.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout seconds.")
     return parser
 
 
@@ -2271,10 +2276,114 @@ def run_healthcheck(url: str, timeout: float) -> int:
         return 1
 
 
+class DashboardReachabilityError(RuntimeError):
+    """Raised when the live dashboard service cannot be reached."""
+
+
+def dashboard_endpoint_url(base_url: str, path: str) -> str:
+    parsed = urlparse(base_url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{path}"
+    if parsed.netloc:
+        return f"http://{parsed.netloc}{path}"
+    if parsed.path:
+        return f"http://{parsed.path.rstrip('/')}{path}"
+    return f"{DEFAULT_DASHBOARD_URL.rstrip('/')}{path}"
+
+
+def read_acceptance_json_url(url: str, timeout: float) -> tuple[int, JsonObject]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            status = int(response.status)
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(body) if body.strip() else {"ok": False, "status": error.code}
+        except json.JSONDecodeError:
+            payload = {"ok": False, "status": error.code, "body": body.strip()}
+        status = int(error.code)
+    except urllib.error.URLError as error:
+        reason = getattr(error, "reason", error)
+        raise DashboardReachabilityError(
+            f"live dashboard service is not running/reachable at {url}; "
+            f"start `npm run rl-dashboard-live` first ({reason})"
+        ) from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise DashboardReachabilityError(
+            f"live dashboard service is not running/reachable at {url}; "
+            f"start `npm run rl-dashboard-live` first ({error})"
+        ) from error
+    if not isinstance(payload, dict):
+        raise DashboardReachabilityError(f"{url} did not return a JSON object")
+    return status, payload
+
+
+def acceptance_check(label: str, ok: bool, evidence: str) -> JsonObject:
+    return {"name": label, "ok": bool(ok), "evidence": evidence}
+
+
+def validate_acceptance_summary(health: JsonObject, summary: JsonObject) -> list[JsonObject]:
+    db = summary.get("db") if isinstance(summary.get("db"), dict) else {}
+    refresh = summary.get("refresh") if isinstance(summary.get("refresh"), dict) else {}
+    loop_a = summary.get("loopA") if isinstance(summary.get("loopA"), dict) else {}
+    loop_b = summary.get("loopB") if isinstance(summary.get("loopB"), dict) else {}
+    tencent = summary.get("tencentBatch") if isinstance(summary.get("tencentBatch"), dict) else {}
+    safety = summary.get("safety") if isinstance(summary.get("safety"), dict) else {}
+    checks = [
+        acceptance_check("/healthz ok=true", health.get("ok") is True, f"ok={health.get('ok')}; failures={health.get('failures', [])}"),
+        acceptance_check("summary.dashboardUrl", bool(summary.get("dashboardUrl")), str(summary.get("dashboardUrl") or "missing")),
+        acceptance_check("db.path", bool(db.get("path")), str(db.get("path") or "missing")),
+        acceptance_check("db.tables", isinstance(db.get("tables"), dict) and bool(db.get("tables")), f"tables={len(db.get('tables', {}) if isinstance(db.get('tables'), dict) else {})}"),
+        acceptance_check("db.latestObservedAt", bool(db.get("latestObservedAt")), str(db.get("latestObservedAt") or "missing")),
+        acceptance_check("refresh.lastRefreshOk", refresh.get("lastRefreshOk") is True, f"lastRefreshOk={refresh.get('lastRefreshOk')}"),
+        acceptance_check("refresh.lastRefreshAt", bool(refresh.get("lastRefreshAt")), str(refresh.get("lastRefreshAt") or "missing")),
+        acceptance_check("E1 gate visible", isinstance(summary.get("e1Gate"), dict) and bool(summary.get("e1Gate")), f"type={type(summary.get('e1Gate')).__name__}"),
+        acceptance_check("Loop A visible", isinstance(loop_a.get("environment"), dict) and isinstance(loop_a.get("training"), dict), f"keys={sorted(loop_a.keys())}"),
+        acceptance_check("Loop B visible", isinstance(loop_b.get("policy"), dict) and isinstance(loop_b.get("scorecard"), dict), f"keys={sorted(loop_b.keys())}"),
+        acceptance_check("Tencent utilization visible", isinstance(tencent, dict) and bool(tencent), f"keys={sorted(tencent.keys())}"),
+        acceptance_check("scorecard visible", isinstance(loop_b.get("scorecard"), dict) and bool(loop_b.get("scorecard")), f"keys={sorted((loop_b.get('scorecard') or {}).keys()) if isinstance(loop_b.get('scorecard'), dict) else []}"),
+        acceptance_check("safety visible", isinstance(safety, dict) and bool(safety), f"keys={sorted(safety.keys())}"),
+        acceptance_check("project gates visible", isinstance(summary.get("projectGates"), list) and bool(summary.get("projectGates")), f"count={len(summary.get('projectGates', [])) if isinstance(summary.get('projectGates'), list) else 0}"),
+    ]
+    return checks
+
+
+def run_acceptance(base_url: str, timeout: float) -> int:
+    health_url = dashboard_endpoint_url(base_url, "/healthz")
+    summary_url = dashboard_endpoint_url(base_url, "/api/summary")
+    try:
+        health_status, health = read_acceptance_json_url(health_url, timeout)
+        summary_status, summary = read_acceptance_json_url(summary_url, timeout)
+    except DashboardReachabilityError as error:
+        print(json.dumps({"ok": False, "message": "FAIL", "error": str(error)}, sort_keys=True))
+        return 1
+    checks = [
+        acceptance_check("/healthz reachable", health_status == HTTPStatus.OK, f"status={health_status}"),
+        acceptance_check("/api/summary reachable", summary_status == HTTPStatus.OK, f"status={summary_status}"),
+    ]
+    checks.extend(validate_acceptance_summary(health, summary))
+    ok = all(check["ok"] for check in checks)
+    result = {
+        "ok": ok,
+        "message": "PASS" if ok else "FAIL",
+        "dashboardUrl": summary.get("dashboardUrl"),
+        "healthUrl": health_url,
+        "summaryUrl": summary_url,
+        "db": summary.get("db"),
+        "refresh": summary.get("refresh"),
+        "checks": checks,
+    }
+    print(json.dumps(result, sort_keys=True))
+    return 0 if ok else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "healthcheck":
         return run_healthcheck(args.url, args.timeout)
+    if args.command == "acceptance":
+        return run_acceptance(args.url, args.timeout)
 
     config = build_config(args)
     if args.command == "refresh":
