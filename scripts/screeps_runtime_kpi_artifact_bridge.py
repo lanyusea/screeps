@@ -75,7 +75,12 @@ def positive_int(value: str) -> int:
     return parsed
 
 
-def collect_runtime_summary_lines(paths: Sequence[str], max_file_bytes: int = DEFAULT_MAX_FILE_BYTES) -> ScanResult:
+def collect_runtime_summary_lines(
+    paths: Sequence[str],
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    *,
+    include_monitor_source: bool = False,
+) -> ScanResult:
     input_paths = list(paths) if paths else list(DEFAULT_INPUT_PATHS)
     result = ScanResult(input_paths=input_paths)
 
@@ -86,12 +91,12 @@ def collect_runtime_summary_lines(paths: Sequence[str], max_file_bytes: int = DE
             continue
 
         if path.is_file():
-            scan_file(path, result, max_file_bytes)
+            scan_file(path, result, max_file_bytes, include_monitor_source=include_monitor_source)
             continue
 
         if path.is_dir():
             for file_path in iter_directory_files(path, result):
-                scan_file(file_path, result, max_file_bytes)
+                scan_file(file_path, result, max_file_bytes, include_monitor_source=include_monitor_source)
             continue
 
         result.skip(path, "not_file_or_directory")
@@ -119,12 +124,12 @@ def iter_directory_files(root: Path, result: ScanResult) -> list[Path]:
 _MONITOR_FILE_PREFIX = "runtime-summary-monitor-"
 
 
-def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
+def scan_file(path: Path, result: ScanResult, max_file_bytes: int, *, include_monitor_source: bool = False) -> None:
     if path.is_symlink():
         result.skip(path, "symlink")
         return
 
-    if path.name.startswith(_MONITOR_FILE_PREFIX):
+    if path.name.startswith(_MONITOR_FILE_PREFIX) and not include_monitor_source:
         result.skip(path, "monitor_source")
         return
 
@@ -250,8 +255,17 @@ def re_search_timestamp(pattern: str, value: str) -> datetime | None:
         return None
 
 
-def build_bridge_report(paths: Sequence[str], max_file_bytes: int = DEFAULT_MAX_FILE_BYTES) -> JsonObject:
-    scan_result = collect_runtime_summary_lines(paths, max_file_bytes)
+def build_bridge_report(
+    paths: Sequence[str],
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    *,
+    include_monitor_source: bool = False,
+) -> JsonObject:
+    scan_result = collect_runtime_summary_lines(
+        paths,
+        max_file_bytes,
+        include_monitor_source=include_monitor_source,
+    )
     report = reducer.reduce_runtime_kpis(scan_result.lines)
     report["source"] = scan_result.metadata()
     return report
@@ -290,12 +304,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_FILE_BYTES,
         help=f"Skip files larger than this many bytes. Default: {DEFAULT_MAX_FILE_BYTES}.",
     )
+    parser.add_argument(
+        "--include-monitor-source",
+        action="store_true",
+        help=(
+            "Include runtime-summary-monitor-* files produced by the external room monitor. "
+            "They are skipped by default to keep generic scans/RL datasets from consuming monitor-only artifacts."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
     args = build_parser().parse_args(argv)
-    report = build_bridge_report(args.paths, max_file_bytes=args.max_file_bytes)
+    report = build_bridge_report(
+        args.paths,
+        max_file_bytes=args.max_file_bytes,
+        include_monitor_source=args.include_monitor_source,
+    )
     output = render_human(report) if args.format == "human" else reducer.render_json(report)
     stdout.write(output)
     stdout.write("\n")

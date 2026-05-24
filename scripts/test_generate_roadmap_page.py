@@ -510,14 +510,14 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 captured["command"] = command
                 captured["cwd"] = cwd
                 captured["timeout"] = timeout
-                return {"type": "runtime-kpi-report", "source": {"inputPaths": command[5:]}}, None
+                return {"type": "runtime-kpi-report", "source": {"inputPaths": command[6:]}}, None
 
             with patch.object(roadmap, "run_json", side_effect=fake_run_json):
                 report = roadmap.load_runtime_kpi_report(repo_root)
 
         command = captured["command"]
-        self.assertEqual(command[:4], [sys.executable, str(script_path), "--format", "json"])
-        self.assertEqual(command[4:], ["--", str(repo_root / "runtime-artifacts")])
+        self.assertEqual(command[:5], [sys.executable, str(script_path), "--format", "json", "--include-monitor-source"])
+        self.assertEqual(command[5:], ["--", str(repo_root / "runtime-artifacts")])
         self.assertEqual(captured["cwd"], repo_root)
         self.assertEqual(captured["timeout"], 45)
         self.assertEqual(report["source"]["inputPaths"], [str(repo_root / "runtime-artifacts")])

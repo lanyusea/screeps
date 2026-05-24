@@ -40,6 +40,26 @@ class RuntimeKpiArtifactBridgeTest(unittest.TestCase):
         self.assertEqual(report["input"]["runtimeSummaryCount"], 1)
         self.assertEqual(report["territory"]["ownedRooms"]["latest"], ["W1N1"])
 
+    def test_monitor_source_files_are_skipped_by_default_but_can_be_included(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 100,
+            "rooms": [{"roomName": "W1N1"}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "runtime-summary-monitor-20260524T084732Z.log"
+            path.write_text(runtime_line(payload), encoding="utf-8")
+
+            default_report = bridge.build_bridge_report([str(path)])
+            included_report = bridge.build_bridge_report([str(path)], include_monitor_source=True)
+
+        self.assertEqual(default_report["source"]["matchedFiles"], 0)
+        self.assertEqual(default_report["source"]["skippedFiles"], [{"path": str(path), "reason": "monitor_source"}])
+        self.assertEqual(included_report["source"]["matchedFiles"], 1)
+        self.assertEqual(included_report["source"]["runtimeSummaryLines"], 1)
+        self.assertEqual(included_report["territory"]["ownedRooms"]["latest"], ["W1N1"])
+
     def test_ignores_embedded_runtime_summary_markers(self) -> None:
         embedded = {"type": "runtime-summary", "tick": 5, "rooms": [{"roomName": "W9N9"}]}
         accepted = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "W1N1"}]}
