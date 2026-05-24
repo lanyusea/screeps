@@ -1599,6 +1599,8 @@ cli:
         self.assertNotEqual(base_upload, territory_upload)
         self.assertTrue(base_upload.startswith('"use strict";\n'))
         self.assertIn(harness.RUNTIME_PARAMETER_INJECTION_GLOBAL, base_upload)
+        self.assertIn(f"var {harness.RUNTIME_PARAMETER_INJECTION_GLOBAL} =", base_upload)
+        self.assertIn(f"var payload = {harness.RUNTIME_PARAMETER_INJECTION_GLOBAL};", base_upload)
         self.assertIn("function addRoot(root)", base_upload)
         self.assertIn("typeof globalThis !== 'undefined'", base_upload)
         self.assertIn("typeof global !== 'undefined'", base_upload)
