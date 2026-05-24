@@ -3001,9 +3001,15 @@ def acceptance_http_timeout(deadline: float, default_timeout: float) -> float:
     return max(0.05, min(default_timeout, remaining))
 
 
-def refresh_is_in_progress(payload: JsonObject) -> bool:
+def refresh_may_be_pending_for_acceptance(payload: JsonObject) -> bool:
     refresh = payload.get("refresh") if isinstance(payload.get("refresh"), dict) else {}
-    return refresh.get("refreshInProgress") is True
+    if refresh.get("refreshInProgress") is True:
+        return True
+    return (
+        refresh.get("initialRefreshRequired") is True
+        and refresh.get("lastRefreshOk") is None
+        and not refresh.get("lastRefreshAt")
+    )
 
 
 def validate_acceptance_summary(health: JsonObject, summary: JsonObject) -> list[JsonObject]:
@@ -3046,7 +3052,7 @@ def run_acceptance(base_url: str, timeout: float) -> int:
             last_health = health
             if health_status == HTTPStatus.OK and health.get("ok") is True:
                 break
-            if not refresh_is_in_progress(health) or time.monotonic() >= deadline:
+            if not refresh_may_be_pending_for_acceptance(health) or time.monotonic() >= deadline:
                 checks = [
                     acceptance_check("/healthz reachable", health_status == HTTPStatus.OK, f"status={health_status}"),
                     acceptance_check(

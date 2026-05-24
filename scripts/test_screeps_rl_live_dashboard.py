@@ -1885,6 +1885,79 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(payload["message"], "PASS")
         self.assertTrue(payload["refresh"]["lastRefreshOk"])
 
+    def test_live_acceptance_retries_startup_refresh_pending_window(self) -> None:
+        original_read_acceptance_json_url = live.read_acceptance_json_url
+        original_sleep = live.time.sleep
+        calls: list[str] = []
+        pending_health: JsonObject = {
+            "ok": False,
+            "failures": ["startup refresh has not completed successfully"],
+            "db": {"exists": False},
+            "refresh": {
+                "initialRefreshRequired": True,
+                "refreshInProgress": False,
+                "lastRefreshAt": None,
+                "lastRefreshOk": None,
+            },
+        }
+        refreshed_db: JsonObject = {
+            "path": "/tmp/rl_metrics.sqlite",
+            "tables": {"observations": {"rows": 1}},
+            "latestObservedAt": "2026-05-18T10:09:00Z",
+        }
+        refreshed_state: JsonObject = {
+            "initialRefreshRequired": True,
+            "refreshInProgress": False,
+            "lastRefreshAt": "2026-05-18T10:10:00Z",
+            "lastRefreshOk": True,
+        }
+        ok_health: JsonObject = {
+            "ok": True,
+            "failures": [],
+            "db": refreshed_db,
+            "refresh": refreshed_state,
+        }
+        ok_summary: JsonObject = {
+            "dashboardUrl": "http://127.0.0.1:48840/",
+            "db": refreshed_db,
+            "refresh": refreshed_state,
+            "e1Gate": {"status": "OK"},
+            "loopA": {"environment": {}, "training": {}},
+            "loopB": {"policy": {}, "scorecard": {"status": "OK"}},
+            "tencentBatch": {"status": "OK"},
+            "safety": {"status": "OK"},
+            "projectGates": [{"issue": "#1233", "status": "OK"}],
+        }
+
+        def fake_read_acceptance_json_url(url: str, _timeout: float) -> tuple[int, JsonObject]:
+            calls.append(url)
+            if url.endswith("/healthz"):
+                health_attempts = sum(1 for call in calls if call.endswith("/healthz"))
+                if health_attempts == 1:
+                    return HTTPStatus.SERVICE_UNAVAILABLE, pending_health
+                return HTTPStatus.OK, ok_health
+            if url.endswith("/api/summary"):
+                return HTTPStatus.OK, ok_summary
+            raise AssertionError(f"unexpected URL: {url}")
+
+        live.read_acceptance_json_url = fake_read_acceptance_json_url
+        live.time.sleep = lambda _seconds: None
+        try:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = live.run_acceptance("http://127.0.0.1:48840/", timeout=2.0)
+            payload = json.loads(output.getvalue())
+        finally:
+            live.read_acceptance_json_url = original_read_acceptance_json_url
+            live.time.sleep = original_sleep
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(sum(1 for call in calls if call.endswith("/healthz")), 2)
+        self.assertEqual(sum(1 for call in calls if call.endswith("/api/summary")), 1)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["message"], "PASS")
+        self.assertTrue(payload["refresh"]["lastRefreshOk"])
+
     def test_artifact_evidence_summary_scan_is_bounded_to_newest_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
