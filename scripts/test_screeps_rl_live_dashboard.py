@@ -204,6 +204,11 @@ def get_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
     return status, payload
 
 
+def wait_for_refresh_release(release_refresh: threading.Event) -> None:
+    if not release_refresh.wait(timeout=5):
+        raise AssertionError("test did not release blocked refresh")
+
+
 def post_json_url(url: str, timeout: float = 1.0) -> tuple[int, JsonObject]:
     request = urllib.request.Request(url, data=b"", method="POST")
     try:
@@ -398,6 +403,91 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(summary["e1Gate"]["gateId"], "e1-live")
         self.assertEqual(summary["loopA"]["training"]["episodes"], 7.0)
         self.assertEqual(summary["loopB"]["onlineUtilityStatus"], "PROVEN")
+
+    def test_bounded_dashboard_sections_use_declared_artifact_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            write_json(
+                artifact_root / "rl-control-loop" / "training-ledger.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 1, "policyUpdateIterations": 0, "simulatorTicksRun": 100},
+                    "environmentExecution": {"completed": 1, "failed": 0, "lastNewRunAt": "2026-05-18T10:00:00Z"},
+                    "createdAt": "2026-05-18T10:00:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-training" / "training-ledger-new.json",
+                {
+                    "type": "screeps-rl-training-execution-ledger",
+                    "status": "RUN",
+                    "trainingDidRun": True,
+                    "iterationExecution": {"episodesRun": 11, "policyUpdateIterations": 2, "simulatorTicksRun": 2200},
+                    "environmentExecution": {"completed": 3, "failed": 0, "lastNewRunAt": "2026-05-18T10:10:00Z"},
+                    "createdAt": "2026-05-18T10:10:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "policy-advantage.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "STALE",
+                    "candidatePolicyId": "old-candidate",
+                    "baselinePolicyId": "old-baseline",
+                    "createdAt": "2026-05-18T10:01:00Z",
+                },
+            )
+            remote_control_root = (
+                artifact_root
+                / "tencent-cloud"
+                / "batch-runs"
+                / "tencent-new"
+                / "remote"
+                / "runtime-artifacts"
+                / "rl-control-loop"
+            )
+            write_json(
+                remote_control_root / "policy-advantage-remote.json",
+                {
+                    "type": "screeps-rl-policy-online-advantage-report",
+                    "onlineUtilityStatus": "REMOTE_CURRENT",
+                    "candidatePolicyId": "remote-candidate",
+                    "baselinePolicyId": "remote-baseline",
+                    "createdAt": "2026-05-18T10:11:00Z",
+                },
+            )
+            write_json(
+                artifact_root / "rl-control-loop" / "metrics-observations.json",
+                {
+                    "type": "screeps-rl-metrics-observations-report",
+                    "observations": [],
+                    "createdAt": "2026-05-18T10:02:00Z",
+                },
+            )
+            write_json(
+                remote_control_root / "metrics-observations-remote.json",
+                {
+                    "type": "screeps-rl-metrics-observations-report",
+                    "observations": [],
+                    "createdAt": "2026-05-18T10:12:00Z",
+                },
+            )
+
+            dashboard = live.build_bounded_dashboard_sections(
+                repo_root,
+                artifact_root,
+                "2026-05-18T10:13:00Z",
+            )
+
+        self.assertTrue(str(dashboard["artifacts"]["trainingLedger"]).endswith("rl-training/training-ledger-new.json"))
+        self.assertTrue(str(dashboard["artifacts"]["policyAdvantage"]).endswith("policy-advantage-remote.json"))
+        self.assertTrue(str(dashboard["artifacts"]["metricsObservations"]).endswith("metrics-observations-remote.json"))
+        self.assertEqual(dashboard["training"]["episodes"], 11.0)
+        self.assertEqual(dashboard["simulator"]["ticksRun"], 2200)
+        self.assertEqual(dashboard["policy"]["candidate"], "remote-candidate")
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1286,7 +1376,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 **kwargs: Any,
             ) -> JsonObject:
                 refresh_entered.set()
-                release_refresh.wait(timeout=5)
+                wait_for_refresh_release(release_refresh)
                 return original_refresh_metrics(db_path_arg, artifact_root_arg, paths, **kwargs)
 
             live.refresh_metrics = blocked_refresh_metrics
@@ -1360,7 +1450,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             **_kwargs: Any,
         ) -> JsonObject:
             refresh_entered.set()
-            release_refresh.wait(timeout=5)
+            wait_for_refresh_release(release_refresh)
             return {"ok": True, "files_scanned": 1}
 
         def tracking_make_server(host: str, port: int, config: live.LiveDashboardConfig) -> live.LiveDashboardHTTPServer:
@@ -1445,7 +1535,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             **_kwargs: Any,
         ) -> JsonObject:
             refresh_entered.set()
-            release_refresh.wait(timeout=5)
+            wait_for_refresh_release(release_refresh)
             return {"ok": True, "files_scanned": 0}
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1503,7 +1593,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 **kwargs: Any,
             ) -> JsonObject:
                 refresh_entered.set()
-                release_refresh.wait(timeout=5)
+                wait_for_refresh_release(release_refresh)
                 return original_refresh_metrics(db_path_arg, artifact_root_arg, paths, **kwargs)
 
             config = live.LiveDashboardConfig(

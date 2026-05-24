@@ -1412,6 +1412,40 @@ def load_artifact_json_paths(paths: Iterable[Path]) -> Iterator[ArtifactJson]:
         yield path, payload, artifact_timestamp(path, payload)
 
 
+def load_bounded_dashboard_artifacts(
+    artifact_root: Path,
+    repo_root: Path,
+    warnings: list[str],
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
+) -> tuple[list[static_dashboard.LoadedArtifact], JsonObject]:
+    paths, scan = summary_artifact_json_paths(
+        artifact_root,
+        repo_root,
+        max_files_per_root=max_files_per_root,
+    )
+    artifacts: list[static_dashboard.LoadedArtifact] = []
+    for path in paths:
+        artifact = static_dashboard.load_artifact(path, warnings, repo_root)
+        if artifact is not None:
+            artifacts.append(artifact)
+    return artifacts, scan
+
+
+def latest_bounded_dashboard_artifact(
+    artifacts: Sequence[static_dashboard.LoadedArtifact],
+    artifact_kind: str,
+) -> static_dashboard.LoadedArtifact | None:
+    matching = [
+        artifact
+        for artifact in artifacts
+        if static_dashboard.artifact_kind(artifact.path, artifact.payload) == artifact_kind
+    ]
+    if not matching:
+        return None
+    return max(matching, key=lambda artifact: artifact.timestamp)
+
+
 def scan_artifact_json(
     artifact_root: Path,
     *,
@@ -1926,35 +1960,25 @@ def build_bounded_dashboard_sections(
     repo_root: Path,
     artifact_root: Path,
     generated_at: str,
+    *,
+    max_files_per_root: int = DEFAULT_SUMMARY_SCAN_FILE_LIMIT,
 ) -> JsonObject:
     warnings: list[str] = []
     control_root = artifact_root / "rl-control-loop"
+    bounded_artifacts, source_scan = load_bounded_dashboard_artifacts(
+        artifact_root,
+        repo_root,
+        warnings,
+        max_files_per_root=max_files_per_root,
+    )
     conclusion_artifact = static_dashboard.load_optional_artifact(
         control_root / "conclusion-registry.json",
         warnings,
         repo_root,
     )
-    latest_training = static_dashboard.latest_artifact(
-        control_root,
-        ("*training-ledger*.json", "*.json"),
-        warnings=warnings,
-        repo_root=repo_root,
-        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "training_ledger",
-    )
-    latest_policy = static_dashboard.latest_artifact(
-        control_root,
-        ("*policy-advantage*.json", "*.json"),
-        warnings=warnings,
-        repo_root=repo_root,
-        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "policy_advantage",
-    )
-    latest_metrics = static_dashboard.latest_artifact(
-        control_root,
-        ("*metrics-observations*.json", "*.json"),
-        warnings=warnings,
-        repo_root=repo_root,
-        predicate=lambda path, payload: static_dashboard.artifact_kind(path, payload) == "metrics_observations",
-    )
+    latest_training = latest_bounded_dashboard_artifact(bounded_artifacts, "training_ledger")
+    latest_policy = latest_bounded_dashboard_artifact(bounded_artifacts, "policy_advantage")
+    latest_metrics = latest_bounded_dashboard_artifact(bounded_artifacts, "metrics_observations")
     gate = static_dashboard.latest_gate(
         static_dashboard.discover_gate_infos(
             artifact_root,
@@ -1995,7 +2019,7 @@ def build_bounded_dashboard_sections(
         "training": training,
         "policy": policy,
         "cardSupply": training.get("cardSupply"),
-        "scan": {"mode": "bounded-live-dashboard-sections"},
+        "scan": {**source_scan, "mode": "bounded-live-dashboard-sections"},
     }
 
 
@@ -2025,7 +2049,12 @@ def build_live_summary(
         refresh_summary,
         usable_data=db_summary_has_usable_data(db),
     )
-    raw_dashboard = build_bounded_dashboard_sections(repo_root, artifact_root, generated)
+    raw_dashboard = build_bounded_dashboard_sections(
+        repo_root,
+        artifact_root,
+        generated,
+        max_files_per_root=scan_file_limit,
+    )
     dashboard = dashboard_json_safe(raw_dashboard, repo_root)
     scorecard = latest_scorecard_summary(artifact_root, repo_root, max_files=scan_file_limit)
     tencent = tencent_batch_summary_at(artifact_root, repo_root, now=generated, max_runs=scan_file_limit)
