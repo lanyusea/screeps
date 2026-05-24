@@ -98,6 +98,8 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
+MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
     r"\A(\ufeff?(?:(?:\s+)|(?://[^\r\n]*(?:\r?\n|$))|(?:/\*.*?\*/))*"
     r"(?:(?:['\"]use strict['\"]\s*;?\s*)+))",
@@ -1068,6 +1070,7 @@ const candidateLimit = 200;
 const collectionLimit = 24;
 const documentLimit = 200;
 const stringLimit = 4000;
+const payloadLimit = {MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT};
 const pushLine = value => {{
   if (lines.length >= candidateLimit || typeof value !== 'string' || !value.includes(marker)) return;
   lines.push(value.slice(0, stringLimit));
@@ -1106,42 +1109,78 @@ const collectionNames = smokeDb.getCollectionNames()
 let scannedCollections = 0;
 let scannedDocuments = 0;
 const scanCollection = (collectionName, query) => {{
-  if (lines.length >= candidateLimit) return;
+  if (lines.length >= candidateLimit) return false;
+  const beforeLineCount = lines.length;
   const collection = smokeDb.getCollection(collectionName);
   const cursor = collection.find(query || {{}}).sort({{_id: -1}}).limit(documentLimit);
   while (cursor.hasNext() && lines.length < candidateLimit) {{
     scannedDocuments += 1;
     scanValue(cursor.next());
   }}
+  return lines.length > beforeLineCount;
 }};
 for (const collectionName of collectionNames) {{
   scannedCollections += 1;
   try {{
+    let collectionAddedLines = false;
     if (userClauses.length > 0) {{
-      scanCollection(collectionName, {{$or: userClauses}});
+      collectionAddedLines = scanCollection(collectionName, {{$or: userClauses}}) || collectionAddedLines;
     }}
-    if (lines.length === 0) {{
+    if (!collectionAddedLines && lines.length < candidateLimit) {{
       scanCollection(collectionName, {{}});
     }}
   }} catch (err) {{}}
   if (lines.length >= candidateLimit) break;
 }}
-print(JSON.stringify({{
+const makePayload = () => ({{
   ok: true,
   lines,
   scannedCollections,
   scannedDocuments,
   collectionNames,
-}}));
+}});
+let payload = makePayload();
+let jsonText = JSON.stringify(payload);
+while (jsonText.length > payloadLimit && lines.length > 0) {{
+  lines.pop();
+  payload = makePayload();
+  jsonText = JSON.stringify(payload);
+}}
+if (jsonText.length > payloadLimit) {{
+  payload = {{
+    ok: true,
+    lines: [],
+    scannedCollections,
+    scannedDocuments,
+    collectionNames: [],
+  }};
+  jsonText = JSON.stringify(payload);
+}}
+print(jsonText);
 """.strip()
     command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
-    result = smoke.run_command(command, cfg, timeout=60, output_limit=200000)
+    result = smoke.run_command(
+        command,
+        cfg,
+        timeout=60,
+        output_limit=MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT,
+    )
     if result.get("returncode") != 0:
-        return None
+        output = result.get("output_excerpt")
+        if not output:
+            output = "\n".join(str(part) for part in (result.get("stdout"), result.get("stderr")) if part)
+        raise RuntimeError(
+            "mongo console runtime-parameter probe failed: "
+            f"exit={result.get('returncode')} "
+            f"output={_safe_text(output, 240)}"
+        )
     try:
         payload = _json_payload_from_command_output(result.get("output_excerpt", ""))
-    except (IndexError, json.JSONDecodeError):
-        return None
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "mongo console runtime-parameter probe returned malformed JSON: "
+            f"{_safe_text(result.get('output_excerpt', ''), 240)}"
+        ) from exc
     lines = payload.get("lines") if isinstance(payload, dict) else None
     if not isinstance(lines, list):
         return None
