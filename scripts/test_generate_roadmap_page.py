@@ -1037,6 +1037,41 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
         self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
 
+    def test_codex_session_summary_permission_error_is_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            codex_root = Path("/root/.codex/sessions")
+            original_exists = type(codex_root).exists
+
+            def inaccessible_exists(path: Path) -> bool:
+                if path == codex_root:
+                    raise PermissionError("permission denied")
+                return original_exists(path)
+
+            attribution = roadmap.build_repo_attribution(repo_root, {"fullName": "lanyusea/screeps"})
+            with (
+                patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
+                patch.object(type(codex_root), "exists", inaccessible_exists),
+            ):
+                metrics = roadmap.summarize_codex_sessions(
+                    roadmap.CODEX_SESSION_ROOT,
+                    attribution,
+                    GENERATED_AT,
+                )
+
+        self.assertEqual(metrics.session_count, 0)
+        self.assertEqual(metrics.token_session_count, 0)
+        self.assertEqual(metrics.timed_session_count, 0)
+        self.assertIsNone(metrics.total_tokens)
+        self.assertIsNone(metrics.elapsed_seconds)
+        self.assertIsNone(metrics.longest_elapsed_seconds)
+        self.assertEqual(metrics.candidate_count, 0)
+        self.assertEqual(metrics.readable_count, 0)
+        self.assertEqual(metrics.attributed_count, 0)
+        self.assertEqual(metrics.counted_ids, ())
+        self.assertEqual(metrics.source_root, codex_root)
+        self.assertFalse(metrics.source_exists)
+
     def test_cron_run_delta_resets_when_source_root_changes(self) -> None:
         window_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
         window_end = datetime(2026, 5, 8, tzinfo=timezone.utc)
