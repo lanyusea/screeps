@@ -663,30 +663,43 @@ def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: i
     fanout_scan_limit = bounded_discovery_fanout_scan_limit(discovery_limit)
     scan_truncated = False
 
-    def listed_children(base: Path, name_pattern: str | None = None) -> tuple[list[Path], bool]:
+    def listed_children(
+        base: Path,
+        name_pattern: str | None = None,
+        rank_tail: tuple[str, ...] = (),
+    ) -> tuple[list[Path], bool]:
         if fanout_scan_limit == 0:
             return [], False
-        children: list[tuple[float, str, str, Path]] = []
+        children: list[tuple[bool, float, str, str, str, Path]] = []
         matched_count = 0
         try:
             for child in base.iterdir():
                 if name_pattern is not None and not fnmatch.fnmatchcase(child.name, name_pattern):
                     continue
                 matched_count += 1
-                ranked_child = (file_mtime(child), child.name, child.as_posix(), child)
+                match_rank = (
+                    newest_match_sort_key(child, rank_tail)
+                    if rank_tail
+                    else (True, file_mtime(child), child.as_posix())
+                )
+                ranked_child = (*match_rank, child.name, child.as_posix(), child)
                 if len(children) < fanout_scan_limit:
                     heapq.heappush(children, ranked_child)
-                elif ranked_child[:3] > children[0][:3]:
+                elif ranked_child[:5] > children[0][:5]:
                     heapq.heapreplace(children, ranked_child)
         except OSError:
             return [], False
         ranked_children = [
-            ranked_child[3] for ranked_child in sorted(children, key=lambda item: item[:3], reverse=True)
+            ranked_child[5] for ranked_child in sorted(children, key=lambda item: item[:5], reverse=True)
         ]
         return ranked_children, matched_count > fanout_scan_limit
 
-    def matched_children(base: Path, name_pattern: str | None = None) -> tuple[list[Path], bool]:
-        return listed_children(base, name_pattern)
+    def matched_children(
+        base: Path,
+        name_pattern: str | None = None,
+        rank_tail: tuple[str, ...] = (),
+    ) -> tuple[list[Path], bool]:
+        return listed_children(base, name_pattern, rank_tail)
 
     def newest_match_sort_key(base: Path, remaining: tuple[str, ...]) -> tuple[bool, float, str]:
         nonlocal scan_truncated
@@ -706,7 +719,7 @@ def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: i
         tail = remaining[1:]
         if part == "**":
             result = newest_match_sort_key(base, tail)
-            children, truncated = listed_children(base)
+            children, truncated = listed_children(base, rank_tail=remaining)
             scan_truncated = scan_truncated or truncated
             for child in children:
                 if child.is_dir():
@@ -715,7 +728,7 @@ def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: i
             return result
         if any(char in part for char in "*?["):
             result = (False, file_mtime(base), base.as_posix())
-            children, truncated = matched_children(base, part)
+            children, truncated = matched_children(base, part, tail)
             scan_truncated = scan_truncated or truncated
             for child in children:
                 result = max(result, newest_match_sort_key(child, tail))
@@ -729,7 +742,7 @@ def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: i
 
     def ordered_children(base: Path, name_pattern: str | None = None, tail: tuple[str, ...] = ()) -> list[Path]:
         nonlocal scan_truncated
-        children, truncated = matched_children(base, name_pattern)
+        children, truncated = matched_children(base, name_pattern, tail)
         scan_truncated = scan_truncated or truncated
         return sorted(
             children,
