@@ -1165,6 +1165,140 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(state["handoffSeverity"], "P1")
         self.assertEqual(state["knownHostsSelfHeal"]["classification"], "SSH_HOST_KEY_SELF_HEALING_FAILED")
 
+    def test_known_hosts_stale_clear_rescan_success_is_recovered(self) -> None:
+        payload = {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-pg-host-key-recovered",
+            "startedAt": "2026-05-23T12:10:05Z",
+            "finishedAt": None,
+            "partial": True,
+            "finalStatus": "running",
+            "controllerProcess": {"pid": 1205},
+            "inputs": {"executionTimeouts": {"totalSeconds": 12300}},
+            "execution": {
+                "environmentsRun": 0,
+                "artifactCount": 0,
+                "trainingReportProduced": False,
+            },
+            "steps": [
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": False,
+                    "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                },
+                {
+                    "name": "clear_worker_known_host",
+                    "ok": True,
+                    "detail": {"warning": False},
+                },
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": True,
+                    "detail": {"status": "host_key_scanned", "retryable": False, "attempt": 1},
+                },
+                {
+                    "name": "install_worker_known_host",
+                    "ok": True,
+                    "detail": {"status": "rotated_known_host", "hostKeyCount": 3},
+                },
+            ],
+        }
+
+        state = live.classify_tencent_batch_run_state(payload, now="2026-05-23T12:20:00Z")
+
+        self.assertEqual(state["status"], "TRAINING_IN_PROGRESS")
+        self.assertFalse(state["handoffRequired"])
+        known_hosts = state["knownHostsSelfHeal"]
+        self.assertEqual(known_hosts["status"], "OK")
+        self.assertEqual(known_hosts["classification"], "SSH_HOST_KEY_SELF_HEALING_RECOVERED")
+        self.assertIn("recovered via rotated_known_host", known_hosts["evidence"])
+
+    def test_known_hosts_still_unavailable_after_stale_clear_requires_specific_handoff(self) -> None:
+        payload = {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-pg-host-key-unavailable",
+            "startedAt": "2026-05-23T12:10:05Z",
+            "finishedAt": "2026-05-23T12:12:05Z",
+            "partial": False,
+            "finalStatus": "failed",
+            "steps": [
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": False,
+                    "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                },
+                {
+                    "name": "clear_worker_known_host",
+                    "ok": True,
+                    "detail": {"warning": False},
+                },
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": False,
+                    "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                },
+                {
+                    "name": "prepare_worker_known_host",
+                    "ok": False,
+                    "detail": {
+                        "status": "host_key_self_healing_unavailable",
+                        "retryable": False,
+                        "staleKnownHostRemoved": True,
+                        "unsafeExistingKnownHostBlocked": True,
+                    },
+                },
+            ],
+        }
+
+        state = live.classify_tencent_batch_run_state(payload, now="2026-05-23T12:20:00Z")
+
+        self.assertEqual(state["status"], "SSH_HOST_KEY_SELF_HEALING_UNAVAILABLE")
+        self.assertTrue(state["handoffRequired"])
+        self.assertEqual(state["handoffSeverity"], "P1")
+        known_hosts = state["knownHostsSelfHeal"]
+        self.assertEqual(known_hosts["classification"], "SSH_HOST_KEY_SELF_HEALING_UNAVAILABLE")
+        self.assertIn("still unavailable", known_hosts["evidence"])
+
+    def test_known_hosts_unverified_existing_entry_requires_unsafe_handoff(self) -> None:
+        payload = {
+            "type": "screeps-tencent-batch-rl-run",
+            "runId": "tencent-pg-host-key-unsafe",
+            "startedAt": "2026-05-23T12:10:05Z",
+            "finishedAt": "2026-05-23T12:12:05Z",
+            "partial": False,
+            "finalStatus": "failed",
+            "steps": [
+                {
+                    "name": "scan_worker_host_key",
+                    "ok": False,
+                    "detail": {"status": "host_key_scan_unavailable", "retryable": True, "attempt": 1},
+                },
+                {
+                    "name": "clear_worker_known_host",
+                    "ok": True,
+                    "detail": {"warning": False},
+                },
+                {
+                    "name": "prepare_worker_known_host",
+                    "ok": False,
+                    "detail": {
+                        "status": "host_key_unverified_existing_entry_blocked",
+                        "retryable": False,
+                        "staleKnownHostRemoved": True,
+                        "unsafeExistingKnownHostBlocked": True,
+                    },
+                },
+            ],
+        }
+
+        state = live.classify_tencent_batch_run_state(payload, now="2026-05-23T12:20:00Z")
+
+        self.assertEqual(state["status"], "SSH_HOST_KEY_SELF_HEALING_UNSAFE")
+        self.assertTrue(state["handoffRequired"])
+        known_hosts = state["knownHostsSelfHeal"]
+        self.assertEqual(known_hosts["classification"], "SSH_HOST_KEY_SELF_HEALING_UNSAFE")
+        self.assertIn("unsafe host-key state", known_hosts["evidence"])
+
     def test_health_helper_requires_successful_auto_refresh(self) -> None:
         health = live.health_with_refresh(
             {"ok": True, "status": "ok", "failures": []},

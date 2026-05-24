@@ -543,13 +543,27 @@ class Controller:
             return KnownHostPrepareResult(False, "host_key_self_healing_failed", reason="public IP is not known")
         self.known_hosts_prepared_public_ips.discard(self.public_ip)
         self.known_hosts_cleaned_public_ips.discard(self.public_ip)
+        if not self.clear_worker_known_host():
+            return KnownHostPrepareResult(
+                False,
+                "host_key_self_healing_failed",
+                reason="ssh-keygen failed while clearing stale known_hosts after host-key mismatch",
+            )
         scan_result, scanned_lines = self.scan_worker_host_keys()
         if not scan_result.ok:
-            reason = "host-key mismatch remains blocked because ssh-keyscan could not verify replacement keys"
+            reason = (
+                "host-key mismatch remains blocked after clearing stale known_hosts entry "
+                "because ssh-keyscan could not verify replacement keys"
+            )
             if scan_result.reason:
                 reason = f"{reason}: {scan_result.reason}"
-            return KnownHostPrepareResult(False, "host_key_self_healing_failed", reason=reason)
-        return self.install_worker_known_host(scanned_lines, had_plain_entry=False)
+            status = (
+                "host_key_self_healing_unavailable"
+                if scan_result.status == "host_key_scan_unavailable"
+                else "host_key_self_healing_failed"
+            )
+            return KnownHostPrepareResult(False, status, retryable=False, reason=reason)
+        return self.install_worker_known_host(scanned_lines, had_plain_entry=True)
 
     def scp_to_worker(self, name: str, local_path: Path, remote_path: str, *, timeout: int = 300) -> None:
         self.require_worker_known_host_prepared(name)
@@ -733,24 +747,40 @@ class Controller:
             )
 
         if current_lines:
+            if not self.clear_worker_known_host():
+                return KnownHostPrepareResult(
+                    False,
+                    "host_key_self_healing_failed",
+                    reason="ssh-keygen failed while clearing stale known_hosts before replacement keyscan",
+                )
+            rescan_result, rescanned_lines = self.scan_worker_host_keys()
+            if rescan_result.ok:
+                return self.install_worker_known_host(rescanned_lines, had_plain_entry=True)
+            status = (
+                "host_key_unverified_existing_entry_blocked"
+                if rescan_result.status == "host_key_scan_unavailable"
+                else "host_key_self_healing_failed"
+            )
+            reason = (
+                "existing known_hosts entry was not trusted after ssh-keyscan returned no replacement keys"
+            )
+            if rescan_result.reason:
+                reason = f"{reason}: {rescan_result.reason}"
             self.record_step(
                 "prepare_worker_known_host",
                 started,
-                True,
+                False,
                 None,
                 publicIp=self.public_ip,
                 knownHostsFile=str(known_hosts),
-                status="existing_known_host_keyscan_unavailable",
-                keyscanStatus=scan_result.status,
-                hostKeyCount=len(current_lines),
+                status=status,
+                retryable=False,
+                keyscanStatus=rescan_result.status,
+                staleKnownHostRemoved=True,
+                unsafeExistingKnownHostBlocked=True,
+                hostKeyCount=0,
             )
-            self.mark_worker_known_host_prepared()
-            return KnownHostPrepareResult(
-                True,
-                "existing_known_host_keyscan_unavailable",
-                reason=scan_result.reason,
-                host_key_count=len(current_lines),
-            )
+            return KnownHostPrepareResult(False, status, retryable=False, reason=reason)
 
         if not self.clear_worker_known_host():
             return KnownHostPrepareResult(
@@ -1828,7 +1858,11 @@ def classify_ssh_process_failure(cp: subprocess.CompletedProcess[str]) -> str:
     combined = "\n".join(part for part in (cp.stderr, cp.stdout) if part)
     if SSH_HOST_KEY_MISMATCH_RE.search(combined):
         return "host_key_mismatch"
-    if "host_key_self_healing_failed" in combined:
+    if (
+        "host_key_self_healing_failed" in combined
+        or "host_key_self_healing_unavailable" in combined
+        or "host_key_unverified_existing_entry_blocked" in combined
+    ):
         return "host_key_self_healing_failed"
     if SSH_NETWORK_UNREACHABLE_RE.search(combined) or "network_unreachable" in combined:
         return "network_unreachable"
@@ -1851,6 +1885,10 @@ def ssh_prepare_failure_completed_process(
 def ssh_prepare_failure_message(operation_name: str, result: KnownHostPrepareResult) -> str:
     if result.status == "network_unreachable":
         return f"{operation_name} skipped: worker network unreachable before SSH host-key verification: {result.reason}"
+    if result.status == "host_key_self_healing_unavailable":
+        return f"{operation_name} blocked: SSH known_hosts self-healing could not verify replacement keys: {result.reason}"
+    if result.status == "host_key_unverified_existing_entry_blocked":
+        return f"{operation_name} blocked: SSH known_hosts self-healing refused an unverified existing entry: {result.reason}"
     if result.retryable:
         return f"{operation_name} skipped: SSH host-key verification not ready: {result.reason}"
     return f"{operation_name} blocked: SSH known_hosts self-healing failed: {result.reason}"

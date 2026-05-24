@@ -106,6 +106,18 @@ HOST_KEY_SELF_HEAL_RETRY_STATUSES = {
     "host_key_scan_unavailable",
 }
 HOST_KEY_SELF_HEAL_FAILURE_STATUSES = {"host_key_self_healing_failed"}
+HOST_KEY_SELF_HEAL_UNAVAILABLE_STATUSES = {"host_key_self_healing_unavailable"}
+HOST_KEY_SELF_HEAL_UNSAFE_STATUSES = {"host_key_unverified_existing_entry_blocked"}
+HOST_KEY_SELF_HEAL_BLOCKED_STATUSES = (
+    HOST_KEY_SELF_HEAL_FAILURE_STATUSES
+    | HOST_KEY_SELF_HEAL_UNAVAILABLE_STATUSES
+    | HOST_KEY_SELF_HEAL_UNSAFE_STATUSES
+)
+HOST_KEY_SELF_HEAL_BLOCKED_CLASSIFICATIONS = {
+    "host_key_self_healing_failed": "SSH_HOST_KEY_SELF_HEALING_FAILED",
+    "host_key_self_healing_unavailable": "SSH_HOST_KEY_SELF_HEALING_UNAVAILABLE",
+    "host_key_unverified_existing_entry_blocked": "SSH_HOST_KEY_SELF_HEALING_UNSAFE",
+}
 HOST_KEY_SELF_HEAL_STEP_NAMES = {
     "accept_new_worker_known_host",
     "clear_worker_known_host",
@@ -1105,9 +1117,10 @@ def classify_tencent_batch_run_state(payload: JsonObject, *, now: Any | None = N
         "action": "none",
     }
     if known_hosts_self_heal.get("status") == "BLOCKED":
+        classification = text_value(known_hosts_self_heal.get("classification")) or "SSH_HOST_KEY_SELF_HEALING_FAILED"
         state.update(
             {
-                "status": "SSH_HOST_KEY_SELF_HEALING_FAILED",
+                "status": classification,
                 "handoffRequired": True,
                 "handoffSeverity": "P1",
                 "action": "inspect Tencent known_hosts self-heal failure before retrying SSH work",
@@ -1285,7 +1298,7 @@ def known_hosts_self_heal_summary(payload: JsonObject) -> JsonObject:
             name not in HOST_KEY_SELF_HEAL_STEP_NAMES
             and status not in HOST_KEY_SELF_HEAL_SUCCESS_STATUSES
             and status not in HOST_KEY_SELF_HEAL_RETRY_STATUSES
-            and status not in HOST_KEY_SELF_HEAL_FAILURE_STATUSES
+            and status not in HOST_KEY_SELF_HEAL_BLOCKED_STATUSES
         ):
             continue
         detail = as_dict(step.get("detail"))
@@ -1311,18 +1324,35 @@ def known_hosts_self_heal_summary(payload: JsonObject) -> JsonObject:
 
     retry_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_RETRY_STATUSES]
     success_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_SUCCESS_STATUSES]
-    failure_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_FAILURE_STATUSES]
+    blocked_records = [record for record in records if record.get("status") in HOST_KEY_SELF_HEAL_BLOCKED_STATUSES]
     last_success = success_records[-1] if success_records else None
-    last_failure = failure_records[-1] if failure_records else None
-    if last_failure is not None and (last_success is None or last_failure["index"] > last_success["index"]):
+    last_blocked = blocked_records[-1] if blocked_records else None
+    if last_blocked is not None and (last_success is None or last_blocked["index"] > last_success["index"]):
+        blocked_status = text_value(last_blocked.get("status")) or "host_key_self_healing_failed"
+        classification = HOST_KEY_SELF_HEAL_BLOCKED_CLASSIFICATIONS.get(
+            blocked_status,
+            "SSH_HOST_KEY_SELF_HEALING_FAILED",
+        )
+        if blocked_status in HOST_KEY_SELF_HEAL_UNAVAILABLE_STATUSES:
+            evidence = (
+                "known_hosts self-healing still unavailable after "
+                f"{len(retry_records)} retry/status attempt(s); latestStatus={blocked_status}"
+            )
+        elif blocked_status in HOST_KEY_SELF_HEAL_UNSAFE_STATUSES:
+            evidence = (
+                "known_hosts self-healing blocked an unsafe host-key state after "
+                f"{len(retry_records)} retry/status attempt(s); latestStatus={blocked_status}"
+            )
+        else:
+            evidence = (
+                "known_hosts self-healing failed after "
+                f"{len(retry_records)} retry/status attempt(s); latestStatus={blocked_status}"
+            )
         return {
             "status": "BLOCKED",
-            "classification": "SSH_HOST_KEY_SELF_HEALING_FAILED",
+            "classification": classification,
             "handoffRequired": True,
-            "evidence": (
-                "known_hosts self-healing failed after "
-                f"{len(retry_records)} retry/status attempt(s); latestStatus={last_failure.get('status')}"
-            ),
+            "evidence": evidence,
             "steps": records,
         }
     if retry_records and last_success is not None:
