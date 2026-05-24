@@ -546,6 +546,11 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertNotIn("E1-SHADOW-EVAL-STATUS", conclusions)
         self.assertIn("E1-CONSOLE-CAPTURE-FLOWING", conclusions)
         self.assertEqual(saved_registry["summary"]["total"], len(conclusions))
+        self.assertEqual(
+            saved_summary["conclusionRegistrySummary"]["countsByStatus"],
+            saved_registry["summary"]["countsByStatus"],
+        )
+        self.assertEqual(sum(saved_registry["summary"]["countsByStatus"].values()), len(conclusions))
 
     def test_gate_updates_legacy_e1_conclusion_missing_owner_cron(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
