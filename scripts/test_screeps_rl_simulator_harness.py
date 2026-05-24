@@ -1892,6 +1892,36 @@ cli:
 
         self.assertEqual(extracted, evidence)
 
+    def test_runtime_parameter_consumption_extracts_shard_wrapped_memory_payload(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        payload = {
+            "ok": 1,
+            "data": json.dumps(
+                {
+                    "$activeWorld": {
+                        "shardX": json.dumps(
+                            {
+                                "Memory": {
+                                    "rlRuntimePolicyParameters": evidence,
+                                }
+                            },
+                            sort_keys=True,
+                        )
+                    }
+                },
+                sort_keys=True,
+            ),
+        }
+
+        extracted = harness.find_runtime_parameter_consumption_evidence(payload, injection=injection)
+        consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+
+        self.assertEqual(extracted, evidence)
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertEqual(consumption["consumedStrategyVariantId"], injection["strategyVariantId"])
+        self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
+
     def test_console_runtime_parameter_consumption_collector_reads_tick_time_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         matching = self.runtime_parameter_consumption_evidence(injection)
@@ -2006,6 +2036,78 @@ cli:
                 {"shard": "shardX"},
             ],
         )
+
+    def test_http_runtime_parameter_consumption_collection_materializes_shard_memory_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        shard_memory = {
+            "$activeWorld": {
+                "shardX": json.dumps(
+                    {
+                        "rlRuntimePolicyParameters": evidence,
+                    },
+                    sort_keys=True,
+                )
+            }
+        }
+
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.status = 200
+                self.payload = payload
+
+        class FakeConfig:
+            server_url = "http://sim.local"
+            shard = "shardX"
+
+        class FakeSmoke:
+            calls: list[dict[str, object]] = []
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def http_json(
+                self,
+                method: str,
+                base_url: str,
+                path: str,
+                *,
+                headers: dict[str, str],
+                params: dict[str, object],
+                timeout: int,
+            ) -> Result:
+                _ = method, base_url, path, headers, params, timeout
+                self.calls.append(dict(params))
+                return Result({"ok": 1, "data": json.dumps(shard_memory, sort_keys=True)})
+
+        smoke = FakeSmoke()
+
+        extracted, errors = harness.collect_runtime_parameter_consumption_evidence(
+            smoke,
+            None,
+            FakeConfig(),
+            "token",
+            injection,
+        )
+        consumption = harness.runtime_parameter_consumption_check(injection, extracted)
+        updated = harness.apply_runtime_parameter_consumption_to_injection(injection, consumption)
+        summary = harness._run_runtime_parameter_injection_summary([
+            {
+                "variant_id": injection["strategyVariantId"],
+                "runtimeParameterInjection": updated,
+            }
+        ])
+
+        expected = copy.deepcopy(evidence)
+        expected["source"] = "Memory.rlRuntimePolicyParameters"
+        self.assertEqual(extracted, expected)
+        self.assertEqual(errors, [])
+        self.assertEqual(smoke.calls, [{"path": "rlRuntimePolicyParameters", "shard": "shardX"}])
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["source"], "Memory.rlRuntimePolicyParameters")
+        self.assertTrue(summary["runtimeParameterConsumption"])
+        self.assertEqual(summary["consumedVariantCount"], 1)
+        self.assertEqual(summary["runtimeParameterConsumptionStatus"], "consumed")
 
     def test_http_runtime_parameter_consumption_collector_continues_after_probe_failures(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()

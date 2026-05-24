@@ -98,6 +98,7 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
@@ -1795,7 +1796,7 @@ def iter_runtime_parameter_consumption_candidates(
     owner_username: str | None = None,
     owner_matched: bool = False,
 ) -> Iterable[Any]:
-    if depth > 4:
+    if depth > RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH:
         return
     decoded = decode_runtime_parameter_jsonish(payload)
     if decoded is not payload:
@@ -1846,6 +1847,28 @@ def iter_runtime_parameter_consumption_candidates(
                     owner_username=owner_username,
                     owner_matched=next_owner_matched,
                 )
+        for key, item in payload.items():
+            if not isinstance(key, str) or not runtime_parameter_container_key(key):
+                continue
+            if key in (
+                RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
+                "rlRuntimePolicyParameters",
+                "runtimeParameterConsumption",
+                "runtimePolicyParameterConsumption",
+                "data",
+                "memory",
+                "Memory",
+                "value",
+                "evidence",
+                "candidates",
+            ):
+                continue
+            yield from iter_runtime_parameter_consumption_candidates(
+                item,
+                depth + 1,
+                owner_username=owner_username,
+                owner_matched=next_owner_matched,
+            )
     elif isinstance(payload, list):
         for item in payload:
             yield from iter_runtime_parameter_consumption_candidates(
@@ -1854,6 +1877,16 @@ def iter_runtime_parameter_consumption_candidates(
                 owner_username=owner_username,
                 owner_matched=owner_matched,
             )
+
+
+def runtime_parameter_container_key(key: str) -> bool:
+    key_lower = key.lower()
+    return (
+        "runtime" in key_lower
+        or "memory" in key_lower
+        or key in {"data", "value", "memory", "Memory", "$activeWorld", "activeWorld"}
+        or re.fullmatch(r"[Ss]hard[\w_-]*", key) is not None
+    )
 
 
 def decode_runtime_parameter_jsonish(value: Any) -> Any:
