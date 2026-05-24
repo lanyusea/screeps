@@ -1046,7 +1046,7 @@ def load_runtime_kpi_report(repo_root: Path, paths: Sequence[str] | None = None)
 
     input_paths = runtime_history_input_paths(repo_root) if paths is None else list(paths)
     data, error = run_json(
-        [sys.executable, str(script_path), "--format", "json", "--", *input_paths],
+        [sys.executable, str(script_path), "--format", "json", "--include-monitor-source", "--", *input_paths],
         repo_root,
         timeout=45,
     )
@@ -1612,7 +1612,7 @@ def load_runtime_artifact_metric_history(
     input_paths = runtime_history_input_paths(repo_root) if paths is None else list(paths)
     selected_world_id = runtime_kpi_bridge.normalize_world_id(world_id) or runtime_kpi_bridge.PERSISTENT_WORLD_ID
     try:
-        scan_result = runtime_kpi_bridge.collect_runtime_summary_lines(input_paths)
+        scan_result = runtime_kpi_bridge.collect_runtime_summary_lines(input_paths, include_monitor_source=True)
     except Exception as error:
         return {}, {
             "status": "unavailable",
