@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import heapq
 import html
 import json
 import sqlite3
@@ -662,24 +663,30 @@ def newest_first_pattern_matches(root: Path, pattern: str, *, discovery_limit: i
     fanout_scan_limit = bounded_discovery_fanout_scan_limit(discovery_limit)
     scan_truncated = False
 
-    def listed_children(base: Path) -> tuple[list[Path], bool]:
+    def listed_children(base: Path, name_pattern: str | None = None) -> tuple[list[Path], bool]:
         if fanout_scan_limit == 0:
             return [], False
-        children: list[Path] = []
+        children: list[tuple[float, str, str, Path]] = []
+        matched_count = 0
         try:
             for child in base.iterdir():
-                if len(children) >= fanout_scan_limit:
-                    return children, True
-                children.append(child)
+                if name_pattern is not None and not fnmatch.fnmatchcase(child.name, name_pattern):
+                    continue
+                matched_count += 1
+                ranked_child = (file_mtime(child), child.name, child.as_posix(), child)
+                if len(children) < fanout_scan_limit:
+                    heapq.heappush(children, ranked_child)
+                elif ranked_child[:3] > children[0][:3]:
+                    heapq.heapreplace(children, ranked_child)
         except OSError:
             return [], False
-        return children, False
+        ranked_children = [
+            ranked_child[3] for ranked_child in sorted(children, key=lambda item: item[:3], reverse=True)
+        ]
+        return ranked_children, matched_count > fanout_scan_limit
 
     def matched_children(base: Path, name_pattern: str | None = None) -> tuple[list[Path], bool]:
-        children, truncated = listed_children(base)
-        if name_pattern is not None:
-            children = [child for child in children if fnmatch.fnmatchcase(child.name, name_pattern)]
-        return children, truncated
+        return listed_children(base, name_pattern)
 
     def newest_match_sort_key(base: Path, remaining: tuple[str, ...]) -> tuple[bool, float, str]:
         nonlocal scan_truncated

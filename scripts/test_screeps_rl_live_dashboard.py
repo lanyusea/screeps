@@ -807,34 +807,40 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(discovered, 1)
         self.assertTrue(truncated)
 
-    def test_wildcard_directory_scan_stops_at_bounded_fanout(self) -> None:
+    def test_wildcard_directory_scan_ranks_before_bounded_fanout(self) -> None:
         original_iterdir = Path.iterdir
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             batch_root = root / "batch-runs"
+            fanout_scan_limit = live.bounded_discovery_fanout_scan_limit(1)
             run_dirs: list[Path] = []
-            for index in range(80):
+            for index in range(fanout_scan_limit + 8):
                 run_dir = batch_root / f"run-{index:03d}"
                 summary = run_dir / "controller-summary.json"
                 write_json(summary, {"runId": run_dir.name, "createdAt": f"2026-05-18T10:{index % 60:02d}:00Z"})
-                mtime = 1_771_002_000 - index
+                mtime = 1_771_000_000 + index
                 os.utime(summary, (mtime, mtime))
                 os.utime(run_dir, (mtime, mtime))
                 run_dirs.append(run_dir)
+            newest_run_dir = batch_root / "run-newest"
+            newest_summary = newest_run_dir / "controller-summary.json"
+            write_json(newest_summary, {"runId": newest_run_dir.name, "createdAt": "2026-05-18T10:59:59Z"})
+            os.utime(newest_summary, (1_771_002_000, 1_771_002_000))
+            os.utime(newest_run_dir, (1_771_002_000, 1_771_002_000))
+            run_dirs.append(newest_run_dir)
             scanned_children: list[Path] = []
-            fanout_scan_limit = live.bounded_discovery_fanout_scan_limit(1)
 
             def counted_iterdir(self: Path) -> Any:
                 if self == batch_root:
                     def generate() -> Any:
                         for run_dir in run_dirs:
                             scanned_children.append(run_dir)
-                            if len(scanned_children) > fanout_scan_limit + 1:
-                                raise AssertionError("unbounded wildcard fan-out scan")
                             yield run_dir
 
                     return generate()
+                if self in run_dirs:
+                    raise AssertionError("unexpected recursive wildcard history scan")
                 return original_iterdir(self)
 
             Path.iterdir = counted_iterdir  # type: ignore[method-assign]
@@ -847,10 +853,10 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
             finally:
                 Path.iterdir = original_iterdir  # type: ignore[method-assign]
 
-        self.assertEqual(selected, [run_dirs[0] / "controller-summary.json"])
+        self.assertEqual(selected, [newest_summary])
         self.assertEqual(discovered, 1)
         self.assertTrue(truncated)
-        self.assertLessEqual(len(scanned_children), fanout_scan_limit + 1)
+        self.assertEqual(scanned_children, run_dirs)
 
     def test_missing_tencent_safety_object_blocks_dashboard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
