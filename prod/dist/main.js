@@ -46799,11 +46799,31 @@ function persistRuntimePolicyParameterConsumptionEvidence(evidence) {
   emitRuntimePolicyParameterConsumptionEvidence(persistedEvidence);
 }
 function readRuntimePolicyParameterPayload() {
+  const lexicalPayload = runtimePolicyParameterPayloadFromValue(readLexicalRuntimePolicyParameterPayload());
+  if (lexicalPayload) {
+    return lexicalPayload;
+  }
   for (const root of runtimeGlobalRoots()) {
-    const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
-    if (isRecord41(raw) && raw.runtimeParameterInjection === true && raw.candidateParameterScope === "runtime_injected") {
-      return raw;
+    const payload = runtimePolicyParameterPayloadFromValue(root[RUNTIME_POLICY_PARAMETERS_GLOBAL]);
+    if (payload) {
+      return payload;
     }
+  }
+  return null;
+}
+function readLexicalRuntimePolicyParameterPayload() {
+  try {
+    if (typeof __SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__ !== "undefined") {
+      return __SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__;
+    }
+  } catch (_error) {
+    return void 0;
+  }
+  return void 0;
+}
+function runtimePolicyParameterPayloadFromValue(value) {
+  if (isRecord41(value) && value.runtimeParameterInjection === true && value.candidateParameterScope === "runtime_injected") {
+    return value;
   }
   return null;
 }
