@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
+import socket
 import sqlite3
 import sys
 import tempfile
@@ -1149,6 +1152,84 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertEqual(second["generatedAt"], "call-1")
         self.assertEqual(third["generatedAt"], "call-2")
         self.assertEqual(len(calls), 2)
+
+
+    def test_live_acceptance_passes_running_service(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            write_live_artifacts(artifact_root)
+            refresh = live.refresh_metrics(db_path, artifact_root)
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                auto_refresh_seconds=60,
+            )
+            try:
+                server = live.make_server("127.0.0.1", 0, config)
+            except OSError as error:
+                self.skipTest(f"socket creation is unavailable in this sandbox: {error}")
+            server.record_refresh(refresh, refreshed_at="2026-05-18T10:09:00Z")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    exit_code = live.run_acceptance(f"http://{host}:{port}/", timeout=2.0)
+                payload = json.loads(output.getvalue())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["message"], "PASS")
+        checks = {check["name"]: check for check in payload["checks"]}
+        for required in (
+            "/healthz ok=true",
+            "/api/summary reachable",
+            "summary.dashboardUrl",
+            "db.path",
+            "db.tables",
+            "db.latestObservedAt",
+            "refresh.lastRefreshOk",
+            "refresh.lastRefreshAt",
+            "E1 gate visible",
+            "Loop A visible",
+            "Loop B visible",
+            "Tencent utilization visible",
+            "scorecard visible",
+            "safety visible",
+            "project gates visible",
+        ):
+            self.assertIn(required, checks)
+            self.assertTrue(checks[required]["ok"], required)
+        self.assertTrue(payload["refresh"]["lastRefreshOk"])
+        self.assertEqual(payload["refresh"]["lastRefreshAt"], "2026-05-18T10:09:00Z")
+
+    def test_live_acceptance_reports_not_running_connection_refused(self) -> None:
+        try:
+            sock = socket.socket()
+            sock.bind(("127.0.0.1", 0))
+            _host, port = sock.getsockname()
+            sock.close()
+        except OSError as error:
+            self.skipTest(f"local socket allocation is unavailable: {error}")
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_code = live.run_acceptance(f"http://127.0.0.1:{port}/", timeout=0.2)
+        payload = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["message"], "FAIL")
+        self.assertIn("live dashboard service is not running/reachable", payload["error"])
+        self.assertIn("npm run rl-dashboard-live", payload["error"])
 
     def test_artifact_evidence_summary_scan_is_bounded_to_newest_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
