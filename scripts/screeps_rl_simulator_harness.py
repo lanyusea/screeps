@@ -624,11 +624,13 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
     runtime_payload["status"] = "injected"
     runtime_payload["runtimeParameterInjection"] = True
     runtime_payload["inlineCandidatesRuntimeInjected"] = True
+    payload_json = json.dumps(runtime_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     prelude = (
         "/* screeps-rl private-simulator runtime parameter injection; "
         "liveEffect=false officialMmoWrites=false officialMmoWritesAllowed=false */\n"
+        f"var {RUNTIME_PARAMETER_INJECTION_GLOBAL} = {payload_json};\n"
         "(function(){\n"
-        f"  var payload = {json.dumps(runtime_payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True)};\n"
+        f"  var payload = {RUNTIME_PARAMETER_INJECTION_GLOBAL};\n"
         "  var roots = [];\n"
         "  function addRoot(root) { if (root && roots.indexOf(root) < 0) roots.push(root); }\n"
         "  if (typeof globalThis !== 'undefined') addRoot(globalThis);\n"

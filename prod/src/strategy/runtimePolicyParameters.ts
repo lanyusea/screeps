@@ -6,6 +6,8 @@ export const RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER = 'screeps-rl-runtime-pol
 export const RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION = 'v1';
 export const RUNTIME_POLICY_PARAMETER_CONSUMPTION_LOG_PREFIX = '#runtime-parameter-consumption ';
 
+declare const __SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__: unknown;
+
 export interface RuntimePolicyParameterConsumptionEvidence {
   type: 'screeps-rl-runtime-policy-parameter-consumption';
   consumerMarker: typeof RUNTIME_POLICY_PARAMETERS_CONSUMER_MARKER;
@@ -185,17 +187,40 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
+  const lexicalPayload = runtimePolicyParameterPayloadFromValue(readLexicalRuntimePolicyParameterPayload());
+  if (lexicalPayload) {
+    return lexicalPayload;
+  }
+
   for (const root of runtimeGlobalRoots()) {
-    const raw = root[RUNTIME_POLICY_PARAMETERS_GLOBAL];
-    if (
-      isRecord(raw) &&
-      raw.runtimeParameterInjection === true &&
-      raw.candidateParameterScope === 'runtime_injected'
-    ) {
-      return raw;
+    const payload = runtimePolicyParameterPayloadFromValue(root[RUNTIME_POLICY_PARAMETERS_GLOBAL]);
+    if (payload) {
+      return payload;
     }
   }
 
+  return null;
+}
+
+function readLexicalRuntimePolicyParameterPayload(): unknown {
+  try {
+    if (typeof __SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__ !== 'undefined') {
+      return __SCREEPS_RL_RUNTIME_POLICY_PARAMETERS__;
+    }
+  } catch (_error) {
+    return undefined;
+  }
+  return undefined;
+}
+
+function runtimePolicyParameterPayloadFromValue(value: unknown): RuntimePolicyParameterPayload | null {
+  if (
+    isRecord(value) &&
+    value.runtimeParameterInjection === true &&
+    value.candidateParameterScope === 'runtime_injected'
+  ) {
+    return value;
+  }
   return null;
 }
 
