@@ -26,6 +26,7 @@ describe('runEconomy', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
 
   beforeEach(() => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     logSpy = jest.spyOn(console, 'log').mockImplementation();
   });
 
