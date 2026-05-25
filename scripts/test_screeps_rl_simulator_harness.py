@@ -940,6 +940,56 @@ cli:
         self.assertEqual(tick_entry["overview"]["roomCount"], 1)
         self.assertEqual(tick_entry["rooms"]["E1S1"]["structures"]["spawn"], 1)
 
+    def test_build_tick_entry_extracts_runtime_consumption_from_object_memory(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            42,
+            {"ok": 1, "rooms": ["E1S1"], "gametime": 42},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "user": {"id": "user-1", "username": "rl-sim"},
+                        "controller": {"level": 1, "my": True},
+                        "objects": [
+                            {
+                                "type": "creep",
+                                "user": "user-1",
+                                "memory": {
+                                    "role": "worker",
+                                    "rlRuntimePolicyParameters": evidence,
+                                },
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+
+        room_summary = tick_entry["rooms"]["E1S1"]
+        self.assertEqual(
+            room_summary["runtimeParameterConsumption"]["consumedParametersSha256"],
+            injection["parametersSha256"],
+        )
+        direct_evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [tick_entry],
+        )
+        self.assertIsNotNone(direct_evidence)
+        assert direct_evidence is not None
+        consumption = harness.runtime_parameter_consumption_check(injection, direct_evidence)
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(
+            consumption["source"],
+            harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        )
+
     def test_multi_tier_fixture_rooms_merge_into_tick_when_private_api_lacks_visibility(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
@@ -1813,6 +1863,67 @@ cli:
         consumption = harness.runtime_parameter_consumption_check(uploaded, extracted)
         self.assertTrue(consumption["runtimeParameterConsumption"])
         self.assertEqual(consumption["status"], "consumed")
+
+    @unittest.skipUnless(NODE_BIN is not None, "node is required to execute the injected bundle prelude")
+    def test_runtime_parameter_injection_prelude_mirrors_consumption_to_object_memory(self) -> None:
+        assert NODE_BIN is not None
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence_json = json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {\n"
+            f"  globalThis[{json.dumps(harness.RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)}] = {evidence_json};\n"
+            "};\n"
+        )
+        uploaded_code = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        uploaded = harness.mark_runtime_parameter_injection_uploaded(injection, code_text=uploaded_code)
+        self.assertTrue(uploaded["runtimeParameterInjection"])
+
+        script = (
+            "const hostConsole = console;\n"
+            "const logs = [];\n"
+            "globalThis.Memory = {creeps: {Worker1: {role: 'worker'}}, spawns: {Spawn1: {}}};\n"
+            "globalThis.Game = {\n"
+            "  time: 77,\n"
+            "  creeps: {Worker1: {memory: globalThis.Memory.creeps.Worker1}},\n"
+            "  spawns: {Spawn1: {memory: globalThis.Memory.spawns.Spawn1}}\n"
+            "};\n"
+            "globalThis.console = {log: line => logs.push(String(line))};\n"
+            f"{uploaded_code}\n"
+            "module.exports.loop();\n"
+            "hostConsole.log(JSON.stringify({\n"
+            "  creep: globalThis.Memory.creeps.Worker1.rlRuntimePolicyParameters,\n"
+            "  spawn: globalThis.Memory.spawns.Spawn1.rlRuntimePolicyParameters,\n"
+            "  logs\n"
+            "}));\n"
+        )
+        result = subprocess.run(
+            [NODE_BIN, "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["creep"]["consumed"])
+        self.assertTrue(payload["spawn"]["consumed"])
+        self.assertEqual(payload["creep"]["tick"], 77)
+        self.assertEqual(payload["creep"]["consumedParametersSha256"], injection["parametersSha256"])
 
     @unittest.skipUnless(NODE_BIN is not None, "node is required to execute the injected bundle prelude")
     def test_runtime_parameter_injection_wraps_default_export_for_tick_consumption_evidence(self) -> None:
@@ -4587,6 +4698,207 @@ cli:
         self.assertNotIn("runtimeParameterConsumerVersion", summary["variants"][1])
         self.assertNotIn("consumedParametersSha256", summary["variants"][1])
         self.assertNotIn("consumedStrategyVariantId", summary["variants"][1])
+
+    def test_direct_game_loop_runtime_parameter_consumption_evidence_validates(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [
+                {"tick": 19},
+                {
+                    "tick": 20,
+                    "rooms": {"W1N1": {"creeps": 1}},
+                    "runtimeParameterConsumption": True,
+                    "consumedParametersSha256": injection["parametersSha256"],
+                    "consumedStrategyVariantId": injection["strategyVariantId"],
+                },
+            ],
+        )
+
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(evidence["directRuntimeEvaluation"])
+        self.assertEqual(evidence["tick"], 20)
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+        self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertFalse(consumption["officialMmoWrites"])
+
+    def test_direct_game_loop_runtime_parameter_consumption_without_runtime_signal_fails_closed(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [{"tick": 20, "rooms": {"W1N1": {"creeps": 1}}}],
+        )
+
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(evidence["directRuntimeEvaluation"])
+        self.assertFalse(evidence["consumed"])
+        self.assertEqual(evidence["tick"], 20)
+        self.assertNotIn("parameters", evidence)
+        self.assertNotIn("consumedParametersSha256", evidence)
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertIn("did not mark the payload consumed", consumption["reason"])
+
+    def test_direct_game_loop_runtime_parameter_consumption_preserves_false_signal(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [
+                {
+                    "tick": 20,
+                    "runtimeParameterConsumption": False,
+                    "consumedParametersSha256": injection["parametersSha256"],
+                    "consumedStrategyVariantId": injection["strategyVariantId"],
+                }
+            ],
+        )
+
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertFalse(evidence["consumed"])
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+
+    def test_direct_game_loop_runtime_parameter_consumption_skips_non_numeric_trailing_ticks(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [
+                {
+                    "tick": 20,
+                    "runtimeParameterConsumption": True,
+                    "consumedParametersSha256": injection["parametersSha256"],
+                    "consumedStrategyVariantId": injection["strategyVariantId"],
+                },
+                {"tick": "bad", "rooms": {"W1N1": {"creeps": 1}}},
+            ],
+        )
+
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(evidence["directRuntimeEvaluation"])
+        self.assertEqual(evidence["tick"], 20)
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+
+    def test_direct_game_loop_runtime_parameter_consumption_requires_observed_tick(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        self.assertIsNone(
+            harness.direct_game_loop_runtime_parameter_consumption_evidence(
+                injection,
+                [{"rooms": {"W1N1": {"creeps": 1}}}],
+            )
+        )
+
+    def test_direct_game_loop_fallback_preserves_invalid_standard_consumption_without_runtime_signal(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        invalid_evidence = self.runtime_parameter_consumption_evidence(injection)
+        invalid_evidence["parameters"] = {
+            **invalid_evidence["parameters"],
+            "territorySignalWeight": invalid_evidence["parameters"]["territorySignalWeight"] + 1,
+        }
+        invalid_consumption = harness.runtime_parameter_consumption_check(injection, invalid_evidence)
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            invalid_consumption,
+            [{"tick": 20, "rooms": {"W1N1": {"creeps": 1}}}],
+        )
+
+        self.assertEqual(consumption["status"], "invalid")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("disagreed", consumption["reason"])
+        self.assertNotEqual(consumption.get("source"), harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+
+    def test_direct_game_loop_fallback_preserves_missing_collector_failure_without_runtime_signal(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        missing_consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            None,
+            source_errors=["redis evidence unavailable"],
+        )
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing_consumption,
+            [{"tick": 20, "rooms": {"W1N1": {"creeps": 1}}}],
+        )
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("redis evidence unavailable", consumption["reason"])
+        self.assertNotEqual(consumption.get("source"), harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(consumption["directRuntimeEvaluation"])
+        self.assertEqual(consumption["consumptionMode"], "direct_simulator_game_loop")
+        self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
+        self.assertIn("did not mark the payload consumed", consumption["directRuntimeEvaluationReason"])
+
+    def test_direct_game_loop_fallback_preserves_missing_failure_for_unconsumed_tick_memory(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        unconsumed_evidence = self.runtime_parameter_consumption_evidence(injection)
+        unconsumed_evidence["consumed"] = False
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E1S1",
+            20,
+            {"ok": 1, "rooms": ["E1S1"], "gametime": 20},
+            {"terrain": [{"room": "E1S1", "terrain": "0" * 2500}]},
+            {
+                "E1S1": {
+                    "room": "E1S1",
+                    "roomData": {
+                        "user": {"id": "user-1", "username": "rl-sim"},
+                        "controller": {"level": 1, "my": True},
+                        "objects": [
+                            {
+                                "type": "creep",
+                                "user": "user-1",
+                                "memory": {
+                                    "role": "worker",
+                                    "rlRuntimePolicyParameters": unconsumed_evidence,
+                                },
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+        missing_consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            None,
+            source_errors=["redis evidence unavailable"],
+        )
+
+        self.assertFalse(
+            tick_entry["rooms"]["E1S1"]["runtimeParameterConsumption"]["consumed"],
+        )
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing_consumption,
+            [tick_entry],
+        )
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("redis evidence unavailable", consumption["reason"])
+        self.assertNotEqual(consumption.get("source"), harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(consumption["directRuntimeEvaluation"])
+        self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
+        self.assertIn("did not mark the payload consumed", consumption["directRuntimeEvaluationReason"])
 
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (

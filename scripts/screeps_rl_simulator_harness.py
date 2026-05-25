@@ -98,6 +98,7 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE = "private_simulator_game_loop_runtime_parameters"
 RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
@@ -671,6 +672,35 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
         "    }\n"
         "    return null;\n"
         "  }\n"
+        "  function mirrorRuntimeConsumptionToObjectMemory(memory, evidence) {\n"
+        "    if (!memory || typeof memory !== 'object') return;\n"
+        "    var groups = ['creeps', 'spawns'];\n"
+        "    for (var groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {\n"
+        "      var group = groups[groupIndex];\n"
+        "      var gameCollection = null;\n"
+        "      try { gameCollection = (typeof Game !== 'undefined' && Game) ? Game[group] : null; } catch (err) {}\n"
+        "      if (!gameCollection || typeof gameCollection !== 'object') continue;\n"
+        "      var names = [];\n"
+        "      for (var name in gameCollection) {\n"
+        "        if (Object.prototype.hasOwnProperty.call(gameCollection, name)) names.push(name);\n"
+        "      }\n"
+        "      names.sort();\n"
+        "      for (var nameIndex = 0; nameIndex < names.length; nameIndex += 1) {\n"
+        "        var objectName = names[nameIndex];\n"
+        "        var objectMemory = null;\n"
+        "        try {\n"
+        "          var gameObject = gameCollection[objectName];\n"
+        "          objectMemory = gameObject && gameObject.memory;\n"
+        "        } catch (err) {}\n"
+        "        if (!objectMemory || typeof objectMemory !== 'object') {\n"
+        "          if (!memory[group] || typeof memory[group] !== 'object') memory[group] = {};\n"
+        "          objectMemory = memory[group][objectName];\n"
+        "          if (!objectMemory || typeof objectMemory !== 'object') objectMemory = memory[group][objectName] = {};\n"
+        "        }\n"
+        "        objectMemory.rlRuntimePolicyParameters = copyEvidence(evidence);\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
         "  function isRuntimeConsumptionEvidence(value) {\n"
         "    return value && typeof value === 'object'\n"
         "      && value.type === consumptionType\n"
@@ -691,7 +721,10 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
         "    }\n"
         "    try {\n"
         "      var memory = runtimeMemoryRoot();\n"
-        "      if (memory) memory.rlRuntimePolicyParameters = materialized;\n"
+        "      if (memory) {\n"
+        "        memory.rlRuntimePolicyParameters = materialized;\n"
+        "        mirrorRuntimeConsumptionToObjectMemory(memory, materialized);\n"
+        "      }\n"
         "    } catch (err) {}\n"
         "    try {\n"
         "      var serialized = JSON.stringify(materialized);\n"
@@ -762,6 +795,35 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
         "    }\n"
         "    return null;\n"
         "  }\n"
+        "  function mirrorRuntimeConsumptionToObjectMemory(memory, evidence) {\n"
+        "    if (!memory || typeof memory !== 'object') return;\n"
+        "    var groups = ['creeps', 'spawns'];\n"
+        "    for (var groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {\n"
+        "      var group = groups[groupIndex];\n"
+        "      var gameCollection = null;\n"
+        "      try { gameCollection = (typeof Game !== 'undefined' && Game) ? Game[group] : null; } catch (err) {}\n"
+        "      if (!gameCollection || typeof gameCollection !== 'object') continue;\n"
+        "      var names = [];\n"
+        "      for (var name in gameCollection) {\n"
+        "        if (Object.prototype.hasOwnProperty.call(gameCollection, name)) names.push(name);\n"
+        "      }\n"
+        "      names.sort();\n"
+        "      for (var nameIndex = 0; nameIndex < names.length; nameIndex += 1) {\n"
+        "        var objectName = names[nameIndex];\n"
+        "        var objectMemory = null;\n"
+        "        try {\n"
+        "          var gameObject = gameCollection[objectName];\n"
+        "          objectMemory = gameObject && gameObject.memory;\n"
+        "        } catch (err) {}\n"
+        "        if (!objectMemory || typeof objectMemory !== 'object') {\n"
+        "          if (!memory[group] || typeof memory[group] !== 'object') memory[group] = {};\n"
+        "          objectMemory = memory[group][objectName];\n"
+        "          if (!objectMemory || typeof objectMemory !== 'object') objectMemory = memory[group][objectName] = {};\n"
+        "        }\n"
+        "        objectMemory.rlRuntimePolicyParameters = copyEvidence(evidence);\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
         "  function lexicalConsumptionEvidence() {\n"
         f"    try {{ if (typeof {RUNTIME_PARAMETER_CONSUMPTION_GLOBAL} !== 'undefined') return {RUNTIME_PARAMETER_CONSUMPTION_GLOBAL}; }} catch (err) {{}}\n"
         "    return undefined;\n"
@@ -786,7 +848,10 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
         "    }\n"
         "    try {\n"
         "      var memory = runtimeMemoryRoot();\n"
-        "      if (memory) memory.rlRuntimePolicyParameters = materialized;\n"
+        "      if (memory) {\n"
+        "        memory.rlRuntimePolicyParameters = materialized;\n"
+        "        mirrorRuntimeConsumptionToObjectMemory(memory, materialized);\n"
+        "      }\n"
         "    } catch (err) {}\n"
         "    try {\n"
         "      var serialized = JSON.stringify(materialized);\n"
@@ -947,6 +1012,12 @@ def runtime_parameter_consumption_check(
             payload["evaluatedParametersSha256"] = observed_hash
         if text_or_none(evidence.get("source")):
             payload["source"] = text_or_none(evidence.get("source"))
+        if isinstance(evidence.get("consumed"), bool):
+            payload["consumed"] = evidence.get("consumed")
+        if isinstance(evidence.get("directRuntimeEvaluation"), bool):
+            payload["directRuntimeEvaluation"] = evidence.get("directRuntimeEvaluation")
+        if text_or_none(evidence.get("consumptionMode")):
+            payload["consumptionMode"] = text_or_none(evidence.get("consumptionMode"))
         return payload
 
     parameters = copy.deepcopy(evidence["parameters"])
@@ -970,6 +1041,191 @@ def runtime_parameter_consumption_check(
     if consumed_tick is not None and consumed_tick >= 0:
         payload["consumedTick"] = consumed_tick
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def direct_game_loop_runtime_parameter_consumption_evidence(
+    injection: JsonObject,
+    tick_log: Sequence[JsonObject],
+) -> JsonObject | None:
+    """Build direct consumption proof from a completed injected simulator game loop."""
+    if injection.get("status") != "injected" or injection.get("runtimeParameterInjection") is not True:
+        return None
+    parameters = injection.get("parameters")
+    if not isinstance(parameters, dict) or not parameters:
+        return None
+    ticks = [tick for tick in tick_log if isinstance(tick, dict)]
+    if not ticks:
+        return None
+    consumed_tick = None
+    for tick in reversed(ticks):
+        consumed_tick = _coerce_int(tick.get("tick"))
+        if consumed_tick is not None:
+            break
+    if consumed_tick is None:
+        return None
+    for tick in reversed(ticks):
+        runtime_evidence = _direct_game_loop_runtime_parameter_signal(injection, tick, consumed_tick)
+        if runtime_evidence is not None:
+            return runtime_evidence
+    return _direct_game_loop_unproven_runtime_parameter_evidence(injection, consumed_tick)
+
+
+def _direct_game_loop_runtime_parameter_signal(
+    injection: JsonObject,
+    tick: JsonObject,
+    fallback_tick: int,
+) -> JsonObject | None:
+    evidence = _direct_game_loop_tick_runtime_parameter_evidence(injection, tick)
+    if evidence is not None:
+        payload = copy.deepcopy(evidence)
+        payload["source"] = RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
+        payload["consumptionMode"] = "direct_simulator_game_loop"
+        payload["directRuntimeEvaluation"] = True
+        payload.setdefault("liveEffect", False)
+        payload.setdefault("officialMmoWrites", False)
+        payload.setdefault("officialMmoWritesAllowed", False)
+        if _coerce_int(payload.get("tick")) is None:
+            tick_number = _coerce_int(tick.get("tick"))
+            payload["tick"] = tick_number if tick_number is not None else fallback_tick
+        return {key: value for key, value in payload.items() if value is not None}
+
+    signal_keys = {
+        "runtimeParameterConsumption",
+        "consumed",
+        "consumedParametersSha256",
+        "parametersSha256",
+        "consumedStrategyVariantId",
+        "strategyVariantId",
+    }
+    if not any(key in tick for key in signal_keys):
+        return None
+
+    expected_hash = text_or_none(injection.get("parametersSha256"))
+    expected_variant_id = text_or_none(injection.get("strategyVariantId"))
+    observed_hash = text_or_none(tick.get("consumedParametersSha256")) or text_or_none(tick.get("parametersSha256"))
+    observed_variant_id = text_or_none(tick.get("consumedStrategyVariantId")) or text_or_none(
+        tick.get("strategyVariantId")
+    )
+    consumed_flag = tick.get("runtimeParameterConsumption")
+    if not isinstance(consumed_flag, bool):
+        consumed_flag = tick.get("consumed") if isinstance(tick.get("consumed"), bool) else None
+    hash_matches = expected_hash is not None and observed_hash == expected_hash
+    variant_matches = expected_variant_id is None or observed_variant_id == expected_variant_id
+    if consumed_flag is False:
+        consumed = False
+    elif consumed_flag is True:
+        consumed = True
+    else:
+        consumed = hash_matches and observed_variant_id is not None and variant_matches
+    payload = _direct_game_loop_unproven_runtime_parameter_evidence(injection, fallback_tick)
+    payload["consumed"] = consumed
+    if hash_matches:
+        parameters = injection.get("parameters")
+        if isinstance(parameters, dict) and parameters:
+            payload["parameters"] = copy.deepcopy(parameters)
+            payload["parametersSha256"] = expected_hash
+    if observed_hash is not None:
+        payload["consumedParametersSha256"] = observed_hash
+    if observed_variant_id is not None:
+        payload["consumedStrategyVariantId"] = observed_variant_id
+    applied_strategy_ids = tick.get("appliedStrategyIds")
+    if isinstance(applied_strategy_ids, list):
+        payload["appliedStrategyIds"] = [
+            strategy_id for strategy_id in applied_strategy_ids if isinstance(strategy_id, str)
+        ]
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _direct_game_loop_tick_runtime_parameter_evidence(
+    injection: JsonObject,
+    tick: JsonObject,
+) -> JsonObject | None:
+    evidence = find_runtime_parameter_consumption_evidence(tick, injection=injection)
+    if evidence is not None:
+        return evidence
+    rooms = tick.get("rooms")
+    if isinstance(rooms, dict):
+        room_values = rooms.values()
+    elif isinstance(rooms, list):
+        room_values = rooms
+    else:
+        room_values = ()
+    fallback: JsonObject | None = None
+    for room_payload in room_values:
+        evidence = find_runtime_parameter_consumption_evidence(room_payload, injection=injection)
+        if evidence is None:
+            continue
+        if runtime_parameter_consumption_validation_error(injection, evidence) is None:
+            return evidence
+        if fallback is None:
+            fallback = evidence
+    return fallback
+
+
+def _direct_game_loop_unproven_runtime_parameter_evidence(
+    injection: JsonObject,
+    consumed_tick: int,
+) -> JsonObject:
+    applied_strategy_id = (
+        text_or_none(injection.get("sourceStrategyId"))
+        or text_or_none(injection.get("strategyVariantId"))
+        or text_or_none(injection.get("candidatePolicyId"))
+    )
+    payload: JsonObject = {
+        "type": RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "consumerMarker": RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+        "consumerVersion": RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
+        "runtimeParameterInjection": True,
+        "consumed": False,
+        "strategyVariantId": text_or_none(injection.get("strategyVariantId")),
+        "candidatePolicyId": text_or_none(injection.get("candidatePolicyId")),
+        "family": text_or_none(injection.get("family")),
+        "appliedStrategyIds": [applied_strategy_id] if applied_strategy_id is not None else [],
+        "source": RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        "consumptionMode": "direct_simulator_game_loop",
+        "directRuntimeEvaluation": True,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    if consumed_tick >= 0:
+        payload["tick"] = consumed_tick
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def runtime_parameter_consumption_with_direct_game_loop_fallback(
+    injection: JsonObject,
+    consumption: JsonObject,
+    tick_log: Sequence[JsonObject],
+) -> JsonObject:
+    if consumption.get("runtimeParameterConsumption") is True:
+        return consumption
+    direct_evidence = direct_game_loop_runtime_parameter_consumption_evidence(injection, tick_log)
+    if direct_evidence is None:
+        return consumption
+    direct_consumption = runtime_parameter_consumption_check(injection, direct_evidence)
+    if direct_consumption.get("runtimeParameterConsumption") is True:
+        for field, target in (
+            ("status", "fallbackRuntimeParameterConsumptionStatus"),
+            ("reason", "fallbackRuntimeParameterConsumptionReason"),
+            ("source", "fallbackRuntimeParameterConsumptionSource"),
+        ):
+            value = consumption.get(field)
+            if value is not None:
+                direct_consumption[target] = value
+        return direct_consumption
+    if text_or_none(consumption.get("status")) in (None, "missing"):
+        preserved = copy.deepcopy(consumption)
+        preserved["directRuntimeEvaluation"] = direct_evidence.get("directRuntimeEvaluation") is True
+        consumption_mode = text_or_none(direct_evidence.get("consumptionMode"))
+        if consumption_mode is not None:
+            preserved["consumptionMode"] = consumption_mode
+        preserved["directRuntimeEvaluationStatus"] = direct_consumption.get("status")
+        if direct_consumption.get("reason") is not None:
+            preserved["directRuntimeEvaluationReason"] = direct_consumption.get("reason")
+        return preserved
+    return consumption
 
 
 def apply_runtime_parameter_consumption_to_injection(
@@ -3049,6 +3305,28 @@ def _collect_combat_counts(
     return counts
 
 
+def _room_runtime_parameter_consumption_evidence(
+    normalized: JsonObject,
+    objects: Sequence[Any],
+) -> JsonObject | None:
+    for candidate in (
+        normalized.get("runtimeParameterConsumption"),
+        normalized.get("runtimePolicyParameterConsumption"),
+        normalized.get("rlRuntimePolicyParameters"),
+        normalized.get("memory"),
+        normalized.get("Memory"),
+        normalized.get("data"),
+    ):
+        evidence = find_runtime_parameter_consumption_evidence(candidate)
+        if evidence is not None:
+            return evidence
+    for item in objects:
+        evidence = find_runtime_parameter_consumption_evidence(item)
+        if evidence is not None:
+            return evidence
+    return None
+
+
 def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
     normalized = _extract_room_payload(payload, room)
     objects = _payload_objects(normalized)
@@ -3104,7 +3382,7 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
         "storedEnergy": stored_energy,
         **({"energyAvailable": energy} if energy is not None else {}),
     }
-    return {
+    summary = {
         "room": room,
         "roomName": room,
         "owned": owned,
@@ -3124,6 +3402,10 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
         "resources": resources_summary,
         "combat": _collect_combat_counts(normalized, owner_id=owner_id, owner_username=owner_username),
     }
+    runtime_consumption = _room_runtime_parameter_consumption_evidence(normalized, objects)
+    if runtime_consumption is not None:
+        summary["runtimeParameterConsumption"] = runtime_consumption
+    return summary
 
 
 def _terrain_summary(payload: Any) -> JsonObject:
@@ -5223,6 +5505,11 @@ def _run_variant(
                 runtime_parameter_injection,
                 consumption_evidence,
                 source_errors=consumption_errors,
+            )
+            runtime_parameter_consumption = runtime_parameter_consumption_with_direct_game_loop_fallback(
+                runtime_parameter_injection,
+                runtime_parameter_consumption,
+                variant_ticks,
             )
             runtime_parameter_injection = apply_runtime_parameter_consumption_to_injection(
                 runtime_parameter_injection,
