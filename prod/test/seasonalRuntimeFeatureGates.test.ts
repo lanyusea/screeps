@@ -100,6 +100,32 @@ describe('runEconomy Seasonal feature gates', () => {
     expect(deal).not.toHaveBeenCalled();
   });
 
+  it('skips market API calls when the persistent world CPU bucket is empty', () => {
+    const deal = jest.fn().mockReturnValue(OK_CODE);
+    const getAllOrders = makeMarketOrderGetter([
+      makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1' }),
+      makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1' })
+    ]);
+    installMarketEconomyGame({
+      time: MARKET_TRADING_INTERVAL * 8,
+      shard: { name: 'shard3', type: 'normal' },
+      deal,
+      getAllOrders
+    });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(19),
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    } as unknown as CPU;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = { enableMarketTrading: true };
+
+    runEconomy();
+
+    expect(getAllOrders).not.toHaveBeenCalled();
+    expect(deal).not.toHaveBeenCalled();
+  });
+
   it('skips terminal sends on Seasonal World in an imbalance that persistent worlds send', () => {
     const persistentSource = makeTerminalBalanceRoom({
       roomName: 'W1N1',
@@ -144,6 +170,33 @@ describe('runEconomy Seasonal feature gates', () => {
     runEconomy();
 
     expect(seasonalSource.terminal?.send).not.toHaveBeenCalled();
+  });
+
+  it('skips terminal sends when the persistent world CPU bucket is empty', () => {
+    const source = makeTerminalBalanceRoom({
+      roomName: 'W1N1',
+      storageEnergy: 100_000,
+      terminalEnergy: 80_000
+    });
+    const target = makeTerminalBalanceRoom({
+      roomName: 'W2N1',
+      storageEnergy: 10_000,
+      terminalEnergy: 20_000
+    });
+    installTerminalEconomyGame({
+      rooms: [source, target],
+      shard: { name: 'shard3', type: 'normal' }
+    });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(19),
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    runEconomy();
+
+    expect(source.terminal?.send).not.toHaveBeenCalled();
   });
 
   it('keeps an empty-world Seasonal smoke path away from disabled APIs', () => {

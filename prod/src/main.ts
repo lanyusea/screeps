@@ -18,6 +18,7 @@ import {
   persistRuntimePolicyParameterConsumptionEvidence
 } from './strategy/runtimePolicyParameters';
 import { type RuntimeSummary, RUNTIME_SUMMARY_PREFIX } from './telemetry/runtimeSummary';
+import { getRuntimeCpuBudget } from './runtime/cpuBudget';
 export {
   DEFAULT_STRATEGY_REGISTRY,
   STRATEGY_REGISTRY_SCHEMA_VERSION,
@@ -44,6 +45,7 @@ const recentKpiWindows: KpiWindowHistory = {};
 const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
+  const cpuBudget = getRuntimeCpuBudget();
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
   const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled =
@@ -72,7 +74,9 @@ export function loop(): void {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  if (!cpuBudget.degraded) {
+    strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  }
 }
 
 function recordAppliedRuntimePolicyParameterStrategies(

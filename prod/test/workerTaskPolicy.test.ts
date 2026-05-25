@@ -332,7 +332,16 @@ describe('worker task BC policy', () => {
     } as unknown as StructureSpawn;
     const creep = {
       name: 'Carrier',
-      memory: { role: 'worker' },
+      memory: {
+        role: 'worker',
+        workerBehavior: { type: 'workerTaskBehavior', tick: 122 } as unknown as CreepMemory['workerBehavior'],
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          tick: 122
+        } as unknown as CreepMemory['workerTaskPolicyShadow'],
+        workerEfficiency: { type: 'lowLoadReturn', tick: 122 } as unknown as CreepMemory['workerEfficiency'],
+        spawnCriticalRefill: { type: 'spawnCriticalRefill', tick: 122 } as unknown as CreepMemory['spawnCriticalRefill']
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
@@ -382,6 +391,69 @@ describe('worker task BC policy', () => {
       heuristicAction: 'transfer',
       matched: true
     });
+  });
+
+  it('keeps the heuristic task but skips BC shadow metadata under a 20 CPU budget', () => {
+    setWorkerTaskBcModelForTesting(TEST_MODEL);
+    installWorkerTaskGlobals();
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(300)
+      }
+    } as unknown as StructureSpawn;
+    const creep = {
+      name: 'Carrier',
+      memory: {
+        role: 'worker',
+        workerBehavior: { type: 'workerTaskBehavior', tick: 122 } as unknown as CreepMemory['workerBehavior'],
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          tick: 122
+        } as unknown as CreepMemory['workerTaskPolicyShadow'],
+        workerEfficiency: { type: 'lowLoadReturn', tick: 122 } as unknown as CreepMemory['workerEfficiency'],
+        spawnCriticalRefill: { type: 'spawnCriticalRefill', tick: 122 } as unknown as CreepMemory['spawnCriticalRefill']
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        name: 'W1N1',
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          if (type === FIND_MY_CREEPS) {
+            return [creep];
+          }
+
+          return [];
+        })
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 123,
+      creeps: { Carrier: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(6),
+        limit: 20,
+        bucket: 9_000,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    expect(creep.memory.workerBehavior).toBeDefined();
+    expect(creep.memory.workerTaskPolicyShadow).toBeDefined();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerBehavior).toBeUndefined();
+    expect(creep.memory.workerTaskPolicyShadow).toBeUndefined();
+    expect(creep.memory.workerEfficiency).toBeUndefined();
+    expect(creep.memory.spawnCriticalRefill).toBeUndefined();
   });
 
   it('falls back to the heuristic when BC action disagrees', () => {

@@ -24753,6 +24753,177 @@ function getGameTick2() {
   return typeof tick === "number" && Number.isFinite(tick) ? tick : 0;
 }
 
+// src/runtime/cpuBudget.ts
+var LOW_CPU_ACCOUNT_LIMIT = 20;
+var LOW_CPU_BUCKET_THRESHOLD = 1e3;
+var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
+var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
+var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+var REPEATED_BUCKET_EMPTY_TICKS = 2;
+var SUSTAINED_OVER_LIMIT_TICKS = 2;
+var cpuTelemetryState = {
+  lowBucketTicks: 0,
+  bucketEmptyTicks: 0,
+  overLimitTicks: 0
+};
+function getRuntimeCpuBudget(game = getRuntimeGame()) {
+  return buildRuntimeCpuBudget(readRuntimeCpuSample(game));
+}
+function buildRuntimeCpuBudget(sample) {
+  const reasons = [];
+  const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
+  if (lowCpuLimit) {
+    reasons.push("lowCpuLimit");
+  }
+  const criticalBucket = sample.bucket !== void 0 && sample.bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+  if (criticalBucket) {
+    reasons.push("criticalBucket");
+  } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    reasons.push("lowBucket");
+  }
+  if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
+    reasons.push("usedOverLimit");
+  }
+  const critical = criticalBucket;
+  const degraded = critical || reasons.length > 0;
+  return {
+    tick: sample.tick,
+    sample,
+    pressure: critical ? "critical" : degraded ? "degraded" : "normal",
+    degraded,
+    critical,
+    lowCpuLimit,
+    reasons
+  };
+}
+function readRuntimeCpuSample(game = getRuntimeGame()) {
+  const cpu = game == null ? void 0 : game.cpu;
+  return {
+    tick: normalizeTick(game == null ? void 0 : game.time),
+    ...optionalFiniteNumber("used", readCpuUsed(cpu)),
+    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+  };
+}
+function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
+  if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
+    resetRuntimeCpuTelemetryStateForTick(sample.tick);
+    clearRuntimeCpuTelemetryCounters();
+    return null;
+  }
+  const budget = buildRuntimeCpuBudget(sample);
+  const state = updateRuntimeCpuTelemetryState(sample);
+  const alerts = buildRuntimeCpuAlerts(sample, state);
+  return {
+    tick: sample.tick,
+    ...sample.used !== void 0 ? { used: sample.used } : {},
+    ...sample.limit !== void 0 ? { limit: sample.limit } : {},
+    ...sample.tickLimit !== void 0 ? { tickLimit: sample.tickLimit } : {},
+    ...sample.bucket !== void 0 ? { bucket: sample.bucket } : {},
+    pressure: budget.pressure,
+    ...budget.reasons.length > 0 ? { reasons: budget.reasons } : {},
+    ...alerts.length > 0 ? { alerts } : {},
+    ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
+    ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
+    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
+  };
+}
+function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, key, interval);
+}
+function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, roomName, interval);
+}
+function shouldThrottleRuntimeSummaryCadence(budget) {
+  return budget.lowCpuLimit;
+}
+function updateRuntimeCpuTelemetryState(sample) {
+  resetRuntimeCpuTelemetryStateForTick(sample.tick);
+  const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
+  const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
+  const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
+  cpuTelemetryState.lowBucketTicks = lowBucket ? cpuTelemetryState.lowBucketTicks + 1 : 0;
+  cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
+  cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
+  return cpuTelemetryState;
+}
+function resetRuntimeCpuTelemetryStateForTick(tick) {
+  const lastTick = cpuTelemetryState.lastTick;
+  if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  cpuTelemetryState.lastTick = tick;
+}
+function clearRuntimeCpuTelemetryCounters() {
+  cpuTelemetryState.lowBucketTicks = 0;
+  cpuTelemetryState.bucketEmptyTicks = 0;
+  cpuTelemetryState.overLimitTicks = 0;
+}
+function buildRuntimeCpuAlerts(sample, state) {
+  const alerts = [];
+  if (state.bucketEmptyTicks >= REPEATED_BUCKET_EMPTY_TICKS) {
+    alerts.push("bucketEmptyRepeated");
+  }
+  if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    alerts.push("lowBucket");
+  }
+  if (state.overLimitTicks >= SUSTAINED_OVER_LIMIT_TICKS) {
+    alerts.push("sustainedUsedOverLimit");
+  }
+  return alerts;
+}
+function isCadenceTick(tick, key, interval) {
+  const normalizedInterval = Math.max(1, Math.floor(interval));
+  if (tick <= 0) {
+    return false;
+  }
+  return (tick + stableHash(key)) % normalizedInterval === 0;
+}
+function stableHash(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = hash * 31 + value.charCodeAt(index) >>> 0;
+  }
+  return hash;
+}
+function readCpuUsed(cpu) {
+  const getUsed = cpu == null ? void 0 : cpu.getUsed;
+  if (typeof getUsed !== "function") {
+    return void 0;
+  }
+  try {
+    const used = getUsed.call(cpu);
+    return typeof used === "number" && Number.isFinite(used) ? used : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function optionalFiniteNumber(key, value) {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+function normalizeTick(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function getRuntimeGame() {
+  return globalThis.Game;
+}
+
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
@@ -24826,11 +24997,39 @@ var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
 var gameCreepsCache = null;
 var routineBarrierMaintenanceRepairTargetCache = null;
+var workerTaskSelectionTelemetrySuppressionDepth = 0;
 function selectWorkerTask(creep) {
-  clearWorkerEfficiencyTelemetry(creep);
-  const heuristicTask = selectHeuristicWorkerTask(creep);
+  clearWorkerTaskSelectionTelemetry(creep);
+  const degraded = getRuntimeCpuBudget().degraded;
+  const heuristicTask = withWorkerTaskSelectionTelemetrySuppressed(degraded, () => selectHeuristicWorkerTask(creep));
+  if (degraded) {
+    clearWorkerTaskShadowTelemetry(creep);
+    return heuristicTask;
+  }
   recordWorkerTaskBehaviorTrace(creep, heuristicTask);
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
+}
+function clearWorkerTaskShadowTelemetry(creep) {
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+  delete memory.workerBehavior;
+  delete memory.workerTaskPolicyShadow;
+}
+function withWorkerTaskSelectionTelemetrySuppressed(suppressTelemetry, selectTask) {
+  if (!suppressTelemetry) {
+    return selectTask();
+  }
+  workerTaskSelectionTelemetrySuppressionDepth += 1;
+  try {
+    return selectTask();
+  } finally {
+    workerTaskSelectionTelemetrySuppressionDepth -= 1;
+  }
+}
+function isWorkerTaskSelectionTelemetrySuppressed() {
+  return workerTaskSelectionTelemetrySuppressionDepth > 0;
 }
 function selectHeuristicWorkerTask(creep) {
   var _a;
@@ -25838,14 +26037,18 @@ function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
 function hasKnownSpawnExtensionEnergyCapacity(room) {
   return getRoomEnergyCapacityAvailable7(room) !== null;
 }
-function clearWorkerEfficiencyTelemetry(creep) {
+function clearWorkerTaskSelectionTelemetry(creep) {
   const memory = creep.memory;
   if (memory) {
     delete memory.workerEfficiency;
+    delete memory.spawnCriticalRefill;
   }
 }
 function recordSpawnCriticalRefillTelemetry(creep, spawn) {
   var _a, _b;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const memory = creep.memory;
   if (!memory) {
     return;
@@ -25862,6 +26065,9 @@ function recordSpawnCriticalRefillTelemetry(creep, spawn) {
 }
 function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
   var _a;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {
@@ -25880,6 +26086,9 @@ function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
 }
 function recordLowLoadReturnTelemetry(creep, task, reason) {
   var _a;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {
@@ -36147,7 +36356,10 @@ function isRecord28(value) {
 
 // src/telemetry/runtimeSummary.ts
 var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
+var RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
+var DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
+var RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = DEGRADED_RUNTIME_SUMMARY_INTERVAL;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -36164,6 +36376,7 @@ var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 15e4;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
 var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
+var runtimeCpuSummaryEmissionState = {};
 var cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsTick;
@@ -36173,7 +36386,9 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   }
   const tick = getGameTime32();
   resetCachedRefillTelemetryIfTickRewound(tick);
-  const emitsSummary = shouldEmitRuntimeSummary(tick, events);
+  const cpuBudget = getRuntimeCpuBudget();
+  const emitsSummary = shouldEmitRuntimeSummary(tick, events, cpuBudget);
+  const shouldRefreshRuntimeTelemetry = !shouldThrottleRuntimeSummaryCadence(cpuBudget) || emitsSummary;
   const creepsByColony = groupCreepsByColony(creeps, colonies);
   let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
   let eventMetricsByRoom = cachedEventMetricsByRoom;
@@ -36184,21 +36399,25 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
     cachedEventMetricsByRoom = eventMetricsByRoom;
     cachedEventMetricsTick = tick;
   }
-  refreshRefillTelemetry(
-    colonies,
-    creepsByColony,
-    refillTargetIdsByRoom,
-    eventMetricsByRoom,
-    tick,
-    cachedEventMetricsTick
-  );
-  refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
+  if (shouldRefreshRuntimeTelemetry) {
+    refreshRefillTelemetry(
+      colonies,
+      creepsByColony,
+      refillTargetIdsByRoom,
+      eventMetricsByRoom,
+      tick,
+      cachedEventMetricsTick
+    );
+    refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
+  }
+  const cpuSummary = buildCpuSummary();
+  emitRuntimeCpuSummary(cpuSummary.cpu, tick);
   if (!emitsSummary) {
     return void 0;
   }
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const cpuSummary = buildCpuSummary();
+  const includeOptionalSummary = !shouldThrottleRuntimeSummaryCadence(cpuBudget) && !cpuBudget.critical;
   const rooms = colonies.map(
     (colony) => {
       var _a, _b;
@@ -36209,7 +36428,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
         (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
         shouldBuildStructureSnapshot(tick),
         options.strategyRegistry,
-        options.onStrategyRegistryRuntimeUse
+        options.onStrategyRegistryRuntimeUse,
+        includeOptionalSummary
       );
     }
   );
@@ -36224,8 +36444,12 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   console.log(`${RUNTIME_SUMMARY_PREFIX}${JSON.stringify(summary)}`);
   return summary;
 }
-function shouldEmitRuntimeSummary(tick, events) {
-  return events.length > 0 || tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+function shouldEmitRuntimeSummary(tick, events, cpuBudget = getRuntimeCpuBudget()) {
+  if (events.length > 0) {
+    return true;
+  }
+  const interval = shouldThrottleRuntimeSummaryCadence(cpuBudget) ? DEGRADED_RUNTIME_SUMMARY_INTERVAL : RUNTIME_SUMMARY_INTERVAL;
+  return tick > 0 && tick % interval === 0;
 }
 function resetCachedRefillTelemetryIfTickRewound(tick) {
   if (cachedEventMetricsTick === void 0 || tick >= cachedEventMetricsTick) {
@@ -36285,7 +36509,7 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot, strategyRegistry, onStrategyRegistryRuntimeUse, includeOptionalSummary) {
   const tick = getGameTime32();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -36321,26 +36545,26 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     taskCounts,
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
-    ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick),
+    ...includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {},
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
-    ...summarizeWorkerEfficiency(colonyWorkers, tick),
-    ...summarizeRefillTelemetry(colonyWorkers, tick),
+    ...includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {},
+    ...includeOptionalSummary ? summarizeRefillTelemetry(colonyWorkers, tick) : {},
     ...summarizeSpawnCriticalRefill(colonyWorkers, tick),
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(
+    constructionPriority: includeOptionalSummary ? summarizeConstructionPriority(
       colony,
       colonyWorkers,
       strategyRegistry,
       onStrategyRegistryRuntimeUse
-    ),
+    ) : emptyConstructionPrioritySummary(),
     survival: summarizeSurvival(colony, roleCounts),
-    territoryRecommendation,
-    ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
-    ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
-    ...buildTerritoryExecutionHintSummary(colony.room.name),
-    ...buildTerritoryScoutSummary(colony, roleCounts),
+    territoryRecommendation: includeOptionalSummary ? territoryRecommendation : emptyTerritoryRecommendationReport(),
+    ...includeOptionalSummary && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
+    ...includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {},
+    ...includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {},
+    ...includeOptionalSummary ? buildTerritoryScoutSummary(colony, roleCounts) : {},
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -36352,6 +36576,19 @@ function summarizeWorkerAssignmentEvidence(tick, workerCount, assignedTaskCount,
     workerCount,
     assignedTaskCount,
     productiveAssignmentCount
+  };
+}
+function emptyConstructionPrioritySummary() {
+  return {
+    candidates: [],
+    nextPrimary: null
+  };
+}
+function emptyTerritoryRecommendationReport() {
+  return {
+    candidates: [],
+    next: null,
+    followUpIntent: null
   };
 }
 function countAssignedWorkerTasks(workers) {
@@ -38049,19 +38286,70 @@ function isRecord29(value) {
   return typeof value === "object" && value !== null;
 }
 function buildCpuSummary() {
-  const gameWithOptionalCpu = Game;
-  const cpu = gameWithOptionalCpu.cpu;
-  if (!cpu) {
+  const summary = buildRuntimeCpuTelemetrySummary();
+  if (!summary) {
     return {};
   }
-  const summary = {};
-  if (typeof cpu.getUsed === "function") {
-    summary.used = cpu.getUsed();
+  return { cpu: toRuntimeCpuSummary(summary) };
+}
+function toRuntimeCpuSummary(summary) {
+  return {
+    ...summary.used !== void 0 ? { used: summary.used } : {},
+    ...summary.limit !== void 0 ? { limit: summary.limit } : {},
+    ...summary.tickLimit !== void 0 ? { tickLimit: summary.tickLimit } : {},
+    ...summary.bucket !== void 0 ? { bucket: summary.bucket } : {},
+    ...summary.pressure !== "normal" ? { pressure: summary.pressure } : {},
+    ...summary.alerts ? { alerts: summary.alerts } : {},
+    ...summary.reasons ? { reasons: summary.reasons } : {},
+    ...summary.lowBucketTicks !== void 0 ? { lowBucketTicks: summary.lowBucketTicks } : {},
+    ...summary.bucketEmptyTicks !== void 0 ? { bucketEmptyTicks: summary.bucketEmptyTicks } : {},
+    ...summary.overLimitTicks !== void 0 ? { overLimitTicks: summary.overLimitTicks } : {}
+  };
+}
+function emitRuntimeCpuSummary(cpu, tick) {
+  if (!cpu) {
+    recordRuntimeCpuSummarySignal(null, tick);
+    return;
   }
-  if (typeof cpu.bucket === "number") {
-    summary.bucket = cpu.bucket;
+  if (!shouldEmitRuntimeCpuSummary(cpu, tick)) {
+    return;
   }
-  return Object.keys(summary).length > 0 ? { cpu: summary } : {};
+  console.log(`${RUNTIME_CPU_SUMMARY_PREFIX}${JSON.stringify(cpu)}`);
+}
+function shouldEmitRuntimeCpuSummary(cpu, tick) {
+  const signal = buildRuntimeCpuSummarySignal(cpu);
+  const previousSignal = getPreviousRuntimeCpuSummarySignal(tick);
+  recordRuntimeCpuSummarySignal(signal, tick);
+  if (!signal) {
+    return false;
+  }
+  return signal !== previousSignal || isRuntimeCpuSummaryRepeatTick(tick);
+}
+function buildRuntimeCpuSummarySignal(cpu) {
+  const alerts = normalizeRuntimeCpuSummarySignalValues(cpu.alerts);
+  const reasons = normalizeRuntimeCpuSummarySignalValues(cpu.reasons);
+  const pressure = cpu.pressure && cpu.pressure !== "normal" ? cpu.pressure : void 0;
+  if (!pressure && alerts.length === 0 && reasons.length === 0) {
+    return null;
+  }
+  return `pressure:${pressure != null ? pressure : "normal"};alerts:${alerts.join(",")};reasons:${reasons.join(",")}`;
+}
+function normalizeRuntimeCpuSummarySignalValues(values) {
+  return values && values.length > 0 ? [...values].sort() : [];
+}
+function getPreviousRuntimeCpuSummarySignal(tick) {
+  if (runtimeCpuSummaryEmissionState.lastTick !== void 0 && tick > 0 && runtimeCpuSummaryEmissionState.lastTick > tick) {
+    runtimeCpuSummaryEmissionState = {};
+  }
+  return runtimeCpuSummaryEmissionState.lastSignal;
+}
+function recordRuntimeCpuSummarySignal(signal, tick) {
+  getPreviousRuntimeCpuSummarySignal(tick);
+  runtimeCpuSummaryEmissionState.lastSignal = signal;
+  runtimeCpuSummaryEmissionState.lastTick = tick;
+}
+function isRuntimeCpuSummaryRepeatTick(tick) {
+  return tick > 0 && tick % RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL === 0;
 }
 function applyCpuSummaryToRooms(rooms, cpu) {
   if (!cpu || cpu.used === void 0 && cpu.bucket === void 0) {
@@ -38079,7 +38367,7 @@ function getGameTime32() {
 }
 
 // src/runtime/featureGates.ts
-function getRuntimeFeatureGates(game = getRuntimeGame()) {
+function getRuntimeFeatureGates(game = getRuntimeGame2()) {
   var _a, _b;
   const shardName = normalizeString((_a = game == null ? void 0 : game.shard) == null ? void 0 : _a.name);
   const shardType = normalizeString((_b = game == null ? void 0 : game.shard) == null ? void 0 : _b.type);
@@ -38096,17 +38384,17 @@ function getRuntimeFeatureGates(game = getRuntimeGame()) {
     labManagement: enabledInPersistent
   };
 }
-function getRuntimeGame() {
+function getRuntimeGame2() {
   return globalThis.Game;
 }
 function buildCpuMetadata(cpu) {
   return {
-    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
-    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
-    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+    ...optionalFiniteNumber2("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber2("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber2("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
   };
 }
-function optionalFiniteNumber(key, value) {
+function optionalFiniteNumber2(key, value) {
   return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
 }
 function normalizeString(value) {
@@ -45659,12 +45947,16 @@ var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 function runEconomy(preludeTelemetryEvents = [], options = {}) {
   var _a, _b, _c, _d;
   const featureGates = getRuntimeFeatureGates();
+  const cpuBudget = getRuntimeCpuBudget();
+  const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, "economy-global-optional");
   const creeps = Object.values(Game.creeps);
-  balanceStorage();
-  if (featureGates.terminalEnergyTransfers) {
+  if (runOptionalGlobalWork) {
+    balanceStorage();
+  }
+  if (runOptionalGlobalWork && featureGates.terminalEnergyTransfers) {
     manageTerminalEnergy();
   }
-  if (featureGates.marketTrading && Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
+  if (runOptionalGlobalWork && featureGates.marketTrading && Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();
@@ -45683,6 +45975,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
   const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms2(colonies);
   for (const colony of colonies) {
+    const runOptionalRoomWork = shouldRunOptionalCpuRoomWork(cpuBudget, colony.room.name);
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
@@ -45706,7 +45999,9 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
-    refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
+    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+      refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
+    }
     const constructionOptions = {
       respectRoomEnergyBuffer: true,
       creeps,
@@ -45714,18 +46009,22 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
       onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
     };
-    if (postClaimBootstrapRefresh.deferred === true) {
-      planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
-    } else {
-      planClaimedRoomConstruction(colony, {
-        ...constructionOptions
-      });
+    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+      if (postClaimBootstrapRefresh.deferred === true) {
+        planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+      } else {
+        planClaimedRoomConstruction(colony, {
+          ...constructionOptions
+        });
+      }
     }
-    if (survivalAssessment.mode === "TERRITORY_READY") {
+    if (survivalAssessment.mode === "TERRITORY_READY" && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
-    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
-    if (survivalAssessment.territoryReady) {
+    if (shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+      refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
+    }
+    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
       refreshClaimExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
       refreshReserveExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
     }
@@ -45798,17 +46097,25 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       }
     }
     transferEnergy(colony.room);
-    manageStorage(colony.room);
-    refreshRoomEnergySurplusState(colony.room);
-    const labStructures = shouldRunLabManagement(colony.room, featureGates);
-    if (labStructures.length > 0) {
-      manageLabs(colony.room, { creeps, labs: labStructures });
+    if (runOptionalRoomWork) {
+      manageStorage(colony.room);
+      refreshRoomEnergySurplusState(colony.room);
+      const labStructures = shouldRunLabManagement(colony.room, featureGates);
+      if (labStructures.length > 0) {
+        manageLabs(colony.room, { creeps, labs: labStructures });
+      }
     }
-    recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
+    if (runOptionalRoomWork) {
+      recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
+    }
   }
-  ensureRemoteSourceContainersForAssignedHarvesters(creeps);
+  if (runOptionalGlobalWork) {
+    ensureRemoteSourceContainersForAssignedHarvesters(creeps);
+  }
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  if (runOptionalGlobalWork) {
+    attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  }
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
@@ -45943,6 +46250,21 @@ function getCreepStoreAmount(creep, method) {
 function getResourceEnergyConstant() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
+}
+function shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment) {
+  if (!cpuBudget.degraded) {
+    return true;
+  }
+  if (cpuBudget.critical) {
+    return false;
+  }
+  return runOptionalRoomWork || survivalAssessment.mode === "BOOTSTRAP" || survivalAssessment.mode === "DEFENSE" || survivalAssessment.hostilePresence || survivalAssessment.controllerDowngradeGuard;
+}
+function shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork) {
+  if (!cpuBudget.degraded) {
+    return true;
+  }
+  return !cpuBudget.critical && runOptionalRoomWork;
 }
 function shouldRunLabManagement(room, featureGates) {
   var _a, _b;
@@ -47628,6 +47950,7 @@ var strategyRegistryState = {
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
+  const cpuBudget = getRuntimeCpuBudget();
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
   const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
@@ -47651,7 +47974,9 @@ function loop() {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  if (!cpuBudget.degraded) {
+    strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
+  }
 }
 function recordAppliedRuntimePolicyParameterStrategies(registry, appliedStrategyIds, runtimePolicyParameterConsumption) {
   if (appliedStrategyIds.length === 0) {
