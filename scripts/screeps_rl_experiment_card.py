@@ -20,7 +20,7 @@ from typing import Any, Sequence, TextIO
 TRAINING_APPROACHES = ("bandit", "evolutionary", "policy_gradient")
 DATASET_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 E1_POSTMERGE_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z-postmerge\d+$")
-E1_CURRENT_DATASET_GATE_ID_RE = re.compile(r"^gate-\d{8}T\d{6}Z$")
+E1_CURRENT_DATASET_GATE_ID_RE = re.compile(r"^(?:gate|e1-gate)-\d{8}T\d{6}Z$")
 E1_HASH_DATASET_GATE_ID_RE = re.compile(r"^rl-gate-[0-9a-f]{12}$")
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
@@ -822,6 +822,8 @@ def source_gate_block(
     acceptance_rate: float | None = None,
     dataset_gate_status: str | None = None,
     shadow_evaluation_status: str | None = None,
+    sample_count: int | None = None,
+    split_counts: JsonObject | None = None,
 ) -> JsonObject:
     validate_gate_id(gate_id)
     validate_dataset_run_id(dataset_run_id)
@@ -843,6 +845,10 @@ def source_gate_block(
         block["dataset_gate_status"] = dataset_gate_status
     if shadow_evaluation_status is not None:
         block["shadow_evaluation_status"] = shadow_evaluation_status
+    if isinstance(sample_count, int):
+        block["sample_count"] = sample_count
+    if split_counts:
+        block["split_counts"] = dict(split_counts)
     return block
 
 
@@ -1487,6 +1493,8 @@ def select_accepted_dataset_gate(
             if report_mtime is None:
                 continue
             mtime = float(report_mtime)
+            sample_count_value = report.get("sample_count")
+            split_counts_value = report.get("split_counts")
         except (KeyError, TypeError, ValueError):
             continue
         if max_age_hours is not None and dataset_gate_report_is_stale(report, max_age_hours):
@@ -1509,6 +1517,8 @@ def select_accepted_dataset_gate(
                     acceptance_rate=dataset_gate_acceptance_rate(payload),
                     dataset_gate_status=dataset_gate_status(payload),
                     shadow_evaluation_status=shadow_evaluation_status(payload),
+                    sample_count=sample_count_value if isinstance(sample_count_value, int) else None,
+                    split_counts=split_counts_value if isinstance(split_counts_value, dict) else None,
                 ),
             )
         )
@@ -1576,6 +1586,7 @@ def dataset_gate_report_info(payload: Any, path: Path, *, reference_time: dateti
     if reference_time is not None and gate_dt is not None:
         age_hours = (reference_time - gate_dt).total_seconds() / 3600
     sample_count = dataset_gate_sample_count(payload_dict)
+    split_counts = dataset_gate_split_counts(payload_dict)
     acceptance_rate = dataset_gate_acceptance_rate(payload_dict)
     acceptable = False
     if isinstance(payload, dict):
@@ -1601,6 +1612,7 @@ def dataset_gate_report_info(payload: Any, path: Path, *, reference_time: dateti
         "gate_time": display_datetime(gate_dt),
         "age_hours": age_hours,
         "sample_count": sample_count,
+        "split_counts": split_counts,
         "acceptance_rate": acceptance_rate,
         "acceptable": acceptable,
         "usable": usable,
@@ -1855,14 +1867,20 @@ def dataset_gate_quality_rank(payload: JsonObject, path: Path | None = None) -> 
 def is_fully_accepted_e1_current_gate(payload: JsonObject) -> bool:
     if payload.get("ok") is not True:
         return False
+    dataset = payload.get("dataset")
+    if isinstance(dataset, dict) and dataset.get("ok") is not True:
+        return False
     dataset_status = dataset_gate_status(payload)
     if dataset_status is not None and dataset_status != "pass":
         return False
     quality_status = quality_checks_status(payload)
     if quality_status is not None and quality_status != "pass":
         return False
+    blocking_reasons = payload.get("blockingReasons")
+    if isinstance(blocking_reasons, list) and blocking_reasons:
+        return False
     sample_count = dataset_gate_sample_count(payload)
-    acceptance_rate = explicit_dataset_gate_acceptance_rate(payload)
+    acceptance_rate = dataset_gate_acceptance_rate(payload)
     return (
         sample_count is not None
         and sample_count > 0
@@ -1984,6 +2002,8 @@ def quality_checks_status(payload: JsonObject) -> str | None:
 
 
 def dataset_gate_sample_count(payload: JsonObject) -> int | None:
+    if isinstance(payload.get("sampleCount"), int):
+        return payload["sampleCount"]
     dataset = payload.get("dataset")
     if isinstance(dataset, dict) and isinstance(dataset.get("sampleCount"), int):
         return dataset["sampleCount"]
@@ -1998,6 +2018,25 @@ def dataset_gate_sample_count(payload: JsonObject) -> int | None:
         rejected = quality.get("samples_rejected", quality.get("samplesRejected"))
         if isinstance(accepted, int) and isinstance(rejected, int):
             return accepted + rejected
+    return None
+
+
+def dataset_gate_split_counts(payload: JsonObject) -> JsonObject | None:
+    for raw in (
+        payload.get("splitCounts", payload.get("split_counts")),
+        payload.get("dataset"),
+        payload.get("datasetGate"),
+    ):
+        split_counts = raw
+        if isinstance(raw, dict) and not (
+            "train" in raw or "eval" in raw or "validation" in raw or "test" in raw
+        ):
+            split_counts = raw.get("splitCounts", raw.get("split_counts"))
+        if not isinstance(split_counts, dict):
+            continue
+        normalized = {str(key): value for key, value in split_counts.items() if isinstance(value, int)}
+        if normalized:
+            return normalized
     return None
 
 
