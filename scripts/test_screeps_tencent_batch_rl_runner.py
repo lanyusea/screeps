@@ -4065,6 +4065,14 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(runner.BatchRunError, "scale proof success count"):
                 controller.verify_remote_training_report()
+            self.assertEqual(controller.result["trainingReport"]["artifactCount"], 5)
+            self.assertEqual(
+                controller.result["trainingReport"]["scaleValidation"]["successfulEnvironments"],
+                3,
+            )
+            execution = runner.controller_execution_summary(args, controller.steps, controller.result, False, None)
+            self.assertTrue(execution["trainingReportProduced"])
+            self.assertEqual(execution["environmentsRun"], 5)
 
             data = json.loads(report.read_text(encoding="utf-8"))
             data["scaleValidation"]["ok"] = True
@@ -4109,6 +4117,26 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             controller.verify_remote_training_report()
 
+            data["scaleValidation"]["ok"] = False
+            data["scaleValidation"]["perRun"] = [
+                {
+                    "ok": False,
+                    "runId": "run-test-r01",
+                    "successfulEnvironments": 3,
+                    "totalEnvironments": 5,
+                }
+            ]
+            report.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                "perRunFailures=run-test-r01:3/5",
+            ):
+                controller.verify_remote_training_report()
+            self.assertEqual(controller.result["trainingReport"]["artifactCount"], 25)
+            self.assertEqual(controller.result["trainingReport"]["scaleValidation"]["successfulEnvironments"], 24)
+
+            data["scaleValidation"]["ok"] = True
+            data["scaleValidation"].pop("perRun")
             data["scaleValidation"]["totalEnvironments"] = 24
             report.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaisesRegex(runner.BatchRunError, "scale proof environment count"):
