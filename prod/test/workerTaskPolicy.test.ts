@@ -332,7 +332,16 @@ describe('worker task BC policy', () => {
     } as unknown as StructureSpawn;
     const creep = {
       name: 'Carrier',
-      memory: { role: 'worker' },
+      memory: {
+        role: 'worker',
+        workerBehavior: { type: 'workerTaskBehavior', tick: 122 } as unknown as CreepMemory['workerBehavior'],
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          tick: 122
+        } as unknown as CreepMemory['workerTaskPolicyShadow'],
+        workerEfficiency: { type: 'lowLoadReturn', tick: 122 } as unknown as CreepMemory['workerEfficiency'],
+        spawnCriticalRefill: { type: 'spawnCriticalRefill', tick: 122 } as unknown as CreepMemory['spawnCriticalRefill']
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
@@ -397,7 +406,16 @@ describe('worker task BC policy', () => {
     } as unknown as StructureSpawn;
     const creep = {
       name: 'Carrier',
-      memory: { role: 'worker' },
+      memory: {
+        role: 'worker',
+        workerBehavior: { type: 'workerTaskBehavior', tick: 122 } as unknown as CreepMemory['workerBehavior'],
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          tick: 122
+        } as unknown as CreepMemory['workerTaskPolicyShadow'],
+        workerEfficiency: { type: 'lowLoadReturn', tick: 122 } as unknown as CreepMemory['workerEfficiency'],
+        spawnCriticalRefill: { type: 'spawnCriticalRefill', tick: 122 } as unknown as CreepMemory['spawnCriticalRefill']
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
@@ -429,9 +447,13 @@ describe('worker task BC policy', () => {
       } as unknown as CPU
     };
 
+    expect(creep.memory.workerBehavior).toBeDefined();
+    expect(creep.memory.workerTaskPolicyShadow).toBeDefined();
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
     expect(creep.memory.workerBehavior).toBeUndefined();
     expect(creep.memory.workerTaskPolicyShadow).toBeUndefined();
+    expect(creep.memory.workerEfficiency).toBeUndefined();
+    expect(creep.memory.spawnCriticalRefill).toBeUndefined();
   });
 
   it('falls back to the heuristic when BC action disagrees', () => {

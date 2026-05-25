@@ -79,6 +79,7 @@ export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_CPU_SUMMARY_PREFIX = '#cpu-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
+const RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = DEGRADED_RUNTIME_SUMMARY_INTERVAL;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -731,6 +732,11 @@ interface RuntimeCpuSummary {
   overLimitTicks?: number;
 }
 
+interface RuntimeCpuSummaryEmissionState {
+  lastSignal?: string | null;
+  lastTick?: number;
+}
+
 export interface RuntimeSummary {
   type: 'runtime-summary';
   tick: number;
@@ -745,6 +751,8 @@ interface RuntimeSummaryOptions {
   strategyRegistry?: StrategyRegistryEntry[];
   onStrategyRegistryRuntimeUse?: (entry: StrategyRegistryEntry) => void;
 }
+
+let runtimeCpuSummaryEmissionState: RuntimeCpuSummaryEmissionState = {};
 
 let cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();
 let cachedEventMetricsByRoom = new Map<string, RuntimeRoomEventMetrics>();
@@ -836,6 +844,10 @@ export function shouldEmitRuntimeSummary(
     ? DEGRADED_RUNTIME_SUMMARY_INTERVAL
     : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+
+export function resetRuntimeCpuSummaryEmissionForTesting(): void {
+  runtimeCpuSummaryEmissionState = {};
 }
 
 function resetCachedRefillTelemetryIfTickRewound(tick: number): void {
@@ -3576,7 +3588,12 @@ function toRuntimeCpuSummary(summary: RuntimeCpuTelemetrySummary): RuntimeCpuSum
 }
 
 function emitRuntimeCpuSummary(cpu: RuntimeCpuSummary | undefined, tick: number): void {
-  if (!cpu || !shouldEmitRuntimeCpuSummary(cpu, tick)) {
+  if (!cpu) {
+    recordRuntimeCpuSummarySignal(null, tick);
+    return;
+  }
+
+  if (!shouldEmitRuntimeCpuSummary(cpu, tick)) {
     return;
   }
 
@@ -3584,11 +3601,51 @@ function emitRuntimeCpuSummary(cpu: RuntimeCpuSummary | undefined, tick: number)
 }
 
 function shouldEmitRuntimeCpuSummary(cpu: RuntimeCpuSummary, tick: number): boolean {
-  if (cpu.alerts && cpu.alerts.length > 0) {
-    return true;
+  const signal = buildRuntimeCpuSummarySignal(cpu);
+  const previousSignal = getPreviousRuntimeCpuSummarySignal(tick);
+  recordRuntimeCpuSummarySignal(signal, tick);
+  if (!signal) {
+    return false;
   }
 
-  return cpu.pressure !== undefined && cpu.pressure !== 'normal' && tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+  return signal !== previousSignal || isRuntimeCpuSummaryRepeatTick(tick);
+}
+
+function buildRuntimeCpuSummarySignal(cpu: RuntimeCpuSummary): string | null {
+  const alerts = normalizeRuntimeCpuSummarySignalValues(cpu.alerts);
+  const reasons = normalizeRuntimeCpuSummarySignalValues(cpu.reasons);
+  const pressure = cpu.pressure && cpu.pressure !== 'normal' ? cpu.pressure : undefined;
+  if (!pressure && alerts.length === 0 && reasons.length === 0) {
+    return null;
+  }
+
+  return `pressure:${pressure ?? 'normal'};alerts:${alerts.join(',')};reasons:${reasons.join(',')}`;
+}
+
+function normalizeRuntimeCpuSummarySignalValues(values: readonly string[] | undefined): string[] {
+  return values && values.length > 0 ? [...values].sort() : [];
+}
+
+function getPreviousRuntimeCpuSummarySignal(tick: number): string | null | undefined {
+  if (
+    runtimeCpuSummaryEmissionState.lastTick !== undefined &&
+    tick > 0 &&
+    runtimeCpuSummaryEmissionState.lastTick > tick
+  ) {
+    runtimeCpuSummaryEmissionState = {};
+  }
+
+  return runtimeCpuSummaryEmissionState.lastSignal;
+}
+
+function recordRuntimeCpuSummarySignal(signal: string | null, tick: number): void {
+  getPreviousRuntimeCpuSummarySignal(tick);
+  runtimeCpuSummaryEmissionState.lastSignal = signal;
+  runtimeCpuSummaryEmissionState.lastTick = tick;
+}
+
+function isRuntimeCpuSummaryRepeatTick(tick: number): boolean {
+  return tick > 0 && tick % RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL === 0;
 }
 
 function applyCpuSummaryToRooms(

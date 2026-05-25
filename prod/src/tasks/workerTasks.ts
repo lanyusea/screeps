@@ -306,11 +306,13 @@ let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = nul
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
 let gameCreepsCache: GameCreepsCache | null = null;
 let routineBarrierMaintenanceRepairTargetCache: RoutineBarrierMaintenanceRepairTargetCache | null = null;
+let workerTaskSelectionTelemetrySuppressionDepth = 0;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
-  clearWorkerEfficiencyTelemetry(creep);
-  const heuristicTask = selectHeuristicWorkerTask(creep);
-  if (getRuntimeCpuBudget().degraded) {
+  clearWorkerTaskSelectionTelemetry(creep);
+  const degraded = getRuntimeCpuBudget().degraded;
+  const heuristicTask = withWorkerTaskSelectionTelemetrySuppressed(degraded, () => selectHeuristicWorkerTask(creep));
+  if (degraded) {
     clearWorkerTaskShadowTelemetry(creep);
     return heuristicTask;
   }
@@ -327,6 +329,23 @@ function clearWorkerTaskShadowTelemetry(creep: Creep): void {
 
   delete memory.workerBehavior;
   delete memory.workerTaskPolicyShadow;
+}
+
+function withWorkerTaskSelectionTelemetrySuppressed<T>(suppressTelemetry: boolean, selectTask: () => T): T {
+  if (!suppressTelemetry) {
+    return selectTask();
+  }
+
+  workerTaskSelectionTelemetrySuppressionDepth += 1;
+  try {
+    return selectTask();
+  } finally {
+    workerTaskSelectionTelemetrySuppressionDepth -= 1;
+  }
+}
+
+function isWorkerTaskSelectionTelemetrySuppressed(): boolean {
+  return workerTaskSelectionTelemetrySuppressionDepth > 0;
 }
 
 function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
@@ -1803,14 +1822,19 @@ function hasKnownSpawnExtensionEnergyCapacity(room: Room): boolean {
   return getRoomEnergyCapacityAvailable(room) !== null;
 }
 
-function clearWorkerEfficiencyTelemetry(creep: Creep): void {
+function clearWorkerTaskSelectionTelemetry(creep: Creep): void {
   const memory = creep.memory;
   if (memory) {
     delete memory.workerEfficiency;
+    delete memory.spawnCriticalRefill;
   }
 }
 
 function recordSpawnCriticalRefillTelemetry(creep: Creep, spawn: StructureSpawn): void {
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
+
   const memory = creep.memory;
   if (!memory) {
     return;
@@ -1831,6 +1855,10 @@ function recordNearbyEnergyChoiceTelemetry(
   creep: Creep,
   candidate: LowLoadWorkerEnergyAcquisitionCandidate
 ): void {
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
+
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {
@@ -1854,6 +1882,10 @@ function recordLowLoadReturnTelemetry(
   task: WorkerEnergySpendingTask,
   reason: WorkerEfficiencyLowLoadReturnReason
 ): void {
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
+
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {

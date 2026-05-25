@@ -129,6 +129,7 @@ export function buildRuntimeCpuTelemetrySummary(
     sample.tickLimit === undefined
   ) {
     resetRuntimeCpuTelemetryStateForTick(sample.tick);
+    clearRuntimeCpuTelemetryCounters();
     return null;
   }
 
@@ -215,18 +216,20 @@ function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTel
 function resetRuntimeCpuTelemetryStateForTick(tick: number): void {
   const lastTick = cpuTelemetryState.lastTick;
   if (lastTick !== undefined && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
-    cpuTelemetryState.lowBucketTicks = 0;
-    cpuTelemetryState.bucketEmptyTicks = 0;
-    cpuTelemetryState.overLimitTicks = 0;
+    clearRuntimeCpuTelemetryCounters();
   }
 
   if (lastTick !== undefined && tick > 0 && lastTick > tick) {
-    cpuTelemetryState.lowBucketTicks = 0;
-    cpuTelemetryState.bucketEmptyTicks = 0;
-    cpuTelemetryState.overLimitTicks = 0;
+    clearRuntimeCpuTelemetryCounters();
   }
 
   cpuTelemetryState.lastTick = tick;
+}
+
+function clearRuntimeCpuTelemetryCounters(): void {
+  cpuTelemetryState.lowBucketTicks = 0;
+  cpuTelemetryState.bucketEmptyTicks = 0;
+  cpuTelemetryState.overLimitTicks = 0;
 }
 
 function buildRuntimeCpuAlerts(

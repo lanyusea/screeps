@@ -4,6 +4,7 @@ import {
   RUNTIME_CPU_SUMMARY_PREFIX,
   RUNTIME_SUMMARY_INTERVAL,
   RUNTIME_SUMMARY_PREFIX,
+  resetRuntimeCpuSummaryEmissionForTesting,
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
@@ -57,12 +58,14 @@ describe('runtime telemetry summaries', () => {
   beforeEach(() => {
     clearRuntimeTelemetryGlobals();
     resetRuntimeCpuTelemetryForTesting();
+    resetRuntimeCpuSummaryEmissionForTesting();
     logSpy = jest.spyOn(console, 'log').mockImplementation();
   });
 
   afterEach(() => {
     logSpy.mockRestore();
     resetRuntimeCpuTelemetryForTesting();
+    resetRuntimeCpuSummaryEmissionForTesting();
     clearRuntimeTelemetryGlobals();
   });
 
@@ -369,6 +372,26 @@ describe('runtime telemetry summaries', () => {
       overLimitTicks: 2,
       alerts: expect.arrayContaining(['bucketEmptyRepeated', 'lowBucket', 'sustainedUsedOverLimit'])
     });
+  });
+
+  it('does not repeat unchanged compact CPU alerts every tick', () => {
+    const colony = makeColony({ time: 1 });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(24),
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], []);
+    (Game as Partial<Game>).time = 2;
+    emitRuntimeSummary([colony], []);
+    logSpy.mockClear();
+    (Game as Partial<Game>).time = 3;
+
+    emitRuntimeSummary([colony], []);
+
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it('reports per-creep behavior counters and resets emitted counters', () => {

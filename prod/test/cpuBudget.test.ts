@@ -84,4 +84,30 @@ describe('runtime CPU budget policy', () => {
       alerts: expect.arrayContaining(['bucketEmptyRepeated', 'lowBucket', 'sustainedUsedOverLimit'])
     });
   });
+
+  it('clears sustained alert streaks when a tick has no CPU sample fields', () => {
+    buildRuntimeCpuTelemetrySummary({
+      tick: 30,
+      used: 24,
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    });
+
+    expect(buildRuntimeCpuTelemetrySummary({ tick: 31 })).toBeNull();
+    const summary = buildRuntimeCpuTelemetrySummary({
+      tick: 32,
+      used: 25,
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    });
+
+    expect(summary).toMatchObject({
+      lowBucketTicks: 1,
+      bucketEmptyTicks: 1,
+      overLimitTicks: 1,
+      alerts: ['lowBucket']
+    });
+  });
 });

@@ -24809,6 +24809,7 @@ function readRuntimeCpuSample(game = getRuntimeGame()) {
 function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
   if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
     resetRuntimeCpuTelemetryStateForTick(sample.tick);
+    clearRuntimeCpuTelemetryCounters();
     return null;
   }
   const budget = buildRuntimeCpuBudget(sample);
@@ -24862,16 +24863,17 @@ function updateRuntimeCpuTelemetryState(sample) {
 function resetRuntimeCpuTelemetryStateForTick(tick) {
   const lastTick = cpuTelemetryState.lastTick;
   if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
-    cpuTelemetryState.lowBucketTicks = 0;
-    cpuTelemetryState.bucketEmptyTicks = 0;
-    cpuTelemetryState.overLimitTicks = 0;
+    clearRuntimeCpuTelemetryCounters();
   }
   if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
-    cpuTelemetryState.lowBucketTicks = 0;
-    cpuTelemetryState.bucketEmptyTicks = 0;
-    cpuTelemetryState.overLimitTicks = 0;
+    clearRuntimeCpuTelemetryCounters();
   }
   cpuTelemetryState.lastTick = tick;
+}
+function clearRuntimeCpuTelemetryCounters() {
+  cpuTelemetryState.lowBucketTicks = 0;
+  cpuTelemetryState.bucketEmptyTicks = 0;
+  cpuTelemetryState.overLimitTicks = 0;
 }
 function buildRuntimeCpuAlerts(sample, state) {
   const alerts = [];
@@ -24995,10 +24997,12 @@ var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
 var gameCreepsCache = null;
 var routineBarrierMaintenanceRepairTargetCache = null;
+var workerTaskSelectionTelemetrySuppressionDepth = 0;
 function selectWorkerTask(creep) {
-  clearWorkerEfficiencyTelemetry(creep);
-  const heuristicTask = selectHeuristicWorkerTask(creep);
-  if (getRuntimeCpuBudget().degraded) {
+  clearWorkerTaskSelectionTelemetry(creep);
+  const degraded = getRuntimeCpuBudget().degraded;
+  const heuristicTask = withWorkerTaskSelectionTelemetrySuppressed(degraded, () => selectHeuristicWorkerTask(creep));
+  if (degraded) {
     clearWorkerTaskShadowTelemetry(creep);
     return heuristicTask;
   }
@@ -25012,6 +25016,20 @@ function clearWorkerTaskShadowTelemetry(creep) {
   }
   delete memory.workerBehavior;
   delete memory.workerTaskPolicyShadow;
+}
+function withWorkerTaskSelectionTelemetrySuppressed(suppressTelemetry, selectTask) {
+  if (!suppressTelemetry) {
+    return selectTask();
+  }
+  workerTaskSelectionTelemetrySuppressionDepth += 1;
+  try {
+    return selectTask();
+  } finally {
+    workerTaskSelectionTelemetrySuppressionDepth -= 1;
+  }
+}
+function isWorkerTaskSelectionTelemetrySuppressed() {
+  return workerTaskSelectionTelemetrySuppressionDepth > 0;
 }
 function selectHeuristicWorkerTask(creep) {
   var _a;
@@ -26019,14 +26037,18 @@ function applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, task) {
 function hasKnownSpawnExtensionEnergyCapacity(room) {
   return getRoomEnergyCapacityAvailable7(room) !== null;
 }
-function clearWorkerEfficiencyTelemetry(creep) {
+function clearWorkerTaskSelectionTelemetry(creep) {
   const memory = creep.memory;
   if (memory) {
     delete memory.workerEfficiency;
+    delete memory.spawnCriticalRefill;
   }
 }
 function recordSpawnCriticalRefillTelemetry(creep, spawn) {
   var _a, _b;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const memory = creep.memory;
   if (!memory) {
     return;
@@ -26043,6 +26065,9 @@ function recordSpawnCriticalRefillTelemetry(creep, spawn) {
 }
 function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
   var _a;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {
@@ -26061,6 +26086,9 @@ function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
 }
 function recordLowLoadReturnTelemetry(creep, task, reason) {
   var _a;
+  if (isWorkerTaskSelectionTelemetrySuppressed()) {
+    return;
+  }
   const context = getLowLoadWorkerEnergyContext(creep);
   const memory = creep.memory;
   if (!context || !memory) {
@@ -36331,6 +36359,7 @@ var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
+var RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL = DEGRADED_RUNTIME_SUMMARY_INTERVAL;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -36347,6 +36376,7 @@ var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 15e4;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
 var DEFAULT_EXTENSION_ENERGY_CAPACITY = 50;
+var runtimeCpuSummaryEmissionState = {};
 var cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsByRoom = /* @__PURE__ */ new Map();
 var cachedEventMetricsTick;
@@ -38277,16 +38307,49 @@ function toRuntimeCpuSummary(summary) {
   };
 }
 function emitRuntimeCpuSummary(cpu, tick) {
-  if (!cpu || !shouldEmitRuntimeCpuSummary(cpu, tick)) {
+  if (!cpu) {
+    recordRuntimeCpuSummarySignal(null, tick);
+    return;
+  }
+  if (!shouldEmitRuntimeCpuSummary(cpu, tick)) {
     return;
   }
   console.log(`${RUNTIME_CPU_SUMMARY_PREFIX}${JSON.stringify(cpu)}`);
 }
 function shouldEmitRuntimeCpuSummary(cpu, tick) {
-  if (cpu.alerts && cpu.alerts.length > 0) {
-    return true;
+  const signal = buildRuntimeCpuSummarySignal(cpu);
+  const previousSignal = getPreviousRuntimeCpuSummarySignal(tick);
+  recordRuntimeCpuSummarySignal(signal, tick);
+  if (!signal) {
+    return false;
   }
-  return cpu.pressure !== void 0 && cpu.pressure !== "normal" && tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+  return signal !== previousSignal || isRuntimeCpuSummaryRepeatTick(tick);
+}
+function buildRuntimeCpuSummarySignal(cpu) {
+  const alerts = normalizeRuntimeCpuSummarySignalValues(cpu.alerts);
+  const reasons = normalizeRuntimeCpuSummarySignalValues(cpu.reasons);
+  const pressure = cpu.pressure && cpu.pressure !== "normal" ? cpu.pressure : void 0;
+  if (!pressure && alerts.length === 0 && reasons.length === 0) {
+    return null;
+  }
+  return `pressure:${pressure != null ? pressure : "normal"};alerts:${alerts.join(",")};reasons:${reasons.join(",")}`;
+}
+function normalizeRuntimeCpuSummarySignalValues(values) {
+  return values && values.length > 0 ? [...values].sort() : [];
+}
+function getPreviousRuntimeCpuSummarySignal(tick) {
+  if (runtimeCpuSummaryEmissionState.lastTick !== void 0 && tick > 0 && runtimeCpuSummaryEmissionState.lastTick > tick) {
+    runtimeCpuSummaryEmissionState = {};
+  }
+  return runtimeCpuSummaryEmissionState.lastSignal;
+}
+function recordRuntimeCpuSummarySignal(signal, tick) {
+  getPreviousRuntimeCpuSummarySignal(tick);
+  runtimeCpuSummaryEmissionState.lastSignal = signal;
+  runtimeCpuSummaryEmissionState.lastTick = tick;
+}
+function isRuntimeCpuSummaryRepeatTick(tick) {
+  return tick > 0 && tick % RUNTIME_CPU_SUMMARY_REPEAT_INTERVAL === 0;
 }
 function applyCpuSummaryToRooms(rooms, cpu) {
   if (!cpu || cpu.used === void 0 && cpu.bucket === void 0) {
