@@ -24999,6 +24999,13 @@ function selectHeuristicWorkerTask(creep) {
         targetId: emergencyRampartRepairTarget.id
       });
     }
+    const threatenedBarrierRepairTarget2 = selectThreatenedBarrierRepairTarget(creep);
+    if (threatenedBarrierRepairTarget2) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: threatenedBarrierRepairTarget2.id
+      });
+    }
   }
   const bootstrapExtensionConstructionSite = selectBootstrapExtensionConstructionSiteBeforeRefill(
     creep,
