@@ -738,6 +738,9 @@ cli:
                 return {"email": cfg.email, "password": cfg.password}
 
             def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
+                state = self._state(str(cfg.server_url))
+                state["uploaded_branch"] = cfg.branch
+                state["uploaded_code_text"] = code
                 return {"branch": cfg.branch, "modules": {"main": code}}
 
             def build_spawn_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
@@ -769,7 +772,7 @@ cli:
                 }
 
             def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
-                _ = method, args
+                _ = args
                 state = self._state(base_url)
                 room = str(state["room"])
                 username = str(state["username"])
@@ -780,6 +783,15 @@ cli:
                 if path == "/api/auth/signin":
                     return Result(200, {"ok": 1, "token": f"token-{base_url.rsplit(':', 1)[-1]}"})
                 if path == "/api/user/code":
+                    if method == "GET":
+                        return Result(
+                            200,
+                            {
+                                "ok": 1,
+                                "branch": state.get("uploaded_branch"),
+                                "modules": {"main": state.get("uploaded_code_text")},
+                            },
+                        )
                     return Result(200, {"ok": 1})
                 if path == "/api/game/place-spawn":
                     return Result(200, {"ok": 1})
@@ -4699,6 +4711,66 @@ cli:
         self.assertNotIn("consumedParametersSha256", summary["variants"][1])
         self.assertNotIn("consumedStrategyVariantId", summary["variants"][1])
 
+    def test_active_code_readback_summary_compares_uploaded_main_by_hash(self) -> None:
+        uploaded = "module.exports.loop = function loop() { return 1; };\n"
+
+        matched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "default", "modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
+        mismatched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "default", "modules": {"main": uploaded + "// stale\n"}},
+            branch="default",
+            http_status=200,
+        )
+
+        self.assertEqual(matched["status"], "matched")
+        self.assertTrue(matched["activeCodeMatchesUploaded"])
+        self.assertEqual(matched["uploadedCodeSha256"], matched["activeCodeSha256"])
+        self.assertEqual(mismatched["status"], "mismatch")
+        self.assertFalse(mismatched["activeCodeMatchesUploaded"])
+        self.assertIn(
+            "active private-server code hash verification failed",
+            harness.private_simulator_active_code_readback_error(mismatched) or "",
+        )
+
+    def test_runtime_parameter_trainability_smoke_gate_blocks_missing_consumption(self) -> None:
+        code = "module.exports.loop = function loop() {};"
+        injection = self.uploaded_runtime_parameter_injection()
+        readback = harness.private_simulator_active_code_readback_summary(
+            code,
+            {"modules": {"main": code}},
+            branch="default",
+            http_status=200,
+        )
+        missing = harness.runtime_parameter_consumption_check(injection, None)
+        consumed = harness.runtime_parameter_consumption_check(
+            injection,
+            self.runtime_parameter_consumption_evidence(injection),
+        )
+
+        self.assertIn(
+            "runtime-parameter trainability smoke gate failed",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=missing,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIsNone(
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+        )
+
     def test_direct_game_loop_runtime_parameter_consumption_evidence_validates(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
@@ -5388,6 +5460,7 @@ cli:
 
             def __init__(self) -> None:
                 self.uploaded_branch: str | None = None
+                self.uploaded_code_text: str | None = None
                 self.runtime_payload: dict[str, object] | None = None
                 self.gametime = 0
                 self.room = "E1S1"
@@ -5459,6 +5532,7 @@ cli:
 
             def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
                 self.uploaded_branch = str(cfg.branch)
+                self.uploaded_code_text = code
                 prefix = f"var {harness.RUNTIME_PARAMETER_INJECTION_GLOBAL} = "
                 start = code.find(prefix)
                 if start >= 0:
@@ -5519,7 +5593,7 @@ cli:
                 }
 
             def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
-                _ = method, base_url, args
+                _ = base_url, args
                 if path == "/api/game/room-terrain":
                     return Result(200, {"terrain": [{"room": self.room, "terrain": "0" * 2500}]})
                 if path == "/api/register/submit":
@@ -5527,6 +5601,15 @@ cli:
                 if path == "/api/auth/signin":
                     return Result(200, {"ok": 1, "token": "token"})
                 if path == "/api/user/code":
+                    if method == "GET":
+                        return Result(
+                            200,
+                            {
+                                "ok": 1,
+                                "branch": self.uploaded_branch,
+                                "modules": {"main": self.uploaded_code_text},
+                            },
+                        )
                     return Result(200, {"ok": 1})
                 if path == "/api/game/place-spawn":
                     return Result(200, {"ok": 1})
@@ -5609,6 +5692,8 @@ cli:
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterConsumption"])
         self.assertEqual(result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertTrue(result["activeCodeReadback"]["activeCodeMatchesUploaded"])
+        self.assertEqual(result["activeCodeReadback"]["status"], "matched")
         self.assertTrue(result["runtimeParameterConsumption"]["runtimeParameterConsumption"])
         self.assertEqual(result["runtimeParameterConsumption"]["source"], "Memory.rlRuntimePolicyParameters")
         self.assertEqual(result["runtimeParameterConsumption"]["evaluatedParameters"], parameters)

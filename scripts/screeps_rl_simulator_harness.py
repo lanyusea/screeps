@@ -100,6 +100,7 @@ RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
 RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE = "private_simulator_game_loop_runtime_parameters"
 RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
+ACTIVE_CODE_READBACK_TYPE = "screeps-rl-private-simulator-active-code-readback"
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
@@ -961,6 +962,98 @@ def mark_runtime_parameter_injection_uploaded(
 
 def runtime_parameter_injection_code_has_consumer(code_text: str) -> bool:
     return RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER in code_text
+
+
+def private_simulator_active_code_readback_summary(
+    uploaded_code_text: str,
+    payload: Any,
+    *,
+    branch: str,
+    http_status: int | None = None,
+) -> JsonObject:
+    """Compare private-server active ``main`` code to the just-uploaded injected payload."""
+    uploaded_data = uploaded_code_text.encode("utf-8")
+    uploaded_sha256 = hashlib.sha256(uploaded_data).hexdigest()
+    active_code: str | None = None
+    active_branch: str | None = None
+    status = "missing-payload"
+    if http_status is not None and (http_status < 200 or http_status >= 300):
+        status = "http-error"
+    elif isinstance(payload, dict):
+        branch_value = payload.get("branch")
+        active_branch = branch_value if isinstance(branch_value, str) else None
+        modules = payload.get("modules")
+        if not isinstance(modules, dict):
+            status = "missing-modules"
+        else:
+            main = modules.get("main")
+            if not isinstance(main, str):
+                status = "missing-main-module"
+            else:
+                active_code = main
+                status = "matched" if active_code == uploaded_code_text else "mismatch"
+
+    active_data = active_code.encode("utf-8") if active_code is not None else b""
+    active_sha256 = hashlib.sha256(active_data).hexdigest() if active_code is not None else None
+    payload_summary: JsonObject = {
+        "type": ACTIVE_CODE_READBACK_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "status": status,
+        "branch": branch,
+        "activeBranch": active_branch,
+        "module": "main",
+        "activeCodeMatchesUploaded": status == "matched",
+        "uploadedCodeBytes": len(uploaded_data),
+        "uploadedCodeSha256": uploaded_sha256,
+        "activeCodeBytes": len(active_data) if active_code is not None else None,
+        "activeCodeSha256": active_sha256,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    if http_status is not None:
+        payload_summary["httpStatus"] = http_status
+    return {key: value for key, value in payload_summary.items() if value is not None}
+
+
+def private_simulator_active_code_readback_error(readback: Any) -> str | None:
+    if not isinstance(readback, dict):
+        return "active private-server code readback was not recorded"
+    if readback.get("activeCodeMatchesUploaded") is True:
+        return None
+    status = text_or_none(readback.get("status")) or "unknown"
+    uploaded_sha = text_or_none(readback.get("uploadedCodeSha256")) or "unknown"
+    active_sha = text_or_none(readback.get("activeCodeSha256")) or "missing"
+    return (
+        "active private-server code hash verification failed: "
+        f"status={status} uploadedCodeSha256={uploaded_sha} activeCodeSha256={active_sha}"
+    )
+
+
+def runtime_parameter_trainability_smoke_gate_error(
+    *,
+    runtime_parameter_injection: JsonObject,
+    runtime_parameter_consumption: JsonObject,
+    ticks_run: int,
+    active_code_readback: JsonObject | None = None,
+) -> str | None:
+    """Return a blocking reason when a runtime-injected variant is not trainable."""
+    if runtime_parameter_injection.get("status") != "injected":
+        return None
+    if runtime_parameter_injection.get("runtimeParameterInjection") is not True:
+        return None
+    active_code_error = private_simulator_active_code_readback_error(active_code_readback)
+    if active_code_error is not None:
+        return active_code_error
+    if ticks_run < 1:
+        return "runtime-parameter trainability smoke gate did not execute a simulator tick"
+    if runtime_parameter_consumption.get("runtimeParameterConsumption") is True:
+        return None
+    status = text_or_none(runtime_parameter_consumption.get("status")) or "missing"
+    reason = text_or_none(runtime_parameter_consumption.get("reason")) or (
+        "one-tick simulator smoke did not expose consumed runtime policy parameter evidence"
+    )
+    return f"runtime-parameter trainability smoke gate failed: status={status}: {reason}"
 
 
 def runtime_parameter_consumption_check(
@@ -5270,6 +5363,7 @@ def _run_variant(
     fixture_room_names: list[str] = []
     compose: list[str] | None = None
     uploaded_code_text: str | None = None
+    active_code_readback: JsonObject | None = None
     try:
         smoke = _load_private_smoke_module()
         summarize_prepared_map = _is_default_map_source_file(map_source_file)
@@ -5442,6 +5536,26 @@ def _run_variant(
         )
         write_json_atomic(safe_run_root / "runtime_parameter_injection.json", runtime_parameter_injection)
 
+        roundtrip = smoke.http_json(
+            "GET",
+            cfg.server_url,
+            "/api/user/code",
+            headers=smoke.token_headers(token),
+            params={"branch": api_branch},
+            timeout=RUN_PHASE_TIMEOUT_SECONDS,
+        )
+        token = smoke.update_token_from_headers(token, roundtrip.headers)
+        active_code_readback = private_simulator_active_code_readback_summary(
+            uploaded_code_text,
+            roundtrip.payload,
+            branch=api_branch,
+            http_status=roundtrip.status,
+        )
+        write_json_atomic(safe_run_root / "active_code_readback.json", active_code_readback)
+        active_code_error = private_simulator_active_code_readback_error(active_code_readback)
+        if active_code_error is not None:
+            raise RuntimeError(active_code_error)
+
         place = smoke.http_json(
             "POST",
             cfg.server_url,
@@ -5517,6 +5631,14 @@ def _run_variant(
             )
             write_json_atomic(safe_run_root / "runtime_parameter_consumption.json", runtime_parameter_consumption)
             write_json_atomic(safe_run_root / "runtime_parameter_injection.json", runtime_parameter_injection)
+            smoke_gate_error = runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=runtime_parameter_injection,
+                runtime_parameter_consumption=runtime_parameter_consumption,
+                ticks_run=len(variant_ticks),
+                active_code_readback=active_code_readback,
+            )
+            if smoke_gate_error is not None:
+                errors.append(smoke_gate_error)
     except Exception as exc:  # noqa: BLE001 - collect the failure into a safe result
         errors.append(_safe_text(exc, 480))
         runtime_parameter_injection = mark_runtime_parameter_injection_failed(runtime_parameter_injection, exc)
@@ -5569,6 +5691,7 @@ def _run_variant(
         "policyActivation": None,
         "runtimeParameterInjection": runtime_parameter_injection,
         "runtimeParameterConsumption": runtime_parameter_consumption,
+        "activeCodeReadback": active_code_readback,
         "live_effect": False,
         "official_mmo_writes": False,
         "ok": False,

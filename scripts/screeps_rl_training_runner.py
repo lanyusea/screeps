@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Sequence, TextIO
+from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from screeps_rl_experiment_card import (
     scenario_supports_multi_tier_policy_comparison,
@@ -974,6 +974,14 @@ def execute_simulator_runs(
     runs: list[JsonObject] = []
     effective_workers = max(1, min(config.workers, len(variant_ids)))
     min_concurrent_environments = config.min_concurrent_environments or config.scale_environments or 0
+    maybe_run_pre_scale_trainability_smoke_gate(
+        simulator_runner=simulator_runner,
+        variants=variants,
+        variant_configs=variant_configs,
+        config=config,
+        base_run_id=base_run_id,
+        min_concurrent_environments=min_concurrent_environments,
+    )
     for repetition in range(config.repetitions):
         run_id = base_run_id if config.repetitions == 1 else f"{base_run_id}-r{repetition + 1:02d}"
         host_port_start = simulator_repetition_host_port_start(
@@ -999,6 +1007,87 @@ def execute_simulator_runs(
             )
         )
     return runs
+
+
+def maybe_run_pre_scale_trainability_smoke_gate(
+    *,
+    simulator_runner: SimulatorRunner,
+    variants: Sequence[StrategyVariant],
+    variant_configs: Mapping[str, JsonObject],
+    config: SimulationConfig,
+    base_run_id: str,
+    min_concurrent_environments: int,
+) -> JsonObject | None:
+    if simulator_runner is not simulator_harness.run_simulator:
+        return None
+    if min_concurrent_environments <= 0 and config.scale_environments is None:
+        return None
+    smoke_variant = pre_scale_trainability_smoke_variant(variants)
+    if smoke_variant is None:
+        return None
+    smoke_run_id = f"{base_run_id}-pre-scale-smoke"
+    smoke_run = simulator_runner(
+        ticks=1,
+        workers=1,
+        variants=[smoke_variant.id],
+        out_dir=config.simulator_out_dir,
+        run_id=smoke_run_id,
+        host_port_start=config.host_port_start,
+        room=config.room,
+        shard=config.shard,
+        branch=config.branch,
+        code_path=config.code_path,
+        map_source_file=config.map_source_file,
+        min_concurrent_environments=0,
+        variant_configs=variant_configs,
+    )
+    validate_pre_scale_trainability_smoke_gate(smoke_run, smoke_variant.id)
+    return smoke_run
+
+
+def pre_scale_trainability_smoke_variant(variants: Sequence[StrategyVariant]) -> StrategyVariant | None:
+    for variant in variants:
+        injection = simulator_harness.runtime_parameter_injection_for_variant(variant.id, variant.to_json())
+        if injection.get("candidateParameterScope") == "runtime_injected":
+            return variant
+    return None
+
+
+def validate_pre_scale_trainability_smoke_gate(smoke_run: JsonObject, variant_id: str) -> None:
+    variants = smoke_run.get("variants") if isinstance(smoke_run, dict) else None
+    rows = [item for item in variants if isinstance(item, dict)] if isinstance(variants, list) else []
+    row = next(
+        (
+            item
+            for item in rows
+            if text_or_none(item.get("variant_id")) == variant_id
+            or text_or_none(item.get("variantId")) == variant_id
+            or text_or_none(item.get("id")) == variant_id
+        ),
+        rows[0] if rows else None,
+    )
+    if row is None:
+        raise RuntimeError("pre-scale private-simulator trainability smoke gate produced no variant result")
+    if row.get("ok") is not True:
+        reason = text_or_none(row.get("error")) or "variant smoke result was not ok"
+        raise RuntimeError(f"pre-scale private-simulator trainability smoke gate failed: {reason}")
+    active_code_error = simulator_harness.private_simulator_active_code_readback_error(row.get("activeCodeReadback"))
+    if active_code_error is not None:
+        raise RuntimeError(f"pre-scale private-simulator trainability smoke gate failed: {active_code_error}")
+    injection = row.get("runtimeParameterInjection")
+    consumption = row.get("runtimeParameterConsumption")
+    if not isinstance(injection, dict) or injection.get("runtimeParameterInjection") is not True:
+        raise RuntimeError("pre-scale private-simulator trainability smoke gate did not inject runtime parameters")
+    if not isinstance(consumption, dict) or consumption.get("runtimeParameterConsumption") is not True:
+        status = text_or_none(consumption.get("status")) if isinstance(consumption, dict) else None
+        reason = text_or_none(consumption.get("reason")) if isinstance(consumption, dict) else None
+        detail = status or "missing"
+        if reason:
+            detail = f"{detail}: {reason}"
+        raise RuntimeError(
+            "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
+            f"{detail}"
+        )
 
 
 def simulator_repetition_host_port_start(base_host_port_start: int, repetition_index: int, effective_workers: int) -> int:
