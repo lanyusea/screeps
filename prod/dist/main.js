@@ -24985,19 +24985,19 @@ function selectHeuristicWorkerTask(creep) {
   const hasMissingSpawnRecoveryConstructionSite = ownedSpawnCount === 0 && constructionSites.some(isSpawnConstructionSite);
   const canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery = !hasMissingSpawnRecoveryConstructionSite && (!bootstrapNonCriticalWorkSuppressed || (ownedSpawnCount != null ? ownedSpawnCount : 0) > 0);
   if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
-    const threatenedBarrierRepairTarget2 = selectThreatenedBarrierRepairTarget(creep);
-    if (threatenedBarrierRepairTarget2) {
-      return applyMinimumUsefulLoadPolicy(creep, {
-        type: "repair",
-        targetId: threatenedBarrierRepairTarget2.id
-      });
-    }
     const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
       creep,
       spawnOrExtensionEnergySink
     );
     if (emergencySpawnOrExtensionRefillTask) {
       return emergencySpawnOrExtensionRefillTask;
+    }
+    const threatenedBarrierRepairTarget2 = selectThreatenedBarrierRepairTarget(creep);
+    if (threatenedBarrierRepairTarget2) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: threatenedBarrierRepairTarget2.id
+      });
     }
     const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
     if (emergencyRampartRepairTarget) {
