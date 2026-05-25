@@ -221,6 +221,7 @@ class MockSimulator:
         include_evaluated_parameters: bool = True,
         include_runtime_consumption_evidence: bool = True,
         include_runtime_consumption_parameters: bool = True,
+        include_direct_game_loop_consumption_evidence: bool = False,
         evaluated_parameters_by_variant: dict[str, JsonObject] | None = None,
         js_runtime_numeric_canonicalization: bool = False,
     ) -> None:
@@ -229,6 +230,7 @@ class MockSimulator:
         self.include_evaluated_parameters = include_evaluated_parameters
         self.include_runtime_consumption_evidence = include_runtime_consumption_evidence
         self.include_runtime_consumption_parameters = include_runtime_consumption_parameters
+        self.include_direct_game_loop_consumption_evidence = include_direct_game_loop_consumption_evidence
         self.evaluated_parameters_by_variant = evaluated_parameters_by_variant or {}
         self.js_runtime_numeric_canonicalization = js_runtime_numeric_canonicalization
         self.calls: list[JsonObject] = []
@@ -309,6 +311,15 @@ class MockSimulator:
                     if not self.include_runtime_consumption_parameters:
                         result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
                         result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
+                elif self.include_direct_game_loop_consumption_evidence:
+                    direct_evidence = runner.simulator_harness.direct_game_loop_runtime_parameter_consumption_evidence(
+                        result["runtimeParameterInjection"],
+                        tick_log if isinstance(tick_log, list) else [],
+                    )
+                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
+                        result["runtimeParameterInjection"],
+                        direct_evidence,
+                    )
                 if self.include_evaluated_parameters:
                     if (
                         isinstance(result.get("runtimeParameterConsumption"), dict)
@@ -4641,6 +4652,80 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["policyUpdate"]["officialMmoWritesAllowed"])
         self.assertTrue(all("evaluatedParameters" in result for result in simulator.last_variants))
         self.assertTrue(all("runtimeParameterConsumption" not in result for result in simulator.last_variants))
+
+    def test_direct_game_loop_consumption_evidence_reaches_training_report_and_scorecard(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-direct-consumption",
+            code_commit="f" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-25T14:31:00Z",
+            simulation_ticks=100,
+            simulation_repetitions=1,
+        )
+        variant_ids = [variant["id"] for variant in card["strategy_variants"]]
+        start = tick(1, [room("W1N1", energy=100)])
+        simulator_results: dict[str, JsonObject] = {}
+        for variant_id in variant_ids:
+            if variant_id.endswith("territory-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=150), room("W1N2", energy=100)])],
+                )
+            elif variant_id.endswith("resource-seed.v1"):
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=2400, harvested=1000)])],
+                )
+            else:
+                simulator_results[variant_id] = variant_result(
+                    variant_id,
+                    [start, tick(2, [room("W1N1", energy=200)])],
+                )
+        simulator = MockSimulator(
+            simulator_results,
+            inject_runtime_parameters=True,
+            include_runtime_consumption_evidence=False,
+            include_direct_game_loop_consumption_evidence=True,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                out_dir,
+                report_id="policy-gradient-direct-consumption",
+                generated_at="2026-05-25T14:32:00Z",
+                simulator_runner=simulator,
+            )
+            scorecard_payload = read_json(Path(report["scorecardArtifactPath"]))
+
+        self.assertEqual(report["runtimeParameterInjection"]["status"], "injected")
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
+        self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
+        self.assertEqual(report["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertEqual(report["runtimeParameterInjection"]["consumedVariantCount"], len(variant_ids))
+        self.assertTrue(report["runtimeParameterInjection"]["policyUpdateEligible"])
+        self.assertTrue(report["candidateScorecard"]["runtimeParameterConsumption"])
+        self.assertGreater(report["candidateScorecard"]["consumedVariantCount"], 0)
+        self.assertTrue(scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumption"])
+        self.assertTrue(
+            all(
+                result["runtimeParameterInjection"]["runtimeParameterConsumption"]
+                for result in report["variantResults"]
+            )
+        )
+        self.assertTrue(
+            all(
+                result["runtimeParameterInjection"]["runtimeParameterConsumptionSource"]
+                == runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
+                for result in report["variantResults"]
+            )
+        )
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["policyUpdate"]["officialMmoWrites"])
 
     def test_runtime_injected_metadata_ranking_materializes_reinforce_update_without_consumption_probe(self) -> None:
         card = card_helper.build_card(

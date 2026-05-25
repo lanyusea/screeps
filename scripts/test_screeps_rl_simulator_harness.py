@@ -4588,6 +4588,35 @@ cli:
         self.assertNotIn("consumedParametersSha256", summary["variants"][1])
         self.assertNotIn("consumedStrategyVariantId", summary["variants"][1])
 
+    def test_direct_game_loop_runtime_parameter_consumption_evidence_validates(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
+            injection,
+            [{"tick": 19}, {"tick": 20, "rooms": {"W1N1": {"creeps": 1}}}],
+        )
+
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(evidence["directRuntimeEvaluation"])
+        self.assertEqual(evidence["tick"], 20)
+        consumption = harness.runtime_parameter_consumption_check(injection, evidence)
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+        self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertFalse(consumption["officialMmoWrites"])
+
+    def test_direct_game_loop_runtime_parameter_consumption_requires_observed_tick(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        self.assertIsNone(
+            harness.direct_game_loop_runtime_parameter_consumption_evidence(
+                injection,
+                [{"rooms": {"W1N1": {"creeps": 1}}}],
+            )
+        )
+
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (
             '"use strict";\n'

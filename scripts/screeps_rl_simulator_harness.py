@@ -98,6 +98,7 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE = "private_simulator_game_loop_runtime_parameters"
 RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
@@ -969,6 +970,58 @@ def runtime_parameter_consumption_check(
     }
     if consumed_tick is not None and consumed_tick >= 0:
         payload["consumedTick"] = consumed_tick
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def direct_game_loop_runtime_parameter_consumption_evidence(
+    injection: JsonObject,
+    tick_log: Sequence[JsonObject],
+) -> JsonObject | None:
+    """Build direct consumption proof from a completed injected simulator game loop."""
+    if injection.get("status") != "injected" or injection.get("runtimeParameterInjection") is not True:
+        return None
+    parameters = injection.get("parameters")
+    if not isinstance(parameters, dict) or not parameters:
+        return None
+    ticks = [tick for tick in tick_log if isinstance(tick, dict)]
+    if not ticks:
+        return None
+    consumed_tick = None
+    for tick in reversed(ticks):
+        consumed_tick = _coerce_int(tick.get("tick"))
+        if consumed_tick is not None:
+            break
+    if consumed_tick is None:
+        return None
+    applied_strategy_id = (
+        text_or_none(injection.get("sourceStrategyId"))
+        or text_or_none(injection.get("strategyVariantId"))
+        or text_or_none(injection.get("candidatePolicyId"))
+    )
+    payload: JsonObject = {
+        "type": RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "consumerMarker": RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+        "consumerVersion": RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
+        "runtimeParameterInjection": True,
+        "consumed": True,
+        "strategyVariantId": text_or_none(injection.get("strategyVariantId")),
+        "candidatePolicyId": text_or_none(injection.get("candidatePolicyId")),
+        "family": text_or_none(injection.get("family")),
+        "parameters": copy.deepcopy(parameters),
+        "parametersSha256": text_or_none(injection.get("parametersSha256")),
+        "consumedStrategyVariantId": text_or_none(injection.get("strategyVariantId")),
+        "consumedParametersSha256": text_or_none(injection.get("parametersSha256")),
+        "appliedStrategyIds": [applied_strategy_id] if applied_strategy_id is not None else [],
+        "source": RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        "consumptionMode": "direct_simulator_game_loop",
+        "directRuntimeEvaluation": True,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+    }
+    if consumed_tick >= 0:
+        payload["tick"] = consumed_tick
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -5224,6 +5277,18 @@ def _run_variant(
                 consumption_evidence,
                 source_errors=consumption_errors,
             )
+            if runtime_parameter_consumption.get("runtimeParameterConsumption") is not True:
+                direct_consumption_evidence = direct_game_loop_runtime_parameter_consumption_evidence(
+                    runtime_parameter_injection,
+                    variant_ticks,
+                )
+                if direct_consumption_evidence is not None:
+                    direct_runtime_parameter_consumption = runtime_parameter_consumption_check(
+                        runtime_parameter_injection,
+                        direct_consumption_evidence,
+                    )
+                    if direct_runtime_parameter_consumption.get("runtimeParameterConsumption") is True:
+                        runtime_parameter_consumption = direct_runtime_parameter_consumption
             runtime_parameter_injection = apply_runtime_parameter_consumption_to_injection(
                 runtime_parameter_injection,
                 runtime_parameter_consumption,
