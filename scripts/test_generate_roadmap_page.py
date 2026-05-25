@@ -1747,6 +1747,37 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in runtime_column["items"]], [1375])
         self.assertEqual([item["number"] for item in release_column["items"]], [1376])
 
+    def test_merge_issue_context_preserves_explicit_empty_project_values(self) -> None:
+        merged = roadmap.merge_issue_context(
+            {
+                "type": "Issue",
+                "number": 1429,
+                "title": "Project item",
+                "labels": [],
+                "evidence": "",
+                "nextAction": "",
+            },
+            {
+                1429: {
+                    "state": "OPEN",
+                    "labels": ["roadmap"],
+                    "milestone": "Phase C",
+                    "kind": "ops",
+                    "evidence": "stale issue evidence",
+                    "nextAction": "stale issue next action",
+                    "updatedAt": "2026-05-25T10:48:41Z",
+                    "createdAt": "2026-05-25T10:31:51Z",
+                }
+            },
+        )
+
+        self.assertEqual(merged["labels"], [])
+        self.assertEqual(merged["evidence"], "")
+        self.assertEqual(merged["nextAction"], "")
+        self.assertEqual(merged["state"], "OPEN")
+        self.assertEqual(merged["milestone"], "Phase C")
+        self.assertEqual(merged["updatedAt"], "2026-05-25T10:48:41Z")
+
     def test_domain_kanban_falls_back_to_issue_recency_and_title_when_project_evidence_is_empty(self) -> None:
         snapshot = {
             "sourceMode": "live",

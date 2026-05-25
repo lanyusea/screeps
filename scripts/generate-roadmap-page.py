@@ -2922,7 +2922,7 @@ def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]
     context = issue_lookup.get(number, {})
     merged = {**context, **item}
     for key in ("state", "labels", "milestone", "kind", "evidence", "nextAction", "updatedAt", "createdAt"):
-        if not merged.get(key) and context.get(key):
+        if key not in item and context.get(key):
             merged[key] = context[key]
     return merged
 
