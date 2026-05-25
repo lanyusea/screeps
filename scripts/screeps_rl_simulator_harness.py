@@ -948,6 +948,12 @@ def runtime_parameter_consumption_check(
             payload["evaluatedParametersSha256"] = observed_hash
         if text_or_none(evidence.get("source")):
             payload["source"] = text_or_none(evidence.get("source"))
+        if isinstance(evidence.get("consumed"), bool):
+            payload["consumed"] = evidence.get("consumed")
+        if isinstance(evidence.get("directRuntimeEvaluation"), bool):
+            payload["directRuntimeEvaluation"] = evidence.get("directRuntimeEvaluation")
+        if text_or_none(evidence.get("consumptionMode")):
+            payload["consumptionMode"] = text_or_none(evidence.get("consumptionMode"))
         return payload
 
     parameters = copy.deepcopy(evidence["parameters"])
@@ -993,6 +999,83 @@ def direct_game_loop_runtime_parameter_consumption_evidence(
             break
     if consumed_tick is None:
         return None
+    for tick in reversed(ticks):
+        runtime_evidence = _direct_game_loop_runtime_parameter_signal(injection, tick, consumed_tick)
+        if runtime_evidence is not None:
+            return runtime_evidence
+    return _direct_game_loop_unproven_runtime_parameter_evidence(injection, consumed_tick)
+
+
+def _direct_game_loop_runtime_parameter_signal(
+    injection: JsonObject,
+    tick: JsonObject,
+    fallback_tick: int,
+) -> JsonObject | None:
+    evidence = find_runtime_parameter_consumption_evidence(tick, injection=injection)
+    if evidence is not None:
+        payload = copy.deepcopy(evidence)
+        payload["source"] = RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
+        payload["consumptionMode"] = "direct_simulator_game_loop"
+        payload["directRuntimeEvaluation"] = True
+        payload.setdefault("liveEffect", False)
+        payload.setdefault("officialMmoWrites", False)
+        payload.setdefault("officialMmoWritesAllowed", False)
+        if _coerce_int(payload.get("tick")) is None:
+            tick_number = _coerce_int(tick.get("tick"))
+            payload["tick"] = tick_number if tick_number is not None else fallback_tick
+        return {key: value for key, value in payload.items() if value is not None}
+
+    signal_keys = {
+        "runtimeParameterConsumption",
+        "consumed",
+        "consumedParametersSha256",
+        "parametersSha256",
+        "consumedStrategyVariantId",
+        "strategyVariantId",
+    }
+    if not any(key in tick for key in signal_keys):
+        return None
+
+    expected_hash = text_or_none(injection.get("parametersSha256"))
+    expected_variant_id = text_or_none(injection.get("strategyVariantId"))
+    observed_hash = text_or_none(tick.get("consumedParametersSha256")) or text_or_none(tick.get("parametersSha256"))
+    observed_variant_id = text_or_none(tick.get("consumedStrategyVariantId")) or text_or_none(
+        tick.get("strategyVariantId")
+    )
+    consumed_flag = tick.get("runtimeParameterConsumption")
+    if not isinstance(consumed_flag, bool):
+        consumed_flag = tick.get("consumed") if isinstance(tick.get("consumed"), bool) else None
+    hash_matches = expected_hash is not None and observed_hash == expected_hash
+    variant_matches = expected_variant_id is None or observed_variant_id == expected_variant_id
+    if consumed_flag is False:
+        consumed = False
+    elif consumed_flag is True:
+        consumed = True
+    else:
+        consumed = hash_matches and observed_variant_id is not None and variant_matches
+    payload = _direct_game_loop_unproven_runtime_parameter_evidence(injection, fallback_tick)
+    payload["consumed"] = consumed
+    if hash_matches:
+        parameters = injection.get("parameters")
+        if isinstance(parameters, dict) and parameters:
+            payload["parameters"] = copy.deepcopy(parameters)
+            payload["parametersSha256"] = expected_hash
+    if observed_hash is not None:
+        payload["consumedParametersSha256"] = observed_hash
+    if observed_variant_id is not None:
+        payload["consumedStrategyVariantId"] = observed_variant_id
+    applied_strategy_ids = tick.get("appliedStrategyIds")
+    if isinstance(applied_strategy_ids, list):
+        payload["appliedStrategyIds"] = [
+            strategy_id for strategy_id in applied_strategy_ids if isinstance(strategy_id, str)
+        ]
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _direct_game_loop_unproven_runtime_parameter_evidence(
+    injection: JsonObject,
+    consumed_tick: int,
+) -> JsonObject:
     applied_strategy_id = (
         text_or_none(injection.get("sourceStrategyId"))
         or text_or_none(injection.get("strategyVariantId"))
@@ -1004,14 +1087,10 @@ def direct_game_loop_runtime_parameter_consumption_evidence(
         "consumerMarker": RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
         "consumerVersion": RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
         "runtimeParameterInjection": True,
-        "consumed": True,
+        "consumed": False,
         "strategyVariantId": text_or_none(injection.get("strategyVariantId")),
         "candidatePolicyId": text_or_none(injection.get("candidatePolicyId")),
         "family": text_or_none(injection.get("family")),
-        "parameters": copy.deepcopy(parameters),
-        "parametersSha256": text_or_none(injection.get("parametersSha256")),
-        "consumedStrategyVariantId": text_or_none(injection.get("strategyVariantId")),
-        "consumedParametersSha256": text_or_none(injection.get("parametersSha256")),
         "appliedStrategyIds": [applied_strategy_id] if applied_strategy_id is not None else [],
         "source": RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
         "consumptionMode": "direct_simulator_game_loop",
@@ -1023,6 +1102,33 @@ def direct_game_loop_runtime_parameter_consumption_evidence(
     if consumed_tick >= 0:
         payload["tick"] = consumed_tick
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def runtime_parameter_consumption_with_direct_game_loop_fallback(
+    injection: JsonObject,
+    consumption: JsonObject,
+    tick_log: Sequence[JsonObject],
+) -> JsonObject:
+    if consumption.get("runtimeParameterConsumption") is True:
+        return consumption
+    direct_evidence = direct_game_loop_runtime_parameter_consumption_evidence(injection, tick_log)
+    if direct_evidence is None:
+        return consumption
+    direct_consumption = runtime_parameter_consumption_check(injection, direct_evidence)
+    if (
+        direct_consumption.get("runtimeParameterConsumption") is True
+        or text_or_none(consumption.get("status")) in (None, "missing")
+    ):
+        for field, target in (
+            ("status", "fallbackRuntimeParameterConsumptionStatus"),
+            ("reason", "fallbackRuntimeParameterConsumptionReason"),
+            ("source", "fallbackRuntimeParameterConsumptionSource"),
+        ):
+            value = consumption.get(field)
+            if value is not None:
+                direct_consumption[target] = value
+        return direct_consumption
+    return consumption
 
 
 def apply_runtime_parameter_consumption_to_injection(
@@ -5277,18 +5383,11 @@ def _run_variant(
                 consumption_evidence,
                 source_errors=consumption_errors,
             )
-            if runtime_parameter_consumption.get("runtimeParameterConsumption") is not True:
-                direct_consumption_evidence = direct_game_loop_runtime_parameter_consumption_evidence(
-                    runtime_parameter_injection,
-                    variant_ticks,
-                )
-                if direct_consumption_evidence is not None:
-                    direct_runtime_parameter_consumption = runtime_parameter_consumption_check(
-                        runtime_parameter_injection,
-                        direct_consumption_evidence,
-                    )
-                    if direct_runtime_parameter_consumption.get("runtimeParameterConsumption") is True:
-                        runtime_parameter_consumption = direct_runtime_parameter_consumption
+            runtime_parameter_consumption = runtime_parameter_consumption_with_direct_game_loop_fallback(
+                runtime_parameter_injection,
+                runtime_parameter_consumption,
+                variant_ticks,
+            )
             runtime_parameter_injection = apply_runtime_parameter_consumption_to_injection(
                 runtime_parameter_injection,
                 runtime_parameter_consumption,

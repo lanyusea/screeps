@@ -839,6 +839,8 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
             "status": status,
             "runtimeParameterInjection": runtime_injection_bool(node),
             "runtimeParameterConsumption": consumed,
+            "runtimeParameterConsumptionSource": text_value(node.get("runtimeParameterConsumptionSource"))
+            or (text_value(node.get("source")) if is_consumption_node else None),
             "candidateParameterScope": text_value(node.get("candidateParameterScope"))
             or text_value(node.get("candidate_parameter_scope"))
             or ("runtime_injected" if is_consumption_node else None),
@@ -907,6 +909,7 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
             "status": row.get("status"),
             "runtimeParameterInjection": row.get("runtimeParameterInjection"),
             "runtimeParameterConsumption": row.get("runtimeParameterConsumption"),
+            "runtimeParameterConsumptionSource": row.get("runtimeParameterConsumptionSource"),
             "candidateParameterScope": row.get("candidateParameterScope"),
             "policyUpdateEligible": row.get("policyUpdateEligible"),
             "reason": row.get("reason"),
@@ -940,6 +943,15 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
         "candidateParameterScope": scope or ("runtime_injected" if eligible else "missing"),
         "evidence": evidence,
     }
+    consumption_source = first_text(
+        [
+            text_value(row.get("runtimeParameterConsumptionSource"))
+            for row in summary_rows
+            if row.get("runtimeParameterConsumptionSource")
+        ]
+    )
+    if consumption_source is not None:
+        payload["runtimeParameterConsumptionSource"] = consumption_source
     if reason:
         payload["reason"] = reason
     return payload

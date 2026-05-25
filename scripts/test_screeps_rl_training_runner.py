@@ -303,28 +303,49 @@ class MockSimulator:
                     tick_number = tick_log[-1].get("tick")
                     if isinstance(tick_number, int):
                         consumption_evidence["tick"] = tick_number
+                if self.include_direct_game_loop_consumption_evidence and isinstance(tick_log, list):
+                    for tick_entry in reversed(tick_log):
+                        tick_number = tick_entry.get("tick") if isinstance(tick_entry, dict) else None
+                        if isinstance(tick_number, int) and not isinstance(tick_number, bool):
+                            tick_entry["runtimeParameterConsumption"] = True
+                            tick_entry["consumedParametersSha256"] = result["runtimeParameterInjection"].get(
+                                "parametersSha256"
+                            )
+                            tick_entry["consumedStrategyVariantId"] = variant_id
+                            break
+                runtime_consumption = None
                 if self.include_runtime_consumption_evidence:
-                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
+                    runtime_consumption = runner.simulator_harness.runtime_parameter_consumption_check(
                         result["runtimeParameterInjection"],
                         consumption_evidence,
                     )
+                elif self.include_direct_game_loop_consumption_evidence:
+                    runtime_consumption = runner.simulator_harness.runtime_parameter_consumption_check(
+                        result["runtimeParameterInjection"],
+                        None,
+                    )
+                if runtime_consumption is not None and self.include_direct_game_loop_consumption_evidence:
+                    runtime_consumption = (
+                        runner.simulator_harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+                            result["runtimeParameterInjection"],
+                            runtime_consumption,
+                            tick_log if isinstance(tick_log, list) else [],
+                        )
+                    )
+                if runtime_consumption is not None:
+                    result["runtimeParameterConsumption"] = runtime_consumption
                     if not self.include_runtime_consumption_parameters:
                         result["runtimeParameterConsumption"].pop("evaluatedParameters", None)
                         result["runtimeParameterConsumption"].pop("evaluatedParametersSha256", None)
-                elif self.include_direct_game_loop_consumption_evidence:
-                    direct_evidence = runner.simulator_harness.direct_game_loop_runtime_parameter_consumption_evidence(
-                        result["runtimeParameterInjection"],
-                        tick_log if isinstance(tick_log, list) else [],
-                    )
-                    result["runtimeParameterConsumption"] = runner.simulator_harness.runtime_parameter_consumption_check(
-                        result["runtimeParameterInjection"],
-                        direct_evidence,
-                    )
                 if self.include_evaluated_parameters:
-                    if (
-                        isinstance(result.get("runtimeParameterConsumption"), dict)
-                        and result["runtimeParameterConsumption"].get("runtimeParameterConsumption") is True
-                    ) or not self.include_runtime_consumption_evidence:
+                    consumption = result.get("runtimeParameterConsumption")
+                    if isinstance(consumption, dict) and consumption.get("runtimeParameterConsumption") is True:
+                        consumed_parameters = consumption.get("evaluatedParameters")
+                        result["evaluatedParameters"] = copy.deepcopy(
+                            consumed_parameters if isinstance(consumed_parameters, dict) else evaluated_parameters
+                        )
+                        result["evaluatedParametersSource"] = "runtime_parameter_consumption"
+                    elif not self.include_runtime_consumption_evidence:
                         result["evaluatedParameters"] = copy.deepcopy(evaluated_parameters)
                         result["evaluatedParametersSource"] = "runtime_parameter_consumption"
             variants.append(result)
@@ -4681,11 +4702,17 @@ export const STRATEGY_REGISTRY = [
                     variant_id,
                     [start, tick(2, [room("W1N1", energy=200)])],
                 )
+        mismatched_standard_parameters: dict[str, JsonObject] = {}
+        for variant in card["strategy_variants"]:
+            parameters = copy.deepcopy(variant["parameters"])
+            parameters["territorySignalWeight"] = parameters["territorySignalWeight"] + 1
+            mismatched_standard_parameters[variant["id"]] = parameters
         simulator = MockSimulator(
             simulator_results,
             inject_runtime_parameters=True,
-            include_runtime_consumption_evidence=False,
+            include_runtime_consumption_evidence=True,
             include_direct_game_loop_consumption_evidence=True,
+            evaluated_parameters_by_variant=mismatched_standard_parameters,
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4711,6 +4738,10 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(report["candidateScorecard"]["runtimeParameterConsumption"])
         self.assertGreater(report["candidateScorecard"]["consumedVariantCount"], 0)
         self.assertTrue(scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumption"])
+        self.assertEqual(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumptionSource"],
+            runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        )
         self.assertTrue(
             all(
                 result["runtimeParameterInjection"]["runtimeParameterConsumption"]
@@ -4722,6 +4753,12 @@ export const STRATEGY_REGISTRY = [
                 result["runtimeParameterInjection"]["runtimeParameterConsumptionSource"]
                 == runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
                 for result in report["variantResults"]
+            )
+        )
+        self.assertTrue(
+            all(
+                result["runtimeParameterConsumption"]["fallbackRuntimeParameterConsumptionStatus"] == "invalid"
+                for result in simulator.last_variants
             )
         )
         self.assertFalse(report["officialMmoWrites"])
