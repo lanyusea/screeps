@@ -1095,6 +1095,128 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
         self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
 
+    def test_loop_a_local_fallback_selects_latest_current_pass_over_stale_historical_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            stale_gate = runtime_root / "rl-dataset-gates" / "rl-gate-db16ca9c3de7" / "gate_report.json"
+            e1_gate_id = "e1-gate-20260525T050000Z"
+            e1_dataset_run_id = "rl-e1-current-pass"
+            e1_gate = runtime_root / "rl-control-loop" / "gate-data" / e1_gate_id / "gate_report.json"
+            hash_gate_id = "rl-gate-ffbcc5302990"
+            hash_dataset_run_id = "rl-hash-current-pass"
+            hash_gate = runtime_root / "rl-control-loop" / "gate-data" / hash_gate_id / "gate_report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            stale_gate.parent.mkdir(parents=True)
+            e1_gate.parent.mkdir(parents=True)
+            hash_gate.parent.mkdir(parents=True)
+            stale_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": False,
+                        "gateId": "rl-gate-db16ca9c3de7",
+                        "createdAt": "2026-05-11T14:23:09Z",
+                        "dataset": {"ok": True, "runId": "rl-stale", "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "fail",
+                            "samples_accepted": 126,
+                            "samples_rejected": 74,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            e1_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": e1_gate_id,
+                        "createdAt": "2026-05-24T21:08:34Z",
+                        "dataset": {
+                            "ok": True,
+                            "runId": e1_dataset_run_id,
+                            "sampleCount": 200,
+                            "splitCounts": {"train": 168, "eval": 32},
+                        },
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "blockingReasons": [],
+                        "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{e1_gate_id}"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            hash_gate.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": hash_gate_id,
+                        "createdAt": "2026-05-24T22:30:19Z",
+                        "dataset": {"ok": True, "runId": hash_dataset_run_id, "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "blockingReasons": [],
+                        "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{hash_gate_id}"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(stale_gate, (1_778_000_000, 1_778_000_000))
+            os.utime(e1_gate, (1_779_700_000, 1_779_700_000))
+            os.utime(hash_gate, (1_779_705_000, 1_779_705_000))
+
+            selected = card_helper.select_accepted_dataset_gate(
+                runtime_root,
+                reference_time="2026-05-25T00:00:00Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch.object(card_helper, "utc_now_iso", return_value="2026-05-25T00:00:00Z"):
+                exit_code = card_helper.main(
+                    [
+                        "--loop-a-local-fallback",
+                        "--dataset-gate-root",
+                        str(runtime_root),
+                        "--code-commit",
+                        "8" * 40,
+                        "--created-at",
+                        "2026-05-25T00:00:00Z",
+                        "--output",
+                        str(output_path),
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                    repo_root=REPO_ROOT,
+                )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+            hash_gate.unlink()
+            e1_only = card_helper.select_accepted_dataset_gate(
+                runtime_root,
+                reference_time="2026-05-25T00:00:00Z",
+                max_age_hours=card_helper.E1_GATE_FRESHNESS_HOURS,
+            )
+
+            self.assertEqual(selected["gate_id"], hash_gate_id)
+            self.assertEqual(selected["dataset_run_id"], hash_dataset_run_id)
+            self.assertTrue(selected["gate_report_ok"])
+            self.assertEqual(selected["sample_count"], 200)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertEqual(summary["source_gate"]["gate_id"], hash_gate_id)
+            self.assertEqual(summary["source_gate"]["dataset_run_id"], hash_dataset_run_id)
+            self.assertEqual(summary["source_gate"]["sample_count"], 200)
+            self.assertNotEqual(summary["source_gate"]["gate_id"], "rl-gate-db16ca9c3de7")
+            self.assertEqual(generated["source_gate"]["gate_id"], hash_gate_id)
+
+        self.assertEqual(e1_only["gate_id"], e1_gate_id)
+        self.assertEqual(e1_only["dataset_run_id"], e1_dataset_run_id)
+        self.assertEqual(e1_only["sample_count"], 200)
+        self.assertEqual(e1_only["split_counts"], {"train": 168, "eval": 32})
+
     def test_loop_a_local_fallback_accepts_fresh_hash_gate_data_when_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
