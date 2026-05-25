@@ -4837,6 +4837,8 @@ cli:
             injection,
             consumed_evidence,
         )
+        injection_before_consumption_tick = copy.deepcopy(injection)
+        injection_before_consumption_tick["tick"] = 0
         injection_at_tick = copy.deepcopy(injection)
         injection_at_tick["tick"] = 1
         stale_tick_consumption = copy.deepcopy(consumed)
@@ -4863,6 +4865,16 @@ cli:
             or "",
         )
         self.assertIn(
+            "missing numeric injection tick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
             "did not advance beyond injection tick",
             harness.runtime_parameter_trainability_smoke_gate_error(
                 runtime_parameter_injection=injection_at_tick,
@@ -4874,7 +4886,7 @@ cli:
         )
         self.assertIsNone(
             harness.runtime_parameter_trainability_smoke_gate_error(
-                runtime_parameter_injection=injection,
+                runtime_parameter_injection=injection_before_consumption_tick,
                 runtime_parameter_consumption=consumed,
                 ticks_run=1,
                 active_code_readback=readback,
@@ -5809,10 +5821,15 @@ cli:
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterConsumption"])
         self.assertEqual(result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertIsInstance(result["runtimeParameterInjection"].get("tick"), int)
         self.assertTrue(result["activeCodeReadback"]["activeCodeMatchesUploaded"])
         self.assertEqual(result["activeCodeReadback"]["status"], "matched")
         self.assertEqual(result["activeCodeReadback"]["attempt"], 2)
         self.assertTrue(result["runtimeParameterConsumption"]["runtimeParameterConsumption"])
+        self.assertGreater(
+            result["runtimeParameterConsumption"]["consumedTick"],
+            result["runtimeParameterInjection"]["tick"],
+        )
         self.assertEqual(result["runtimeParameterConsumption"]["source"], "Memory.rlRuntimePolicyParameters")
         self.assertEqual(result["runtimeParameterConsumption"]["evaluatedParameters"], parameters)
         self.assertEqual(

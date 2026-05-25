@@ -1103,7 +1103,12 @@ def validate_pre_scale_trainability_smoke_gate(smoke_run: JsonObject, variant_id
             "missing numeric consumedTick"
         )
     injection_tick = int_or_none(injection.get("tick"))
-    if injection_tick is not None and consumed_tick <= injection_tick:
+    if injection_tick is None:
+        raise RuntimeError(
+            "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
+            "missing numeric injection tick"
+        )
+    if consumed_tick <= injection_tick:
         raise RuntimeError(
             "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
             f"consumedTick={consumed_tick} did not advance beyond injection tick={injection_tick}"

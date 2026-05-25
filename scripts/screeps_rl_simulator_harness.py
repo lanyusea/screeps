@@ -939,6 +939,7 @@ def mark_runtime_parameter_injection_uploaded(
     injection: JsonObject,
     *,
     code_text: str,
+    upload_tick: Any | None = None,
 ) -> JsonObject:
     updated = copy.deepcopy(injection)
     if updated.get("status") == "prepared":
@@ -959,6 +960,13 @@ def mark_runtime_parameter_injection_uploaded(
         updated["inlineCandidatesRuntimeInjected"] = True
         updated["runtimeParameterConsumer"] = RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER
         updated["runtimeParameterConsumerObserved"] = True
+    uploaded_tick = _coerce_int(upload_tick)
+    if (
+        updated.get("status") == "injected"
+        and updated.get("runtimeParameterInjection") is True
+        and uploaded_tick is not None
+    ):
+        updated["tick"] = uploaded_tick
     return updated
 
 
@@ -1123,7 +1131,9 @@ def runtime_parameter_trainability_smoke_gate_error(
         if consumed_tick is None or consumed_tick <= 0:
             return "runtime-parameter trainability smoke gate failed: missing positive consumedTick"
         injection_tick = _coerce_int(runtime_parameter_injection.get("tick"))
-        if injection_tick is not None and consumed_tick <= injection_tick:
+        if injection_tick is None:
+            return "runtime-parameter trainability smoke gate failed: missing numeric injection tick"
+        if consumed_tick <= injection_tick:
             return (
                 "runtime-parameter trainability smoke gate failed: "
                 f"consumedTick={consumed_tick} did not advance beyond injection tick={injection_tick}"
@@ -5647,6 +5657,12 @@ def _run_variant(
         )
         token = smoke.update_token_from_headers(token, initial_state.headers)
         token, previous_tick = _read_current_gametime(cfg, smoke, token, shard, initial_state.payload)
+        runtime_parameter_injection = mark_runtime_parameter_injection_uploaded(
+            runtime_parameter_injection,
+            code_text=uploaded_code_text,
+            upload_tick=previous_tick,
+        )
+        write_json_atomic(safe_run_root / "runtime_parameter_injection.json", runtime_parameter_injection)
         _require_launcher_cli_success(smoke, compose, cfg, "system.resumeSimulation()", "resume simulator")
 
         for _ in range(ticks):

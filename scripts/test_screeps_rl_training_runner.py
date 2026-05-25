@@ -5390,7 +5390,11 @@ export const STRATEGY_REGISTRY = [
                 "module.exports.loop = function loop() {};",
                 injection,
             )
-            injection = runner.simulator_harness.mark_runtime_parameter_injection_uploaded(injection, code_text=code)
+            injection = runner.simulator_harness.mark_runtime_parameter_injection_uploaded(
+                injection,
+                code_text=code,
+                upload_tick=0,
+            )
             evidence = {
                 "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
                 "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
@@ -5609,6 +5613,42 @@ export const STRATEGY_REGISTRY = [
                                 "status": "consumed",
                                 "runtimeParameterConsumption": True,
                                 "consumedTick": 0,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_missing_injection_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric injection tick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 1,
                             },
                         }
                     ],
