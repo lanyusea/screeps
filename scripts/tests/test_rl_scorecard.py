@@ -261,6 +261,73 @@ def test_runtime_injection_extraction_supports_snake_case_consumed_variant_count
     assert summary["policyUpdateEligible"] is False
 
 
+def test_runtime_consumption_evidence_counts_as_scorecard_runtime_proof() -> None:
+    rows = scorecard.extract_runtime_parameter_injection_evidence(
+        {
+            "type": "runtime-summary",
+            "tick": 20,
+            "runtimeParameterConsumption": {
+                "type": "screeps-rl-runtime-policy-parameter-consumption",
+                "consumerMarker": "screeps-rl-runtime-policy-parameters-consumer-v1",
+                "consumerVersion": "v1",
+                "runtimeParameterInjection": True,
+                "consumed": True,
+                "strategyVariantId": "candidate.v1",
+                "parameters": {"territorySignalWeight": 29},
+                "consumedStrategyVariantId": "candidate.v1",
+                "consumedParametersSha256": "sha",
+                "appliedStrategyIds": ["construction-priority.incumbent.v1"],
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        },
+        "runtime.log",
+    )
+
+    summary = scorecard.summarize_runtime_parameter_injection(rows)
+
+    assert rows[0]["status"] == "consumed"
+    assert rows[0]["runtimeParameterInjection"] is True
+    assert rows[0]["runtimeParameterConsumption"] is True
+    assert rows[0]["consumedVariantCount"] == 1
+    assert summary["status"] == "injected"
+    assert summary["runtimeParameterInjection"] is True
+    assert summary["runtimeParameterConsumption"] is True
+    assert summary["policyUpdateEligible"] is True
+
+
+def test_runtime_consumption_source_comes_from_row_that_proved_consumption() -> None:
+    direct_source = training_runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
+    summary = scorecard.summarize_runtime_parameter_injection(
+        [
+            {
+                "summaryLevel": "summary",
+                "status": "invalid",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": False,
+                "runtimeParameterConsumptionSource": "runtime_policy_parameter_consumption",
+                "candidateParameterScope": "runtime_injected",
+                "policyUpdateEligible": False,
+                "consumedVariantCount": 0,
+            },
+            {
+                "summaryLevel": "summary",
+                "status": "consumed",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": True,
+                "runtimeParameterConsumptionSource": direct_source,
+                "candidateParameterScope": "runtime_injected",
+                "policyUpdateEligible": True,
+                "consumedVariantCount": 1,
+            },
+        ]
+    )
+
+    assert summary["runtimeParameterConsumption"] is True
+    assert summary["runtimeParameterConsumptionSource"] == direct_source
+
+
 def test_scorecard_fails_safety_regression_even_with_gameplay_gain(tmp_path: Path) -> None:
     baseline = write_bundle(tmp_path / "baseline", candidate=False)
     candidate = write_bundle(tmp_path / "candidate", candidate=True, safety_regression=True)

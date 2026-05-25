@@ -65,12 +65,13 @@ SCORECARD_STATUS_VALUES = (
     GATE_INCONCLUSIVE,
 )
 RUNTIME_PARAMETER_INJECTION_TYPE = "screeps-rl-runtime-parameter-injection"
+RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consumption"
 RUNTIME_INJECTION_TRUE_KEYS = {
     "runtimeparameterinjection",
     "inlinecandidatesruntimeinjected",
     "inlinecandidatesappliedtosimulator",
 }
-RUNTIME_INJECTION_SUCCESS_STATUSES = {"injected", "ok", "pass", "passed", "success"}
+RUNTIME_INJECTION_SUCCESS_STATUSES = {"consumed", "injected", "ok", "pass", "passed", "success"}
 RUNTIME_INJECTION_BLOCKED_STATUSES = {
     "blocked",
     "failed",
@@ -811,28 +812,46 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
     for node in iter_json_objects(payload):
         if not node_has_runtime_injection_evidence(node):
             continue
-        row: JsonObject = {
-            "source": source,
-            "summaryLevel": runtime_injection_summary_level(node),
-            "status": text_value(node.get("status"))
-            or text_value(node.get("runtimeParameterInjectionStatus"))
-            or text_value(node.get("runtime_parameter_injection_status")),
-            "runtimeParameterInjection": runtime_injection_bool(node),
-            "runtimeParameterConsumption": node.get("runtimeParameterConsumption")
+        is_consumption_node = node.get("type") == RUNTIME_PARAMETER_CONSUMPTION_TYPE
+        consumed = (
+            node.get("runtimeParameterConsumption")
             if isinstance(node.get("runtimeParameterConsumption"), bool)
             else node.get("runtime_parameter_consumption")
             if isinstance(node.get("runtime_parameter_consumption"), bool)
-            else None,
+            else node.get("consumed")
+            if is_consumption_node and isinstance(node.get("consumed"), bool)
+            else None
+        )
+        status = (
+            text_value(node.get("status"))
+            or text_value(node.get("runtimeParameterInjectionStatus"))
+            or text_value(node.get("runtime_parameter_injection_status"))
+            or ("consumed" if is_consumption_node and consumed is True else None)
+        )
+        consumed_variant_count = number_value(
+            node.get("consumedVariantCount", node.get("consumed_variant_count"))
+        )
+        if consumed_variant_count is None and is_consumption_node and consumed is True:
+            consumed_variant_count = 1
+        row: JsonObject = {
+            "source": source,
+            "summaryLevel": runtime_injection_summary_level(node),
+            "status": status,
+            "runtimeParameterInjection": runtime_injection_bool(node),
+            "runtimeParameterConsumption": consumed,
+            "runtimeParameterConsumptionSource": text_value(node.get("runtimeParameterConsumptionSource"))
+            or (text_value(node.get("source")) if is_consumption_node else None),
             "candidateParameterScope": text_value(node.get("candidateParameterScope"))
-            or text_value(node.get("candidate_parameter_scope")),
+            or text_value(node.get("candidate_parameter_scope"))
+            or ("runtime_injected" if is_consumption_node else None),
             "policyUpdateEligible": node.get("policyUpdateEligible")
             if isinstance(node.get("policyUpdateEligible"), bool)
+            else consumed
+            if is_consumption_node and consumed is True
             else None,
             "variantCount": number_value(node.get("variantCount")),
             "injectedVariantCount": number_value(node.get("injectedVariantCount")),
-            "consumedVariantCount": number_value(
-                node.get("consumedVariantCount", node.get("consumed_variant_count"))
-            ),
+            "consumedVariantCount": consumed_variant_count,
             "reason": text_value(node.get("reason")) or text_value(node.get("skippedReason")),
         }
         rows.append(row)
@@ -840,7 +859,7 @@ def extract_runtime_parameter_injection_evidence(payload: JsonObject, source: st
 
 
 def node_has_runtime_injection_evidence(node: JsonObject) -> bool:
-    if node.get("type") == RUNTIME_PARAMETER_INJECTION_TYPE:
+    if node.get("type") in {RUNTIME_PARAMETER_INJECTION_TYPE, RUNTIME_PARAMETER_CONSUMPTION_TYPE}:
         return True
     for key in node:
         if normalized_key(str(key)) in RUNTIME_INJECTION_TRUE_KEYS | {
@@ -853,7 +872,7 @@ def node_has_runtime_injection_evidence(node: JsonObject) -> bool:
 
 
 def runtime_injection_summary_level(node: JsonObject) -> str:
-    if node.get("type") == RUNTIME_PARAMETER_INJECTION_TYPE:
+    if node.get("type") in {RUNTIME_PARAMETER_INJECTION_TYPE, RUNTIME_PARAMETER_CONSUMPTION_TYPE}:
         return "summary"
     if any(key in node for key in ("variantCount", "injectedVariantCount", "policyUpdateEligible")):
         return "summary"
@@ -890,6 +909,7 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
             "status": row.get("status"),
             "runtimeParameterInjection": row.get("runtimeParameterInjection"),
             "runtimeParameterConsumption": row.get("runtimeParameterConsumption"),
+            "runtimeParameterConsumptionSource": row.get("runtimeParameterConsumptionSource"),
             "candidateParameterScope": row.get("candidateParameterScope"),
             "policyUpdateEligible": row.get("policyUpdateEligible"),
             "reason": row.get("reason"),
@@ -923,6 +943,18 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
         "candidateParameterScope": scope or ("runtime_injected" if eligible else "missing"),
         "evidence": evidence,
     }
+    source_rows = eligible_rows or [
+        row for row in summary_rows if row.get("runtimeParameterConsumption") is True
+    ]
+    consumption_source = first_text(
+        [
+            text_value(row.get("runtimeParameterConsumptionSource"))
+            for row in source_rows
+            if row.get("runtimeParameterConsumptionSource")
+        ]
+    )
+    if consumption_source is not None:
+        payload["runtimeParameterConsumptionSource"] = consumption_source
     if reason:
         payload["reason"] = reason
     return payload
