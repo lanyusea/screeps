@@ -1557,6 +1557,19 @@ tar -czf remote-artifacts.tar.gz \
         batch_scale = batch_scale_summary_from_training_report(data, artifact_count)
         scale_environments = resolve_scale_environment_count(self.args)
         scale_validation = data.get("scaleValidation")
+        report_summary = {
+            "path": str(report),
+            "reportId": data.get("reportId"),
+            "generatedAt": data.get("generatedAt"),
+            "experimentCard": data.get("experimentCard"),
+            **safety_flags,
+            "artifactCount": artifact_count,
+            "batchScale": batch_scale,
+            "warnings": data.get("warnings"),
+            "simulation": data.get("simulation"),
+            "scaleValidation": scale_validation,
+        }
+        self.result["trainingReport"] = report_summary
         if scale_environments is not None:
             validate_scale_proof_result(scale_validation, scale_environments, repetitions=self.args.repetitions)
         runtime_parameter_injection = verified_remote_runtime_parameter_injection(
@@ -1582,13 +1595,7 @@ tar -czf remote-artifacts.tar.gz \
             artifact_dir=self.artifact_dir,
         )
         self.result["trainingReport"] = {
-            "path": str(report),
-            "reportId": data.get("reportId"),
-            "generatedAt": data.get("generatedAt"),
-            "experimentCard": data.get("experimentCard"),
-            **safety_flags,
-            "artifactCount": artifact_count,
-            "batchScale": batch_scale,
+            **report_summary,
             "changedTopCount": data.get("changedTopCount"),
             "activationProof": data.get("activationProof"),
             "runtimeParameterInjection": runtime_parameter_injection,
@@ -1598,9 +1605,6 @@ tar -czf remote-artifacts.tar.gz \
             "candidateScorecards": candidate_scorecards,
             **policy_update_fields,
             "ranking": data.get("ranking"),
-            "warnings": data.get("warnings"),
-            "simulation": data.get("simulation"),
-            "scaleValidation": scale_validation,
         }
 
     def describe_asg_group_summary(self) -> dict[str, Any]:
@@ -4193,7 +4197,30 @@ def validate_scale_proof_result(raw: Any, expected_environments: int, *, repetit
     if successful < minimum:
         raise BatchRunError(f"scale proof success count invalid: {successful!r} < {minimum}")
     if raw.get("ok") is not True:
-        raise BatchRunError("scale proof did not satisfy success criteria")
+        raise BatchRunError(
+            "scale proof did not satisfy success criteria: "
+            + scale_proof_failure_summary(raw, minimum=minimum)
+        )
+
+
+def scale_proof_failure_summary(raw: dict[str, Any], *, minimum: int) -> str:
+    details = [
+        f"successfulEnvironments={raw.get('successfulEnvironments')!r}",
+        f"totalEnvironments={raw.get('totalEnvironments')!r}",
+        f"minimumSuccessfulEnvironments={minimum!r}",
+        f"remoteOk={raw.get('ok')!r}",
+    ]
+    per_run_failures: list[str] = []
+    for item in list_value(raw.get("perRun")):
+        if not isinstance(item, dict) or item.get("ok") is True:
+            continue
+        run_id = text_value(item.get("runId")) or "<unknown>"
+        successful = item.get("successfulEnvironments")
+        total = item.get("totalEnvironments")
+        per_run_failures.append(f"{run_id}:{successful!r}/{total!r}")
+    if per_run_failures:
+        details.append("perRunFailures=" + ",".join(per_run_failures[:5]))
+    return "; ".join(details)
 
 
 def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
