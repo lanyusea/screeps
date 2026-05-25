@@ -6,6 +6,10 @@ import {
 } from '../src/runtime/cpuBudget';
 
 describe('runtime CPU budget policy', () => {
+  beforeEach(() => {
+    resetRuntimeCpuTelemetryForTesting();
+  });
+
   afterEach(() => {
     resetRuntimeCpuTelemetryForTesting();
   });
