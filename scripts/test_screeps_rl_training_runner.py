@@ -5466,6 +5466,53 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(calls[1]["host_port_start"], 24125)
         self.assertEqual(runs[0]["runId"], "scale-run")
 
+    def test_private_runner_pre_scale_smoke_gate_rejects_unsafe_smoke_run(self) -> None:
+        calls: list[JsonObject] = []
+        variants = [
+            runner.StrategyVariant(
+                id="candidate.scale-env-01",
+                family="test-family",
+                parameters={"knob": 1},
+            )
+        ]
+        config = runner.SimulationConfig(
+            ticks=500,
+            workers=5,
+            repetitions=1,
+            host_port_start=24125,
+            room="E1S1",
+            shard="shardX",
+            branch="activeWorld",
+            code_path=Path("prod/dist/main.js"),
+            map_source_file=Path("maps/map-0b6758af.json"),
+            simulator_out_dir=Path("runtime-artifacts/rl-simulator-test"),
+            scale_environments=5,
+            min_concurrent_environments=5,
+        )
+
+        def fake_run_simulator(**kwargs: Any) -> JsonObject:
+            calls.append(dict(kwargs))
+            return {
+                "type": "screeps-rl-simulator-run",
+                "runId": kwargs["run_id"],
+                "liveEffect": True,
+                "officialMmoWrites": False,
+                "variants": [],
+            }
+
+        with mock.patch.object(runner.simulator_harness, "run_simulator", side_effect=fake_run_simulator):
+            with self.assertRaisesRegex(RuntimeError, "run\\[0\\]\\.liveEffect=true"):
+                runner.execute_simulator_runs(
+                    simulator_runner=runner.simulator_harness.run_simulator,
+                    variants=variants,
+                    config=config,
+                    card={"run_id": "scale-run"},
+                    report_id="scale-run",
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["run_id"], "scale-run-pre-scale-smoke")
+
     def test_private_runner_pre_scale_smoke_gate_rejects_missing_requested_variant_row(self) -> None:
         code = (
             f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
@@ -5526,6 +5573,42 @@ export const STRATEGY_REGISTRY = [
                             "runtimeParameterConsumption": {
                                 "status": "consumed",
                                 "runtimeParameterConsumption": True,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_non_positive_consumed_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric consumedTick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 0,
                             },
                         }
                     ],

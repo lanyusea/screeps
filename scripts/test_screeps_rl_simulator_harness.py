@@ -4753,6 +4753,70 @@ cli:
             harness.private_simulator_active_code_readback_error(mismatched) or "",
         )
 
+    def test_active_code_readback_poll_retries_transport_error_with_diagnostics(self) -> None:
+        uploaded = "module.exports.loop = function loop() { return 1; };\n"
+        writes: list[harness.JsonObject] = []
+
+        class Cfg:
+            server_url = "http://127.0.0.1:21000"
+
+        class Result:
+            def __init__(self) -> None:
+                self.status = 200
+                self.payload = {"branch": "default", "modules": {"main": uploaded}}
+                self.headers = {"X-Token": "next-token"}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.http_calls = 0
+                self.update_calls = 0
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                self.update_calls += 1
+                self.updated_headers = headers
+                return f"{token}-rotated"
+
+            def http_json(self, *_args: object, **_kwargs: object) -> Result:
+                self.http_calls += 1
+                if self.http_calls == 1:
+                    raise TimeoutError("readback timed out")
+                return Result()
+
+        def capture_write(path: Path, payload: harness.JsonObject) -> None:
+            _ = path
+            writes.append(copy.deepcopy(payload))
+
+        smoke = FakeSmoke()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "active_code_readback.json"
+            with mock.patch.object(harness, "write_json_atomic", side_effect=capture_write):
+                with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+                    token, readback = harness._poll_private_simulator_active_code_readback(
+                        smoke,
+                        Cfg(),
+                        "token",
+                        uploaded,
+                        branch="default",
+                        output_path=output_path,
+                    )
+
+        self.assertEqual(token, "token-rotated")
+        self.assertEqual(smoke.http_calls, 2)
+        self.assertEqual(smoke.update_calls, 1)
+        sleep.assert_called_once_with(harness.RUN_TICK_POLL_SECONDS)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(writes[0]["status"], "transport-error")
+        self.assertEqual(writes[0]["attempt"], 1)
+        self.assertEqual(writes[0]["maxAttempts"], harness.ACTIVE_CODE_READBACK_MAX_ATTEMPTS)
+        self.assertEqual(writes[0]["exceptionType"], "TimeoutError")
+        self.assertIn("readback timed out", writes[0]["error"])
+        self.assertNotIn("httpStatus", writes[0])
+        self.assertEqual(readback["status"], "matched")
+        self.assertEqual(readback["attempt"], 2)
+
     def test_runtime_parameter_trainability_smoke_gate_blocks_missing_consumption(self) -> None:
         code = "module.exports.loop = function loop() {};"
         injection = self.uploaded_runtime_parameter_injection()
@@ -4763,16 +4827,46 @@ cli:
             http_status=200,
         )
         missing = harness.runtime_parameter_consumption_check(injection, None)
-        consumed = harness.runtime_parameter_consumption_check(
+        unticked_consumed = harness.runtime_parameter_consumption_check(
             injection,
             self.runtime_parameter_consumption_evidence(injection),
         )
+        consumed_evidence = self.runtime_parameter_consumption_evidence(injection)
+        consumed_evidence["tick"] = 1
+        consumed = harness.runtime_parameter_consumption_check(
+            injection,
+            consumed_evidence,
+        )
+        injection_at_tick = copy.deepcopy(injection)
+        injection_at_tick["tick"] = 1
+        stale_tick_consumption = copy.deepcopy(consumed)
+        stale_tick_consumption["consumedTick"] = 1
 
         self.assertIn(
             "runtime-parameter trainability smoke gate failed",
             harness.runtime_parameter_trainability_smoke_gate_error(
                 runtime_parameter_injection=injection,
                 runtime_parameter_consumption=missing,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
+            "missing positive consumedTick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=unticked_consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
+            "did not advance beyond injection tick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection_at_tick,
+                runtime_parameter_consumption=stale_tick_consumption,
                 ticks_run=1,
                 active_code_readback=readback,
             )

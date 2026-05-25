@@ -1048,6 +1048,7 @@ def maybe_run_pre_scale_trainability_smoke_gate(
         min_concurrent_environments=0,
         variant_configs=variant_configs,
     )
+    assert_simulator_runs_shadow_safe([smoke_run])
     validate_pre_scale_trainability_smoke_gate(smoke_run, smoke_variant.id)
     return smoke_run
 
@@ -1096,7 +1097,7 @@ def validate_pre_scale_trainability_smoke_gate(smoke_run: JsonObject, variant_id
             f"{detail}"
         )
     consumed_tick = int_or_none(consumption.get("consumedTick"))
-    if consumed_tick is None:
+    if consumed_tick is None or consumed_tick <= 0:
         raise RuntimeError(
             "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
             "missing numeric consumedTick"

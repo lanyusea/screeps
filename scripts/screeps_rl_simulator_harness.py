@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, TextIO
@@ -1051,21 +1052,42 @@ def _poll_private_simulator_active_code_readback(
     active_code_readback: JsonObject | None = None
     active_code_error: str | None = None
     for attempt in range(1, ACTIVE_CODE_READBACK_MAX_ATTEMPTS + 1):
-        roundtrip = smoke.http_json(
-            "GET",
-            cfg.server_url,
-            "/api/user/code",
-            headers=smoke.token_headers(token),
-            params={"branch": branch},
-            timeout=RUN_PHASE_TIMEOUT_SECONDS,
-        )
-        token = smoke.update_token_from_headers(token, roundtrip.headers)
-        active_code_readback = private_simulator_active_code_readback_summary(
-            uploaded_code_text,
-            roundtrip.payload,
-            branch=branch,
-            http_status=roundtrip.status,
-        )
+        try:
+            roundtrip = smoke.http_json(
+                "GET",
+                cfg.server_url,
+                "/api/user/code",
+                headers=smoke.token_headers(token),
+                params={"branch": branch},
+                timeout=RUN_PHASE_TIMEOUT_SECONDS,
+            )
+            token = smoke.update_token_from_headers(token, roundtrip.headers)
+            active_code_readback = private_simulator_active_code_readback_summary(
+                uploaded_code_text,
+                roundtrip.payload,
+                branch=branch,
+                http_status=roundtrip.status,
+            )
+        except Exception as exc:  # noqa: BLE001 - active-code readback is a bounded retry gate
+            active_code_readback = {
+                "type": ACTIVE_CODE_READBACK_TYPE,
+                "schemaVersion": SCHEMA_VERSION,
+                "status": "transport-error",
+                "branch": branch,
+                "module": "main",
+                "activeCodeMatchesUploaded": False,
+                "uploadedCodeBytes": len(uploaded_code_text.encode("utf-8")),
+                "uploadedCodeSha256": hashlib.sha256(uploaded_code_text.encode("utf-8")).hexdigest(),
+                "error": _safe_text(exc, 360),
+                "exceptionType": type(exc).__name__,
+                "exceptionTraceback": _safe_text(
+                    "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                    1200,
+                ),
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            }
         active_code_readback["attempt"] = attempt
         active_code_readback["maxAttempts"] = ACTIVE_CODE_READBACK_MAX_ATTEMPTS
         write_json_atomic(output_path, active_code_readback)
@@ -1097,6 +1119,15 @@ def runtime_parameter_trainability_smoke_gate_error(
     if ticks_run < 1:
         return "runtime-parameter trainability smoke gate did not execute a simulator tick"
     if runtime_parameter_consumption.get("runtimeParameterConsumption") is True:
+        consumed_tick = _coerce_int(runtime_parameter_consumption.get("consumedTick"))
+        if consumed_tick is None or consumed_tick <= 0:
+            return "runtime-parameter trainability smoke gate failed: missing positive consumedTick"
+        injection_tick = _coerce_int(runtime_parameter_injection.get("tick"))
+        if injection_tick is not None and consumed_tick <= injection_tick:
+            return (
+                "runtime-parameter trainability smoke gate failed: "
+                f"consumedTick={consumed_tick} did not advance beyond injection tick={injection_tick}"
+            )
         return None
     status = text_or_none(runtime_parameter_consumption.get("status")) or "missing"
     reason = text_or_none(runtime_parameter_consumption.get("reason")) or (
