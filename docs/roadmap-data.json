@@ -4,7 +4,7 @@
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
   "generatedAt": "2026-05-25T10:49:00Z",
-  "generatedAtCst": "2026-05-25 18:49:00 CST",
+  "generatedAtCst": "2026-05-25T18:49:00+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -79890,7 +79890,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 Combat \u00b7 Combat",
+            "description": "In progress \u00b7 Combat \u00b7 2026-05-25 P1: E29N56 rampart damage runtime alert recurrence (2026-05-25)",
             "domain": "Combat",
             "number": 1429,
             "priority": "P1",

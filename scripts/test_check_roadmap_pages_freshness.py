@@ -38,7 +38,7 @@ def live_github_snapshot() -> dict[str, Any]:
 def write_pages(repo_root: Path, *, generated_at: str, html_timestamp: str | None = None, github: Any = None) -> None:
     docs = repo_root / "docs"
     docs.mkdir(parents=True)
-    generated_at_cst = "2026-05-23 12:00:00 CST"
+    generated_at_cst = "2026-05-23T12:00:00+08:00"
     data = {
         "generatedAt": generated_at,
         "generatedAtCst": generated_at_cst,

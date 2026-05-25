@@ -2920,7 +2920,11 @@ def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]
     if not isinstance(number, int):
         return dict(item)
     context = issue_lookup.get(number, {})
-    return {**context, **item}
+    merged = {**context, **item}
+    for key in ("state", "labels", "milestone", "kind", "evidence", "nextAction", "updatedAt", "createdAt"):
+        if not merged.get(key) and context.get(key):
+            merged[key] = context[key]
+    return merged
 
 
 def build_report_domain_card(
@@ -3130,7 +3134,7 @@ def report_domain_kanban_item(card: JsonObject) -> JsonObject:
         override.get("description"),
         card.get("nextAction"),
         card.get("evidence"),
-        card.get("domain"),
+        report_item_context_fallback(card),
         "Track Project evidence and next action.",
     )
     detail = f"{status} · {project_domain(card)}"
@@ -3147,12 +3151,31 @@ def report_domain_kanban_item(card: JsonObject) -> JsonObject:
     }
 
 
+def report_item_context_fallback(card: JsonObject) -> str:
+    title = first_visible_report_text(card.get("title"))
+    domain = project_domain(card)
+    if not title or title == domain:
+        return ""
+    context_date = report_item_context_date(card)
+    return f"{context_date} {title}" if context_date else title
+
+
+def report_item_context_date(card: JsonObject) -> str:
+    timestamp = first_visible_report_text(card.get("updatedAt"), card.get("createdAt"))
+    if not timestamp:
+        return ""
+    parsed = parse_timestamp(timestamp)
+    if parsed is None:
+        return ""
+    return parsed.astimezone(timezone.utc).date().isoformat()
+
+
 def format_cst(generated_at: str) -> str:
     try:
         value = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
     except ValueError:
-        value = datetime.now(timezone.utc)
-    return value.astimezone(CST).strftime("%Y-%m-%d %H:%M:%S CST")
+        value = datetime.now(timezone.utc).replace(microsecond=0)
+    return value.astimezone(CST).replace(microsecond=0).isoformat()
 
 
 def report_cards_with_urls(
@@ -3219,6 +3242,7 @@ def build_issue_context_lookup(github_snapshot: JsonObject) -> dict[int, JsonObj
                 "nextAction": item.get("nextAction") or existing.get("nextAction") or "",
                 "url": item.get("url") or existing.get("url") or "",
                 "updatedAt": item.get("updatedAt") or existing.get("updatedAt") or "",
+                "createdAt": item.get("createdAt") or existing.get("createdAt") or "",
                 "source": collection_name,
             }
     return lookup
