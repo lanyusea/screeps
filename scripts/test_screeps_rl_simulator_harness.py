@@ -4726,12 +4726,28 @@ cli:
             branch="default",
             http_status=200,
         )
+        branch_mismatched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "stale-branch", "modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
+        missing_branch = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
 
         self.assertEqual(matched["status"], "matched")
         self.assertTrue(matched["activeCodeMatchesUploaded"])
         self.assertEqual(matched["uploadedCodeSha256"], matched["activeCodeSha256"])
         self.assertEqual(mismatched["status"], "mismatch")
         self.assertFalse(mismatched["activeCodeMatchesUploaded"])
+        self.assertEqual(branch_mismatched["status"], "branch-mismatch")
+        self.assertFalse(branch_mismatched["activeCodeMatchesUploaded"])
+        self.assertEqual(missing_branch["status"], "missing-branch")
+        self.assertFalse(missing_branch["activeCodeMatchesUploaded"])
         self.assertIn(
             "active private-server code hash verification failed",
             harness.private_simulator_active_code_readback_error(mismatched) or "",
@@ -4742,7 +4758,7 @@ cli:
         injection = self.uploaded_runtime_parameter_injection()
         readback = harness.private_simulator_active_code_readback_summary(
             code,
-            {"modules": {"main": code}},
+            {"branch": "default", "modules": {"main": code}},
             branch="default",
             http_status=200,
         )
@@ -5461,6 +5477,7 @@ cli:
             def __init__(self) -> None:
                 self.uploaded_branch: str | None = None
                 self.uploaded_code_text: str | None = None
+                self.code_readback_count = 0
                 self.runtime_payload: dict[str, object] | None = None
                 self.gametime = 0
                 self.room = "E1S1"
@@ -5602,12 +5619,16 @@ cli:
                     return Result(200, {"ok": 1, "token": "token"})
                 if path == "/api/user/code":
                     if method == "GET":
+                        self.code_readback_count += 1
+                        main_code = self.uploaded_code_text
+                        if self.code_readback_count == 1 and isinstance(main_code, str):
+                            main_code = f"{main_code}\n// stale readback"
                         return Result(
                             200,
                             {
                                 "ok": 1,
                                 "branch": self.uploaded_branch,
-                                "modules": {"main": self.uploaded_code_text},
+                                "modules": {"main": main_code},
                             },
                         )
                     return Result(200, {"ok": 1})
@@ -5664,29 +5685,31 @@ cli:
             map_path.write_text("{\"ok\": true}", encoding="utf-8")
             fake_smoke = FakeSmoke()
             with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=fake_smoke):
-                result = harness._run_variant(
-                    0,
-                    variant_id,
-                    run_id="runtime-consumption",
-                    ticks=1,
-                    room="E1S1",
-                    shard="shardX",
-                    branch="activeWorld",
-                    code_path=code_path,
-                    map_source_file=map_path,
-                    out_dir=root / "out",
-                    variant_configs={
-                        variant_id: {
-                            "id": variant_id,
-                            "candidatePolicyId": variant_id,
-                            "sourceStrategyId": "construction-priority.territory-shadow.v1",
-                            "family": "construction-priority",
-                            "parameters": parameters,
-                        }
-                    },
-                )
+                with mock.patch.object(harness.time, "sleep", return_value=None):
+                    result = harness._run_variant(
+                        0,
+                        variant_id,
+                        run_id="runtime-consumption",
+                        ticks=1,
+                        room="E1S1",
+                        shard="shardX",
+                        branch="activeWorld",
+                        code_path=code_path,
+                        map_source_file=map_path,
+                        out_dir=root / "out",
+                        variant_configs={
+                            variant_id: {
+                                "id": variant_id,
+                                "candidatePolicyId": variant_id,
+                                "sourceStrategyId": "construction-priority.territory-shadow.v1",
+                                "family": "construction-priority",
+                                "parameters": parameters,
+                            }
+                        },
+                    )
 
         self.assertEqual(fake_smoke.uploaded_branch, "default")
+        self.assertEqual(fake_smoke.code_readback_count, 2)
         self.assertTrue(result["ok"])
         self.assertEqual(result["scenario"]["activeWorldBranch"], "default")
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterInjection"])
@@ -5694,6 +5717,7 @@ cli:
         self.assertEqual(result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
         self.assertTrue(result["activeCodeReadback"]["activeCodeMatchesUploaded"])
         self.assertEqual(result["activeCodeReadback"]["status"], "matched")
+        self.assertEqual(result["activeCodeReadback"]["attempt"], 2)
         self.assertTrue(result["runtimeParameterConsumption"]["runtimeParameterConsumption"])
         self.assertEqual(result["runtimeParameterConsumption"]["source"], "Memory.rlRuntimePolicyParameters")
         self.assertEqual(result["runtimeParameterConsumption"]["evaluatedParameters"], parameters)

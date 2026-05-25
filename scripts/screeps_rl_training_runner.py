@@ -981,6 +981,7 @@ def execute_simulator_runs(
         config=config,
         base_run_id=base_run_id,
         min_concurrent_environments=min_concurrent_environments,
+        effective_workers=effective_workers,
     )
     for repetition in range(config.repetitions):
         run_id = base_run_id if config.repetitions == 1 else f"{base_run_id}-r{repetition + 1:02d}"
@@ -1017,6 +1018,7 @@ def maybe_run_pre_scale_trainability_smoke_gate(
     config: SimulationConfig,
     base_run_id: str,
     min_concurrent_environments: int,
+    effective_workers: int,
 ) -> JsonObject | None:
     if simulator_runner is not simulator_harness.run_simulator:
         return None
@@ -1026,13 +1028,18 @@ def maybe_run_pre_scale_trainability_smoke_gate(
     if smoke_variant is None:
         return None
     smoke_run_id = f"{base_run_id}-pre-scale-smoke"
+    smoke_host_port_start = simulator_repetition_host_port_start(
+        config.host_port_start,
+        config.repetitions,
+        effective_workers,
+    )
     smoke_run = simulator_runner(
         ticks=1,
         workers=1,
         variants=[smoke_variant.id],
         out_dir=config.simulator_out_dir,
         run_id=smoke_run_id,
-        host_port_start=config.host_port_start,
+        host_port_start=smoke_host_port_start,
         room=config.room,
         shard=config.shard,
         branch=config.branch,
@@ -1087,6 +1094,18 @@ def validate_pre_scale_trainability_smoke_gate(smoke_run: JsonObject, variant_id
         raise RuntimeError(
             "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
             f"{detail}"
+        )
+    consumed_tick = int_or_none(consumption.get("consumedTick"))
+    if consumed_tick is None:
+        raise RuntimeError(
+            "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
+            "missing numeric consumedTick"
+        )
+    injection_tick = int_or_none(injection.get("tick"))
+    if injection_tick is not None and consumed_tick <= injection_tick:
+        raise RuntimeError(
+            "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: "
+            f"consumedTick={consumed_tick} did not advance beyond injection tick={injection_tick}"
         )
 
 

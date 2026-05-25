@@ -5405,6 +5405,7 @@ export const STRATEGY_REGISTRY = [
                 "liveEffect": False,
                 "officialMmoWrites": False,
                 "officialMmoWritesAllowed": False,
+                "tick": 1,
             }
             consumption = runner.simulator_harness.runtime_parameter_consumption_check(injection, evidence)
             return {
@@ -5413,7 +5414,7 @@ export const STRATEGY_REGISTRY = [
                 "tick_log": [{"tick": 1}],
                 "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
                     code,
-                    {"modules": {"main": code}},
+                    {"branch": "default", "modules": {"main": code}},
                     branch="default",
                     http_status=200,
                 ),
@@ -5458,9 +5459,11 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(calls[0]["workers"], 1)
         self.assertEqual(calls[0]["variants"], ["candidate.scale-env-01"])
         self.assertEqual(calls[0]["min_concurrent_environments"], 0)
+        self.assertEqual(calls[0]["host_port_start"], 24133)
         self.assertEqual(calls[1]["run_id"], "scale-run")
         self.assertEqual(calls[1]["variants"], [variant.id for variant in variants])
         self.assertEqual(calls[1]["min_concurrent_environments"], 5)
+        self.assertEqual(calls[1]["host_port_start"], 24125)
         self.assertEqual(runs[0]["runId"], "scale-run")
 
     def test_private_runner_pre_scale_smoke_gate_rejects_missing_requested_variant_row(self) -> None:
@@ -5483,12 +5486,86 @@ export const STRATEGY_REGISTRY = [
                             "tick_log": [{"tick": 1}],
                             "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
                                 code,
-                                {"modules": {"main": code}},
+                                {"branch": "default", "modules": {"main": code}},
                                 branch="default",
                                 http_status=200,
                             ),
                             "runtimeParameterInjection": {"runtimeParameterInjection": True},
                             "runtimeParameterConsumption": {"runtimeParameterConsumption": True},
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_consumption_without_numeric_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric consumedTick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_consumption_before_injection_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "did not advance beyond injection tick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 7}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {
+                                "runtimeParameterInjection": True,
+                                "tick": 7,
+                            },
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 7,
+                            },
                         }
                     ],
                 },
@@ -5544,7 +5621,7 @@ export const STRATEGY_REGISTRY = [
                         "tick_log": [{"tick": 1}],
                         "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
                             code,
-                            {"modules": {"main": code}},
+                            {"branch": "default", "modules": {"main": code}},
                             branch="default",
                             http_status=200,
                         ),

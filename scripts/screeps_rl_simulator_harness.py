@@ -101,6 +101,7 @@ RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
 RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE = "private_simulator_game_loop_runtime_parameters"
 RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
 ACTIVE_CODE_READBACK_TYPE = "screeps-rl-private-simulator-active-code-readback"
+ACTIVE_CODE_READBACK_MAX_ATTEMPTS = 5
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
@@ -991,7 +992,12 @@ def private_simulator_active_code_readback_summary(
                 status = "missing-main-module"
             else:
                 active_code = main
-                status = "matched" if active_code == uploaded_code_text else "mismatch"
+                if active_branch is None:
+                    status = "missing-branch"
+                elif active_branch != branch:
+                    status = "branch-mismatch"
+                else:
+                    status = "matched" if active_code == uploaded_code_text else "mismatch"
 
     active_data = active_code.encode("utf-8") if active_code is not None else b""
     active_sha256 = hashlib.sha256(active_data).hexdigest() if active_code is not None else None
@@ -1024,10 +1030,53 @@ def private_simulator_active_code_readback_error(readback: Any) -> str | None:
     status = text_or_none(readback.get("status")) or "unknown"
     uploaded_sha = text_or_none(readback.get("uploadedCodeSha256")) or "unknown"
     active_sha = text_or_none(readback.get("activeCodeSha256")) or "missing"
+    branch = text_or_none(readback.get("branch")) or "unknown"
+    active_branch = text_or_none(readback.get("activeBranch")) or "missing"
     return (
         "active private-server code hash verification failed: "
-        f"status={status} uploadedCodeSha256={uploaded_sha} activeCodeSha256={active_sha}"
+        f"status={status} branch={branch} activeBranch={active_branch} "
+        f"uploadedCodeSha256={uploaded_sha} activeCodeSha256={active_sha}"
     )
+
+
+def _poll_private_simulator_active_code_readback(
+    smoke: Any,
+    cfg: Any,
+    token: str,
+    uploaded_code_text: str,
+    *,
+    branch: str,
+    output_path: Path,
+) -> tuple[str, JsonObject]:
+    active_code_readback: JsonObject | None = None
+    active_code_error: str | None = None
+    for attempt in range(1, ACTIVE_CODE_READBACK_MAX_ATTEMPTS + 1):
+        roundtrip = smoke.http_json(
+            "GET",
+            cfg.server_url,
+            "/api/user/code",
+            headers=smoke.token_headers(token),
+            params={"branch": branch},
+            timeout=RUN_PHASE_TIMEOUT_SECONDS,
+        )
+        token = smoke.update_token_from_headers(token, roundtrip.headers)
+        active_code_readback = private_simulator_active_code_readback_summary(
+            uploaded_code_text,
+            roundtrip.payload,
+            branch=branch,
+            http_status=roundtrip.status,
+        )
+        active_code_readback["attempt"] = attempt
+        active_code_readback["maxAttempts"] = ACTIVE_CODE_READBACK_MAX_ATTEMPTS
+        write_json_atomic(output_path, active_code_readback)
+        active_code_error = private_simulator_active_code_readback_error(active_code_readback)
+        if active_code_error is None:
+            return token, active_code_readback
+        if attempt < ACTIVE_CODE_READBACK_MAX_ATTEMPTS:
+            time.sleep(RUN_TICK_POLL_SECONDS)
+    if active_code_error is not None:
+        raise RuntimeError(active_code_error)
+    raise RuntimeError("active private-server code readback failed without diagnostic")
 
 
 def runtime_parameter_trainability_smoke_gate_error(
@@ -5536,25 +5585,14 @@ def _run_variant(
         )
         write_json_atomic(safe_run_root / "runtime_parameter_injection.json", runtime_parameter_injection)
 
-        roundtrip = smoke.http_json(
-            "GET",
-            cfg.server_url,
-            "/api/user/code",
-            headers=smoke.token_headers(token),
-            params={"branch": api_branch},
-            timeout=RUN_PHASE_TIMEOUT_SECONDS,
-        )
-        token = smoke.update_token_from_headers(token, roundtrip.headers)
-        active_code_readback = private_simulator_active_code_readback_summary(
+        token, active_code_readback = _poll_private_simulator_active_code_readback(
+            smoke,
+            cfg,
+            token,
             uploaded_code_text,
-            roundtrip.payload,
             branch=api_branch,
-            http_status=roundtrip.status,
+            output_path=safe_run_root / "active_code_readback.json",
         )
-        write_json_atomic(safe_run_root / "active_code_readback.json", active_code_readback)
-        active_code_error = private_simulator_active_code_readback_error(active_code_readback)
-        if active_code_error is not None:
-            raise RuntimeError(active_code_error)
 
         place = smoke.http_json(
             "POST",
