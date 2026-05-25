@@ -367,6 +367,120 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(card["reward_model"]["component_order"], ["reliability", "territory", "resources", "kills"])
         self.assertFalse(card["reward_model"]["scalar_weighted_sum_authorized"])
 
+    def test_loop_a_supply_card_id_is_generation_specific_but_accepts_legacy_id(self) -> None:
+        dataset_run_id = "rl-loop-a-supply-000001"
+        code_commit = "f" * 40
+        with mock.patch.object(card_helper.secrets, "token_hex", return_value="abc123"):
+            card = card_helper.build_card(
+                dataset_run_id=dataset_run_id,
+                code_commit=code_commit,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T01:25:00Z",
+                loop_a_card_supply=True,
+            )
+        legacy_base_card = json.loads(json.dumps(card))
+        legacy_base_card["card_id"] = f"rl-exp-{dataset_run_id}-{code_commit[:12]}"
+        legacy_timestamp_card = json.loads(json.dumps(card))
+        legacy_timestamp_card["card_id"] = f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T012500Z"
+
+        self.assertEqual(
+            card["card_id"],
+            f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T012500Zabc123",
+        )
+        card_helper.validate_card(card)
+        card_helper.validate_card(legacy_base_card)
+        card_helper.validate_card(legacy_timestamp_card)
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(card))
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(legacy_base_card))
+        self.assertTrue(card_helper.is_loop_a_card_available_for_training(legacy_timestamp_card))
+
+    def test_loop_a_supply_card_id_adds_entropy_for_same_created_at_retries(self) -> None:
+        dataset_run_id = "rl-loop-a-supply-000001"
+        code_commit = "f" * 40
+        created_at = "2026-05-17T01:25:00Z"
+        with mock.patch.object(card_helper.secrets, "token_hex", side_effect=("abc123", "def456")):
+            first = card_helper.build_card(
+                dataset_run_id=dataset_run_id,
+                code_commit=code_commit,
+                training_approach="policy_gradient",
+                created_at=created_at,
+                loop_a_card_supply=True,
+            )
+            second = card_helper.build_card(
+                dataset_run_id=dataset_run_id,
+                code_commit=code_commit,
+                training_approach="policy_gradient",
+                created_at=created_at,
+                loop_a_card_supply=True,
+            )
+
+        self.assertEqual(
+            first["card_id"],
+            f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T012500Zabc123",
+        )
+        self.assertEqual(
+            second["card_id"],
+            f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T012500Zdef456",
+        )
+        self.assertNotEqual(first["card_id"], second["card_id"])
+        card_helper.validate_card(first)
+        card_helper.validate_card(second)
+        runner.validate_experiment_card(first)
+        runner.validate_experiment_card(second)
+
+    def test_cli_output_dir_uses_fractional_default_created_at_for_same_second_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            card_dir = Path(temp_dir)
+            dataset_run_id = "rl-same-second-retry"
+            code_commit = "6" * 40
+            summaries = []
+
+            with mock.patch.object(
+                card_helper,
+                "utc_now_iso",
+                side_effect=("2026-05-17T03:00:00.111111Z", "2026-05-17T03:00:00.222222Z"),
+            ), mock.patch.object(
+                card_helper.secrets,
+                "token_hex",
+                side_effect=("abc123", "def456"),
+            ):
+                for _ in range(2):
+                    stdout = io.StringIO()
+                    exit_code = card_helper.main(
+                        [
+                            "--loop-a-policy-gradient-supply",
+                            "--dataset-run-id",
+                            dataset_run_id,
+                            "--code-commit",
+                            code_commit,
+                            "--output-dir",
+                            str(card_dir),
+                        ],
+                        stdout=stdout,
+                        stderr=io.StringIO(),
+                        repo_root=REPO_ROOT,
+                    )
+                    self.assertEqual(exit_code, 0)
+                    summaries.append(json.loads(stdout.getvalue()))
+
+            paths = [Path(summary["path"]) for summary in summaries]
+            generated = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+
+        self.assertEqual(
+            [path.name for path in paths],
+            [
+                f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T030000111111Zabc123.json",
+                f"rl-exp-{dataset_run_id}-{code_commit[:12]}-20260517T030000222222Zdef456.json",
+            ],
+        )
+        self.assertEqual(len({path.name for path in paths}), 2)
+        for card in generated:
+            card_helper.validate_card(card)
+            runner.validate_experiment_card(card)
+
+    def test_utc_now_iso_includes_microseconds(self) -> None:
+        self.assertRegex(card_helper.utc_now_iso(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
+
     def test_loop_a_supply_rejects_bandit_card(self) -> None:
         with self.assertRaisesRegex(card_helper.CardValidationError, "requires training_approach=policy_gradient"):
             card_helper.build_card(
@@ -2009,6 +2123,49 @@ class RlExperimentCardTest(unittest.TestCase):
         assert selected is not None
         self.assertEqual(selected["card_id"], available["card_id"])
         self.assertEqual(selected["card_supply"]["state"], "available")
+
+    def test_select_loop_a_card_allows_regenerated_same_dataset_commit_supply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_dir = root / "cards"
+            report_dir = root / "reports"
+            card_dir.mkdir()
+            report_dir.mkdir()
+            consumed = card_helper.build_card(
+                dataset_run_id="rl-loop-a-regenerated",
+                code_commit="1" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T02:00:00Z",
+                loop_a_card_supply=True,
+            )
+            regenerated = card_helper.build_card(
+                dataset_run_id="rl-loop-a-regenerated",
+                code_commit="1" * 40,
+                training_approach="policy_gradient",
+                created_at="2026-05-17T02:15:00Z",
+                loop_a_card_supply=True,
+            )
+            (card_dir / "consumed.json").write_text(json.dumps(consumed), encoding="utf-8")
+            (card_dir / "regenerated.json").write_text(json.dumps(regenerated), encoding="utf-8")
+            (report_dir / "training.json").write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-training-report",
+                        "experimentCard": {
+                            "cardId": consumed["card_id"],
+                            "cardSupply": consumed["card_supply"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            selected = card_helper.select_loop_a_card_supply(card_dir, report_dir)
+
+        self.assertNotEqual(consumed["card_id"], regenerated["card_id"])
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["card_id"], regenerated["card_id"])
 
     def test_select_loop_a_card_ignores_non_loop_a_training_report_with_same_card_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
