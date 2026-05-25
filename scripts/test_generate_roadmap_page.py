@@ -233,6 +233,10 @@ def session_meta_record(timestamp: str, cwd: Path | str) -> dict[str, Any]:
 
 
 class GenerateRoadmapPageTest(unittest.TestCase):
+    def test_format_cst_uses_rfc3339_numeric_offset(self) -> None:
+        self.assertEqual(roadmap.format_cst("2026-05-23T04:00:00Z"), "2026-05-23T12:00:00+08:00")
+        self.assertNotIn("CST", roadmap.format_cst("2026-05-23T04:00:00Z"))
+
     def test_screeps_room_target_falls_back_to_current_official_room(self) -> None:
         target = roadmap.build_screeps_room_target({})
 
@@ -1743,6 +1747,86 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([item["number"] for item in runtime_column["items"]], [1375])
         self.assertEqual([item["number"] for item in release_column["items"]], [1376])
 
+    def test_merge_issue_context_preserves_explicit_empty_project_values(self) -> None:
+        merged = roadmap.merge_issue_context(
+            {
+                "type": "Issue",
+                "number": 1429,
+                "title": "Project item",
+                "labels": [],
+                "evidence": "",
+                "nextAction": "",
+            },
+            {
+                1429: {
+                    "state": "OPEN",
+                    "labels": ["roadmap"],
+                    "milestone": "Phase C",
+                    "kind": "ops",
+                    "evidence": "stale issue evidence",
+                    "nextAction": "stale issue next action",
+                    "updatedAt": "2026-05-25T10:48:41Z",
+                    "createdAt": "2026-05-25T10:31:51Z",
+                }
+            },
+        )
+
+        self.assertEqual(merged["labels"], [])
+        self.assertEqual(merged["evidence"], "")
+        self.assertEqual(merged["nextAction"], "")
+        self.assertEqual(merged["state"], "OPEN")
+        self.assertEqual(merged["milestone"], "Phase C")
+        self.assertEqual(merged["updatedAt"], "2026-05-25T10:48:41Z")
+
+    def test_domain_kanban_falls_back_to_issue_recency_and_title_when_project_evidence_is_empty(self) -> None:
+        snapshot = {
+            "sourceMode": "live",
+            "fetched": True,
+            "fetchErrors": [],
+            "projectItemsSource": "live",
+            "projectItemsCompleteness": {"complete": True, "returnedCount": 1, "totalCount": 1, "limit": 2000},
+            "issues": [
+                {
+                    "type": "Issue",
+                    "number": 1429,
+                    "title": "P1: E29N56 rampart damage runtime alert recurrence (2026-05-25)",
+                    "url": "https://github.com/lanyusea/screeps/issues/1429",
+                    "state": "OPEN",
+                    "status": "Ready",
+                    "priority": "P1",
+                    "domain": "Change-control",
+                    "domainSource": "heuristic",
+                    "updatedAt": "2026-05-25T10:48:41Z",
+                    "createdAt": "2026-05-25T10:31:51Z",
+                }
+            ],
+            "projectItems": [
+                {
+                    "type": "Issue",
+                    "number": 1429,
+                    "title": "P1: E29N56 rampart damage runtime alert recurrence (2026-05-25)",
+                    "url": "https://github.com/lanyusea/screeps/issues/1429",
+                    "status": "In progress",
+                    "priority": "P1",
+                    "domain": "Combat",
+                    "projectDomain": "Combat",
+                    "domainSource": "project",
+                    "evidence": "",
+                    "nextAction": "",
+                    "updatedAt": "",
+                }
+            ],
+            "pullRequests": [],
+            "roadmapCards": [],
+        }
+
+        domain_board = roadmap.build_report_domain_kanban(snapshot)
+        combat_column = next(column for column in domain_board if column["title"] == "Combat")
+        description = combat_column["items"][0]["description"]
+
+        self.assertIn("In progress · Combat · 2026-05-25 P1: E29N56 rampart damage", description)
+        self.assertNotIn("Combat · Combat", description)
+
     def test_fetch_github_snapshot_marks_cached_project_items_when_project_fetch_fails(self) -> None:
         cached_snapshot = {
             "projectItems": [
@@ -1822,7 +1906,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             "title": roadmap.PAGE_TITLE,
             "format": roadmap.REPORT_FORMAT,
             "generatedAt": "2026-04-28T00:00:00Z",
-            "generatedAtCst": "2026-04-28 08:00:00 CST",
+            "generatedAtCst": "2026-04-28T08:00:00+08:00",
             "repo": {
                 "fullName": "lanyusea/screeps",
                 "url": "https://github.com/lanyusea/screeps",
