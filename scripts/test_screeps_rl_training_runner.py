@@ -5463,6 +5463,38 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(calls[1]["min_concurrent_environments"], 5)
         self.assertEqual(runs[0]["runId"], "scale-run")
 
+    def test_private_runner_pre_scale_smoke_gate_rejects_missing_requested_variant_row(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "produced no variant result"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "unrelated-success",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {"runtimeParameterConsumption": True},
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
     def test_private_runner_pre_scale_smoke_gate_rejects_missing_consumption_before_scale(self) -> None:
         calls: list[JsonObject] = []
         variants = [

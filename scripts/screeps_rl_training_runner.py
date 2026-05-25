@@ -1064,7 +1064,7 @@ def validate_pre_scale_trainability_smoke_gate(smoke_run: JsonObject, variant_id
             or text_or_none(item.get("variantId")) == variant_id
             or text_or_none(item.get("id")) == variant_id
         ),
-        rows[0] if rows else None,
+        None,
     )
     if row is None:
         raise RuntimeError("pre-scale private-simulator trainability smoke gate produced no variant result")
