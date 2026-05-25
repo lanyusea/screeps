@@ -943,10 +943,13 @@ def summarize_runtime_parameter_injection(rows: Sequence[JsonObject]) -> JsonObj
         "candidateParameterScope": scope or ("runtime_injected" if eligible else "missing"),
         "evidence": evidence,
     }
+    source_rows = eligible_rows or [
+        row for row in summary_rows if row.get("runtimeParameterConsumption") is True
+    ]
     consumption_source = first_text(
         [
             text_value(row.get("runtimeParameterConsumptionSource"))
-            for row in summary_rows
+            for row in source_rows
             if row.get("runtimeParameterConsumptionSource")
         ]
     )

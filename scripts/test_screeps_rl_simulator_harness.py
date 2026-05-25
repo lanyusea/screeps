@@ -4713,6 +4713,29 @@ cli:
         self.assertIn("disagreed", consumption["reason"])
         self.assertNotEqual(consumption.get("source"), harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
 
+    def test_direct_game_loop_fallback_preserves_missing_collector_failure_without_runtime_signal(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        missing_consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            None,
+            source_errors=["redis evidence unavailable"],
+        )
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing_consumption,
+            [{"tick": 20, "rooms": {"W1N1": {"creeps": 1}}}],
+        )
+
+        self.assertEqual(consumption["status"], "missing")
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertIn("redis evidence unavailable", consumption["reason"])
+        self.assertNotEqual(consumption.get("source"), harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertTrue(consumption["directRuntimeEvaluation"])
+        self.assertEqual(consumption["consumptionMode"], "direct_simulator_game_loop")
+        self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
+        self.assertIn("did not mark the payload consumed", consumption["directRuntimeEvaluationReason"])
+
     def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
         base_code = (
             '"use strict";\n'

@@ -297,6 +297,37 @@ def test_runtime_consumption_evidence_counts_as_scorecard_runtime_proof() -> Non
     assert summary["policyUpdateEligible"] is True
 
 
+def test_runtime_consumption_source_comes_from_row_that_proved_consumption() -> None:
+    direct_source = training_runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE
+    summary = scorecard.summarize_runtime_parameter_injection(
+        [
+            {
+                "summaryLevel": "summary",
+                "status": "invalid",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": False,
+                "runtimeParameterConsumptionSource": "runtime_policy_parameter_consumption",
+                "candidateParameterScope": "runtime_injected",
+                "policyUpdateEligible": False,
+                "consumedVariantCount": 0,
+            },
+            {
+                "summaryLevel": "summary",
+                "status": "consumed",
+                "runtimeParameterInjection": True,
+                "runtimeParameterConsumption": True,
+                "runtimeParameterConsumptionSource": direct_source,
+                "candidateParameterScope": "runtime_injected",
+                "policyUpdateEligible": True,
+                "consumedVariantCount": 1,
+            },
+        ]
+    )
+
+    assert summary["runtimeParameterConsumption"] is True
+    assert summary["runtimeParameterConsumptionSource"] == direct_source
+
+
 def test_scorecard_fails_safety_regression_even_with_gameplay_gain(tmp_path: Path) -> None:
     baseline = write_bundle(tmp_path / "baseline", candidate=False)
     candidate = write_bundle(tmp_path / "candidate", candidate=True, safety_regression=True)

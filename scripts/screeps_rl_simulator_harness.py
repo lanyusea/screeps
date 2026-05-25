@@ -1115,10 +1115,7 @@ def runtime_parameter_consumption_with_direct_game_loop_fallback(
     if direct_evidence is None:
         return consumption
     direct_consumption = runtime_parameter_consumption_check(injection, direct_evidence)
-    if (
-        direct_consumption.get("runtimeParameterConsumption") is True
-        or text_or_none(consumption.get("status")) in (None, "missing")
-    ):
+    if direct_consumption.get("runtimeParameterConsumption") is True:
         for field, target in (
             ("status", "fallbackRuntimeParameterConsumptionStatus"),
             ("reason", "fallbackRuntimeParameterConsumptionReason"),
@@ -1128,6 +1125,16 @@ def runtime_parameter_consumption_with_direct_game_loop_fallback(
             if value is not None:
                 direct_consumption[target] = value
         return direct_consumption
+    if text_or_none(consumption.get("status")) in (None, "missing"):
+        preserved = copy.deepcopy(consumption)
+        preserved["directRuntimeEvaluation"] = direct_evidence.get("directRuntimeEvaluation") is True
+        consumption_mode = text_or_none(direct_evidence.get("consumptionMode"))
+        if consumption_mode is not None:
+            preserved["consumptionMode"] = consumption_mode
+        preserved["directRuntimeEvaluationStatus"] = direct_consumption.get("status")
+        if direct_consumption.get("reason") is not None:
+            preserved["directRuntimeEvaluationReason"] = direct_consumption.get("reason")
+        return preserved
     return consumption
 
 

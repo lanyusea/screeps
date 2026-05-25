@@ -286,6 +286,7 @@ class MockSimulator:
                     "consumerVersion": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
                     "runtimeParameterInjection": True,
                     "consumed": True,
+                    "source": "runtime_policy_parameter_consumption",
                     "strategyVariantId": variant_id,
                     "candidatePolicyId": variant_config.get("candidatePolicyId"),
                     "family": variant_config.get("family"),
@@ -4758,6 +4759,20 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(
             all(
                 result["runtimeParameterConsumption"]["fallbackRuntimeParameterConsumptionStatus"] == "invalid"
+                for result in simulator.last_variants
+            )
+        )
+        self.assertTrue(
+            all(
+                result["runtimeParameterConsumption"]["fallbackRuntimeParameterConsumptionSource"]
+                == "runtime_policy_parameter_consumption"
+                for result in simulator.last_variants
+            )
+        )
+        self.assertTrue(
+            all(
+                "disagreed"
+                in result["runtimeParameterConsumption"]["fallbackRuntimeParameterConsumptionReason"]
                 for result in simulator.last_variants
             )
         )
