@@ -24992,18 +24992,18 @@ function selectHeuristicWorkerTask(creep) {
     if (emergencySpawnOrExtensionRefillTask) {
       return emergencySpawnOrExtensionRefillTask;
     }
-    const threatenedBarrierRepairTarget2 = selectThreatenedBarrierRepairTarget(creep);
-    if (threatenedBarrierRepairTarget2) {
-      return applyMinimumUsefulLoadPolicy(creep, {
-        type: "repair",
-        targetId: threatenedBarrierRepairTarget2.id
-      });
-    }
     const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
     if (emergencyRampartRepairTarget) {
       return applyMinimumUsefulLoadPolicy(creep, {
         type: "repair",
         targetId: emergencyRampartRepairTarget.id
+      });
+    }
+    const threatenedBarrierRepairTarget2 = selectThreatenedBarrierRepairTarget(creep);
+    if (threatenedBarrierRepairTarget2) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: "repair",
+        targetId: threatenedBarrierRepairTarget2.id
       });
     }
   }

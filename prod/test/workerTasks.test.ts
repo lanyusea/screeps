@@ -8228,6 +8228,109 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(makeLoadedWorker(room))).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it.each([
+    [
+      'wall',
+      makeStructure('wall-lower-ratio', 'constructedWall' as StructureConstant, 1, 300_000_000)
+    ],
+    [
+      'rampart',
+      makeStructure('rampart-lower-ratio', 'rampart' as StructureConstant, 100_000, 300_000_000, {
+        my: true
+      })
+    ]
+  ])('keeps emergency rampart repair before threatened lower-ratio %s', (_label, threatenedBarrier) => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const emergencyRampart = makeStructure(
+      'rampart-emergency',
+      'rampart' as StructureConstant,
+      EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
+      300_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 550,
+      structures: [emergencyRampart, threatenedBarrier]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        colonyThreats: {
+          updatedAt: 1431,
+          rooms: {
+            W1N1: {
+              roomName: 'W1N1',
+              level: 'hostile_present',
+              updatedAt: 1431,
+              hostileCreepCount: 1,
+              hostileStructureCount: 0,
+              damagedCriticalStructureCount: 0
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 1431 };
+
+    expect(selectWorkerTask(makeLoadedWorker(room))).toEqual({
+      type: 'repair',
+      targetId: 'rampart-emergency'
+    });
+  });
+
+  it('repairs threatened barriers before non-emergency refill and routine repair', () => {
+    const structures: AnyStructure[] = [];
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 150, 150);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 550,
+      hostileCreeps: [{ id: 'hostile1' } as Creep],
+      myStructures: [spawn as AnyOwnedStructure],
+      structures
+    });
+    const threatenedWall = makeStructure(
+      'wall-threatened',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 3_559,
+      300_000_000
+    );
+    const road = makeStructure('road-damaged', 'road' as StructureConstant, 3_000, 5_000);
+    structures.push(threatenedWall, road);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        colonyThreats: {
+          updatedAt: 1432,
+          rooms: {
+            W1N1: {
+              roomName: 'W1N1',
+              level: 'hostile_present',
+              updatedAt: 1432,
+              hostileCreepCount: 1,
+              hostileStructureCount: 0,
+              damagedCriticalStructureCount: 0
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 1432 };
+
+    expect(selectWorkerTask(makeLoadedWorker(room))).toEqual({ type: 'repair', targetId: 'wall-threatened' });
+  });
+
   it('repairs threatened ramparts before non-emergency spawn refill', () => {
     recordSurvivalMode('BOOTSTRAP', 1430);
     const structures: AnyStructure[] = [];

@@ -518,19 +518,19 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return emergencySpawnOrExtensionRefillTask;
     }
 
-    const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
-    if (threatenedBarrierRepairTarget) {
-      return applyMinimumUsefulLoadPolicy(creep, {
-        type: 'repair',
-        targetId: threatenedBarrierRepairTarget.id as Id<Structure>
-      });
-    }
-
     const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
     if (emergencyRampartRepairTarget) {
       return applyMinimumUsefulLoadPolicy(creep, {
         type: 'repair',
         targetId: emergencyRampartRepairTarget.id as Id<Structure>
+      });
+    }
+
+    const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+    if (threatenedBarrierRepairTarget) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: 'repair',
+        targetId: threatenedBarrierRepairTarget.id as Id<Structure>
       });
     }
   }
