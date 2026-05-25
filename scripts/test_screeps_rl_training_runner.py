@@ -305,14 +305,24 @@ class MockSimulator:
                     if isinstance(tick_number, int):
                         consumption_evidence["tick"] = tick_number
                 if self.include_direct_game_loop_consumption_evidence and isinstance(tick_log, list):
+                    direct_tick_evidence = {
+                        **consumption_evidence,
+                        "parameters": copy.deepcopy(result["runtimeParameterInjection"].get("parameters")),
+                        "parametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
+                        "consumedParametersSha256": result["runtimeParameterInjection"].get("parametersSha256"),
+                    }
                     for tick_entry in reversed(tick_log):
                         tick_number = tick_entry.get("tick") if isinstance(tick_entry, dict) else None
                         if isinstance(tick_number, int) and not isinstance(tick_number, bool):
-                            tick_entry["runtimeParameterConsumption"] = True
-                            tick_entry["consumedParametersSha256"] = result["runtimeParameterInjection"].get(
-                                "parametersSha256"
-                            )
-                            tick_entry["consumedStrategyVariantId"] = variant_id
+                            direct_tick_evidence["tick"] = tick_number
+                            rooms = tick_entry.get("rooms")
+                            if isinstance(rooms, dict):
+                                for room_payload in rooms.values():
+                                    if isinstance(room_payload, dict):
+                                        room_payload["runtimeParameterConsumption"] = copy.deepcopy(
+                                            direct_tick_evidence
+                                        )
+                                        break
                             break
                 runtime_consumption = None
                 if self.include_runtime_consumption_evidence:
