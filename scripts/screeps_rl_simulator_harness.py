@@ -98,6 +98,7 @@ RUNTIME_PARAMETER_CONSUMPTION_TYPE = "screeps-rl-runtime-policy-parameter-consum
 RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER = "screeps-rl-runtime-policy-parameters-consumer-v1"
 RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
+RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
 MONGO_CONSOLE_RUNTIME_PARAMETER_PAYLOAD_LIMIT = 180000
 STRICT_DIRECTIVE_PREFIX_RE = re.compile(
@@ -627,19 +628,100 @@ def apply_runtime_parameter_injection_to_code(code_text: str, injection: JsonObj
     runtime_payload["runtimeParameterInjection"] = True
     runtime_payload["inlineCandidatesRuntimeInjected"] = True
     payload_json = json.dumps(runtime_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    consumer_marker_prefix, consumer_marker_suffix = RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER.split(
+        "parameters",
+        1,
+    )
+    consumer_marker_js = (
+        f"{json.dumps(consumer_marker_prefix)} + {json.dumps('parameters' + consumer_marker_suffix)}"
+    )
     prelude = (
         "/* screeps-rl private-simulator runtime parameter injection; "
         "liveEffect=false officialMmoWrites=false officialMmoWritesAllowed=false */\n"
         f"var {RUNTIME_PARAMETER_INJECTION_GLOBAL} = {payload_json};\n"
         "(function(){\n"
         f"  var payload = {RUNTIME_PARAMETER_INJECTION_GLOBAL};\n"
+        f"  var consumptionGlobal = {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)};\n"
+        f"  var consumptionType = {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_TYPE)};\n"
+        f"  var consumerMarker = {consumer_marker_js};\n"
+        f"  var consumerVersion = {json.dumps(RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION)};\n"
+        f"  var consumptionLogPrefix = {json.dumps(RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX)};\n"
         "  var roots = [];\n"
+        "  var lastMaterializedConsumption = null;\n"
         "  function addRoot(root) { if (root && roots.indexOf(root) < 0) roots.push(root); }\n"
+        "  function copyEvidence(evidence) {\n"
+        "    var copied = {};\n"
+        "    for (var key in evidence) {\n"
+        "      if (Object.prototype.hasOwnProperty.call(evidence, key)) copied[key] = evidence[key];\n"
+        "    }\n"
+        "    return copied;\n"
+        "  }\n"
+        "  function runtimeTick() {\n"
+        "    try { if (typeof Game !== 'undefined' && Game && typeof Game.time === 'number') return Game.time; } catch (err) {}\n"
+        "    return undefined;\n"
+        "  }\n"
+        "  function runtimeMemoryRoot() {\n"
+        "    try { if (typeof Memory !== 'undefined' && Memory && typeof Memory === 'object') return Memory; } catch (err) {}\n"
+        "    for (var index = 0; index < roots.length; index += 1) {\n"
+        "      try {\n"
+        "        var rootMemory = roots[index].Memory;\n"
+        "        if (rootMemory && typeof rootMemory === 'object') return rootMemory;\n"
+        "      } catch (err) {}\n"
+        "    }\n"
+        "    return null;\n"
+        "  }\n"
+        "  function isRuntimeConsumptionEvidence(value) {\n"
+        "    return value && typeof value === 'object'\n"
+        "      && value.type === consumptionType\n"
+        "      && value.consumerMarker === consumerMarker\n"
+        "      && value.consumerVersion === consumerVersion\n"
+        "      && value.runtimeParameterInjection === true\n"
+        "      && typeof value.consumed === 'boolean'\n"
+        "      && value.liveEffect === false\n"
+        "      && value.officialMmoWrites === false\n"
+        "      && value.officialMmoWritesAllowed === false;\n"
+        "  }\n"
+        "  function materializeRuntimeConsumptionEvidence(evidence) {\n"
+        "    if (!isRuntimeConsumptionEvidence(evidence)) return;\n"
+        "    var materialized = copyEvidence(evidence);\n"
+        "    if (typeof materialized.tick !== 'number') {\n"
+        "      var tick = runtimeTick();\n"
+        "      if (typeof tick === 'number') materialized.tick = tick;\n"
+        "    }\n"
+        "    try {\n"
+        "      var memory = runtimeMemoryRoot();\n"
+        "      if (memory) memory.rlRuntimePolicyParameters = materialized;\n"
+        "    } catch (err) {}\n"
+        "    try {\n"
+        "      var serialized = JSON.stringify(materialized);\n"
+        "      if (serialized !== lastMaterializedConsumption) {\n"
+        "        lastMaterializedConsumption = serialized;\n"
+        "        if (typeof console !== 'undefined' && console && typeof console.log === 'function') {\n"
+        "          console.log(consumptionLogPrefix + serialized);\n"
+        "        }\n"
+        "      }\n"
+        "    } catch (err) {}\n"
+        "  }\n"
+        "  function installConsumptionBridge(root) {\n"
+        "    if (!root) return;\n"
+        "    var current;\n"
+        "    try { current = root[consumptionGlobal]; } catch (err) { return; }\n"
+        "    try {\n"
+        "      Object.defineProperty(root, consumptionGlobal, {\n"
+        "        configurable: true,\n"
+        "        enumerable: true,\n"
+        "        get: function() { return current; },\n"
+        "        set: function(value) { current = value; materializeRuntimeConsumptionEvidence(value); }\n"
+        "      });\n"
+        "    } catch (err) {}\n"
+        "    materializeRuntimeConsumptionEvidence(current);\n"
+        "  }\n"
         "  if (typeof globalThis !== 'undefined') addRoot(globalThis);\n"
         "  if (typeof global !== 'undefined') addRoot(global);\n"
         "  if (typeof self !== 'undefined') addRoot(self);\n"
         "  addRoot(this);\n"
         f"  for (var index = 0; index < roots.length; index += 1) roots[index][{json.dumps(RUNTIME_PARAMETER_INJECTION_GLOBAL)}] = payload;\n"
+        "  for (var bridgeIndex = 0; bridgeIndex < roots.length; bridgeIndex += 1) installConsumptionBridge(roots[bridgeIndex]);\n"
         "})();\n"
     )
     insert_at = runtime_parameter_injection_insert_index(code_text)
@@ -1795,7 +1877,7 @@ def iter_runtime_parameter_consumption_candidates(
     owner_username: str | None = None,
     owner_matched: bool = False,
 ) -> Iterable[Any]:
-    if depth > 4:
+    if depth > RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH:
         return
     decoded = decode_runtime_parameter_jsonish(payload)
     if decoded is not payload:
@@ -1846,6 +1928,28 @@ def iter_runtime_parameter_consumption_candidates(
                     owner_username=owner_username,
                     owner_matched=next_owner_matched,
                 )
+        for key, item in payload.items():
+            if not isinstance(key, str) or not runtime_parameter_container_key(key):
+                continue
+            if key in (
+                RUNTIME_PARAMETER_CONSUMPTION_GLOBAL,
+                "rlRuntimePolicyParameters",
+                "runtimeParameterConsumption",
+                "runtimePolicyParameterConsumption",
+                "data",
+                "memory",
+                "Memory",
+                "value",
+                "evidence",
+                "candidates",
+            ):
+                continue
+            yield from iter_runtime_parameter_consumption_candidates(
+                item,
+                depth + 1,
+                owner_username=owner_username,
+                owner_matched=next_owner_matched,
+            )
     elif isinstance(payload, list):
         for item in payload:
             yield from iter_runtime_parameter_consumption_candidates(
@@ -1854,6 +1958,16 @@ def iter_runtime_parameter_consumption_candidates(
                 owner_username=owner_username,
                 owner_matched=owner_matched,
             )
+
+
+def runtime_parameter_container_key(key: str) -> bool:
+    key_lower = key.lower()
+    return (
+        "runtime" in key_lower
+        or "memory" in key_lower
+        or key_lower in {"data", "value", "memory", "$activeworld", "activeworld"}
+        or re.fullmatch(r"shard[\w_-]*", key_lower) is not None
+    )
 
 
 def decode_runtime_parameter_jsonish(value: Any) -> Any:
