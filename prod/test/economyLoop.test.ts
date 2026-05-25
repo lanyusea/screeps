@@ -127,6 +127,39 @@ describe('runEconomy', () => {
     });
   });
 
+  it('keeps emergency worker spawning under a critical 20 CPU budget', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true } as StructureController
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 124,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(19),
+        limit: 20,
+        bucket: 0,
+        tickLimit: 500
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-124', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('spawns an emergency bootstrap worker without requiring the energy buffer', () => {
     const room = {
       name: 'W1N1',

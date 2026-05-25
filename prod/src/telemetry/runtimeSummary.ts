@@ -63,11 +63,22 @@ import {
   type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary,
   type RuntimeEnergyAcquisitionMethodDistribution
 } from './behaviorTelemetry';
+import {
+  buildRuntimeCpuTelemetrySummary,
+  getRuntimeCpuBudget,
+  shouldThrottleRuntimeSummaryCadence,
+  type RuntimeCpuAlert,
+  type RuntimeCpuPressure,
+  type RuntimeCpuPressureReason,
+  type RuntimeCpuTelemetrySummary
+} from '../runtime/cpuBudget';
 
 type BehaviorTelemetrySummary = { behavior?: LegacyRuntimeBehaviorSummary };
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
+export const RUNTIME_CPU_SUMMARY_PREFIX = '#cpu-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
+const DEGRADED_RUNTIME_SUMMARY_INTERVAL = RUNTIME_SUMMARY_INTERVAL * 5;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
@@ -709,7 +720,15 @@ interface RuntimeRefillTransferEvent {
 
 interface RuntimeCpuSummary {
   used?: number;
+  limit?: number;
+  tickLimit?: number;
   bucket?: number;
+  pressure?: RuntimeCpuPressure;
+  alerts?: RuntimeCpuAlert[];
+  reasons?: RuntimeCpuPressureReason[];
+  lowBucketTicks?: number;
+  bucketEmptyTicks?: number;
+  overLimitTicks?: number;
 }
 
 export interface RuntimeSummary {
@@ -743,7 +762,9 @@ export function emitRuntimeSummary(
 
   const tick = getGameTime();
   resetCachedRefillTelemetryIfTickRewound(tick);
-  const emitsSummary = shouldEmitRuntimeSummary(tick, events);
+  const cpuBudget = getRuntimeCpuBudget();
+  const emitsSummary = shouldEmitRuntimeSummary(tick, events, cpuBudget);
+  const shouldRefreshRuntimeTelemetry = !shouldThrottleRuntimeSummaryCadence(cpuBudget) || emitsSummary;
   const creepsByColony = groupCreepsByColony(creeps, colonies);
   let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
   let eventMetricsByRoom = cachedEventMetricsByRoom;
@@ -756,22 +777,27 @@ export function emitRuntimeSummary(
     cachedEventMetricsTick = tick;
   }
 
-  refreshRefillTelemetry(
-    colonies,
-    creepsByColony,
-    refillTargetIdsByRoom,
-    eventMetricsByRoom,
-    tick,
-    cachedEventMetricsTick
-  );
-  refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
+  if (shouldRefreshRuntimeTelemetry) {
+    refreshRefillTelemetry(
+      colonies,
+      creepsByColony,
+      refillTargetIdsByRoom,
+      eventMetricsByRoom,
+      tick,
+      cachedEventMetricsTick
+    );
+    refreshConstructionDeadlockTelemetry(colonies, creepsByColony, tick);
+  }
+
+  const cpuSummary = buildCpuSummary();
+  emitRuntimeCpuSummary(cpuSummary.cpu, tick);
   if (!emitsSummary) {
     return undefined;
   }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const cpuSummary = buildCpuSummary();
+  const includeOptionalSummary = !shouldThrottleRuntimeSummaryCadence(cpuBudget) && !cpuBudget.critical;
   const rooms = colonies.map((colony) =>
     summarizeRoom(
       colony,
@@ -780,7 +806,8 @@ export function emitRuntimeSummary(
       eventMetricsByRoom.get(colony.room.name) ?? {},
       shouldBuildStructureSnapshot(tick),
       options.strategyRegistry,
-      options.onStrategyRegistryRuntimeUse
+      options.onStrategyRegistryRuntimeUse,
+      includeOptionalSummary
     )
   );
   const summary: RuntimeSummary = {
@@ -796,8 +823,19 @@ export function emitRuntimeSummary(
   return summary;
 }
 
-export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryEvent[]): boolean {
-  return events.length > 0 || (tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0);
+export function shouldEmitRuntimeSummary(
+  tick: number,
+  events: RuntimeTelemetryEvent[],
+  cpuBudget = getRuntimeCpuBudget()
+): boolean {
+  if (events.length > 0) {
+    return true;
+  }
+
+  const interval = shouldThrottleRuntimeSummaryCadence(cpuBudget)
+    ? DEGRADED_RUNTIME_SUMMARY_INTERVAL
+    : RUNTIME_SUMMARY_INTERVAL;
+  return tick > 0 && tick % interval === 0;
 }
 
 function resetCachedRefillTelemetryIfTickRewound(tick: number): void {
@@ -884,7 +922,8 @@ function summarizeRoom(
   eventMetrics: RuntimeRoomEventMetrics,
   includeStructureSnapshot: boolean,
   strategyRegistry: StrategyRegistryEntry[] | undefined,
-  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined
+  onStrategyRegistryRuntimeUse: ((entry: StrategyRegistryEntry) => void) | undefined,
+  includeOptionalSummary: boolean
 ): RuntimeRoomSummary {
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
@@ -922,26 +961,28 @@ function summarizeRoom(
     taskCounts,
     constructionSiteCount: resources.productiveEnergy.constructionSiteCount,
     constructionDeadlockTicks,
-    ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick),
+    ...(includeOptionalSummary ? summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, tick) : {}),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
-    ...summarizeWorkerEfficiency(colonyWorkers, tick),
-    ...summarizeRefillTelemetry(colonyWorkers, tick),
+    ...(includeOptionalSummary ? summarizeWorkerEfficiency(colonyWorkers, tick) : {}),
+    ...(includeOptionalSummary ? summarizeRefillTelemetry(colonyWorkers, tick) : {}),
     ...summarizeSpawnCriticalRefill(colonyWorkers, tick),
     ...buildControllerSummary(colony.room),
     resources,
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(
-      colony,
-      colonyWorkers,
-      strategyRegistry,
-      onStrategyRegistryRuntimeUse
-    ),
+    constructionPriority: includeOptionalSummary
+      ? summarizeConstructionPriority(
+          colony,
+          colonyWorkers,
+          strategyRegistry,
+          onStrategyRegistryRuntimeUse
+        )
+      : emptyConstructionPrioritySummary(),
     survival: summarizeSurvival(colony, roleCounts),
-    territoryRecommendation,
-    ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
-    ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
-    ...buildTerritoryExecutionHintSummary(colony.room.name),
-    ...buildTerritoryScoutSummary(colony, roleCounts),
+    territoryRecommendation: includeOptionalSummary ? territoryRecommendation : emptyTerritoryRecommendationReport(),
+    ...(includeOptionalSummary && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
+    ...(includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {}),
+    ...(includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {}),
+    ...(includeOptionalSummary ? buildTerritoryScoutSummary(colony, roleCounts) : {}),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -959,6 +1000,21 @@ function summarizeWorkerAssignmentEvidence(
     workerCount,
     assignedTaskCount,
     productiveAssignmentCount
+  };
+}
+
+function emptyConstructionPrioritySummary(): RuntimeConstructionPrioritySummary {
+  return {
+    candidates: [],
+    nextPrimary: null
+  };
+}
+
+function emptyTerritoryRecommendationReport(): OccupationRecommendationReport {
+  return {
+    candidates: [],
+    next: null,
+    followUpIntent: null
   };
 }
 
@@ -3496,27 +3552,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function buildCpuSummary(): { cpu?: RuntimeCpuSummary } {
-  const gameWithOptionalCpu = Game as Game & {
-    cpu?: {
-      getUsed?: () => number;
-      bucket?: number;
-    };
-  };
-  const cpu = gameWithOptionalCpu.cpu;
-  if (!cpu) {
+  const summary = buildRuntimeCpuTelemetrySummary();
+  if (!summary) {
     return {};
   }
 
-  const summary: RuntimeCpuSummary = {};
-  if (typeof cpu.getUsed === 'function') {
-    summary.used = cpu.getUsed();
+  return { cpu: toRuntimeCpuSummary(summary) };
+}
+
+function toRuntimeCpuSummary(summary: RuntimeCpuTelemetrySummary): RuntimeCpuSummary {
+  return {
+    ...(summary.used !== undefined ? { used: summary.used } : {}),
+    ...(summary.limit !== undefined ? { limit: summary.limit } : {}),
+    ...(summary.tickLimit !== undefined ? { tickLimit: summary.tickLimit } : {}),
+    ...(summary.bucket !== undefined ? { bucket: summary.bucket } : {}),
+    ...(summary.pressure !== 'normal' ? { pressure: summary.pressure } : {}),
+    ...(summary.alerts ? { alerts: summary.alerts } : {}),
+    ...(summary.reasons ? { reasons: summary.reasons } : {}),
+    ...(summary.lowBucketTicks !== undefined ? { lowBucketTicks: summary.lowBucketTicks } : {}),
+    ...(summary.bucketEmptyTicks !== undefined ? { bucketEmptyTicks: summary.bucketEmptyTicks } : {}),
+    ...(summary.overLimitTicks !== undefined ? { overLimitTicks: summary.overLimitTicks } : {})
+  };
+}
+
+function emitRuntimeCpuSummary(cpu: RuntimeCpuSummary | undefined, tick: number): void {
+  if (!cpu || !shouldEmitRuntimeCpuSummary(cpu, tick)) {
+    return;
   }
 
-  if (typeof cpu.bucket === 'number') {
-    summary.bucket = cpu.bucket;
+  console.log(`${RUNTIME_CPU_SUMMARY_PREFIX}${JSON.stringify(cpu)}`);
+}
+
+function shouldEmitRuntimeCpuSummary(cpu: RuntimeCpuSummary, tick: number): boolean {
+  if (cpu.alerts && cpu.alerts.length > 0) {
+    return true;
   }
 
-  return Object.keys(summary).length > 0 ? { cpu: summary } : {};
+  return cpu.pressure !== undefined && cpu.pressure !== 'normal' && tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
 }
 
 function applyCpuSummaryToRooms(

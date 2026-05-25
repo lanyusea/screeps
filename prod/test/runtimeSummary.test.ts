@@ -1,11 +1,13 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   emitRuntimeSummary,
+  RUNTIME_CPU_SUMMARY_PREFIX,
   RUNTIME_SUMMARY_INTERVAL,
   RUNTIME_SUMMARY_PREFIX,
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
+import { resetRuntimeCpuTelemetryForTesting } from '../src/runtime/cpuBudget';
 import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
@@ -54,11 +56,13 @@ describe('runtime telemetry summaries', () => {
 
   beforeEach(() => {
     clearRuntimeTelemetryGlobals();
+    resetRuntimeCpuTelemetryForTesting();
     logSpy = jest.spyOn(console, 'log').mockImplementation();
   });
 
   afterEach(() => {
     logSpy.mockRestore();
+    resetRuntimeCpuTelemetryForTesting();
     clearRuntimeTelemetryGlobals();
   });
 
@@ -332,6 +336,39 @@ describe('runtime telemetry summaries', () => {
     emitRuntimeSummary([colony], []);
 
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('emits compact CPU alerts without a full room summary under degraded cadence', () => {
+    const colony = makeColony({ time: 1 });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(24),
+      limit: 20,
+      bucket: 0,
+      tickLimit: 500
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], []);
+    logSpy.mockClear();
+    (Game as Partial<Game>).time = 2;
+
+    emitRuntimeSummary([colony], []);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [message] = logSpy.mock.calls[0];
+    expect(typeof message).toBe('string');
+    expect((message as string).startsWith(RUNTIME_CPU_SUMMARY_PREFIX)).toBe(true);
+    const payload = JSON.parse((message as string).slice(RUNTIME_CPU_SUMMARY_PREFIX.length)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      used: 24,
+      limit: 20,
+      tickLimit: 500,
+      bucket: 0,
+      pressure: 'critical',
+      lowBucketTicks: 2,
+      bucketEmptyTicks: 2,
+      overLimitTicks: 2,
+      alerts: expect.arrayContaining(['bucketEmptyRepeated', 'lowBucket', 'sustainedUsedOverLimit'])
+    });
   });
 
   it('reports per-creep behavior counters and resets emitted counters', () => {
@@ -3045,12 +3082,18 @@ describe('runtime telemetry summaries', () => {
   });
 
   function parseLoggedSummary(): Record<string, unknown> {
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const [message] = logSpy.mock.calls[0];
+    const runtimeSummaryMessages = logSpy.mock.calls
+      .map(([message]) => message)
+      .filter(
+        (message): message is string =>
+          typeof message === 'string' && message.startsWith(RUNTIME_SUMMARY_PREFIX)
+      );
+    expect(runtimeSummaryMessages).toHaveLength(1);
+    const message = runtimeSummaryMessages[0];
     expect(typeof message).toBe('string');
-    expect((message as string).startsWith(RUNTIME_SUMMARY_PREFIX)).toBe(true);
+    expect(message.startsWith(RUNTIME_SUMMARY_PREFIX)).toBe(true);
 
-    return JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length)) as Record<string, unknown>;
+    return JSON.parse(message.slice(RUNTIME_SUMMARY_PREFIX.length)) as Record<string, unknown>;
   }
 });
 

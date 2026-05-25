@@ -33,6 +33,12 @@ import {
 } from '../telemetry/runtimeSummary';
 import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getRuntimeFeatureGates, type RuntimeFeatureGates } from '../runtime/featureGates';
+import {
+  getRuntimeCpuBudget,
+  shouldRunOptionalCpuRoomWork,
+  shouldRunOptionalCpuWork,
+  type RuntimeCpuBudget
+} from '../runtime/cpuBudget';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
   ensureRemoteSourceContainersForAssignedHarvesters
@@ -155,12 +161,21 @@ export function runEconomy(
   options: EconomyRuntimeOptions = {}
 ): RuntimeSummary | undefined {
   const featureGates = getRuntimeFeatureGates();
+  const cpuBudget = getRuntimeCpuBudget();
+  const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, 'economy-global-optional');
   const creeps = Object.values(Game.creeps);
-  balanceStorage();
-  if (featureGates.terminalEnergyTransfers) {
+  if (runOptionalGlobalWork) {
+    balanceStorage();
+  }
+  if (runOptionalGlobalWork && featureGates.terminalEnergyTransfers) {
     manageTerminalEnergy();
   }
-  if (featureGates.marketTrading && Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
+  if (
+    runOptionalGlobalWork &&
+    featureGates.marketTrading &&
+    Memory.enableMarketTrading === true &&
+    shouldRunMarketTrading(Game.time)
+  ) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();
@@ -180,6 +195,7 @@ export function runEconomy(
   const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
+    const runOptionalRoomWork = shouldRunOptionalCpuRoomWork(cpuBudget, colony.room.name);
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
@@ -206,7 +222,9 @@ export function runEconomy(
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
-    refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
+    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+      refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
+    }
     const constructionOptions = {
       respectRoomEnergyBuffer: true,
       creeps,
@@ -214,18 +232,22 @@ export function runEconomy(
       runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
       onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
     };
-    if (postClaimBootstrapRefresh.deferred === true) {
-      planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
-    } else {
-      planClaimedRoomConstruction(colony, {
-        ...constructionOptions
-      });
+    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+      if (postClaimBootstrapRefresh.deferred === true) {
+        planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
+      } else {
+        planClaimedRoomConstruction(colony, {
+          ...constructionOptions
+        });
+      }
     }
-    if (survivalAssessment.mode === 'TERRITORY_READY') {
+    if (survivalAssessment.mode === 'TERRITORY_READY' && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
-    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
-    if (survivalAssessment.territoryReady) {
+    if (shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+      refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
+    }
+    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
       refreshClaimExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
       refreshReserveExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
     }
@@ -308,18 +330,26 @@ export function runEconomy(
     }
 
     transferLinkEnergy(colony.room);
-    manageStorage(colony.room);
-    refreshRoomEnergySurplusState(colony.room);
-    const labStructures = shouldRunLabManagement(colony.room, featureGates);
-    if (labStructures.length > 0) {
-      manageLabs(colony.room, { creeps, labs: labStructures });
+    if (runOptionalRoomWork) {
+      manageStorage(colony.room);
+      refreshRoomEnergySurplusState(colony.room);
+      const labStructures = shouldRunLabManagement(colony.room, featureGates);
+      if (labStructures.length > 0) {
+        manageLabs(colony.room, { creeps, labs: labStructures });
+      }
     }
-    recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
+    if (runOptionalRoomWork) {
+      recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
+    }
   }
 
-  ensureRemoteSourceContainersForAssignedHarvesters(creeps);
+  if (runOptionalGlobalWork) {
+    ensureRemoteSourceContainersForAssignedHarvesters(creeps);
+  }
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  if (runOptionalGlobalWork) {
+    attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  }
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
@@ -490,6 +520,36 @@ function getCreepStoreAmount(
 
 function getResourceEnergyConstant(): ResourceConstant {
   return ((globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
+}
+
+function shouldRunConstructionPlanning(
+  cpuBudget: RuntimeCpuBudget,
+  runOptionalRoomWork: boolean,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  if (!cpuBudget.degraded) {
+    return true;
+  }
+
+  if (cpuBudget.critical) {
+    return false;
+  }
+
+  return (
+    runOptionalRoomWork ||
+    survivalAssessment.mode === 'BOOTSTRAP' ||
+    survivalAssessment.mode === 'DEFENSE' ||
+    survivalAssessment.hostilePresence ||
+    survivalAssessment.controllerDowngradeGuard
+  );
+}
+
+function shouldRunTerritoryPlanning(cpuBudget: RuntimeCpuBudget, runOptionalRoomWork: boolean): boolean {
+  if (!cpuBudget.degraded) {
+    return true;
+  }
+
+  return !cpuBudget.critical && runOptionalRoomWork;
 }
 
 function shouldRunLabManagement(room: Room, featureGates: RuntimeFeatureGates): StructureLab[] {

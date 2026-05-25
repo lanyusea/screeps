@@ -78,6 +78,7 @@ import {
 import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
+import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -309,8 +310,23 @@ let routineBarrierMaintenanceRepairTargetCache: RoutineBarrierMaintenanceRepairT
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
   const heuristicTask = selectHeuristicWorkerTask(creep);
+  if (getRuntimeCpuBudget().degraded) {
+    clearWorkerTaskShadowTelemetry(creep);
+    return heuristicTask;
+  }
+
   recordWorkerTaskBehaviorTrace(creep, heuristicTask);
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
+}
+
+function clearWorkerTaskShadowTelemetry(creep: Creep): void {
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+
+  delete memory.workerBehavior;
+  delete memory.workerTaskPolicyShadow;
 }
 
 function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
