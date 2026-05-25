@@ -1349,6 +1349,7 @@ local function runtimePolicyParameterContainerKey(keyText)
     or keyText == "Memory"
     or keyText == "$activeWorld"
     or keyText == "activeWorld"
+    or keyText == "default"
     or string.match(keyText, "^[Ss]hard[%w_-]+$") ~= nil
 end
 local function predefinedRuntimePolicyParameterKey(keyText)
@@ -1771,6 +1772,7 @@ const fieldMayContainRuntimePolicyParameters = key => {{
     || key === 'Memory'
     || key === '$activeWorld'
     || key === 'activeWorld'
+    || key === 'default'
     || /^shard[\\w-]*$/i.test(key);
 }};
 const predefinedKeys = new Set([
@@ -1965,7 +1967,7 @@ def runtime_parameter_container_key(key: str) -> bool:
     return (
         "runtime" in key_lower
         or "memory" in key_lower
-        or key_lower in {"data", "value", "memory", "$activeworld", "activeworld"}
+        or key_lower in {"data", "value", "memory", "$activeworld", "activeworld", "default"}
         or re.fullmatch(r"shard[\w_-]*", key_lower) is not None
     )
 
