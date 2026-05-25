@@ -510,6 +510,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     !hasMissingSpawnRecoveryConstructionSite &&
     (!bootstrapNonCriticalWorkSuppressed || (ownedSpawnCount ?? 0) > 0);
   if (canPrioritizeEmergencyWorkBeforeBootstrapSpawnRecovery) {
+    const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+    if (threatenedBarrierRepairTarget) {
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: 'repair',
+        targetId: threatenedBarrierRepairTarget.id as Id<Structure>
+      });
+    }
+
     const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
       creep,
       spawnOrExtensionEnergySink
