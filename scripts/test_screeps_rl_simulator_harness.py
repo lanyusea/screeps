@@ -8,6 +8,8 @@ import io
 import json
 import math
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1745,6 +1747,69 @@ cli:
         self.assertIsNone(harness.runtime_parameter_injection_uploaded_code_text(upload, uploaded))
         self.assertNotIn("payloadSource", scenario["codeArtifact"])
         self.assertEqual(scenario["codeArtifact"]["sha256"], hashlib.sha256(base_code.encode("utf-8")).hexdigest())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required to execute the injected bundle prelude")
+    def test_runtime_parameter_injection_prelude_materializes_consumer_global_evidence(self) -> None:
+        variant = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "candidatePolicyId": "construction-priority.pg.territory-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        evidence_json = json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        base_code = (
+            '"use strict";\n'
+            f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {\n"
+            f"  globalThis[{json.dumps(harness.RUNTIME_PARAMETER_CONSUMPTION_GLOBAL)}] = {evidence_json};\n"
+            "};\n"
+        )
+        uploaded_code = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
+        uploaded = harness.mark_runtime_parameter_injection_uploaded(injection, code_text=uploaded_code)
+        self.assertTrue(uploaded["runtimeParameterInjection"])
+
+        script = (
+            "const hostConsole = console;\n"
+            "const logs = [];\n"
+            "globalThis.Memory = {};\n"
+            "globalThis.Game = {time: 77};\n"
+            "globalThis.console = {log: line => logs.push(String(line))};\n"
+            f"{uploaded_code}\n"
+            "module.exports.loop();\n"
+            "hostConsole.log(JSON.stringify({memory: globalThis.Memory.rlRuntimePolicyParameters, logs}));\n"
+        )
+        result = subprocess.run(
+            ["node", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["memory"]["type"], harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE)
+        self.assertTrue(payload["memory"]["runtimeParameterInjection"])
+        self.assertTrue(payload["memory"]["consumed"])
+        self.assertEqual(payload["memory"]["tick"], 77)
+        self.assertEqual(payload["memory"]["consumedStrategyVariantId"], injection["strategyVariantId"])
+        self.assertEqual(payload["memory"]["consumedParametersSha256"], injection["parametersSha256"])
+        self.assertEqual(len(payload["logs"]), 1)
+        extracted = harness.runtime_parameter_consumption_evidence_from_console_output(
+            "\n".join(payload["logs"]),
+            injection=uploaded,
+        )
+        self.assertIsNotNone(extracted)
+        consumption = harness.runtime_parameter_consumption_check(uploaded, extracted)
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "consumed")
 
     def test_runtime_parameter_consumption_required_for_evaluated_parameters(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
