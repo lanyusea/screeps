@@ -1368,13 +1368,59 @@ printf 'sshd='; sudo sshd -T 2>/dev/null | egrep '^(passwordauthentication|kbdin
         remote = r"""
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-for i in $(seq 1 60); do
-  if sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then sleep 5; else break; fi
-done
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl jq rsync tar gzip time python3 python3-venv python3-pip docker.io
+APT_LOCK_WAIT_ATTEMPTS=60
+APT_LOCK_WAIT_SLEEP_SECONDS=5
+APT_LOCK_PATHS=(
+  /var/lib/dpkg/lock-frontend
+  /var/lib/dpkg/lock
+  /var/lib/apt/lists/lock
+  /var/cache/apt/archives/lock
+)
+print_apt_lock_evidence() {
+  local lock_path="$1"
+  local pids
+  pids="$(sudo fuser "$lock_path" 2>/dev/null || true)"
+  printf 'apt lock holder evidence path=%s pids=%s\n' "$lock_path" "${pids:-unknown}" >&2
+  if [ -n "$pids" ]; then
+    ps -fp $pids >&2 || true
+  fi
+  sudo fuser -v "$lock_path" >&2 || true
+}
+wait_for_apt_locks() {
+  local purpose="$1"
+  local attempt lock_path
+  local locked_paths=()
+  for attempt in $(seq 1 "$APT_LOCK_WAIT_ATTEMPTS"); do
+    locked_paths=()
+    for lock_path in "${APT_LOCK_PATHS[@]}"; do
+      if sudo fuser "$lock_path" >/dev/null 2>&1; then
+        locked_paths+=("$lock_path")
+      fi
+    done
+    if [ "${#locked_paths[@]}" -eq 0 ]; then
+      return 0
+    fi
+    if [ "$attempt" -eq "$APT_LOCK_WAIT_ATTEMPTS" ]; then
+      printf 'apt lock wait timeout before %s after %s attempts (%ss sleep each); locked paths: %s\n' "$purpose" "$APT_LOCK_WAIT_ATTEMPTS" "$APT_LOCK_WAIT_SLEEP_SECONDS" "${locked_paths[*]}" >&2
+      for lock_path in "${locked_paths[@]}"; do
+        print_apt_lock_evidence "$lock_path"
+      done
+      return 75
+    fi
+    printf 'apt locks busy before %s (attempt %s/%s): %s; sleeping %ss\n' "$purpose" "$attempt" "$APT_LOCK_WAIT_ATTEMPTS" "${locked_paths[*]}" "$APT_LOCK_WAIT_SLEEP_SECONDS" >&2
+    sleep "$APT_LOCK_WAIT_SLEEP_SECONDS"
+  done
+}
+run_apt_get() {
+  local purpose="$1"
+  shift
+  wait_for_apt_locks "$purpose"
+  sudo apt-get "$@"
+}
+run_apt_get "apt-get update" update -y
+run_apt_get "base package install" install -y ca-certificates curl jq rsync tar gzip time python3 python3-venv python3-pip docker.io
 if ! docker compose version >/dev/null 2>&1; then
-  sudo apt-get install -y docker-compose-v2 || sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose || true
+  run_apt_get "docker-compose-v2 install" install -y docker-compose-v2 || run_apt_get "docker-compose-plugin install" install -y docker-compose-plugin || run_apt_get "docker-compose install" install -y docker-compose || true
 fi
 sudo systemctl enable --now docker
 sudo usermod -aG docker "$WORKER_USER" || true

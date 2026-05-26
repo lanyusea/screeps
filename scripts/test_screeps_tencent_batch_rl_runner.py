@@ -5177,6 +5177,37 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertIn('sudo chown -R "$WORKER_USER:$WORKER_USER"', script)
         self.assertNotIn("sudo usermod -aG docker screeps-batch", script)
 
+    def test_bootstrap_worker_waits_for_apt_locks_before_package_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            with mock.patch.object(controller, "ssh_cmd") as ssh_cmd:
+                controller.bootstrap_worker()
+
+        script = decode_remote_bash_lc(ssh_cmd.call_args.args[1])
+        for lock_path in (
+            "/var/lib/dpkg/lock-frontend",
+            "/var/lib/dpkg/lock",
+            "/var/lib/apt/lists/lock",
+            "/var/cache/apt/archives/lock",
+        ):
+            self.assertIn(lock_path, script)
+        self.assertIn("APT_LOCK_WAIT_ATTEMPTS=60", script)
+        self.assertIn("APT_LOCK_WAIT_SLEEP_SECONDS=5", script)
+        self.assertIn("apt lock wait timeout before %s", script)
+        self.assertIn("apt lock holder evidence path=%s pids=%s", script)
+        self.assertIn("return 75", script)
+        self.assertIn(
+            'run_apt_get() {\n  local purpose="$1"\n  shift\n  wait_for_apt_locks "$purpose"\n'
+            '  sudo apt-get "$@"\n}',
+            script,
+        )
+        self.assertIn('run_apt_get "apt-get update" update -y', script)
+        self.assertIn('run_apt_get "base package install" install -y', script)
+        self.assertIn('run_apt_get "docker-compose-v2 install" install -y docker-compose-v2', script)
+        self.assertIn('run_apt_get "docker-compose-plugin install" install -y docker-compose-plugin', script)
+        self.assertIn('run_apt_get "docker-compose install" install -y docker-compose', script)
+        self.assertNotIn("sudo apt-get update -y", script)
+
     def test_preflight_step_details_are_flat(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
