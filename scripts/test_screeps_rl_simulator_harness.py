@@ -6089,6 +6089,45 @@ cli:
         self.assertTrue(result["setupRetry"]["recovered"])
         self.assertEqual(len(result["setupRetry"]["attempts"]), 2)
 
+    def test_compose_setup_retry_recovers_transient_run_command_exception(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout
+                self.calls += 1
+                if self.calls == 1:
+                    raise TimeoutError("context deadline exceeded while pulling image")
+                return {"returncode": 0, "elapsed_seconds": 0.2, "output_excerpt": ""}
+
+            def require_success(self, result: dict[str, object]) -> dict[str, object]:
+                if result.get("returncode") != 0:
+                    raise AssertionError("only the recovered setup result should be required to succeed")
+                return result
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            result = harness._run_compose_setup_command_with_retry(
+                smoke,
+                object(),
+                ["compose", "pull"],
+                "docker compose pull",
+                timeout=123,
+            )
+
+        self.assertEqual(smoke.calls, 2)
+        sleep.assert_called_once_with(harness.RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS)
+        self.assertTrue(result["setupRetry"]["recovered"])
+        self.assertEqual(result["setupRetry"]["attempts"][0]["exceptionType"], "TimeoutError")
+        self.assertTrue(result["setupRetry"]["attempts"][0]["retryable"])
+
     def test_compose_setup_retry_does_not_retry_non_transient_pull_failure(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:
@@ -6122,6 +6161,93 @@ cli:
 
         self.assertEqual(smoke.commands, [["compose", "pull"]])
         sleep.assert_not_called()
+
+    def test_run_variant_logs_recovered_up_retry_evidence(self) -> None:
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+
+            def __init__(self) -> None:
+                self.up_attempts = 0
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                return None
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                return None
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                return None
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                return None
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: FakeSmokeConfig,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                if command[-2:] == ["up", "-d"]:
+                    self.up_attempts += 1
+                    if self.up_attempts == 1:
+                        return {
+                            "returncode": 1,
+                            "elapsed_seconds": 0.4,
+                            "output_excerpt": "failed to pull layer: unexpected EOF",
+                        }
+                return {"returncode": 0, "elapsed_seconds": 0.2, "output_excerpt": ""}
+
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+
+            with (
+                mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()),
+                mock.patch.object(harness.time, "sleep", return_value=None),
+                mock.patch("screeps_rl_simulator_harness._wait_for_http_with_smoke", side_effect=RuntimeError("stop after up debug")),
+                mock.patch("sys.stderr", stderr),
+            ):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="up-retry-log",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "stop after up debug")
+        self.assertIn('phase="after docker compose up"', stderr.getvalue())
+        self.assertIn("setupRetry=", stderr.getvalue())
 
     def test_run_variant_active_world_alias_uploads_executable_branch_for_runtime_consumption(self) -> None:
         variant_id = "construction-priority.pg.territory-seed.v1"

@@ -3646,8 +3646,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 runner.BatchRunError,
                 r"S3\.2XLARGE16 validation cap exceeded.*38336 MiB.*--workers 6 --scale-environments 6",
-            ):
+            ) as raised:
                 runner.validate_static_inputs(args, "run-test")
+            self.assertIn("currently enforces the S3.2XLARGE16 validation cap", str(raised.exception))
+            self.assertNotIn("larger memory instance", str(raised.exception))
 
             args.workers = runner.TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS
             args.scale_environments = runner.TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS
@@ -3982,6 +3984,39 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
         self.assertTrue(failure["retryable"])
         self.assertIn("rerun", failure["nextAction"])
+
+    def test_setup_context_network_timeout_keeps_docker_setup_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate failed: "
+                "docker compose pull failed after 2 attempt(s): Client.Timeout exceeded\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("Docker image pull/setup", failure["nextAction"])
+
+    def test_generic_network_api_diagnostic_does_not_get_docker_setup_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "Tencent API request canceled: too many requests while polling batch status\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "remote_process_failed")
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("nextAction", failure)
 
     def test_runtime_parameter_smoke_failure_remains_non_retryable_remote_process_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

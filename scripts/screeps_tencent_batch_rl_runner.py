@@ -131,9 +131,17 @@ REMOTE_RESOURCE_GUARD_RE = re.compile(
 )
 REMOTE_SIMULATOR_SETUP_RETRYABLE_RE = re.compile(
     r"(?:retryable setup failure|unexpected EOF|context deadline exceeded|i/o timeout|TLS handshake timeout|"
-    r"connection reset|connection refused|temporary failure|network .*timed? out|"
-    r"net/http|Client\.Timeout|request canceled|too many requests|toomanyrequests|"
-    r"error pulling image|failed to (?:copy|extract|pull|fetch))",
+    r"connection reset|temporary failure|error pulling image|failed to (?:copy|extract|pull|fetch))",
+    re.IGNORECASE,
+)
+REMOTE_SIMULATOR_SETUP_CONTEXT_RE = re.compile(
+    r"(?:retryable setup failure|docker compose (?:pull|up)|screeps-rl-simulator-setup-failure|"
+    r"setup_failure|error pulling image|failed to (?:copy|extract|pull|fetch))",
+    re.IGNORECASE,
+)
+REMOTE_NETWORK_RE = re.compile(
+    r"(?:connection refused|request canceled|too many requests|toomanyrequests|network .*timed? out|"
+    r"net/http|Client\.Timeout)",
     re.IGNORECASE,
 )
 SECRET_KEY_CANDIDATE_PATTERN = r"[A-Za-z_][A-Za-z0-9_-]{0,80}"
@@ -2346,10 +2354,30 @@ def classify_remote_training_failure(
     )
     if REMOTE_RESOURCE_GUARD_RE.search(diagnostic_text):
         return "simulator_resource_guard_rejected"
-    if REMOTE_SIMULATOR_SETUP_RETRYABLE_RE.search(diagnostic_text):
-        return "simulator_setup_retryable"
     if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
         return process_failure_class
+    simulator_setup_text = "\n".join(
+        tail
+        for filename, entry in files.items()
+        for tail in [entry.get("tail")]
+        if isinstance(tail, str)
+        and (
+            filename.endswith("setup_failure.json")
+            or filename.endswith("run_summary.json")
+            or filename.endswith("run_failure.json")
+            or REMOTE_SIMULATOR_SETUP_CONTEXT_RE.search(tail)
+        )
+    )
+    if (
+        REMOTE_SIMULATOR_SETUP_CONTEXT_RE.search(simulator_setup_text)
+        and (
+            REMOTE_SIMULATOR_SETUP_RETRYABLE_RE.search(simulator_setup_text)
+            or REMOTE_NETWORK_RE.search(simulator_setup_text)
+        )
+    ):
+        return "simulator_setup_retryable"
+    if returncode == 255 and REMOTE_NETWORK_RE.search(diagnostic_text):
+        return "network_unreachable"
     if returncode == 255:
         return "ssh_transport_failed"
     return "remote_process_failed"
@@ -4442,8 +4470,8 @@ def validate_tencent_s3_validation_scale_cap(args: argparse.Namespace, scale_env
         f"requires about {requested_required_mib} MiB memory/swap by the simulator resource guard, "
         f"but this Tencent 8 vCPU / 16 GiB validation worker is capped at {cap} concurrent "
         f"simulator environment(s) ({cap_required_mib} MiB estimate). "
-        f"Next action: rerun with --workers {cap} --scale-environments {cap}, "
-        "or move the ASG to a larger memory instance before requesting more environments."
+        f"Next action: rerun with --workers {cap} --scale-environments {cap}. "
+        f"This runner currently enforces the {TENCENT_VALIDATION_INSTANCE_TYPE} validation cap."
     )
 
 

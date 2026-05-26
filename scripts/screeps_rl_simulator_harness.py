@@ -4416,6 +4416,14 @@ def _require_command_success(smoke: Any, result: Any, phase: str) -> JsonObject:
     return result
 
 
+def _compose_setup_output_text(result: dict[str, Any]) -> str:
+    return "\n".join(
+        str(part)
+        for part in (result.get("output_excerpt"), result.get("stdout"), result.get("stderr"))
+        if part
+    )
+
+
 def _compose_setup_attempt_summary(result: Any, attempt: int) -> JsonObject:
     if not isinstance(result, dict):
         return {
@@ -4425,21 +4433,28 @@ def _compose_setup_attempt_summary(result: Any, attempt: int) -> JsonObject:
             "outputExcerpt": _safe_text(result, 500),
             "retryable": False,
         }
-    return {
+    summary: JsonObject = {
         "attempt": attempt,
         "returncode": _coerce_int(result.get("returncode")),
         "elapsedSeconds": result.get("elapsed_seconds"),
-        "outputExcerpt": _safe_text(result.get("output_excerpt", ""), 500),
+        "outputExcerpt": _safe_text(_compose_setup_output_text(result), 500),
         "retryable": _is_retryable_compose_setup_failure(result),
     }
+    exception_type = result.get("exceptionType")
+    if isinstance(exception_type, str) and exception_type:
+        summary["exceptionType"] = exception_type
+    return summary
 
 
 def _is_retryable_compose_setup_failure(result: Any) -> bool:
     if not isinstance(result, dict):
         return False
-    if result.get("returncode") in (None, 0):
+    returncode = result.get("returncode")
+    if returncode == 0:
         return False
-    output = str(result.get("output_excerpt", ""))
+    if returncode is None and "exceptionType" not in result:
+        return False
+    output = _compose_setup_output_text(result)
     return bool(RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE.search(output))
 
 
@@ -4453,9 +4468,16 @@ def _run_compose_setup_command_with_retry(
 ) -> JsonObject:
     attempts: list[JsonObject] = []
     for attempt in range(1, RUN_COMPOSE_SETUP_MAX_ATTEMPTS + 1):
-        result = smoke.run_command(command, cfg, timeout=timeout)
+        try:
+            result = smoke.run_command(command, cfg, timeout=timeout)
+        except Exception as error:  # noqa: BLE001 - compose setup exceptions still need retry classification.
+            result = {
+                "returncode": None,
+                "output_excerpt": f"{type(error).__name__}: {_safe_text(error, 500)}",
+                "exceptionType": type(error).__name__,
+            }
         attempts.append(_compose_setup_attempt_summary(result, attempt))
-        if isinstance(result, dict) and result.get("returncode") in (None, 0):
+        if isinstance(result, dict) and result.get("returncode") in (None, 0) and "exceptionType" not in result:
             checked = _require_command_success(smoke, result, phase)
             if len(attempts) > 1:
                 checked["setupRetry"] = {
@@ -6029,6 +6051,7 @@ def _run_variant(
             "after docker compose up",
             returncode=up_result.get("returncode"),
             elapsed_seconds=up_result.get("elapsed_seconds"),
+            setupRetry=up_result.get("setupRetry"),
         )
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         _require_launcher_cli_success(smoke, compose, cfg, "system.resetAllData()", "reset simulator data")
