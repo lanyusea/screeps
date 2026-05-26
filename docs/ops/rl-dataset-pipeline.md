@@ -51,8 +51,8 @@ With no positional paths, it uses the same safe local roots as the dataset expor
 - exports a standardized dataset under `runtime-artifacts/rl-datasets/<run-id>/`;
 - validates the dataset manifest, sample count, split, KPI window, and safety flags;
 - optionally validates a shadow-safe candidate config through `scripts/screeps_rl_mmo_validator.py`;
-- optionally evaluates the generated/current KPI window against predefined metric floors;
-- always persists the `scripts/screeps_rl_rollout_manager.py` contract and, when `--baseline-kpi` is supplied, writes a rollout-manager dry-run decision.
+- evaluates the generated/current KPI window against predefined metric floors, deriving missing floors from the current runtime KPI window;
+- always persists the `scripts/screeps_rl_rollout_manager.py` contract and either writes a derived rollout baseline objective or, when `--baseline-kpi` is supplied, writes a rollout-manager dry-run decision.
 
 Machine-readable contract:
 
@@ -81,6 +81,7 @@ runtime-artifacts/rl-dataset-gates/<gate-id>/
   gate_report.json
   gate_summary.json
   rollout_gate_contract.json
+  rollout_baseline_objective.json # when --baseline-kpi is absent
   rollout_decision.json        # only when --baseline-kpi is supplied
   <gate-id>-historical.json    # only when --candidate-config is supplied
 ```
