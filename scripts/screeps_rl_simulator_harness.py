@@ -1001,9 +1001,7 @@ def private_simulator_active_code_readback_summary(
                 status = "missing-main-module"
             else:
                 active_code = main
-                if active_branch is None:
-                    status = "missing-branch"
-                elif active_branch != branch:
+                if active_branch is not None and active_branch != branch:
                     status = "branch-mismatch"
                 else:
                     status = "matched" if active_code == uploaded_code_text else "mismatch"
@@ -5310,6 +5308,48 @@ def _read_current_gametime(
     return token, stats_tick if stats_tick is not None else overview_tick
 
 
+def _capture_runtime_parameter_injection_tick(
+    cfg: Any,
+    smoke: Any,
+    token: str,
+    shard: str,
+    initial_overview_payload: Any,
+    *,
+    max_attempts: int = ACTIVE_CODE_READBACK_MAX_ATTEMPTS,
+) -> tuple[str, int]:
+    """Capture a numeric upload tick before runtime-injected code is allowed to run."""
+    overview_payload = initial_overview_payload
+    last_reason = "overview/stats response did not include a numeric gametime"
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            try:
+                overview_result = smoke.http_json(
+                    "GET",
+                    cfg.server_url,
+                    "/api/user/overview",
+                    headers=smoke.token_headers(token),
+                    timeout=RUN_API_TIMEOUT_SECONDS,
+                )
+                token = smoke.update_token_from_headers(token, overview_result.headers)
+                overview_payload = overview_result.payload
+            except Exception as exc:  # noqa: BLE001 - bounded retry before failing the smoke gate closed
+                last_reason = f"overview readback failed: {_safe_text(exc, 240)}"
+                if attempt < max_attempts:
+                    time.sleep(RUN_TICK_POLL_SECONDS)
+                    continue
+                break
+        token, current_tick = _read_current_gametime(cfg, smoke, token, shard, overview_payload)
+        if current_tick is not None:
+            return token, current_tick
+        last_reason = "overview/stats response did not include a numeric gametime"
+        if attempt < max_attempts:
+            time.sleep(RUN_TICK_POLL_SECONDS)
+    raise RuntimeError(
+        "failed to capture numeric injection tick before resuming simulation "
+        f"after {max_attempts} attempt(s): {last_reason}"
+    )
+
+
 def _safe_redact_smoke_payload(payload: Any) -> JsonObject:
     return {"ok": True, "payload": dataset_export.redact_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))[:2000]}
 
@@ -5656,7 +5696,13 @@ def _run_variant(
             timeout=RUN_PHASE_TIMEOUT_SECONDS,
         )
         token = smoke.update_token_from_headers(token, initial_state.headers)
-        token, previous_tick = _read_current_gametime(cfg, smoke, token, shard, initial_state.payload)
+        token, previous_tick = _capture_runtime_parameter_injection_tick(
+            cfg,
+            smoke,
+            token,
+            shard,
+            initial_state.payload,
+        )
         runtime_parameter_injection = mark_runtime_parameter_injection_uploaded(
             runtime_parameter_injection,
             code_text=uploaded_code_text,
