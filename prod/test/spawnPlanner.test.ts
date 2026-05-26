@@ -3043,6 +3043,75 @@ describe('planSpawn', () => {
     expect(describeExits).toHaveBeenCalledWith(colony.room.name);
   });
 
+  it('prioritizes a runtime objective defender before source mining once local workers are stable', () => {
+    const sourcePositions = [
+      { x: 10, y: 20, roomName: 'E1S1' } as RoomPosition,
+      { x: 40, y: 28, roomName: 'E1S1' } as RoomPosition
+    ];
+    const sourceContainers = [
+      makeRemoteContainer('container0', 0, 10, 21, 'E1S1') as unknown as AnyStructure,
+      makeRemoteContainer('container1', 0, 40, 29, 'E1S1') as unknown as AnyStructure
+    ];
+    const { colony, spawn } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      controller: makeSafeOwnedController(3),
+      sourcePositions,
+      structures: sourceContainers
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0 }, 167)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-E1S1-source0-167',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'E1S1',
+        sourceHarvester: {
+          roomName: 'E1S1',
+          sourceId: 'source0',
+          containerId: 'container0'
+        }
+      }
+    });
+
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload({
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    });
+    const hostileRoom = makeRuntimeObjectiveHostileRoom('E2S1');
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === colony.room.name ? { 3: 'E2S1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: {
+        E1S1: colony.room,
+        E2S1: hostileRoom
+      },
+      map: {
+        describeExits
+      } as unknown as GameMap
+    };
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0 }, 168)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move', 'tough', 'attack', 'move'],
+      name: 'defender-E2S1-168',
+      memory: {
+        role: 'defender',
+        colony: 'E2S1',
+        defense: { homeRoom: 'E2S1' }
+      }
+    });
+  });
+
   it('keeps post-claim controller defense ahead of runtime objective defenders', () => {
     installHostileFindGlobals();
     installRuntimeConstructionPriorityPayload({
