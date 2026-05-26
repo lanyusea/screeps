@@ -2434,11 +2434,24 @@ def validate_policy_gradient_simulation(raw: Any, required_samples_per_candidate
         )
     required_samples = required_samples_per_candidate or POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
     repetitions = positive_int(raw.get("repetitions"))
-    if repetitions is None or repetitions < required_samples:
+    scale_environments = policy_gradient_simulation_scale_environments(raw)
+    requested_samples = repetitions * scale_environments if repetitions is not None else None
+    if requested_samples is None or requested_samples < required_samples:
         raise CardValidationError(
             "policy_gradient cards require "
-            f"simulation.repetitions >= {required_samples} to satisfy gradient_trust_gate samples per candidate"
+            f"requested samples per candidate >= {required_samples} to satisfy gradient_trust_gate "
+            "(simulation.repetitions * simulation.scale_environments)"
         )
+
+
+def policy_gradient_simulation_scale_environments(raw: JsonObject) -> int:
+    value = first_present(raw, ("scale_environments", "scaleEnvironments"))
+    if value is None:
+        return 1
+    scale_environments = positive_int(value)
+    if scale_environments is None:
+        raise CardValidationError("simulation.scale_environments must be a positive integer")
+    return scale_environments
 
 
 def positive_int(value: Any) -> int | None:

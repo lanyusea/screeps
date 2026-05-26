@@ -2513,8 +2513,22 @@ class RlExperimentCardTest(unittest.TestCase):
         )
         card["simulation"]["repetitions"] = 19
 
-        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.repetitions >= 20"):
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requested samples per candidate >= 20"):
             card_helper.validate_card(card)
+
+    def test_validate_accepts_policy_gradient_parallel_scale_environment_sample_budget(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-parallel-samples",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["workers"] = 5
+        card["simulation"]["repetitions"] = 4
+        card["simulation"]["scale_environments"] = 5
+        card["simulation"]["min_concurrent_environments"] = 5
+
+        card_helper.validate_card(card)
 
     def test_validate_rejects_policy_gradient_below_target_trust_sample_budget(self) -> None:
         card = card_helper.build_card(
@@ -2525,7 +2539,7 @@ class RlExperimentCardTest(unittest.TestCase):
         )
         card["policy_gradient"]["policy_update"]["gradient_trust_gate"]["target_samples_per_candidate"] = 25
 
-        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.repetitions >= 25"):
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requested samples per candidate >= 25"):
             card_helper.validate_card(card)
 
     def test_policy_gradient_rejects_stale_strategy_variant_candidate_policy_id(self) -> None:
