@@ -5351,7 +5351,7 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(summary["perRun"][1]["successfulEnvironments"], 2)
         self.assertFalse(summary["perRun"][1]["ok"])
 
-    def test_private_runner_pre_scale_smoke_gate_runs_one_tick_before_scale(self) -> None:
+    def test_private_runner_pre_scale_smoke_gate_runs_probe_ticks_before_scale(self) -> None:
         calls: list[JsonObject] = []
         variants = [
             runner.StrategyVariant(
@@ -5459,7 +5459,7 @@ export const STRATEGY_REGISTRY = [
 
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0]["run_id"], "scale-run-pre-scale-smoke")
-        self.assertEqual(calls[0]["ticks"], 1)
+        self.assertEqual(calls[0]["ticks"], runner.PRE_SCALE_TRAINABILITY_SMOKE_TICKS)
         self.assertEqual(calls[0]["workers"], 1)
         self.assertEqual(calls[0]["variants"], ["candidate.scale-env-01"])
         self.assertEqual(calls[0]["min_concurrent_environments"], 0)

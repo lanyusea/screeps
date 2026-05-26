@@ -37,6 +37,7 @@ DEFAULT_RESOURCE_NORMALIZER = 1000.0
 DEFAULT_RUN_REPETITIONS = 1
 DEFAULT_STEAM_KEY_ENV_FILE = screeps_secret_env.DEFAULT_LOCAL_SECRET_ENV_FILE
 STEAM_KEY_ENV_FILE_ENV = "SCREEPS_RL_STEAM_KEY_ENV_FILE"
+PRE_SCALE_TRAINABILITY_SMOKE_TICKS = 2
 DEFAULT_POLICY_UPDATE_LEARNING_RATE = 0.25
 RANK_WEIGHTED_FINITE_DIFFERENCE_ALGORITHM = "rank_weighted_finite_difference_v1"
 TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM = "reinforce_v1"
@@ -1034,7 +1035,7 @@ def maybe_run_pre_scale_trainability_smoke_gate(
         effective_workers,
     )
     smoke_run = simulator_runner(
-        ticks=1,
+        ticks=PRE_SCALE_TRAINABILITY_SMOKE_TICKS,
         workers=1,
         variants=[smoke_variant.id],
         out_dir=config.simulator_out_dir,
