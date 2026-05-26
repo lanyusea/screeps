@@ -4139,7 +4139,7 @@ def resolve_scale_environment_count(args: argparse.Namespace) -> int | None:
     explicit = getattr(args, "scale_environments", None)
     if explicit is not None:
         return explicit
-    workers = getattr(args, "workers", 1)
+    workers = getattr(args, "workers", None) or 1
     return workers if workers > 1 else None
 
 
@@ -4430,12 +4430,14 @@ def apply_policy_gradient_validation_sample_defaults(args: argparse.Namespace) -
         return
     explicit_options = set(getattr(args, "explicit_cli_options", ()))
     explicit_scale_environments = getattr(args, "scale_environments", None)
+    requested_workers = getattr(args, "workers", None) or 0
     if "scale_environments" in explicit_options and "workers" not in explicit_options and explicit_scale_environments:
-        args.workers = max(args.workers, explicit_scale_environments)
+        args.workers = max(requested_workers, explicit_scale_environments)
     elif "workers" not in explicit_options and "scale_environments" not in explicit_options:
-        args.workers = max(args.workers, min(POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS, MAX_SCALE_PROOF_WORKERS))
+        args.workers = max(requested_workers, min(POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS, MAX_SCALE_PROOF_WORKERS))
     if "repetitions" not in explicit_options:
-        args.repetitions = max(args.repetitions, policy_gradient_min_repetitions_for_trust(args))
+        requested_repetitions = getattr(args, "repetitions", None) or 0
+        args.repetitions = max(requested_repetitions, policy_gradient_min_repetitions_for_trust(args))
 
 
 def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:

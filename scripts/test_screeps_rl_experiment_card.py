@@ -138,6 +138,10 @@ class RlExperimentCardTest(unittest.TestCase):
             policy_gradient["policy_update"]["gradient_trust_gate"]["minimum_samples_per_candidate"],
             20,
         )
+        self.assertEqual(
+            policy_gradient["policy_update"]["gradient_trust_gate"]["target_samples_per_candidate"],
+            20,
+        )
         runner_support = policy_gradient["runner_support"]
         self.assertEqual(
             learnable_names,
@@ -2405,6 +2409,24 @@ class RlExperimentCardTest(unittest.TestCase):
                 "policy_update.estimator must be score_function_reinforce_v1",
             ),
             ("unbounded step", "bounded_integer_step", False, "policy_update.bounded_integer_step must be true"),
+            (
+                "missing gradient trust gate",
+                "gradient_trust_gate",
+                None,
+                "policy_update.gradient_trust_gate must be a JSON object",
+            ),
+            (
+                "weak minimum sample trust gate",
+                ("gradient_trust_gate", "minimum_samples_per_candidate"),
+                19,
+                "gradient_trust_gate.minimum_samples_per_candidate must be at least 20",
+            ),
+            (
+                "weak target sample trust gate",
+                ("gradient_trust_gate", "target_samples_per_candidate"),
+                19,
+                "gradient_trust_gate.target_samples_per_candidate must be at least 20",
+            ),
         )
         for label, field, value, expected_error in cases:
             with self.subTest(label=label):
@@ -2419,6 +2441,9 @@ class RlExperimentCardTest(unittest.TestCase):
                     policy_gradient.pop("policy_update")
                 elif field == "__policy_update__":
                     policy_gradient["policy_update"] = value
+                elif isinstance(field, tuple):
+                    parent, child = field
+                    policy_gradient["policy_update"][parent][child] = value
                 else:
                     policy_gradient["policy_update"][field] = value
 

@@ -3644,6 +3644,20 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.workers, 5)
         self.assertEqual(args.repetitions, 4)
 
+    def test_policy_gradient_validation_defaults_tolerate_unset_workers_and_repetitions(self) -> None:
+        args = runner.build_parser().parse_args([
+            "preflight",
+            "--training-approach",
+            "policy_gradient",
+        ])
+        args.workers = None
+        args.repetitions = None
+
+        runner.apply_cli_scenario_defaults(args)
+
+        self.assertEqual(args.workers, 5)
+        self.assertEqual(args.repetitions, 4)
+
     def test_generate_experiment_card_writes_multi_environment_scale_proof_spec(self) -> None:
         args = controller_args()
         args.workers = 5

@@ -2300,6 +2300,19 @@ def validate_policy_gradient_update(raw: Any) -> None:
     bounded_step = first_present(raw, ("bounded_integer_step", "boundedIntegerStep"))
     if bounded_step is not True:
         raise CardValidationError("policy_gradient.policy_update.bounded_integer_step must be true")
+    trust_gate = first_present(raw, ("gradient_trust_gate", "gradientTrustGate"))
+    if not isinstance(trust_gate, dict):
+        raise CardValidationError("policy_gradient.policy_update.gradient_trust_gate must be a JSON object")
+    for snake_key, camel_key in (
+        ("minimum_samples_per_candidate", "minimumSamplesPerCandidate"),
+        ("target_samples_per_candidate", "targetSamplesPerCandidate"),
+    ):
+        samples = positive_int(first_present(trust_gate, (snake_key, camel_key)))
+        if samples is None or samples < POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE:
+            raise CardValidationError(
+                "policy_gradient.policy_update.gradient_trust_gate."
+                f"{snake_key} must be at least {POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE}"
+            )
 
 
 def validate_policy_gradient_strategy_variants(policy_gradient: Any, strategy_variants: Any) -> None:
