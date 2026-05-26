@@ -6,7 +6,8 @@ import {
   applyRuntimePolicyParametersToRegistry,
   createRuntimePolicyParameterConsumptionRecorder,
   persistRuntimePolicyParameterConsumptionEvidence,
-  selectRuntimePolicyObjectiveActivationTarget
+  selectRuntimePolicyObjectiveActivationTarget,
+  selectRuntimePolicyObjectiveDefenseTarget
 } from '../src/strategy/runtimePolicyParameters';
 import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 
@@ -37,6 +38,29 @@ describe('runtime policy parameters', () => {
         riskPenalty: 4
       },
       parametersSha256: 'runtime-objective-sha'
+    };
+  }
+
+  function installRuntimeConstructionPriorityPayloadWithObjectiveTarget(): void {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        baseScoreWeight: 1,
+        territorySignalWeight: 22,
+        resourceSignalWeight: 3,
+        killSignalWeight: 5,
+        riskPenalty: 4
+      },
+      parametersSha256: 'runtime-objective-sha',
+      objectiveAnchorRoom: 'E0N0',
+      objectiveTargetRoom: 'E1N0',
+      objectiveHostileCreepCount: 2,
+      objectiveHostileStructureCount: 1
     };
   }
 
@@ -343,6 +367,53 @@ describe('runtime policy parameters', () => {
     };
 
     expect(selectRuntimePolicyObjectiveActivationTarget('E0N0')).toBeNull();
+  });
+
+  it('selects an unobserved adjacent defense target when runtime objective weights need reconnaissance', () => {
+    installRuntimeConstructionPriorityPayload();
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'E0N0' ? { 1: 'E0N1', 3: 'E1N0' } : {}
+    );
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      rooms: {
+        E0N0: makeRuntimeRoom('E0N0'),
+        E0N1: makeRuntimeRoom('E0N1')
+      },
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(selectRuntimePolicyObjectiveActivationTarget('E0N0')).toBeNull();
+    expect(selectRuntimePolicyObjectiveDefenseTarget('E0N0')).toEqual({
+      colony: 'E0N0',
+      targetRoom: 'E1N0',
+      hostileCreepCount: 2,
+      hostileStructureCount: 0,
+      activationScore: 22.25,
+      visibility: 'unobserved'
+    });
+    expect(describeExits).toHaveBeenCalledWith('E0N0');
+  });
+
+  it('uses injected multi-tier objective target metadata before generic map reconnaissance', () => {
+    installRuntimeConstructionPriorityPayloadWithObjectiveTarget();
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'E0N0' ? { 1: 'E0N1', 3: 'E1N0' } : {}
+    );
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      rooms: {
+        E0N0: makeRuntimeRoom('E0N0')
+      },
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(selectRuntimePolicyObjectiveDefenseTarget('E0N0')).toEqual({
+      colony: 'E0N0',
+      targetRoom: 'E1N0',
+      hostileCreepCount: 2,
+      hostileStructureCount: 1,
+      activationScore: 22.25,
+      visibility: 'unobserved'
+    });
   });
 
   it('keeps consumed evidence sticky across ticks for the same injected payload', () => {

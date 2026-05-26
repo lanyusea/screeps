@@ -252,7 +252,10 @@ describe('planSpawn', () => {
     } as unknown as Room;
   }
 
-  function installRuntimeConstructionPriorityPayload(parameters: Record<string, number>): void {
+  function installRuntimeConstructionPriorityPayload(
+    parameters: Record<string, number>,
+    objectiveTarget: Record<string, string | number> = {}
+  ): void {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
       runtimeParameterInjection: true,
       candidateParameterScope: 'runtime_injected',
@@ -261,7 +264,8 @@ describe('planSpawn', () => {
       sourceStrategyId: 'construction-priority.incumbent.v1',
       family: 'construction-priority',
       parameters,
-      parametersSha256: 'runtime-objective-sha'
+      parametersSha256: 'runtime-objective-sha',
+      ...objectiveTarget
     };
   }
 
@@ -3034,6 +3038,62 @@ describe('planSpawn', () => {
       spawn,
       body: ['tough', 'attack', 'move', 'tough', 'attack', 'move'],
       name: 'defender-E2S1-165',
+      memory: {
+        role: 'defender',
+        colony: 'E2S1',
+        defense: { homeRoom: 'E2S1' }
+      }
+    });
+    expect(describeExits).toHaveBeenCalledWith(colony.room.name);
+  });
+
+  it('spawns a durable runtime objective defender toward an unobserved adjacent room before source mining', () => {
+    installRuntimeConstructionPriorityPayload({
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    }, {
+      objectiveAnchorRoom: 'E1S1',
+      objectiveTargetRoom: 'E2S1',
+      objectiveHostileCreepCount: 2,
+      objectiveHostileStructureCount: 1
+    });
+    const sourcePositions = [
+      { x: 10, y: 20, roomName: 'E1S1' } as RoomPosition,
+      { x: 40, y: 28, roomName: 'E1S1' } as RoomPosition
+    ];
+    const sourceContainers = [
+      makeRemoteContainer('container0', 0, 10, 21, 'E1S1') as unknown as AnyStructure,
+      makeRemoteContainer('container1', 0, 40, 29, 'E1S1') as unknown as AnyStructure
+    ];
+    const { colony, spawn } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: makeSafeOwnedController(3),
+      sourcePositions,
+      structures: sourceContainers
+    });
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === colony.room.name ? { 1: 'E1S0', 3: 'E2S1', 5: 'E1S2', 7: 'E0S1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: {
+        E1S1: colony.room
+      },
+      map: {
+        describeExits
+      } as unknown as GameMap
+    };
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0 }, 166)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move', 'tough', 'attack', 'move'],
+      name: 'defender-E2S1-166',
       memory: {
         role: 'defender',
         colony: 'E2S1',

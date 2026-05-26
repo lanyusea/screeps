@@ -29,7 +29,7 @@ import {
   hasControllerAttackPressure,
   planDefenderSpawn
 } from '../defense/defensePlanner';
-import { selectRuntimePolicyObjectiveActivationTarget } from '../strategy/runtimePolicyParameters';
+import { selectRuntimePolicyObjectiveDefenseTarget } from '../strategy/runtimePolicyParameters';
 import {
   selectDynamicCreepBody,
   type DynamicCreepBodyDemand,
@@ -1213,7 +1213,7 @@ function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): 
     return null;
   }
 
-  const objectiveTarget = selectRuntimePolicyObjectiveActivationTarget(context.colony.room.name);
+  const objectiveTarget = selectRuntimePolicyObjectiveDefenseTarget(context.colony.room.name);
   if (!objectiveTarget || objectiveTarget.hostileCreepCount <= 0) {
     return null;
   }
@@ -1255,7 +1255,7 @@ function hasRuntimePolicyObjectiveDefenseSpawnDemand(context: SpawnPlanningConte
     return false;
   }
 
-  const objectiveTarget = selectRuntimePolicyObjectiveActivationTarget(context.colony.room.name);
+  const objectiveTarget = selectRuntimePolicyObjectiveDefenseTarget(context.colony.room.name);
   return (
     objectiveTarget !== null &&
     objectiveTarget.hostileCreepCount > 0 &&

@@ -1388,6 +1388,40 @@ cli:
         self.assertFalse(activation["safety"]["officialMmoWrites"])
         self.assertFalse(activation["safety"]["officialMmoWritesAllowed"])
 
+    def test_runtime_parameter_injection_carries_multi_tier_objective_target(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        injection = harness.runtime_parameter_injection_for_variant(
+            "construction-priority.pg.territory-seed.v1",
+            {
+                "id": "construction-priority.pg.territory-seed.v1",
+                "family": "construction-priority",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 22,
+                    "resourceSignalWeight": 3,
+                    "killSignalWeight": 5,
+                    "riskPenalty": 4,
+                },
+            },
+        )
+
+        attached = harness.attach_runtime_parameter_objective_target(
+            injection,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertEqual(attached["objectiveTargetRoom"], "E2S1")
+        self.assertEqual(attached["objectiveAnchorRoom"], "E1S1")
+        self.assertEqual(attached["objectiveHostileCreepCount"], 2)
+        self.assertEqual(attached["objectiveHostileStructureCount"], 1)
+        self.assertEqual(attached["objectiveSignalSource"], "multi_tier_map_fixture")
+        self.assertEqual(attached["parametersSha256"], injection["parametersSha256"])
+        self.assertFalse(attached["liveEffect"])
+        self.assertFalse(attached["officialMmoWrites"])
+        self.assertFalse(attached["officialMmoWritesAllowed"])
+
     def test_multi_tier_policy_activation_projection_preserves_explicit_zero_metrics(self) -> None:
         activation = {
             "type": "screeps-rl-multi-tier-policy-activation",
