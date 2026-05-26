@@ -5,7 +5,8 @@ import {
   RUNTIME_POLICY_PARAMETERS_CONSUMER_VERSION,
   applyRuntimePolicyParametersToRegistry,
   createRuntimePolicyParameterConsumptionRecorder,
-  persistRuntimePolicyParameterConsumptionEvidence
+  persistRuntimePolicyParameterConsumptionEvidence,
+  selectRuntimePolicyObjectiveActivationTarget
 } from '../src/strategy/runtimePolicyParameters';
 import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 
@@ -16,7 +17,52 @@ describe('runtime policy parameters', () => {
     delete (globalThis as Record<string, unknown>).self;
     delete (globalThis as { Memory?: unknown }).Memory;
     delete (globalThis as { Game?: unknown }).Game;
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
   });
+
+  function installRuntimeConstructionPriorityPayload(): void {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters: {
+        baseScoreWeight: 1,
+        territorySignalWeight: 22,
+        resourceSignalWeight: 3,
+        killSignalWeight: 5,
+        riskPenalty: 4
+      },
+      parametersSha256: 'runtime-objective-sha'
+    };
+  }
+
+  function installHostileFindGlobals(): void {
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+  }
+
+  function makeRuntimeRoom(roomName: string, hostileCreepCount = 0, hostileStructureCount = 0): Room {
+    return {
+      name: roomName,
+      find: jest.fn((type: number) => {
+        if (type === FIND_HOSTILE_CREEPS) {
+          return Array.from({ length: hostileCreepCount }, (_, index) => ({ id: `${roomName}-hostile-${index}` }));
+        }
+
+        if (type === FIND_HOSTILE_STRUCTURES) {
+          return Array.from({ length: hostileStructureCount }, (_, index) => ({
+            id: `${roomName}-structure-${index}`
+          }));
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+  }
 
   it('applies private-simulator payload parameters to matching strategy entries', () => {
     (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
@@ -266,6 +312,37 @@ describe('runtime policy parameters', () => {
       appliedStrategyIds: [],
       reason: 'runtime policy parameter payload was not used by tick runtime strategy evaluation'
     });
+  });
+
+  it('uses describeExits as authoritative for runtime objective adjacency', () => {
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload();
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'E0N0' ? { 1: 'E0N1', 3: 'E1N0' } : {}
+    );
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      rooms: {
+        E0N0: makeRuntimeRoom('E0N0'),
+        E1N1: makeRuntimeRoom('E1N1', 2, 1)
+      },
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(selectRuntimePolicyObjectiveActivationTarget('E0N0')).toBeNull();
+    expect(describeExits).toHaveBeenCalledWith('E0N0');
+  });
+
+  it('does not treat diagonal rooms as adjacent without map exit data', () => {
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload();
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      rooms: {
+        E0N0: makeRuntimeRoom('E0N0'),
+        E1N1: makeRuntimeRoom('E1N1', 2, 1)
+      }
+    };
+
+    expect(selectRuntimePolicyObjectiveActivationTarget('E0N0')).toBeNull();
   });
 
   it('keeps consumed evidence sticky across ticks for the same injected payload', () => {

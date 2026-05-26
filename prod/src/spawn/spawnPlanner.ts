@@ -29,6 +29,7 @@ import {
   hasControllerAttackPressure,
   planDefenderSpawn
 } from '../defense/defensePlanner';
+import { selectRuntimePolicyObjectiveActivationTarget } from '../strategy/runtimePolicyParameters';
 import {
   selectDynamicCreepBody,
   type DynamicCreepBodyDemand,
@@ -1194,7 +1195,54 @@ function planDefenseSpawnForContext(context: SpawnPlanningContext): SpawnRequest
     }
   }
 
-  return planPostClaimControllerDefenseSpawn(context);
+  const postClaimDefenseSpawn = planPostClaimControllerDefenseSpawn(context);
+  if (postClaimDefenseSpawn) {
+    return postClaimDefenseSpawn;
+  }
+
+  return planRuntimePolicyObjectiveDefenseSpawn(context);
+}
+
+function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    context.workerCapacity < Math.min(context.workerTarget, LOCAL_SUPPORT_WORKER_FLOOR)
+  ) {
+    return null;
+  }
+
+  const objectiveTarget = selectRuntimePolicyObjectiveActivationTarget(context.colony.room.name);
+  if (!objectiveTarget || objectiveTarget.hostileCreepCount <= 0) {
+    return null;
+  }
+
+  const assignedDefenders = countAssignedRoomDefenders(objectiveTarget.targetRoom);
+  if (assignedDefenders >= getDesiredDefenderCount(objectiveTarget.hostileCreepCount)) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const defenderPlan = planDefenderSpawn({
+    roomName: objectiveTarget.targetRoom,
+    hostileCreepCount: objectiveTarget.hostileCreepCount,
+    activeDefenderCount: assignedDefenders,
+    energyAvailable: getSpawnEnergyBudget(context.colony),
+    gameTime: context.gameTime,
+    nameSuffix: context.options.nameSuffix
+  });
+  if (!defenderPlan) {
+    return null;
+  }
+
+  return {
+    spawn,
+    ...defenderPlan
+  };
 }
 
 function planDefenseSpawnForRoom(
