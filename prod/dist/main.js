@@ -33626,8 +33626,8 @@ function areRoomsAdjacent(left, right) {
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (gameMap && typeof gameMap.describeExits === "function") {
     const exits = gameMap.describeExits(left);
-    if (exits && Object.values(exits).includes(right)) {
-      return true;
+    if (exits) {
+      return Object.values(exits).includes(right);
     }
   }
   const leftCoordinates = parseRoomCoordinates3(left);
@@ -33637,7 +33637,7 @@ function areRoomsAdjacent(left, right) {
   }
   const dx = Math.abs(leftCoordinates.x - rightCoordinates.x);
   const dy = Math.abs(leftCoordinates.y - rightCoordinates.y);
-  return dx <= 1 && dy <= 1 && dx + dy > 0;
+  return dx === 1 && dy === 0 || dx === 0 && dy === 1;
 }
 function parseRoomCoordinates3(roomName) {
   const match = /^(E|W)(\d+)(N|S)(\d+)$/.exec(roomName);
@@ -35645,11 +35645,11 @@ function planDefenseSpawnForContext(context) {
       return localDefenseSpawn;
     }
   }
-  const runtimeObjectiveSpawn = planRuntimePolicyObjectiveDefenseSpawn(context);
-  if (runtimeObjectiveSpawn) {
-    return runtimeObjectiveSpawn;
+  const postClaimDefenseSpawn = planPostClaimControllerDefenseSpawn(context);
+  if (postClaimDefenseSpawn) {
+    return postClaimDefenseSpawn;
   }
-  return planPostClaimControllerDefenseSpawn(context);
+  return planRuntimePolicyObjectiveDefenseSpawn(context);
 }
 function planRuntimePolicyObjectiveDefenseSpawn(context) {
   if (context.survival.hostilePresence || context.survival.controllerDowngradeGuard || context.workerCapacity < Math.min(context.workerTarget, LOCAL_SUPPORT_WORKER_FLOOR)) {
@@ -35659,7 +35659,8 @@ function planRuntimePolicyObjectiveDefenseSpawn(context) {
   if (!objectiveTarget || objectiveTarget.hostileCreepCount <= 0) {
     return null;
   }
-  if (countAssignedRoomDefenders(objectiveTarget.targetRoom) >= getDesiredDefenderCount(objectiveTarget.hostileCreepCount)) {
+  const assignedDefenders = countAssignedRoomDefenders(objectiveTarget.targetRoom);
+  if (assignedDefenders >= getDesiredDefenderCount(objectiveTarget.hostileCreepCount)) {
     return null;
   }
   const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
@@ -35669,7 +35670,7 @@ function planRuntimePolicyObjectiveDefenseSpawn(context) {
   const defenderPlan = planDefenderSpawn({
     roomName: objectiveTarget.targetRoom,
     hostileCreepCount: objectiveTarget.hostileCreepCount,
-    activeDefenderCount: countAssignedRoomDefenders(objectiveTarget.targetRoom),
+    activeDefenderCount: assignedDefenders,
     energyAvailable: getSpawnEnergyBudget(context.colony),
     gameTime: context.gameTime,
     nameSuffix: context.options.nameSuffix

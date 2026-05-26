@@ -1195,12 +1195,12 @@ function planDefenseSpawnForContext(context: SpawnPlanningContext): SpawnRequest
     }
   }
 
-  const runtimeObjectiveSpawn = planRuntimePolicyObjectiveDefenseSpawn(context);
-  if (runtimeObjectiveSpawn) {
-    return runtimeObjectiveSpawn;
+  const postClaimDefenseSpawn = planPostClaimControllerDefenseSpawn(context);
+  if (postClaimDefenseSpawn) {
+    return postClaimDefenseSpawn;
   }
 
-  return planPostClaimControllerDefenseSpawn(context);
+  return planRuntimePolicyObjectiveDefenseSpawn(context);
 }
 
 function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
@@ -1217,10 +1217,8 @@ function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): 
     return null;
   }
 
-  if (
-    countAssignedRoomDefenders(objectiveTarget.targetRoom) >=
-    getDesiredDefenderCount(objectiveTarget.hostileCreepCount)
-  ) {
+  const assignedDefenders = countAssignedRoomDefenders(objectiveTarget.targetRoom);
+  if (assignedDefenders >= getDesiredDefenderCount(objectiveTarget.hostileCreepCount)) {
     return null;
   }
 
@@ -1232,7 +1230,7 @@ function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): 
   const defenderPlan = planDefenderSpawn({
     roomName: objectiveTarget.targetRoom,
     hostileCreepCount: objectiveTarget.hostileCreepCount,
-    activeDefenderCount: countAssignedRoomDefenders(objectiveTarget.targetRoom),
+    activeDefenderCount: assignedDefenders,
     energyAvailable: getSpawnEnergyBudget(context.colony),
     gameTime: context.gameTime,
     nameSuffix: context.options.nameSuffix

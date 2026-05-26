@@ -386,8 +386,8 @@ function areRoomsAdjacent(left: string, right: string): boolean {
   const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map;
   if (gameMap && typeof gameMap.describeExits === 'function') {
     const exits = gameMap.describeExits(left);
-    if (exits && Object.values(exits).includes(right)) {
-      return true;
+    if (exits) {
+      return Object.values(exits).includes(right);
     }
   }
 
@@ -399,7 +399,7 @@ function areRoomsAdjacent(left: string, right: string): boolean {
 
   const dx = Math.abs(leftCoordinates.x - rightCoordinates.x);
   const dy = Math.abs(leftCoordinates.y - rightCoordinates.y);
-  return dx <= 1 && dy <= 1 && dx + dy > 0;
+  return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
 }
 
 function parseRoomCoordinates(roomName: string): { x: number; y: number } | null {
