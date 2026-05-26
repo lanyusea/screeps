@@ -1575,7 +1575,7 @@ def _direct_game_loop_unsafe_flag_path(value: Any, *, _path: str = "tick_log", _
             if value.get(field) is True:
                 return f"{_path}.{field}"
         for key, item in value.items():
-            if isinstance(item, (dict, list)):
+            if isinstance(item, (dict, list, tuple)):
                 path = _direct_game_loop_unsafe_flag_path(
                     item,
                     _path=f"{_path}.{key}",
@@ -1583,9 +1583,9 @@ def _direct_game_loop_unsafe_flag_path(value: Any, *, _path: str = "tick_log", _
                 )
                 if path is not None:
                     return path
-    elif isinstance(value, list):
+    elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            if isinstance(item, (dict, list)):
+            if isinstance(item, (dict, list, tuple)):
                 path = _direct_game_loop_unsafe_flag_path(
                     item,
                     _path=f"{_path}[{index}]",

@@ -5262,6 +5262,36 @@ cli:
                     harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
                 )
 
+    def test_direct_game_loop_active_code_path_fails_closed_for_tuple_wrapped_unsafe_flags(self) -> None:
+        injection, uploaded_code = self.uploaded_runtime_parameter_injection_with_code(upload_tick=18)
+        readback = harness.private_simulator_active_code_readback_summary(
+            uploaded_code,
+            {"branch": "default", "modules": {"main": uploaded_code}},
+            branch="default",
+            http_status=200,
+        )
+        missing = harness.runtime_parameter_consumption_check(injection, None)
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing,
+            [
+                {"tick": 19, "rooms": {"W1N1": {"creeps": 1}}},
+                {
+                    "tick": 20,
+                    "rooms": {"W1N1": ({"officialMmoWritesAllowed": True},)},
+                },
+            ],
+            active_code_readback=readback,
+        )
+
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertNotEqual(
+            consumption.get("source"),
+            harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        )
+        self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
+
     def test_direct_game_loop_active_code_path_preserves_explicit_false_consumed_signal(self) -> None:
         injection, uploaded_code = self.uploaded_runtime_parameter_injection_with_code(upload_tick=18)
         readback = harness.private_simulator_active_code_readback_summary(
