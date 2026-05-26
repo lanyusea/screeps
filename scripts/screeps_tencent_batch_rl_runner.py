@@ -56,6 +56,10 @@ DEFAULT_WORKER_USER = "screeps-batch"
 DEFAULT_REMOTE_BASE = "/opt/screeps-batch/jobs"
 DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
 MAX_SCALE_PROOF_WORKERS = 16
+TENCENT_VALIDATION_INSTANCE_TYPE = "S3.2XLARGE16"
+TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS = 6
+TENCENT_S3_2XLARGE16_MEMORY_PER_ENVIRONMENT_MIB = 2300
+TENCENT_S3_2XLARGE16_HOST_RESERVE_MIB = 1536
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
@@ -123,6 +127,13 @@ SSH_NETWORK_UNREACHABLE_RE = re.compile(
 REMOTE_RESOURCE_GUARD_RE = re.compile(
     r"(?:resource guard rejected simulator scale run|screeps-rl-simulator-resource-guard-failure|"
     r'"phase"\s*:\s*"resource-guard")',
+    re.IGNORECASE,
+)
+REMOTE_SIMULATOR_SETUP_RETRYABLE_RE = re.compile(
+    r"(?:retryable setup failure|unexpected EOF|context deadline exceeded|i/o timeout|TLS handshake timeout|"
+    r"connection reset|connection refused|temporary failure|network .*timed? out|"
+    r"net/http|Client\.Timeout|request canceled|too many requests|toomanyrequests|"
+    r"error pulling image|failed to (?:copy|extract|pull|fetch))",
     re.IGNORECASE,
 )
 SECRET_KEY_CANDIDATE_PATTERN = r"[A-Za-z_][A-Za-z0-9_-]{0,80}"
@@ -2308,11 +2319,14 @@ def remote_training_failure_diagnostics(
     payload: dict[str, Any] = {
         "status": "failed_exit",
         "failureClass": failure_class,
-        "retryable": failure_class in {"network_unreachable"},
+        "retryable": failure_class in {"network_unreachable", "simulator_setup_retryable"},
         "returncode": returncode,
         "artifactDir": str(remote_dir),
         "diagnostics": files,
     }
+    next_action = remote_training_failure_next_action(failure_class)
+    if next_action is not None:
+        payload["nextAction"] = next_action
     resource_guard = remote_training_resource_guard_summary(artifact_dir, run_id)
     if resource_guard is not None:
         payload["resourceGuard"] = resource_guard
@@ -2332,11 +2346,24 @@ def classify_remote_training_failure(
     )
     if REMOTE_RESOURCE_GUARD_RE.search(diagnostic_text):
         return "simulator_resource_guard_rejected"
+    if REMOTE_SIMULATOR_SETUP_RETRYABLE_RE.search(diagnostic_text):
+        return "simulator_setup_retryable"
     if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
         return process_failure_class
     if returncode == 255:
         return "ssh_transport_failed"
     return "remote_process_failed"
+
+
+def remote_training_failure_next_action(failure_class: str) -> str | None:
+    if failure_class == "simulator_setup_retryable":
+        return (
+            "rerun the same bounded validation after Docker image pull/setup flakiness settles; "
+            "inspect simulator setup diagnostics if the retry repeats"
+        )
+    if failure_class == "network_unreachable":
+        return "rerun after the worker SSH/network path is reachable"
+    return None
 
 
 def remote_training_resource_guard_summary(artifact_dir: Path, run_id: str | None) -> dict[str, Any] | None:
@@ -4376,6 +4403,7 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
             raise BatchRunError(f"scale environments must be between 1 and {MAX_SCALE_PROOF_WORKERS}")
         if args.workers < scale_environments:
             raise BatchRunError("workers must be at least scale environments for concurrent scale proof")
+    validate_tencent_s3_validation_scale_cap(args, scale_environments)
     if args.repetitions < 1 or args.ticks < 1:
         raise BatchRunError("ticks and repetitions must be positive")
     scenario_id = scenario_id_from_args(args)
@@ -4392,6 +4420,31 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
         multi_tier_launch_fixture_evidence()
     if not args.controller_ip.endswith("/32"):
         raise BatchRunError("controller IP must be a /32 CIDR")
+
+
+def validate_tencent_s3_validation_scale_cap(args: argparse.Namespace, scale_environments: int | None) -> None:
+    requested_workers = int(getattr(args, "workers", 0) or 0)
+    requested_environments = max(requested_workers, scale_environments or 0)
+    cap = TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS
+    if requested_environments <= cap:
+        return
+    requested_required_mib = (
+        TENCENT_S3_2XLARGE16_HOST_RESERVE_MIB
+        + requested_environments * TENCENT_S3_2XLARGE16_MEMORY_PER_ENVIRONMENT_MIB
+    )
+    cap_required_mib = (
+        TENCENT_S3_2XLARGE16_HOST_RESERVE_MIB
+        + cap * TENCENT_S3_2XLARGE16_MEMORY_PER_ENVIRONMENT_MIB
+    )
+    raise BatchRunError(
+        f"{TENCENT_VALIDATION_INSTANCE_TYPE} validation cap exceeded: "
+        f"workers={requested_workers} scaleEnvironments={scale_environments} "
+        f"requires about {requested_required_mib} MiB memory/swap by the simulator resource guard, "
+        f"but this Tencent 8 vCPU / 16 GiB validation worker is capped at {cap} concurrent "
+        f"simulator environment(s) ({cap_required_mib} MiB estimate). "
+        f"Next action: rerun with --workers {cap} --scale-environments {cap}, "
+        "or move the ASG to a larger memory instance before requesting more environments."
+    )
 
 
 def policy_gradient_samples_per_candidate(args: argparse.Namespace) -> int:

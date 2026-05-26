@@ -88,6 +88,8 @@ RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_RETRY_SECONDS = 1.0
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_BROKEN_PIPE_MAX_RETRIES = 1
 RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
+RUN_COMPOSE_SETUP_MAX_ATTEMPTS = 2
+RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS = 2.0
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 RUN_RESOURCE_GUARD_ALLOW_UNSAFE_ENV = "SCREEPS_RL_SIM_ALLOW_UNSAFE_SCALE"
@@ -143,6 +145,13 @@ PRIVATE_MAP_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 _WORKER_PHASE_DEBUG_DISABLED = False
 SCALE_ENVIRONMENT_VARIANT_RE = re.compile(r"^(?P<base>.+)\.scale-env-(?P<index>\d{2,})$")
 ROOM_NAME_RE = re.compile(r"^(?P<horizontal>[WE])(?P<x>\d+)(?P<vertical>[NS])(?P<y>\d+)$")
+RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE = re.compile(
+    r"(?:unexpected EOF|context deadline exceeded|i/o timeout|TLS handshake timeout|"
+    r"connection reset|connection refused|temporary failure|network .*timed? out|"
+    r"net/http|Client\.Timeout|request canceled|too many requests|toomanyrequests|"
+    r"error pulling image|failed to (?:copy|extract|pull|fetch))",
+    re.IGNORECASE,
+)
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
 HARNESS_BINARY_FILE_EXTENSIONS = (
     ".bmp",
@@ -4407,6 +4416,72 @@ def _require_command_success(smoke: Any, result: Any, phase: str) -> JsonObject:
     return result
 
 
+def _compose_setup_attempt_summary(result: Any, attempt: int) -> JsonObject:
+    if not isinstance(result, dict):
+        return {
+            "attempt": attempt,
+            "returncode": None,
+            "elapsedSeconds": None,
+            "outputExcerpt": _safe_text(result, 500),
+            "retryable": False,
+        }
+    return {
+        "attempt": attempt,
+        "returncode": _coerce_int(result.get("returncode")),
+        "elapsedSeconds": result.get("elapsed_seconds"),
+        "outputExcerpt": _safe_text(result.get("output_excerpt", ""), 500),
+        "retryable": _is_retryable_compose_setup_failure(result),
+    }
+
+
+def _is_retryable_compose_setup_failure(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    if result.get("returncode") in (None, 0):
+        return False
+    output = str(result.get("output_excerpt", ""))
+    return bool(RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE.search(output))
+
+
+def _run_compose_setup_command_with_retry(
+    smoke: Any,
+    cfg: Any,
+    command: list[str],
+    phase: str,
+    *,
+    timeout: int,
+) -> JsonObject:
+    attempts: list[JsonObject] = []
+    for attempt in range(1, RUN_COMPOSE_SETUP_MAX_ATTEMPTS + 1):
+        result = smoke.run_command(command, cfg, timeout=timeout)
+        attempts.append(_compose_setup_attempt_summary(result, attempt))
+        if isinstance(result, dict) and result.get("returncode") in (None, 0):
+            checked = _require_command_success(smoke, result, phase)
+            if len(attempts) > 1:
+                checked["setupRetry"] = {
+                    "attempts": attempts,
+                    "maxAttempts": RUN_COMPOSE_SETUP_MAX_ATTEMPTS,
+                    "recovered": True,
+                }
+            return checked
+        if attempt < RUN_COMPOSE_SETUP_MAX_ATTEMPTS and _is_retryable_compose_setup_failure(result):
+            time.sleep(RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS)
+            continue
+        detail = {
+            "phase": phase,
+            "attempts": attempts,
+            "maxAttempts": RUN_COMPOSE_SETUP_MAX_ATTEMPTS,
+        }
+        if attempts[-1].get("retryable") is True:
+            detail["classification"] = "retryable_setup_failure"
+            detail["nextAction"] = "rerun the bounded simulator validation after Docker image pull/setup flakiness settles"
+            raise RuntimeError(
+                f"{phase} failed after {attempt} attempt(s): {_safe_redact_smoke_payload(detail)}"
+            )
+        raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(detail)}")
+    raise RuntimeError(f"{phase} failed without a command attempt")
+
+
 def _install_simulator_repair_mod(smoke: Any, cfg: Any) -> Path:
     """Install local launcher compatibility fixes into this worker's generated mod dir."""
     mod_path = cfg.work_dir / "mods" / SIMULATOR_REPAIR_MOD_FILENAME
@@ -5924,11 +5999,29 @@ def _run_variant(
             returncode=down_result.get("returncode"),
             elapsed_seconds=down_result.get("elapsed_seconds"),
         )
-        _debug_worker_phase(worker_index, variant_id, "before docker compose up", command="up -d")
-        up_result = _require_command_success(
+        _debug_worker_phase(worker_index, variant_id, "before docker compose pull", command="pull")
+        pull_result = _run_compose_setup_command_with_retry(
             smoke,
-            smoke.run_command([*compose, "up", "-d"], cfg, timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS),
+            cfg,
+            [*compose, "pull"],
+            "docker compose pull",
+            timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS,
+        )
+        _debug_worker_phase(
+            worker_index,
+            variant_id,
+            "after docker compose pull",
+            returncode=pull_result.get("returncode"),
+            elapsed_seconds=pull_result.get("elapsed_seconds"),
+            setupRetry=pull_result.get("setupRetry"),
+        )
+        _debug_worker_phase(worker_index, variant_id, "before docker compose up", command="up -d")
+        up_result = _run_compose_setup_command_with_retry(
+            smoke,
+            cfg,
+            [*compose, "up", "-d"],
             "docker compose up",
+            timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS,
         )
         _debug_worker_phase(
             worker_index,

@@ -6044,6 +6044,85 @@ cli:
         self.assertEqual(result["error"], "stop before side effects")
         self.assertIsNone(result["launcherRepairMod"])
 
+    def test_compose_setup_retry_recovers_transient_image_pull_failure(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+                self.results = [
+                    {
+                        "returncode": 1,
+                        "elapsed_seconds": 0.4,
+                        "output_excerpt": "failed to pull layer: unexpected EOF",
+                    },
+                    {"returncode": 0, "elapsed_seconds": 0.2, "output_excerpt": ""},
+                ]
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return self.results.pop(0)
+
+            def require_success(self, result: dict[str, object]) -> dict[str, object]:
+                if result.get("returncode") != 0:
+                    raise AssertionError("failed setup attempts must be classified before require_success")
+                return result
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            result = harness._run_compose_setup_command_with_retry(
+                smoke,
+                object(),
+                ["compose", "pull"],
+                "docker compose pull",
+                timeout=123,
+            )
+
+        self.assertEqual(smoke.commands, [["compose", "pull"], ["compose", "pull"]])
+        sleep.assert_called_once_with(harness.RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS)
+        self.assertEqual(result["returncode"], 0)
+        self.assertTrue(result["setupRetry"]["recovered"])
+        self.assertEqual(len(result["setupRetry"]["attempts"]), 2)
+
+    def test_compose_setup_retry_does_not_retry_non_transient_pull_failure(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return {
+                    "returncode": 1,
+                    "elapsed_seconds": 0.1,
+                    "output_excerpt": "manifest for screeps/private-server:missing not found",
+                }
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "docker compose pull failed"):
+                harness._run_compose_setup_command_with_retry(
+                    smoke,
+                    object(),
+                    ["compose", "pull"],
+                    "docker compose pull",
+                    timeout=123,
+                )
+
+        self.assertEqual(smoke.commands, [["compose", "pull"]])
+        sleep.assert_not_called()
+
     def test_run_variant_active_world_alias_uploads_executable_branch_for_runtime_consumption(self) -> None:
         variant_id = "construction-priority.pg.territory-seed.v1"
         parameters = {
