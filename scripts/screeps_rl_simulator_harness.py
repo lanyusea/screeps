@@ -4452,6 +4452,8 @@ def _is_retryable_compose_setup_failure(result: Any) -> bool:
     returncode = result.get("returncode")
     if returncode == 0:
         return False
+    if result.get("exceptionType") in {"TimeoutExpired", "TimeoutError"}:
+        return True
     if returncode is None and "exceptionType" not in result:
         return False
     output = _compose_setup_output_text(result)

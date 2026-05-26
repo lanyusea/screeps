@@ -6128,6 +6128,46 @@ cli:
         self.assertEqual(result["setupRetry"]["attempts"][0]["exceptionType"], "TimeoutError")
         self.assertTrue(result["setupRetry"]["attempts"][0]["retryable"])
 
+    def test_compose_setup_retry_recovers_plain_timeout_expired_exception(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.calls += 1
+                if self.calls == 1:
+                    raise subprocess.TimeoutExpired(command, 900)
+                return {"returncode": 0, "elapsed_seconds": 0.2, "output_excerpt": ""}
+
+            def require_success(self, result: dict[str, object]) -> dict[str, object]:
+                if result.get("returncode") != 0:
+                    raise AssertionError("only the recovered setup result should be required to succeed")
+                return result
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            result = harness._run_compose_setup_command_with_retry(
+                smoke,
+                object(),
+                ["compose", "pull"],
+                "docker compose pull",
+                timeout=123,
+            )
+
+        attempts = result["setupRetry"]["attempts"]
+        self.assertEqual(smoke.calls, 2)
+        sleep.assert_called_once_with(harness.RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS)
+        self.assertEqual(attempts[0]["exceptionType"], "TimeoutExpired")
+        self.assertIn("timed out after 900 seconds", attempts[0]["outputExcerpt"])
+        self.assertTrue(attempts[0]["retryable"])
+
     def test_compose_setup_retry_does_not_retry_non_transient_pull_failure(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:
