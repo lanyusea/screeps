@@ -284,11 +284,17 @@ class MockSimulator:
                     upload_tick=upload_tick,
                 )
                 if self.include_active_code_direct_consumption_evidence:
+                    requested_branch = kwargs.get("branch")
+                    readback_branch = runner.simulator_harness.normalize_private_server_code_branch(
+                        requested_branch
+                        if isinstance(requested_branch, str)
+                        else runner.simulator_harness.DEFAULT_ACTIVE_WORLD_BRANCH
+                    )
                     result["activeCodeReadback"] = (
                         runner.simulator_harness.private_simulator_active_code_readback_summary(
                             code_text,
-                            {"branch": "default", "modules": {"main": code_text}},
-                            branch="default",
+                            {"branch": readback_branch, "modules": {"main": code_text}},
+                            branch=readback_branch,
                             http_status=200,
                         )
                     )
@@ -4834,6 +4840,7 @@ export const STRATEGY_REGISTRY = [
             simulation_ticks=100,
             simulation_repetitions=1,
         )
+        card["simulation"]["branch"] = "active-code-direct-consumption-test"
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results = {
@@ -4858,6 +4865,7 @@ export const STRATEGY_REGISTRY = [
                 generated_at="2026-05-26T03:11:00Z",
                 simulator_runner=simulator,
             )
+            scorecard_payload = read_json(Path(report["scorecardArtifactPath"]))
 
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertTrue(report["runtimeParameterInjection"]["runtimeParameterConsumption"])
@@ -4866,6 +4874,22 @@ export const STRATEGY_REGISTRY = [
         self.assertTrue(report["policyGradient"]["runner_support"]["runtime_parameter_consumption"])
         self.assertTrue(report["candidateScorecard"]["runtimeParameterConsumption"])
         self.assertGreater(report["candidateScorecard"]["consumedVariantCount"], 0)
+        readback_branch = runner.simulator_harness.normalize_private_server_code_branch(
+            card["simulation"]["branch"]
+        )
+        self.assertEqual(simulator.calls[0]["branch"], card["simulation"]["branch"])
+        self.assertTrue(
+            all(
+                result["activeCodeReadback"]["branch"] == readback_branch
+                and result["activeCodeReadback"]["activeBranch"] == readback_branch
+                for result in simulator.last_variants
+            )
+        )
+        self.assertTrue(scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumption"])
+        self.assertEqual(
+            scorecard_payload["overallGate"]["runtimeCandidateGate"]["runtimeParameterConsumptionSource"],
+            runner.simulator_harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+        )
         self.assertTrue(
             all(
                 row["runtimeParameterConsumption"]
