@@ -39,6 +39,14 @@ export interface RuntimePolicyParameterConsumptionRecorder {
   buildEvidence: () => RuntimePolicyParameterConsumptionEvidence;
 }
 
+export interface RuntimePolicyObjectiveActivationTarget {
+  colony: string;
+  targetRoom: string;
+  hostileCreepCount: number;
+  hostileStructureCount: number;
+  activationScore: number;
+}
+
 interface RuntimePolicyParameterPayload {
   runtimeParameterInjection?: unknown;
   candidateParameterScope?: unknown;
@@ -53,6 +61,8 @@ interface RuntimePolicyParameterPayload {
 type RuntimeMemory = Partial<Memory> & {
   rlRuntimePolicyParameters?: RuntimePolicyParameterConsumptionEvidence & { tick: number };
 };
+
+const MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE = 12;
 
 export function applyRuntimePolicyParametersToRegistry(
   registry: StrategyRegistryEntry[]
@@ -189,6 +199,27 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
   emitRuntimePolicyParameterConsumptionEvidence(tickedEvidence);
 }
 
+export function selectRuntimePolicyObjectiveActivationTarget(
+  colonyRoomName: string
+): RuntimePolicyObjectiveActivationTarget | null {
+  const payload = readRuntimePolicyParameterPayload();
+  if (!payload || !runtimePolicyPayloadTargetsConstructionPriority(payload)) {
+    return null;
+  }
+
+  const parameters = normalizeRuntimePolicyParameters(payload.parameters);
+  if (!parameters) {
+    return null;
+  }
+
+  const activationScore = scoreRuntimePolicyObjectiveActivation(parameters);
+  if (activationScore === null || activationScore < MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE) {
+    return null;
+  }
+
+  return selectVisibleAdjacentHostileObjectiveTarget(colonyRoomName, activationScore);
+}
+
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
   const lexicalPayload = runtimePolicyParameterPayloadFromValue(readLexicalRuntimePolicyParameterPayload());
   if (lexicalPayload) {
@@ -266,6 +297,126 @@ function runtimePolicyPayloadExplicitIds(payload: RuntimePolicyParameterPayload)
     textOrUndefined(payload.candidatePolicyId),
     textOrUndefined(payload.sourceStrategyId)
   ].filter((id): id is string => id !== undefined);
+}
+
+function runtimePolicyPayloadTargetsConstructionPriority(payload: RuntimePolicyParameterPayload): boolean {
+  const family = textOrUndefined(payload.family);
+  if (family === 'construction-priority') {
+    return true;
+  }
+
+  return runtimePolicyPayloadExplicitIds(payload).some((id) => id.startsWith('construction-priority.'));
+}
+
+function scoreRuntimePolicyObjectiveActivation(parameters: Record<string, StrategyKnobValue>): number | null {
+  const territorySignalWeight = strategyNumber(parameters.territorySignalWeight);
+  if (territorySignalWeight === null) {
+    return null;
+  }
+
+  const baseScoreWeight = strategyNumber(parameters.baseScoreWeight) ?? 1;
+  const killSignalWeight = strategyNumber(parameters.killSignalWeight) ?? 0;
+  const riskPenalty = strategyNumber(parameters.riskPenalty) ?? 0;
+  return territorySignalWeight * baseScoreWeight + Math.min(killSignalWeight, 8) * 0.25 - riskPenalty * 0.25;
+}
+
+function selectVisibleAdjacentHostileObjectiveTarget(
+  colonyRoomName: string,
+  activationScore: number
+): RuntimePolicyObjectiveActivationTarget | null {
+  if (!isNonEmptyString(colonyRoomName)) {
+    return null;
+  }
+
+  const rooms = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms;
+  if (!rooms) {
+    return null;
+  }
+
+  const candidates: RuntimePolicyObjectiveActivationTarget[] = [];
+  for (const [roomName, room] of Object.entries(rooms)) {
+    if (!room || roomName === colonyRoomName || !areRoomsAdjacent(colonyRoomName, roomName)) {
+      continue;
+    }
+
+    const hostileCreepCount = countRoomFind(room, 'FIND_HOSTILE_CREEPS');
+    const hostileStructureCount = countRoomFind(room, 'FIND_HOSTILE_STRUCTURES');
+    if (hostileCreepCount + hostileStructureCount <= 0) {
+      continue;
+    }
+
+    candidates.push({
+      colony: colonyRoomName,
+      targetRoom: roomName,
+      hostileCreepCount,
+      hostileStructureCount,
+      activationScore
+    });
+  }
+
+  return candidates.sort(compareRuntimePolicyObjectiveActivationTargets)[0] ?? null;
+}
+
+function compareRuntimePolicyObjectiveActivationTargets(
+  left: RuntimePolicyObjectiveActivationTarget,
+  right: RuntimePolicyObjectiveActivationTarget
+): number {
+  return (
+    right.hostileCreepCount - left.hostileCreepCount ||
+    right.hostileStructureCount - left.hostileStructureCount ||
+    left.targetRoom.localeCompare(right.targetRoom)
+  );
+}
+
+function countRoomFind(room: Room, globalName: 'FIND_HOSTILE_CREEPS' | 'FIND_HOSTILE_STRUCTURES'): number {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return 0;
+  }
+
+  try {
+    const result = room.find(findConstant as FindConstant);
+    return Array.isArray(result) ? result.length : 0;
+  } catch (_error) {
+    return 0;
+  }
+}
+
+function areRoomsAdjacent(left: string, right: string): boolean {
+  const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map;
+  if (gameMap && typeof gameMap.describeExits === 'function') {
+    const exits = gameMap.describeExits(left);
+    if (exits && Object.values(exits).includes(right)) {
+      return true;
+    }
+  }
+
+  const leftCoordinates = parseRoomCoordinates(left);
+  const rightCoordinates = parseRoomCoordinates(right);
+  if (!leftCoordinates || !rightCoordinates) {
+    return false;
+  }
+
+  const dx = Math.abs(leftCoordinates.x - rightCoordinates.x);
+  const dy = Math.abs(leftCoordinates.y - rightCoordinates.y);
+  return dx <= 1 && dy <= 1 && dx + dy > 0;
+}
+
+function parseRoomCoordinates(roomName: string): { x: number; y: number } | null {
+  const match = /^(E|W)(\d+)(N|S)(\d+)$/.exec(roomName);
+  if (!match) {
+    return null;
+  }
+
+  const horizontal = match[1] === 'E' ? Number(match[2]) : -Number(match[2]) - 1;
+  const vertical = match[3] === 'S' ? Number(match[4]) : -Number(match[4]) - 1;
+  return Number.isFinite(horizontal) && Number.isFinite(vertical)
+    ? { x: horizontal, y: vertical }
+    : null;
+}
+
+function strategyNumber(value: StrategyKnobValue | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function strategyEntryUsesRuntimeParameters(
@@ -442,6 +593,10 @@ function cloneStrategyRegistryEntry(entry: StrategyRegistryEntry): StrategyRegis
 
 function textOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function runtimeMemoryRoot(): RuntimeMemory {
