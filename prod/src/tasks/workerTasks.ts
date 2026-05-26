@@ -3465,6 +3465,7 @@ function canSpendCreepEnergyOnConstructionSite(
       !isExtensionConstructionSite(site) &&
       isCapacityEnablingConstructionSite(site, priorityContext) &&
       checkEnergyBufferForCapacityEnablingConstruction(creep.room, carriedEnergy)) ||
+    (carriedEnergy > 0 && canCompleteConstructionSiteWithCarriedEnergy(creep, site)) ||
     (carriedEnergy > 0 && isLowWorkerThroughputRecoveryConstructionAllowed(creep, site)) ||
     (carriedEnergy > 0 &&
       hasMinimumWorkerSpawnEnergyForConstruction(creep.room) &&

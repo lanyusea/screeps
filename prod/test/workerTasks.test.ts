@@ -1298,6 +1298,75 @@ describe('selectWorkerTask', () => {
     expect(creep.memory.constructionPreBuffer).toBeUndefined();
   });
 
+  it('lets spare loaded workers finish construction below the general spend floor', () => {
+    const constructionSite = {
+      id: 'extension-site',
+      my: true,
+      structureType: 'extension',
+      progress: 2_850,
+      progressTotal: 3_000,
+      pos: makeRoomPosition(20, 20)
+    } as ConstructionSite;
+    const extension = makeEnergySinkWithEnergy(
+      'extension-empty',
+      'extension' as StructureConstant,
+      0,
+      50,
+      { my: true, pos: makeRoomPosition(17, 17) }
+    ) as StructureExtension;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [constructionSite],
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 4,
+        progress: 100,
+        progressTotal: 1_000
+      } as StructureController,
+      energyAvailable: 250,
+      energyCapacityAvailable: 800,
+      myStructures: [extension as unknown as AnyOwnedStructure],
+      structures: [extension as unknown as AnyStructure]
+    });
+    const refiller = {
+      name: 'Refiller',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'extension-empty' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'extension-empty' ? 1 : 10)) },
+      room
+    } as unknown as Creep;
+    const builder = {
+      name: 'Finisher',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(20),
+        getCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'extension-empty': 10,
+            'extension-site': 4
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Refiller: refiller, Finisher: builder });
+
+    expect(selectWorkerTask(builder)).toEqual({ type: 'build', targetId: 'extension-site' });
+  });
+
   it('withdraws extension pre-buffer energy before resuming construction at the site', () => {
     const constructionSite = withRangeTo(
       {
