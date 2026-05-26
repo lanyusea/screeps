@@ -23,6 +23,7 @@ import {
   TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
   TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
 } from '../src/territory/autoClaim';
+import { RUNTIME_POLICY_PARAMETERS_GLOBAL } from '../src/strategy/runtimePolicyParameters';
 import { installRuntimeCurrentRoom } from './helpers/runtimeRoomConfig';
 
 describe('planSpawn', () => {
@@ -70,6 +71,7 @@ describe('planSpawn', () => {
     };
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
@@ -243,6 +245,37 @@ describe('planSpawn', () => {
       find: jest.fn((type: number) => {
         if (type === FIND_SOURCES) {
           return Array.from({ length: sourceCount }, (_, index) => ({ id: `${roomName}-source${index}` }));
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+  }
+
+  function installRuntimeConstructionPriorityPayload(parameters: Record<string, number>): void {
+    (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL] = {
+      runtimeParameterInjection: true,
+      candidateParameterScope: 'runtime_injected',
+      strategyVariantId: 'construction-priority.pg.territory-seed.v1',
+      candidatePolicyId: 'construction-priority.pg.territory-seed.v1',
+      sourceStrategyId: 'construction-priority.incumbent.v1',
+      family: 'construction-priority',
+      parameters,
+      parametersSha256: 'runtime-objective-sha'
+    };
+  }
+
+  function makeRuntimeObjectiveHostileRoom(roomName = 'E2S1'): Room {
+    return {
+      name: roomName,
+      controller: { id: `${roomName}-controller`, my: false, owner: { username: 'Invader' } } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_HOSTILE_CREEPS) {
+          return [{ id: `${roomName}-hostile-1` }, { id: `${roomName}-hostile-2` }] as Creep[];
+        }
+
+        if (type === FIND_HOSTILE_STRUCTURES) {
+          return [{ id: `${roomName}-spawn`, structureType: STRUCTURE_SPAWN }] as Structure[];
         }
 
         return [];
@@ -2964,6 +2997,146 @@ describe('planSpawn', () => {
         defense: { homeRoom: 'W1N1' }
       }
     });
+  });
+
+  it('spawns a defender toward a visible adjacent hostile room when runtime construction weights activate the objective', () => {
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload({
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    });
+    const { colony, spawn } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: makeSafeOwnedController(3)
+    });
+    const hostileRoom = makeRuntimeObjectiveHostileRoom('E2S1');
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === colony.room.name ? { 3: 'E2S1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: {
+        E1S1: colony.room,
+        E2S1: hostileRoom
+      },
+      map: {
+        describeExits
+      } as unknown as GameMap
+    };
+
+    expect(planSpawn(colony, { worker: 4, sourceHarvester: 2 }, 165)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move', 'tough', 'attack', 'move'],
+      name: 'defender-E2S1-165',
+      memory: {
+        role: 'defender',
+        colony: 'E2S1',
+        defense: { homeRoom: 'E2S1' }
+      }
+    });
+    expect(describeExits).toHaveBeenCalledWith(colony.room.name);
+  });
+
+  it('keeps post-claim controller defense ahead of runtime objective defenders', () => {
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload({
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    });
+    const { colony, spawn } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(4)
+    });
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === colony.room.name ? { 3: 'E2S1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: {
+        E1S1: colony.room,
+        E2S1: makeRuntimeObjectiveHostileRoom('E2S1'),
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: true,
+          level: 1,
+          upgradeBlocked: 20
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'E1S1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 174,
+            updatedAt: 175,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4, sourceHarvester: 2 }, 167)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W2N1-167',
+      memory: {
+        role: 'defender',
+        colony: 'W2N1',
+        defense: { homeRoom: 'W2N1' }
+      }
+    });
+    expect(describeExits).not.toHaveBeenCalled();
+  });
+
+  it('does not spawn a runtime objective defender for low-scoring construction weights', () => {
+    installHostileFindGlobals();
+    installRuntimeConstructionPriorityPayload({
+      baseScoreWeight: 1,
+      territorySignalWeight: 2,
+      resourceSignalWeight: 18,
+      killSignalWeight: 3,
+      riskPenalty: 3
+    });
+    const { colony } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: makeSafeOwnedController(3)
+    });
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === colony.room.name ? { 3: 'E2S1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: {
+        E1S1: colony.room,
+        E2S1: makeRuntimeObjectiveHostileRoom('E2S1')
+      },
+      map: {
+        describeExits
+      } as unknown as GameMap
+    };
+
+    expect(planSpawn(colony, { worker: 4, sourceHarvester: 2 }, 166)).toBeNull();
   });
 
   it('keeps bootstrap recovery ahead of defender spawning while hostiles are visible', () => {
