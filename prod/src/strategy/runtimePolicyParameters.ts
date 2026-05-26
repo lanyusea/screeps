@@ -45,6 +45,7 @@ export interface RuntimePolicyObjectiveActivationTarget {
   hostileCreepCount: number;
   hostileStructureCount: number;
   activationScore: number;
+  visibility: 'visible' | 'unobserved';
 }
 
 interface RuntimePolicyParameterPayload {
@@ -56,13 +57,23 @@ interface RuntimePolicyParameterPayload {
   family?: unknown;
   parameters?: unknown;
   parametersSha256?: unknown;
+  objectiveTargetRoom?: unknown;
+  objectiveAnchorRoom?: unknown;
+  objectiveHostileCreepCount?: unknown;
+  objectiveHostileStructureCount?: unknown;
 }
 
 type RuntimeMemory = Partial<Memory> & {
   rlRuntimePolicyParameters?: RuntimePolicyParameterConsumptionEvidence & { tick: number };
 };
 
+interface RuntimePolicyObjectiveActivationContext {
+  activationScore: number;
+  payload: RuntimePolicyParameterPayload;
+}
+
 const MULTI_TIER_EXPANSION_ACTIVATION_MIN_SCORE = 12;
+const MULTI_TIER_RECON_HOSTILE_CREEP_ESTIMATE = 2;
 
 export function applyRuntimePolicyParametersToRegistry(
   registry: StrategyRegistryEntry[]
@@ -202,6 +213,30 @@ export function persistRuntimePolicyParameterConsumptionEvidence(
 export function selectRuntimePolicyObjectiveActivationTarget(
   colonyRoomName: string
 ): RuntimePolicyObjectiveActivationTarget | null {
+  const context = readRuntimePolicyObjectiveActivationContext();
+  if (context === null) {
+    return null;
+  }
+
+  return selectVisibleAdjacentHostileObjectiveTarget(colonyRoomName, context.activationScore);
+}
+
+export function selectRuntimePolicyObjectiveDefenseTarget(
+  colonyRoomName: string
+): RuntimePolicyObjectiveActivationTarget | null {
+  const context = readRuntimePolicyObjectiveActivationContext();
+  if (context === null) {
+    return null;
+  }
+
+  return (
+    selectVisibleAdjacentHostileObjectiveTarget(colonyRoomName, context.activationScore) ??
+    selectInjectedObjectiveTarget(context.payload, colonyRoomName, context.activationScore) ??
+    selectUnobservedAdjacentObjectiveTarget(colonyRoomName, context.activationScore)
+  );
+}
+
+function readRuntimePolicyObjectiveActivationContext(): RuntimePolicyObjectiveActivationContext | null {
   const payload = readRuntimePolicyParameterPayload();
   if (!payload || !runtimePolicyPayloadTargetsConstructionPriority(payload)) {
     return null;
@@ -217,7 +252,7 @@ export function selectRuntimePolicyObjectiveActivationTarget(
     return null;
   }
 
-  return selectVisibleAdjacentHostileObjectiveTarget(colonyRoomName, activationScore);
+  return { activationScore, payload };
 }
 
 function readRuntimePolicyParameterPayload(): RuntimePolicyParameterPayload | null {
@@ -350,11 +385,97 @@ function selectVisibleAdjacentHostileObjectiveTarget(
       targetRoom: roomName,
       hostileCreepCount,
       hostileStructureCount,
-      activationScore
+      activationScore,
+      visibility: 'visible'
     });
   }
 
   return candidates.sort(compareRuntimePolicyObjectiveActivationTargets)[0] ?? null;
+}
+
+function selectUnobservedAdjacentObjectiveTarget(
+  colonyRoomName: string,
+  activationScore: number
+): RuntimePolicyObjectiveActivationTarget | null {
+  if (!isNonEmptyString(colonyRoomName)) {
+    return null;
+  }
+
+  const rooms = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms ?? {};
+  const candidates = getMapAdjacentRooms(colonyRoomName).filter(
+    (roomName) => roomName !== colonyRoomName && rooms[roomName] === undefined
+  );
+  const targetRoom = candidates.sort()[0];
+  if (!targetRoom) {
+    return null;
+  }
+
+  return {
+    colony: colonyRoomName,
+    targetRoom,
+    hostileCreepCount: MULTI_TIER_RECON_HOSTILE_CREEP_ESTIMATE,
+    hostileStructureCount: 0,
+    activationScore,
+    visibility: 'unobserved'
+  };
+}
+
+function selectInjectedObjectiveTarget(
+  payload: RuntimePolicyParameterPayload,
+  colonyRoomName: string,
+  activationScore: number
+): RuntimePolicyObjectiveActivationTarget | null {
+  const targetRoom = textOrUndefined(payload.objectiveTargetRoom);
+  if (!targetRoom || targetRoom === colonyRoomName) {
+    return null;
+  }
+
+  const anchorRoom = textOrUndefined(payload.objectiveAnchorRoom);
+  if (anchorRoom !== undefined && anchorRoom !== colonyRoomName) {
+    return null;
+  }
+
+  if (!areRoomsAdjacent(colonyRoomName, targetRoom)) {
+    return null;
+  }
+
+  const rooms = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms ?? {};
+  const visibleRoom = rooms[targetRoom];
+  const visibleHostileCreeps = visibleRoom ? countRoomFind(visibleRoom, 'FIND_HOSTILE_CREEPS') : 0;
+  const visibleHostileStructures = visibleRoom ? countRoomFind(visibleRoom, 'FIND_HOSTILE_STRUCTURES') : 0;
+  const injectedHostileCreeps = normalizePositiveInteger(
+    payload.objectiveHostileCreepCount,
+    MULTI_TIER_RECON_HOSTILE_CREEP_ESTIMATE
+  );
+  const injectedHostileStructures = normalizeNonNegativeInteger(payload.objectiveHostileStructureCount, 0);
+  const hostileCreepCount = Math.max(visibleHostileCreeps, injectedHostileCreeps);
+  const hostileStructureCount = Math.max(visibleHostileStructures, injectedHostileStructures);
+  if (hostileCreepCount + hostileStructureCount <= 0) {
+    return null;
+  }
+
+  return {
+    colony: colonyRoomName,
+    targetRoom,
+    hostileCreepCount,
+    hostileStructureCount,
+    activationScore,
+    visibility: visibleRoom ? 'visible' : 'unobserved'
+  };
+}
+
+function getMapAdjacentRooms(roomName: string): string[] {
+  const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map;
+  if (!gameMap || typeof gameMap.describeExits !== 'function') {
+    return [];
+  }
+
+  const exits = gameMap.describeExits(roomName);
+  if (!exits) {
+    return [];
+  }
+
+  return [...new Set(Object.values(exits).filter(isNonEmptyString))];
 }
 
 function compareRuntimePolicyObjectiveActivationTargets(
@@ -417,6 +538,15 @@ function parseRoomCoordinates(roomName: string): { x: number; y: number } | null
 
 function strategyNumber(value: StrategyKnobValue | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  const normalized = normalizeNonNegativeInteger(value, fallback);
+  return normalized > 0 ? normalized : fallback;
+}
+
+function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
 }
 
 function strategyEntryUsesRuntimeParameters(

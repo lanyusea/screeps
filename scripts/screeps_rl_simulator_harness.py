@@ -5205,6 +5205,29 @@ def select_multi_tier_policy_activation(
     }
 
 
+def attach_runtime_parameter_objective_target(
+    injection: JsonObject,
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> JsonObject:
+    if injection.get("candidateParameterScope") != "runtime_injected":
+        return injection
+    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
+    if target is None:
+        return injection
+    target_room, target_summary = target
+    combat = target_summary.get("combat") if isinstance(target_summary.get("combat"), dict) else {}
+    updated = dict(injection)
+    updated["objectiveTargetRoom"] = target_room
+    if anchor_room is not None:
+        updated["objectiveAnchorRoom"] = anchor_room
+    updated["objectiveHostileCreepCount"] = _extract_int(combat.get("hostileCreeps")) or 0
+    updated["objectiveHostileStructureCount"] = _extract_int(combat.get("hostileStructures")) or 0
+    updated["objectiveSignalSource"] = "multi_tier_map_fixture"
+    return updated
+
+
 def build_multi_tier_policy_activation_evidence(
     tick_log: list[JsonObject],
     strategy_variant: JsonObject,
@@ -5880,6 +5903,11 @@ def _run_variant(
             scenario_map_source_file = smoke_map_source_file or cfg.map_path
         fixture_room_summaries = _private_map_fixture_room_summaries(scenario_map_source_file)
         fixture_room_names = list(fixture_room_summaries)
+        runtime_parameter_injection = attach_runtime_parameter_objective_target(
+            runtime_parameter_injection,
+            fixture_room_summaries,
+            anchor_room=room,
+        )
         _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))
 
         # Reset server-owned state by removing any leftover stack and volumes first.
