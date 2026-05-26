@@ -4006,6 +4006,7 @@ export const STRATEGY_REGISTRY = [
             "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
             "learning_rate": 1,
         }
+        card["simulation"]["repetitions"] = 2
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results: dict[str, JsonObject] = {}
@@ -4069,6 +4070,7 @@ export const STRATEGY_REGISTRY = [
             simulation_ticks=100,
             simulation_repetitions=1,
         )
+        card["simulation"]["repetitions"] = 1
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results: dict[str, JsonObject] = {}
@@ -4647,6 +4649,7 @@ export const STRATEGY_REGISTRY = [
             simulation_ticks=100,
             simulation_repetitions=1,
         )
+        card["simulation"]["repetitions"] = 1
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results = {

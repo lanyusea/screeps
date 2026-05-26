@@ -78,7 +78,7 @@ POLICY_GRADIENT_UPDATE_LEARNING_RATE = 1
 POLICY_GRADIENT_UPDATE_ESTIMATOR = "score_function_reinforce_v1"
 LOOP_A_LOCAL_FALLBACK_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 LOOP_A_LOCAL_FALLBACK_MAX_TICKS = 5000
-LOOP_A_LOCAL_FALLBACK_REPETITIONS = 5
+LOOP_A_LOCAL_FALLBACK_REPETITIONS = POLICY_GRADIENT_SIMULATION_REPETITIONS
 LOOP_A_LOCAL_FALLBACK_WORKERS = 5
 DEGRADED_E1_GATE_MIN_ACCEPTANCE_RATE = 0.95
 E1_CURRENT_GATE_FULL_ACCEPTANCE_ABS_TOL = 1e-9
@@ -742,6 +742,7 @@ def build_card(
     )
     if training_approach == "policy_gradient":
         ticks = max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        repetitions = max(repetitions, POLICY_GRADIENT_SIMULATION_REPETITIONS)
     scenario = scenario_metadata_block(scenario_id=scenario_id)
     if require_multi_tier_scenario and not scenario_supports_multi_tier_policy_comparison(scenario):
         raise CardValidationError(
@@ -1176,10 +1177,11 @@ def validate_card(raw: Any) -> None:
     policy_gradient = first_present(raw, ("policy_gradient", "policyGradient"))
     if training_approach == "policy_gradient" and policy_gradient is None:
         raise CardValidationError("policy_gradient metadata is required when training_approach is policy_gradient")
+    policy_gradient_trust_samples = None
     if policy_gradient is not None:
-        validate_policy_gradient(policy_gradient)
+        policy_gradient_trust_samples = validate_policy_gradient(policy_gradient)
     if training_approach == "policy_gradient":
-        validate_policy_gradient_simulation(simulation)
+        validate_policy_gradient_simulation(simulation, policy_gradient_trust_samples)
         validate_policy_gradient_strategy_variants(policy_gradient, strategy_variants)
 
 
@@ -2194,7 +2196,7 @@ def validate_strategy_id(value: str, label: str) -> None:
         raise CardValidationError(f"{label} may contain only letters, numbers, dot, colon, underscore, and hyphen")
 
 
-def validate_policy_gradient(raw: Any) -> None:
+def validate_policy_gradient(raw: Any) -> int:
     if not isinstance(raw, dict):
         raise CardValidationError("policy_gradient must be a JSON object")
     if raw.get("target_family", raw.get("targetFamily")) != CONSTRUCTION_PRIORITY_FAMILY:
@@ -2225,7 +2227,7 @@ def validate_policy_gradient(raw: Any) -> None:
             raise CardValidationError(f"duplicate policy_gradient candidatePolicyId: {candidate_policy_id}")
         candidate_ids.add(candidate_policy_id)
 
-    validate_policy_gradient_update(first_present(raw, ("policy_update", "policyUpdate")))
+    required_samples_per_candidate = validate_policy_gradient_update(first_present(raw, ("policy_update", "policyUpdate")))
 
     support = first_present(raw, ("runner_support", "runnerSupport"))
     if not isinstance(support, dict):
@@ -2278,8 +2280,10 @@ def validate_policy_gradient(raw: Any) -> None:
     if safety is not None:
         validate_safety({"safety": safety})
 
+    return required_samples_per_candidate
 
-def validate_policy_gradient_update(raw: Any) -> None:
+
+def validate_policy_gradient_update(raw: Any) -> int:
     if not isinstance(raw, dict):
         raise CardValidationError("policy_gradient.policy_update must be a JSON object")
     algorithm = first_present(raw, ("algorithm", "policy_update_algorithm", "policyUpdateAlgorithm"))
@@ -2303,6 +2307,7 @@ def validate_policy_gradient_update(raw: Any) -> None:
     trust_gate = first_present(raw, ("gradient_trust_gate", "gradientTrustGate"))
     if not isinstance(trust_gate, dict):
         raise CardValidationError("policy_gradient.policy_update.gradient_trust_gate must be a JSON object")
+    required_samples_per_candidate = POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
     for snake_key, camel_key in (
         ("minimum_samples_per_candidate", "minimumSamplesPerCandidate"),
         ("target_samples_per_candidate", "targetSamplesPerCandidate"),
@@ -2313,6 +2318,8 @@ def validate_policy_gradient_update(raw: Any) -> None:
                 "policy_gradient.policy_update.gradient_trust_gate."
                 f"{snake_key} must be at least {POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE}"
             )
+        required_samples_per_candidate = max(required_samples_per_candidate, samples)
+    return required_samples_per_candidate
 
 
 def validate_policy_gradient_strategy_variants(policy_gradient: Any, strategy_variants: Any) -> None:
@@ -2417,13 +2424,20 @@ def validate_simulation(raw: Any) -> None:
             raise CardValidationError(f"simulation.{field} must be a non-empty string")
 
 
-def validate_policy_gradient_simulation(raw: Any) -> None:
+def validate_policy_gradient_simulation(raw: Any, required_samples_per_candidate: int | None = None) -> None:
     if not isinstance(raw, dict):
         raise CardValidationError("simulation must be a JSON object")
     ticks = positive_int(raw.get("ticks"))
     if ticks is None or ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS:
         raise CardValidationError(
             f"policy_gradient cards require simulation.ticks >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}"
+        )
+    required_samples = required_samples_per_candidate or POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
+    repetitions = positive_int(raw.get("repetitions"))
+    if repetitions is None or repetitions < required_samples:
+        raise CardValidationError(
+            "policy_gradient cards require "
+            f"simulation.repetitions >= {required_samples} to satisfy gradient_trust_gate samples per candidate"
         )
 
 
@@ -2626,7 +2640,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
             "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
-            "5 repetitions, and 500 ticks."
+            "20 repetitions, and 500 ticks."
         ),
     )
     parser.add_argument(
