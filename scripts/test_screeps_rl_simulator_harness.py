@@ -3068,6 +3068,156 @@ cli:
         self.assertEqual(extracted, expected)
         self.assertEqual(errors, [])
 
+    def test_runtime_parameter_consumption_collection_retries_after_tick_race(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        evidence = self.runtime_parameter_consumption_evidence(injection)
+        calls = 0
+
+        def fake_collect(*args: object, **kwargs: object) -> tuple[dict[str, object] | None, list[str]]:
+            _ = args, kwargs
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return None, []
+            return evidence, []
+
+        with mock.patch.object(
+            harness,
+            "collect_runtime_parameter_consumption_evidence",
+            side_effect=fake_collect,
+        ):
+            with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+                extracted, errors = harness.collect_runtime_parameter_consumption_evidence_with_retries(
+                    object(),
+                    ["compose"],
+                    object(),
+                    "token",
+                    injection,
+                    max_attempts=3,
+                    retry_seconds=0.25,
+                )
+
+        self.assertIs(extracted, evidence)
+        self.assertEqual(errors, [])
+        self.assertEqual(calls, 2)
+        sleep.assert_called_once_with(0.25)
+
+    def test_runtime_parameter_consumption_collection_retries_fail_closed_on_invalid_evidence(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+        stale = self.runtime_parameter_consumption_evidence(injection)
+        stale["parameters"] = {
+            **stale["parameters"],
+            "territorySignalWeight": stale["parameters"]["territorySignalWeight"] + 1,
+        }
+        fast_only_attempts: list[bool] = []
+
+        def fake_collect(*args: object, **kwargs: object) -> tuple[dict[str, object] | None, list[str]]:
+            _ = args
+            fast_only_attempts.append(bool(kwargs.get("fast_only")))
+            return stale, ["stale runtime parameter evidence"]
+
+        with mock.patch.object(
+            harness,
+            "collect_runtime_parameter_consumption_evidence",
+            side_effect=fake_collect,
+        ):
+            with mock.patch.object(harness.time, "sleep", return_value=None):
+                extracted, errors = harness.collect_runtime_parameter_consumption_evidence_with_retries(
+                    object(),
+                    ["compose"],
+                    object(),
+                    "token",
+                    injection,
+                    max_attempts=2,
+                    retry_seconds=0.25,
+                )
+
+        self.assertIsNone(extracted)
+        self.assertEqual(fast_only_attempts, [False, True])
+        self.assertIn("attempt 1: stale runtime parameter evidence", errors)
+        self.assertIn("attempt 2: stale runtime parameter evidence", errors)
+        self.assertTrue(
+            any(
+                "runtime parameter consumption evidence invalid: runtime policy parameter evidence parameters disagreed"
+                in error
+                for error in errors
+            )
+        )
+        self.assertIn("no runtime parameter consumption evidence after 2 probe attempt(s)", errors[-1])
+
+    def test_runtime_parameter_consumption_collection_retries_only_fast_sources(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        with (
+            mock.patch.object(
+                harness,
+                "_collect_http_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ) as http_collect,
+            mock.patch.object(
+                harness,
+                "_collect_console_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ) as console_collect,
+            mock.patch.object(
+                harness,
+                "_collect_mongo_console_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ) as mongo_console_collect,
+            mock.patch.object(
+                harness,
+                "_collect_redis_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ) as redis_collect,
+            mock.patch.object(
+                harness,
+                "_collect_mongo_runtime_parameter_consumption_evidence",
+                return_value=None,
+            ) as mongo_collect,
+            mock.patch.object(harness.time, "sleep", return_value=None),
+        ):
+            extracted, errors = harness.collect_runtime_parameter_consumption_evidence_with_retries(
+                object(),
+                ["compose"],
+                object(),
+                "token",
+                injection,
+                max_attempts=2,
+                retry_seconds=0.25,
+            )
+
+        self.assertIsNone(extracted)
+        self.assertEqual(http_collect.call_count, 2)
+        self.assertEqual(console_collect.call_count, 1)
+        self.assertEqual(mongo_console_collect.call_count, 1)
+        self.assertEqual(redis_collect.call_count, 1)
+        self.assertEqual(mongo_collect.call_count, 1)
+        self.assertIn("retried Memory.rlRuntimePolicyParameters", errors[-1])
+
+    def test_runtime_parameter_consumption_collection_retry_diagnostic_lists_sources(self) -> None:
+        injection = self.uploaded_runtime_parameter_injection()
+
+        with mock.patch.object(
+            harness,
+            "collect_runtime_parameter_consumption_evidence",
+            return_value=(None, []),
+        ):
+            with mock.patch.object(harness.time, "sleep", return_value=None):
+                extracted, errors = harness.collect_runtime_parameter_consumption_evidence_with_retries(
+                    object(),
+                    ["compose"],
+                    object(),
+                    "token",
+                    injection,
+                    max_attempts=2,
+                    retry_seconds=0.25,
+                )
+
+        self.assertIsNone(extracted)
+        self.assertIn("no runtime parameter consumption evidence after 2 probe attempt(s)", errors[-1])
+        self.assertIn("Memory.rlRuntimePolicyParameters", errors[-1])
+        self.assertIn("mongo.Memory.rlRuntimePolicyParameters", errors[-1])
+
     def test_runtime_parameter_consumption_collection_accepts_mongo_console_tick_evidence(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = self.runtime_parameter_consumption_evidence(injection)

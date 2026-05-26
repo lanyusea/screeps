@@ -83,6 +83,8 @@ RUN_HTTP_PORT_STEP = 2
 RUN_PORT_SCAN_ATTEMPTS = 2048
 RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
+RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_ATTEMPTS = 3
+RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_RETRY_SECONDS = 1.0
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_BROKEN_PIPE_MAX_RETRIES = 1
 RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
@@ -101,6 +103,16 @@ RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION = "v1"
 RUNTIME_PARAMETER_CONSUMPTION_LOG_PREFIX = "#runtime-parameter-consumption "
 RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE = "private_simulator_game_loop_runtime_parameters"
 RUNTIME_PARAMETER_CONSUMPTION_CANDIDATE_MAX_DEPTH = 8
+RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES = (
+    "Memory.rlRuntimePolicyParameters",
+    "console.runtimePolicyParameterConsumption",
+    "mongo.console.runtimePolicyParameterConsumption",
+    "redis.Memory.rlRuntimePolicyParameters",
+    "mongo.Memory.rlRuntimePolicyParameters",
+)
+RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES = (
+    RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[0],
+)
 ACTIVE_CODE_READBACK_TYPE = "screeps-rl-private-simulator-active-code-readback"
 ACTIVE_CODE_READBACK_MAX_ATTEMPTS = 5
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
@@ -1139,8 +1151,24 @@ def runtime_parameter_trainability_smoke_gate_error(
         return None
     status = text_or_none(runtime_parameter_consumption.get("status")) or "missing"
     reason = text_or_none(runtime_parameter_consumption.get("reason")) or (
-        "one-tick simulator smoke did not expose consumed runtime policy parameter evidence"
+        "simulator smoke did not expose consumed runtime policy parameter evidence"
     )
+    diagnostics: list[str] = []
+    direct_status = text_or_none(runtime_parameter_consumption.get("directRuntimeEvaluationStatus"))
+    if direct_status is not None:
+        diagnostics.append(f"directRuntimeEvaluationStatus={direct_status}")
+    direct_reason = text_or_none(runtime_parameter_consumption.get("directRuntimeEvaluationReason"))
+    if direct_reason is not None:
+        diagnostics.append(f"directRuntimeEvaluationReason={direct_reason}")
+    if active_code_readback is not None:
+        readback_status = text_or_none(active_code_readback.get("status"))
+        active_code_matches = active_code_readback.get("activeCodeMatchesUploaded")
+        diagnostics.append(f"activeCodeReadbackStatus={readback_status or 'unknown'}")
+        if isinstance(active_code_matches, bool):
+            diagnostics.append(f"activeCodeMatchesUploaded={str(active_code_matches).lower()}")
+    diagnostics.append(f"ticksRun={ticks_run}")
+    if diagnostics:
+        reason = f"{reason}; " + "; ".join(diagnostics)
     return f"runtime-parameter trainability smoke gate failed: status={status}: {reason}"
 
 
@@ -1593,20 +1621,24 @@ def collect_runtime_parameter_consumption_evidence(
     cfg: Any,
     token: str | None,
     injection: JsonObject | None = None,
+    *,
+    fast_only: bool = False,
 ) -> tuple[JsonObject | None, list[str]]:
     errors: list[str] = []
     collectors = [
-        ("Memory.rlRuntimePolicyParameters", _collect_http_runtime_parameter_consumption_evidence),
-        ("console.runtimePolicyParameterConsumption", _collect_console_runtime_parameter_consumption_evidence),
+        (RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[0], _collect_http_runtime_parameter_consumption_evidence),
+        (RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[1], _collect_console_runtime_parameter_consumption_evidence),
         (
-            "mongo.console.runtimePolicyParameterConsumption",
+            RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[2],
             _collect_mongo_console_runtime_parameter_consumption_evidence,
         ),
-        ("redis.Memory.rlRuntimePolicyParameters", _collect_redis_runtime_parameter_consumption_evidence),
-        ("mongo.Memory.rlRuntimePolicyParameters", _collect_mongo_runtime_parameter_consumption_evidence),
+        (RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[3], _collect_redis_runtime_parameter_consumption_evidence),
+        (RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[4], _collect_mongo_runtime_parameter_consumption_evidence),
     ]
     invalid_evidence: JsonObject | None = None
     for source, collector in collectors:
+        if fast_only and source not in RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES:
+            continue
         try:
             evidence = collector(smoke, compose, cfg, token, injection)
         except Exception as exc:  # noqa: BLE001 - missing evidence blocks eligibility but should not fail the run
@@ -1628,6 +1660,58 @@ def collect_runtime_parameter_consumption_evidence(
             return evidence, errors
     if invalid_evidence is not None:
         return invalid_evidence, errors
+    return None, errors
+
+
+def collect_runtime_parameter_consumption_evidence_with_retries(
+    smoke: Any,
+    compose: Sequence[str] | None,
+    cfg: Any,
+    token: str | None,
+    injection: JsonObject | None = None,
+    *,
+    max_attempts: int = RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_ATTEMPTS,
+    retry_seconds: float = RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_RETRY_SECONDS,
+) -> tuple[JsonObject | None, list[str]]:
+    """Collect runtime-parameter consumption evidence with a bounded post-tick retry window."""
+    attempts = max(1, max_attempts)
+    errors: list[str] = []
+    for attempt in range(1, attempts + 1):
+        evidence, attempt_errors = collect_runtime_parameter_consumption_evidence(
+            smoke,
+            compose,
+            cfg,
+            token,
+            injection,
+            fast_only=attempt > 1,
+        )
+        if evidence is not None:
+            validation_error = (
+                runtime_parameter_consumption_validation_error(injection, evidence)
+                if injection is not None
+                else None
+            )
+            if validation_error is None:
+                return evidence, errors + [f"attempt {attempt}: {error}" for error in attempt_errors]
+            errors.extend(f"attempt {attempt}: {error}" for error in attempt_errors)
+            errors.append(f"attempt {attempt}: runtime parameter consumption evidence invalid: {validation_error}")
+            if attempt < attempts:
+                time.sleep(retry_seconds)
+            continue
+        errors.extend(f"attempt {attempt}: {error}" for error in attempt_errors)
+        if attempt < attempts:
+            time.sleep(retry_seconds)
+    checked_sources = ", ".join(RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES)
+    retry_sources = ", ".join(RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES)
+    checked_detail = (
+        f"checked {checked_sources} on first attempt and retried {retry_sources}"
+        if attempts > 1
+        else f"checked {checked_sources}"
+    )
+    errors.append(
+        f"no runtime parameter consumption evidence after {attempts} probe attempt(s); "
+        f"{checked_detail}"
+    )
     return None, errors
 
 
@@ -5736,7 +5820,7 @@ def _run_variant(
             except Exception as exc:  # noqa: BLE001 - HTTP evidence may still be sufficient
                 evidence_errors.append(f"mongo room evidence failed: {_safe_text(exc, 360)}")
         if runtime_parameter_injection.get("status") == "injected":
-            consumption_evidence, consumption_errors = collect_runtime_parameter_consumption_evidence(
+            consumption_evidence, consumption_errors = collect_runtime_parameter_consumption_evidence_with_retries(
                 smoke,
                 compose,
                 cfg,
