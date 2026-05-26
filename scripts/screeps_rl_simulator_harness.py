@@ -110,6 +110,9 @@ RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES = (
     "redis.Memory.rlRuntimePolicyParameters",
     "mongo.Memory.rlRuntimePolicyParameters",
 )
+RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES = (
+    RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES[0],
+)
 ACTIVE_CODE_READBACK_TYPE = "screeps-rl-private-simulator-active-code-readback"
 ACTIVE_CODE_READBACK_MAX_ATTEMPTS = 5
 MONGO_CONSOLE_RUNTIME_PARAMETER_OUTPUT_LIMIT = 200000
@@ -1618,6 +1621,8 @@ def collect_runtime_parameter_consumption_evidence(
     cfg: Any,
     token: str | None,
     injection: JsonObject | None = None,
+    *,
+    fast_only: bool = False,
 ) -> tuple[JsonObject | None, list[str]]:
     errors: list[str] = []
     collectors = [
@@ -1632,6 +1637,8 @@ def collect_runtime_parameter_consumption_evidence(
     ]
     invalid_evidence: JsonObject | None = None
     for source, collector in collectors:
+        if fast_only and source not in RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES:
+            continue
         try:
             evidence = collector(smoke, compose, cfg, token, injection)
         except Exception as exc:  # noqa: BLE001 - missing evidence blocks eligibility but should not fail the run
@@ -1676,6 +1683,7 @@ def collect_runtime_parameter_consumption_evidence_with_retries(
             cfg,
             token,
             injection,
+            fast_only=attempt > 1,
         )
         if evidence is not None:
             validation_error = (
@@ -1683,7 +1691,7 @@ def collect_runtime_parameter_consumption_evidence_with_retries(
                 if injection is not None
                 else None
             )
-            if validation_error is None or attempt == attempts:
+            if validation_error is None:
                 return evidence, errors + [f"attempt {attempt}: {error}" for error in attempt_errors]
             errors.extend(f"attempt {attempt}: {error}" for error in attempt_errors)
             errors.append(f"attempt {attempt}: runtime parameter consumption evidence invalid: {validation_error}")
@@ -1694,9 +1702,15 @@ def collect_runtime_parameter_consumption_evidence_with_retries(
         if attempt < attempts:
             time.sleep(retry_seconds)
     checked_sources = ", ".join(RUNTIME_PARAMETER_CONSUMPTION_EVIDENCE_SOURCES)
+    retry_sources = ", ".join(RUNTIME_PARAMETER_CONSUMPTION_FAST_EVIDENCE_SOURCES)
+    checked_detail = (
+        f"checked {checked_sources} on first attempt and retried {retry_sources}"
+        if attempts > 1
+        else f"checked {checked_sources}"
+    )
     errors.append(
         f"no runtime parameter consumption evidence after {attempts} probe attempt(s); "
-        f"checked {checked_sources}"
+        f"{checked_detail}"
     )
     return None, errors
 
