@@ -1554,6 +1554,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dataset-out-dir", type=Path, default=dataset_export.DEFAULT_OUT_DIR)
     run.add_argument("--dataset-run-id", help="Optional dataset run ID to pass to the exporter.")
     run.add_argument("--bot-commit", help="Bot commit to record. Defaults to git rev-parse HEAD.")
+    run.add_argument("--repo-root", type=Path, help="Repository root for resolving relative inputs and outputs.")
     run.add_argument("--max-file-bytes", type=positive_int, default=dataset_export.DEFAULT_MAX_FILE_BYTES)
     run.add_argument("--sample-limit", type=positive_int, default=dataset_export.DEFAULT_SAMPLE_LIMIT)
     run.add_argument("--eval-ratio", type=dataset_export.eval_ratio, default=dataset_export.DEFAULT_EVAL_RATIO)
@@ -1645,6 +1646,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 min_resource_score=args.min_resource_score,
                 min_kills_score=args.min_kills_score,
                 conclusion_registry_path=args.conclusion_registry,
+                repo_root=args.repo_root,
             )
             stdout.write(canonical_json(report if args.print_report else build_summary(report)))
             return 0 if report.get("ok") is True else 1

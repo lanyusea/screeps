@@ -244,20 +244,38 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             baseline_objective = read_json(gate_dir / "rollout_baseline_objective.json")
             rollout_decision_exists = (gate_dir / "rollout_decision.json").exists()
 
+        expected_metrics = {"reliability": 1, "territory": 1, "resources": 1800, "kills": 0}
+        predefined_gate = report["predefinedMetricGate"]
+        predefined_checks = {check["name"]: check for check in predefined_gate["checks"]}
+        baseline_metrics = baseline_objective["metrics"]
+
         self.assertTrue(report["ok"])
         self.assertEqual(report["blockingReasons"], [])
-        self.assertEqual(report["predefinedMetricGate"]["status"], "pass")
+        self.assertEqual(predefined_gate["status"], "pass")
         self.assertEqual(summary["predefinedMetricGateStatus"], "pass")
-        self.assertEqual(set(report["predefinedMetricGate"]["floors"]), {"reliability", "territory", "resources", "kills"})
-        self.assertEqual(report["predefinedMetricGate"]["floorSource"]["source"], "current_runtime_kpi_window")
-        self.assertEqual(report["predefinedMetricGate"]["floorSource"]["explicitFloors"], {})
-        self.assertEqual(report["predefinedMetricGate"]["floorSource"]["missingMetrics"], [])
+        self.assertEqual(predefined_gate["floors"], expected_metrics)
+        self.assertEqual(predefined_gate["normalizedCurrent"]["metrics"], expected_metrics)
+        self.assertEqual(predefined_gate["floorSource"]["source"], "current_runtime_kpi_window")
+        self.assertEqual(predefined_gate["floorSource"]["derivedFloors"], expected_metrics)
+        self.assertEqual(predefined_gate["floorSource"]["explicitFloors"], {})
+        self.assertEqual(predefined_gate["floorSource"]["missingMetrics"], [])
+        self.assertEqual(set(predefined_checks), set(expected_metrics))
+        for metric, expected_value in expected_metrics.items():
+            self.assertEqual(predefined_checks[metric]["actual"], expected_value)
+            self.assertEqual(predefined_checks[metric]["minimum"], expected_value)
         self.assertEqual(report["rolloutGate"]["status"], "objective")
         self.assertEqual(summary["rolloutGateStatus"], "objective")
         self.assertEqual(report["rolloutGate"]["reason"], "baseline_kpi_derived_from_current_runtime_kpi")
         self.assertEqual(report["rolloutGate"]["baselineObjective"]["status"], "pass")
+        self.assertEqual(report["rolloutGate"]["baselineObjective"]["normalizedCurrent"]["metrics"], expected_metrics)
         self.assertEqual(baseline_objective["status"], "pass")
         self.assertEqual(baseline_objective["missingMetrics"], [])
+        self.assertEqual(baseline_objective["normalizedCurrent"]["metrics"], expected_metrics)
+        self.assertEqual(set(baseline_metrics), set(expected_metrics))
+        for metric, expected_value in expected_metrics.items():
+            self.assertEqual(baseline_metrics[metric]["status"], "pass")
+            self.assertEqual(baseline_metrics[metric]["source"], "current_runtime_kpi_window")
+            self.assertEqual(baseline_metrics[metric]["target"], expected_value)
         self.assertFalse(rollout_decision_exists)
 
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
