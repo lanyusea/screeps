@@ -5166,6 +5166,131 @@ cli:
         self.assertEqual(consumption["status"], "invalid")
         self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
 
+    def test_direct_game_loop_fallback_accepts_active_code_backed_runtime_parameters(self) -> None:
+        injection, uploaded_code = self.uploaded_runtime_parameter_injection_with_code(upload_tick=18)
+        readback = harness.private_simulator_active_code_readback_summary(
+            uploaded_code,
+            {"branch": "default", "modules": {"main": uploaded_code}},
+            branch="default",
+            http_status=200,
+        )
+        missing_consumption = harness.runtime_parameter_consumption_check(
+            injection,
+            None,
+            source_errors=[
+                "no runtime parameter consumption evidence after 3 probe attempt(s)",
+                "checked Memory.rlRuntimePolicyParameters, console.runtimePolicyParameterConsumption, mongo.console",
+            ],
+        )
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing_consumption,
+            [
+                {"tick": 19, "rooms": {"W1N1": {"creeps": 1}}},
+                {"tick": 20, "rooms": {"W1N1": {"creeps": 2}}},
+            ],
+            active_code_readback=readback,
+        )
+
+        active_injection = readback["activeRuntimeParameterInjection"]
+        self.assertEqual(active_injection["strategyVariantId"], injection["strategyVariantId"])
+        self.assertEqual(active_injection["parametersSha256"], injection["parametersSha256"])
+        self.assertEqual(active_injection["parametersSha256FromParameters"], injection["parametersSha256"])
+        self.assertEqual(consumption["status"], "consumed")
+        self.assertTrue(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["source"], harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE)
+        self.assertEqual(consumption["consumedTick"], 20)
+        self.assertEqual(consumption["evaluatedParameters"], injection["parameters"])
+        self.assertEqual(consumption["consumedParametersSha256"], injection["parametersSha256"])
+        self.assertEqual(consumption["consumedStrategyVariantId"], injection["strategyVariantId"])
+        self.assertEqual(consumption["fallbackRuntimeParameterConsumptionStatus"], "missing")
+        self.assertFalse(consumption["officialMmoWrites"])
+        self.assertIsNone(
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=harness.apply_runtime_parameter_consumption_to_injection(
+                    injection,
+                    consumption,
+                ),
+                runtime_parameter_consumption=consumption,
+                ticks_run=2,
+                active_code_readback=readback,
+            )
+        )
+
+    def test_direct_game_loop_active_code_path_fails_closed_for_invalid_proof_inputs(self) -> None:
+        injection, uploaded_code = self.uploaded_runtime_parameter_injection_with_code(upload_tick=18)
+        readback = harness.private_simulator_active_code_readback_summary(
+            uploaded_code,
+            {"branch": "default", "modules": {"main": uploaded_code}},
+            branch="default",
+            http_status=200,
+        )
+
+        cases = []
+        missing_parameters = copy.deepcopy(injection)
+        missing_parameters.pop("parameters", None)
+        cases.append(("missing_parameters", missing_parameters, readback, [{"tick": 20, "rooms": {"W1N1": {}}}]))
+        mismatched_hash = copy.deepcopy(injection)
+        mismatched_hash["parametersSha256"] = "0" * 64
+        cases.append(("mismatched_hash", mismatched_hash, readback, [{"tick": 20, "rooms": {"W1N1": {}}}]))
+        wrong_variant = copy.deepcopy(injection)
+        wrong_variant["strategyVariantId"] = "construction-priority.pg.wrong-seed.v1"
+        cases.append(("wrong_variant", wrong_variant, readback, [{"tick": 20, "rooms": {"W1N1": {}}}]))
+        unsafe_injection = copy.deepcopy(injection)
+        unsafe_injection["officialMmoWritesAllowed"] = True
+        cases.append(("unsafe_injection", unsafe_injection, readback, [{"tick": 20, "rooms": {"W1N1": {}}}]))
+        unsafe_readback = copy.deepcopy(readback)
+        unsafe_readback["liveEffect"] = True
+        cases.append(("unsafe_readback", injection, unsafe_readback, [{"tick": 20, "rooms": {"W1N1": {}}}]))
+        unsafe_tick = [{"tick": 20, "officialMmoWritesAllowed": True, "rooms": {"W1N1": {}}}]
+        cases.append(("unsafe_tick", injection, readback, unsafe_tick))
+
+        for name, candidate_injection, candidate_readback, tick_log in cases:
+            with self.subTest(name=name):
+                missing = harness.runtime_parameter_consumption_check(candidate_injection, None)
+                consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+                    candidate_injection,
+                    missing,
+                    tick_log,
+                    active_code_readback=candidate_readback,
+                )
+
+                self.assertFalse(consumption["runtimeParameterConsumption"])
+                self.assertNotEqual(
+                    consumption.get("source"),
+                    harness.RUNTIME_PARAMETER_DIRECT_GAME_LOOP_CONSUMPTION_SOURCE,
+                )
+
+    def test_direct_game_loop_active_code_path_preserves_explicit_false_consumed_signal(self) -> None:
+        injection, uploaded_code = self.uploaded_runtime_parameter_injection_with_code(upload_tick=18)
+        readback = harness.private_simulator_active_code_readback_summary(
+            uploaded_code,
+            {"branch": "default", "modules": {"main": uploaded_code}},
+            branch="default",
+            http_status=200,
+        )
+        missing = harness.runtime_parameter_consumption_check(injection, None)
+
+        consumption = harness.runtime_parameter_consumption_with_direct_game_loop_fallback(
+            injection,
+            missing,
+            [
+                {
+                    "tick": 20,
+                    "runtimeParameterConsumption": False,
+                    "consumedParametersSha256": injection["parametersSha256"],
+                    "consumedStrategyVariantId": injection["strategyVariantId"],
+                }
+            ],
+            active_code_readback=readback,
+        )
+
+        self.assertFalse(consumption["runtimeParameterConsumption"])
+        self.assertEqual(consumption["status"], "missing")
+        self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
+        self.assertIn("did not mark the payload consumed", consumption["directRuntimeEvaluationReason"])
+
     def test_direct_game_loop_runtime_parameter_consumption_skips_non_numeric_trailing_ticks(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
@@ -5296,7 +5421,11 @@ cli:
         self.assertEqual(consumption["directRuntimeEvaluationStatus"], "invalid")
         self.assertIn("did not mark the payload consumed", consumption["directRuntimeEvaluationReason"])
 
-    def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
+    def uploaded_runtime_parameter_injection_with_code(
+        self,
+        *,
+        upload_tick: int | None = None,
+    ) -> tuple[harness.JsonObject, str]:
         base_code = (
             '"use strict";\n'
             f'var runtimePolicyConsumer = "{harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
@@ -5316,7 +5445,16 @@ cli:
         }
         injection = harness.runtime_parameter_injection_for_variant(variant["id"], variant)
         upload = harness.apply_runtime_parameter_injection_to_code(base_code, injection)
-        return harness.mark_runtime_parameter_injection_uploaded(injection, code_text=upload)
+        uploaded = harness.mark_runtime_parameter_injection_uploaded(
+            injection,
+            code_text=upload,
+            upload_tick=upload_tick,
+        )
+        return uploaded, upload
+
+    def uploaded_runtime_parameter_injection(self) -> harness.JsonObject:
+        uploaded, _upload = self.uploaded_runtime_parameter_injection_with_code()
+        return uploaded
 
     def runtime_parameter_consumption_evidence(self, injection: harness.JsonObject) -> harness.JsonObject:
         return {

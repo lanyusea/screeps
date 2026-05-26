@@ -986,6 +986,83 @@ def runtime_parameter_injection_code_has_consumer(code_text: str) -> bool:
     return RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER in code_text
 
 
+def runtime_parameter_injection_payload_from_code_text(code_text: str) -> JsonObject | None:
+    assignment = f"var {RUNTIME_PARAMETER_INJECTION_GLOBAL} = "
+    assignment_index = code_text.find(assignment)
+    if assignment_index < 0:
+        return None
+    json_start = assignment_index + len(assignment)
+    while json_start < len(code_text) and code_text[json_start].isspace():
+        json_start += 1
+    if json_start >= len(code_text) or code_text[json_start] != "{":
+        return None
+    json_end = _json_object_literal_end_index(code_text, json_start)
+    if json_end is None:
+        return None
+    try:
+        payload = json.loads(code_text[json_start:json_end])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _json_object_literal_end_index(text: str, start_index: int) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start_index, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def active_runtime_parameter_injection_summary_from_code_text(code_text: str) -> JsonObject | None:
+    payload = runtime_parameter_injection_payload_from_code_text(code_text)
+    if payload is None:
+        return None
+    summary: JsonObject = {}
+    for field in (
+        "type",
+        "schemaVersion",
+        "status",
+        "runtimeParameterInjection",
+        "inlineCandidatesRuntimeInjected",
+        "candidateParameterScope",
+        "mechanism",
+        "strategyVariantId",
+        "candidatePolicyId",
+        "sourceStrategyId",
+        "family",
+        "parametersSha256",
+        "uploadedCodeSha256",
+        "liveEffect",
+        "officialMmoWrites",
+        "officialMmoWritesAllowed",
+    ):
+        if field in payload:
+            summary[field] = copy.deepcopy(payload.get(field))
+    parameters = payload.get("parameters")
+    if isinstance(parameters, dict) and parameters:
+        summary["parametersSha256FromParameters"] = runtime_parameter_parameters_hash(parameters)
+        summary["parameterKeyCount"] = len(parameters)
+    return summary or None
+
+
 def private_simulator_active_code_readback_summary(
     uploaded_code_text: str,
     payload: Any,
@@ -1038,6 +1115,10 @@ def private_simulator_active_code_readback_summary(
     }
     if http_status is not None:
         payload_summary["httpStatus"] = http_status
+    if active_code is not None:
+        active_runtime_injection = active_runtime_parameter_injection_summary_from_code_text(active_code)
+        if active_runtime_injection is not None:
+            payload_summary["activeRuntimeParameterInjection"] = active_runtime_injection
     return {key: value for key, value in payload_summary.items() if value is not None}
 
 
@@ -1255,6 +1336,8 @@ def runtime_parameter_consumption_check(
 def direct_game_loop_runtime_parameter_consumption_evidence(
     injection: JsonObject,
     tick_log: Sequence[JsonObject],
+    *,
+    active_code_readback: JsonObject | None = None,
 ) -> JsonObject | None:
     """Build direct consumption proof from a completed injected simulator game loop."""
     if injection.get("status") != "injected" or injection.get("runtimeParameterInjection") is not True:
@@ -1276,6 +1359,14 @@ def direct_game_loop_runtime_parameter_consumption_evidence(
         runtime_evidence = _direct_game_loop_runtime_parameter_signal(injection, tick, consumed_tick)
         if runtime_evidence is not None:
             return runtime_evidence
+    active_code_evidence = _direct_game_loop_active_code_runtime_parameter_evidence(
+        injection,
+        consumed_tick,
+        active_code_readback,
+        ticks,
+    )
+    if active_code_evidence is not None:
+        return active_code_evidence
     return _direct_game_loop_unproven_runtime_parameter_evidence(injection, consumed_tick)
 
 
@@ -1371,6 +1462,140 @@ def _direct_game_loop_tick_runtime_parameter_evidence(
     return fallback
 
 
+def _direct_game_loop_active_code_runtime_parameter_evidence(
+    injection: JsonObject,
+    consumed_tick: int,
+    active_code_readback: JsonObject | None,
+    ticks: Sequence[JsonObject],
+) -> JsonObject | None:
+    if _direct_game_loop_active_code_consumption_error(
+        injection,
+        consumed_tick,
+        active_code_readback,
+        ticks,
+    ) is not None:
+        return None
+    parameters = injection.get("parameters")
+    parameters_hash = text_or_none(injection.get("parametersSha256"))
+    strategy_variant_id = text_or_none(injection.get("strategyVariantId"))
+    if not isinstance(parameters, dict) or not parameters or parameters_hash is None or strategy_variant_id is None:
+        return None
+    payload = _direct_game_loop_unproven_runtime_parameter_evidence(injection, consumed_tick)
+    payload.update({
+        "consumed": True,
+        "parameters": copy.deepcopy(parameters),
+        "parametersSha256": parameters_hash,
+        "consumedParametersSha256": parameters_hash,
+        "consumedStrategyVariantId": strategy_variant_id,
+        "directRuntimeEvaluationProof": "active_code_readback_matched_runtime_parameter_injected_bundle",
+    })
+    if isinstance(active_code_readback, dict):
+        active_sha = text_or_none(active_code_readback.get("activeCodeSha256"))
+        uploaded_sha = text_or_none(active_code_readback.get("uploadedCodeSha256"))
+        if active_sha is not None:
+            payload["activeCodeSha256"] = active_sha
+        if uploaded_sha is not None:
+            payload["uploadedCodeSha256"] = uploaded_sha
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _direct_game_loop_active_code_consumption_error(
+    injection: JsonObject,
+    consumed_tick: int,
+    active_code_readback: JsonObject | None,
+    ticks: Sequence[JsonObject],
+) -> str | None:
+    if not isinstance(active_code_readback, dict):
+        return "active private-server code readback was not recorded"
+    readback_error = private_simulator_active_code_readback_error(active_code_readback)
+    if readback_error is not None:
+        return readback_error
+    for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+        if injection.get(field) is True:
+            return f"runtime parameter injection set unsafe {field}=true"
+        if active_code_readback.get(field) is True:
+            return f"active private-server code readback set unsafe {field}=true"
+    uploaded_hash = text_or_none(injection.get("uploadedCodeSha256"))
+    readback_uploaded_hash = text_or_none(active_code_readback.get("uploadedCodeSha256"))
+    active_hash = text_or_none(active_code_readback.get("activeCodeSha256"))
+    if uploaded_hash is None:
+        return "runtime parameter injection did not record uploaded code hash"
+    if readback_uploaded_hash != uploaded_hash or active_hash != uploaded_hash:
+        return "active private-server code hash did not match the runtime parameter injection upload"
+    active_injection = active_code_readback.get("activeRuntimeParameterInjection")
+    if not isinstance(active_injection, dict):
+        return "active private-server code did not expose embedded runtime parameter injection metadata"
+    if active_injection.get("type") != RUNTIME_PARAMETER_INJECTION_TYPE:
+        return "active private-server code embedded runtime parameter injection had the wrong type"
+    if active_injection.get("status") != "injected":
+        return "active private-server code embedded runtime parameter injection was not injected"
+    if active_injection.get("runtimeParameterInjection") is not True:
+        return "active private-server code embedded runtime parameter injection was not enabled"
+    for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+        if active_injection.get(field) is True:
+            return f"active private-server code embedded runtime parameter injection set unsafe {field}=true"
+    parameters = injection.get("parameters")
+    expected_hash = text_or_none(injection.get("parametersSha256"))
+    if not isinstance(parameters, dict) or not parameters:
+        return "runtime parameter injection did not include parameters"
+    if expected_hash is None:
+        return "runtime parameter injection did not include a parameter hash"
+    if runtime_parameter_parameters_hash(parameters) != expected_hash:
+        return "runtime parameter injection parameter hash disagreed with injected parameters"
+    if text_or_none(active_injection.get("parametersSha256")) != expected_hash:
+        return "active private-server code embedded parameter hash disagreed with injected parameters"
+    if text_or_none(active_injection.get("parametersSha256FromParameters")) != expected_hash:
+        return "active private-server code embedded parameters disagreed with injected parameters"
+    expected_variant_id = text_or_none(injection.get("strategyVariantId"))
+    if expected_variant_id is None:
+        return "runtime parameter injection did not include a strategy variant id"
+    if text_or_none(active_injection.get("strategyVariantId")) != expected_variant_id:
+        return "active private-server code embedded strategy variant id disagreed with injected parameters"
+    for field in ("candidatePolicyId", "sourceStrategyId", "family"):
+        expected = text_or_none(injection.get(field))
+        observed = text_or_none(active_injection.get(field))
+        if expected is not None and observed is not None and observed != expected:
+            return f"active private-server code embedded {field} disagreed with injected parameters"
+    injection_tick = _coerce_int(injection.get("tick"))
+    if injection_tick is None:
+        return "runtime parameter injection did not include a numeric injection tick"
+    if consumed_tick <= injection_tick:
+        return "direct game-loop tick did not advance beyond the runtime parameter injection tick"
+    unsafe_path = _direct_game_loop_unsafe_flag_path(ticks)
+    if unsafe_path is not None:
+        return f"direct game-loop tick evidence set unsafe {unsafe_path}=true"
+    return None
+
+
+def _direct_game_loop_unsafe_flag_path(value: Any, *, _path: str = "tick_log", _depth: int = 0) -> str | None:
+    if _depth > 8:
+        return None
+    if isinstance(value, dict):
+        for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
+            if value.get(field) is True:
+                return f"{_path}.{field}"
+        for key, item in value.items():
+            if isinstance(item, (dict, list)):
+                path = _direct_game_loop_unsafe_flag_path(
+                    item,
+                    _path=f"{_path}.{key}",
+                    _depth=_depth + 1,
+                )
+                if path is not None:
+                    return path
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            if isinstance(item, (dict, list)):
+                path = _direct_game_loop_unsafe_flag_path(
+                    item,
+                    _path=f"{_path}[{index}]",
+                    _depth=_depth + 1,
+                )
+                if path is not None:
+                    return path
+    return None
+
+
 def _direct_game_loop_unproven_runtime_parameter_evidence(
     injection: JsonObject,
     consumed_tick: int,
@@ -1407,10 +1632,16 @@ def runtime_parameter_consumption_with_direct_game_loop_fallback(
     injection: JsonObject,
     consumption: JsonObject,
     tick_log: Sequence[JsonObject],
+    *,
+    active_code_readback: JsonObject | None = None,
 ) -> JsonObject:
     if consumption.get("runtimeParameterConsumption") is True:
         return consumption
-    direct_evidence = direct_game_loop_runtime_parameter_consumption_evidence(injection, tick_log)
+    direct_evidence = direct_game_loop_runtime_parameter_consumption_evidence(
+        injection,
+        tick_log,
+        active_code_readback=active_code_readback,
+    )
     if direct_evidence is None:
         return consumption
     direct_consumption = runtime_parameter_consumption_check(injection, direct_evidence)
@@ -5839,6 +6070,7 @@ def _run_variant(
                 runtime_parameter_injection,
                 runtime_parameter_consumption,
                 variant_ticks,
+                active_code_readback=active_code_readback,
             )
             runtime_parameter_injection = apply_runtime_parameter_consumption_to_injection(
                 runtime_parameter_injection,
