@@ -1370,6 +1370,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 APT_LOCK_WAIT_ATTEMPTS=60
 APT_LOCK_WAIT_SLEEP_SECONDS=5
+APT_LOCK_WAIT_TOTAL_SECONDS=$((APT_LOCK_WAIT_ATTEMPTS * APT_LOCK_WAIT_SLEEP_SECONDS))
 APT_LOCK_PATHS=(
   /var/lib/dpkg/lock-frontend
   /var/lib/dpkg/lock
@@ -1388,7 +1389,8 @@ print_apt_lock_evidence() {
 }
 wait_for_apt_locks() {
   local purpose="$1"
-  local attempt lock_path
+  local deadline_epoch="${2:-0}"
+  local attempt lock_path now
   local locked_paths=()
   for attempt in $(seq 1 "$APT_LOCK_WAIT_ATTEMPTS"); do
     locked_paths=()
@@ -1400,8 +1402,9 @@ wait_for_apt_locks() {
     if [ "${#locked_paths[@]}" -eq 0 ]; then
       return 0
     fi
-    if [ "$attempt" -eq "$APT_LOCK_WAIT_ATTEMPTS" ]; then
-      printf 'apt lock wait timeout before %s after %s attempts (%ss sleep each); locked paths: %s\n' "$purpose" "$APT_LOCK_WAIT_ATTEMPTS" "$APT_LOCK_WAIT_SLEEP_SECONDS" "${locked_paths[*]}" >&2
+    now="$(date +%s)"
+    if [ "$attempt" -eq "$APT_LOCK_WAIT_ATTEMPTS" ] || { [ "$deadline_epoch" -gt 0 ] && [ "$now" -ge "$deadline_epoch" ]; }; then
+      printf 'apt lock wait timeout before %s after %s attempts (%ss sleep each); locked paths: %s\n' "$purpose" "$attempt" "$APT_LOCK_WAIT_SLEEP_SECONDS" "${locked_paths[*]}" >&2
       for lock_path in "${locked_paths[@]}"; do
         print_apt_lock_evidence "$lock_path"
       done
@@ -1411,16 +1414,79 @@ wait_for_apt_locks() {
     sleep "$APT_LOCK_WAIT_SLEEP_SECONDS"
   done
 }
+APT_GET_LAST_STDERR_FILE=""
+apt_get_lock_error() {
+  local stderr_file="$1"
+  local lock_error_pattern="Could not get lock|Unable to acquire.*lock|Unable to lock.*directory|is another process using it"
+  [ -n "$stderr_file" ] && [ -f "$stderr_file" ] && grep -Eiq "$lock_error_pattern" "$stderr_file"
+}
+apt_get_package_resolution_error() {
+  local stderr_file="$1"
+  local package_error_pattern="Unable to locate package|has no installation candidate|Couldn't find any package|Unable to find a source package"
+  [ -n "$stderr_file" ] && [ -f "$stderr_file" ] && grep -Eiq "$package_error_pattern" "$stderr_file"
+}
 run_apt_get() {
   local purpose="$1"
   shift
-  wait_for_apt_locks "$purpose"
-  sudo apt-get "$@"
+  local attempt deadline_epoch status stderr_file now
+  deadline_epoch="$(($(date +%s) + APT_LOCK_WAIT_TOTAL_SECONDS))"
+  for attempt in $(seq 1 "$APT_LOCK_WAIT_ATTEMPTS"); do
+    wait_for_apt_locks "$purpose" "$deadline_epoch" || return $?
+    if [ -n "$APT_GET_LAST_STDERR_FILE" ] && [ -f "$APT_GET_LAST_STDERR_FILE" ]; then
+      rm -f "$APT_GET_LAST_STDERR_FILE"
+    fi
+    stderr_file="$(mktemp)"
+    APT_GET_LAST_STDERR_FILE="$stderr_file"
+    if sudo apt-get "$@" 2>"$stderr_file"; then
+      if [ -s "$stderr_file" ]; then
+        cat "$stderr_file" >&2
+      fi
+      rm -f "$stderr_file"
+      APT_GET_LAST_STDERR_FILE=""
+      return 0
+    fi
+    status=$?
+    if [ -s "$stderr_file" ]; then
+      cat "$stderr_file" >&2
+    fi
+    if ! apt_get_lock_error "$stderr_file"; then
+      return "$status"
+    fi
+    now="$(date +%s)"
+    if [ "$attempt" -eq "$APT_LOCK_WAIT_ATTEMPTS" ] || [ "$now" -ge "$deadline_epoch" ]; then
+      printf 'apt lock retry timeout during %s after %s apt-get attempts\n' "$purpose" "$attempt" >&2
+      return 75
+    fi
+    printf 'apt-get lock contention during %s (attempt %s/%s); sleeping %ss before retry\n' "$purpose" "$attempt" "$APT_LOCK_WAIT_ATTEMPTS" "$APT_LOCK_WAIT_SLEEP_SECONDS" >&2
+    sleep "$APT_LOCK_WAIT_SLEEP_SECONDS"
+  done
+}
+install_docker_compose_from_apt() {
+  local status
+  run_apt_get "docker-compose-v2 install" install -y docker-compose-v2 && return 0
+  status=$?
+  if [ "$status" -eq 75 ]; then
+    return "$status"
+  fi
+  if ! apt_get_package_resolution_error "$APT_GET_LAST_STDERR_FILE"; then
+    return "$status"
+  fi
+  printf 'docker-compose-v2 package unavailable; trying docker-compose-plugin\n' >&2
+  run_apt_get "docker-compose-plugin install" install -y docker-compose-plugin && return 0
+  status=$?
+  if [ "$status" -eq 75 ]; then
+    return "$status"
+  fi
+  if ! apt_get_package_resolution_error "$APT_GET_LAST_STDERR_FILE"; then
+    return "$status"
+  fi
+  printf 'docker-compose-plugin package unavailable; trying docker-compose\n' >&2
+  run_apt_get "docker-compose install" install -y docker-compose
 }
 run_apt_get "apt-get update" update -y
 run_apt_get "base package install" install -y ca-certificates curl jq rsync tar gzip time python3 python3-venv python3-pip docker.io
 if ! docker compose version >/dev/null 2>&1; then
-  run_apt_get "docker-compose-v2 install" install -y docker-compose-v2 || run_apt_get "docker-compose-plugin install" install -y docker-compose-plugin || run_apt_get "docker-compose install" install -y docker-compose || true
+  install_docker_compose_from_apt
 fi
 sudo systemctl enable --now docker
 sudo usermod -aG docker "$WORKER_USER" || true
