@@ -475,7 +475,8 @@ function getDefenseSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueue
   return context.survival.hostilePresence ||
     hasOwnedRoomHostilePresence() ||
     hasControllerAttackPressure(context.colony.room.controller) ||
-    selectPostClaimControllerDefensePlan(context.colony)
+    selectPostClaimControllerDefensePlan(context.colony) ||
+    hasRuntimePolicyObjectiveDefenseSpawnDemand(context)
     ? 'critical'
     : 'normal';
 }
@@ -1243,6 +1244,23 @@ function planRuntimePolicyObjectiveDefenseSpawn(context: SpawnPlanningContext): 
     spawn,
     ...defenderPlan
   };
+}
+
+function hasRuntimePolicyObjectiveDefenseSpawnDemand(context: SpawnPlanningContext): boolean {
+  if (
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    context.workerCapacity < Math.min(context.workerTarget, LOCAL_SUPPORT_WORKER_FLOOR)
+  ) {
+    return false;
+  }
+
+  const objectiveTarget = selectRuntimePolicyObjectiveActivationTarget(context.colony.room.name);
+  return (
+    objectiveTarget !== null &&
+    objectiveTarget.hostileCreepCount > 0 &&
+    countAssignedRoomDefenders(objectiveTarget.targetRoom) < getDesiredDefenderCount(objectiveTarget.hostileCreepCount)
+  );
 }
 
 function planDefenseSpawnForRoom(

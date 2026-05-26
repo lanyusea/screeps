@@ -755,6 +755,71 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertEqual(proof["bestObserved"]["territoryScore"], 3.0)
         self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED")
 
+    def test_multi_tier_activation_proof_blocks_post_1448_smoke_without_combat_activation(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-post-1448-blocked",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:24:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "construction-priority.pg.territory-seed.v1",
+                    "sampleCount": 1,
+                    "metrics": {
+                        "territory": {"delta": 2},
+                        "kills": {"hostileKills": 0},
+                        "objectiveSignal": {
+                            "initialObservedRoomCount": 2,
+                            "finalObservedRoomCount": 2,
+                            "initialHostileCreeps": 2,
+                            "finalHostileCreeps": 2,
+                            "initialHostileStructures": 1,
+                            "finalHostileStructures": 1,
+                            "initialObjectiveSignalPresent": True,
+                            "finalObjectiveSignalPresent": True,
+                        },
+                    },
+                    "multiTierActivationTraces": [
+                        {
+                            "sampleIndex": 0,
+                            "ticksRun": 500,
+                            "policyActivationPresent": True,
+                            "policyActivation": {
+                                "executionAction": "engage-hostiles",
+                                "objectiveSignalSource": "tick_log",
+                                "targetRoom": "E2S1",
+                            },
+                        }
+                    ],
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertEqual(proof["criteria"]["territoryScoreMustExceed"], 2)
+        self.assertEqual(proof["criteria"]["hostileKillsMustExceed"], 0)
+        self.assertTrue(proof["transport"]["objectiveSignalObserved"])
+        self.assertEqual(proof["bestObserved"]["territoryScore"], 2.0)
+        self.assertEqual(proof["bestObserved"]["hostileKills"], 0.0)
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED")
+        sample = proof["variants"][0]["activationSamples"][0]
+        self.assertTrue(sample["objectiveSignalObserved"])
+        self.assertFalse(sample["activationScorePasses"])
+        self.assertFalse(sample["passesActivation"])
+        trace = proof["variants"][0]["activationTraces"][0]
+        self.assertEqual(trace["ticksRun"], 500)
+        self.assertEqual(trace["policyActivation"]["executionAction"], "engage-hostiles")
+        self.assertEqual(trace["policyActivation"]["targetRoom"], "E2S1")
+
     def test_multi_tier_activation_proof_reports_missing_samples_separately(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-multitier-no-samples",
