@@ -124,7 +124,7 @@ class RlExperimentCardTest(unittest.TestCase):
 
         self.assertEqual(card["training_approach"], "policy_gradient")
         self.assertEqual(config.ticks, 500)
-        self.assertEqual(config.repetitions, 5)
+        self.assertEqual(config.repetitions, 20)
         self.assertFalse(card["liveEffect"])
         self.assertFalse(card["officialMmoWrites"])
         self.assertFalse(card["officialMmoWritesAllowed"])
@@ -134,6 +134,14 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(policy_gradient["policy_update"]["algorithm"], "reinforce_v1")
         self.assertEqual(policy_gradient["policy_update"]["learning_rate"], 1)
         self.assertEqual(policy_gradient["policy_update"]["estimator"], "score_function_reinforce_v1")
+        self.assertEqual(
+            policy_gradient["policy_update"]["gradient_trust_gate"]["minimum_samples_per_candidate"],
+            20,
+        )
+        self.assertEqual(
+            policy_gradient["policy_update"]["gradient_trust_gate"]["target_samples_per_candidate"],
+            20,
+        )
         runner_support = policy_gradient["runner_support"]
         self.assertEqual(
             learnable_names,
@@ -353,7 +361,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(card["training_approach"], "policy_gradient")
         self.assertEqual(config.ticks, 500)
         self.assertEqual(config.workers, 5)
-        self.assertEqual(config.repetitions, 5)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(supply["state"], "available")
         self.assertTrue(supply["available_for_training"])
         self.assertEqual(supply["consumer"], "loop-a-policy-gradient")
@@ -583,7 +591,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["status"], "shadow")
         self.assertEqual(generated["simulation"]["ticks"], 500)
         self.assertEqual(generated["simulation"]["workers"], 5)
-        self.assertEqual(generated["simulation"]["repetitions"], 5)
+        self.assertEqual(generated["simulation"]["repetitions"], 20)
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
@@ -675,7 +683,7 @@ class RlExperimentCardTest(unittest.TestCase):
 
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
-        self.assertEqual(config.repetitions, 5)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(config.ticks, 500)
 
         supply = generated["card_supply"]
@@ -2401,6 +2409,24 @@ class RlExperimentCardTest(unittest.TestCase):
                 "policy_update.estimator must be score_function_reinforce_v1",
             ),
             ("unbounded step", "bounded_integer_step", False, "policy_update.bounded_integer_step must be true"),
+            (
+                "missing gradient trust gate",
+                "gradient_trust_gate",
+                None,
+                "policy_update.gradient_trust_gate must be a JSON object",
+            ),
+            (
+                "weak minimum sample trust gate",
+                ("gradient_trust_gate", "minimum_samples_per_candidate"),
+                19,
+                "gradient_trust_gate.minimum_samples_per_candidate must be at least 20",
+            ),
+            (
+                "weak target sample trust gate",
+                ("gradient_trust_gate", "target_samples_per_candidate"),
+                19,
+                "gradient_trust_gate.target_samples_per_candidate must be at least 20",
+            ),
         )
         for label, field, value, expected_error in cases:
             with self.subTest(label=label):
@@ -2415,6 +2441,9 @@ class RlExperimentCardTest(unittest.TestCase):
                     policy_gradient.pop("policy_update")
                 elif field == "__policy_update__":
                     policy_gradient["policy_update"] = value
+                elif isinstance(field, tuple):
+                    parent, child = field
+                    policy_gradient["policy_update"][parent][child] = value
                 else:
                     policy_gradient["policy_update"][field] = value
 
@@ -2461,7 +2490,7 @@ class RlExperimentCardTest(unittest.TestCase):
         config = runner.simulation_config_from_card(card)
 
         self.assertGreaterEqual(config.ticks, 500)
-        self.assertGreaterEqual(config.repetitions, 5)
+        self.assertGreaterEqual(config.repetitions, 20)
 
     def test_validate_rejects_policy_gradient_below_long_horizon_floor(self) -> None:
         card = card_helper.build_card(
@@ -2473,6 +2502,44 @@ class RlExperimentCardTest(unittest.TestCase):
         card["simulation"]["ticks"] = 499
 
         with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.ticks >= 500"):
+            card_helper.validate_card(card)
+
+    def test_validate_rejects_policy_gradient_below_trust_sample_budget(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-low-repetitions",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["repetitions"] = 19
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requested samples per candidate >= 20"):
+            card_helper.validate_card(card)
+
+    def test_validate_accepts_policy_gradient_parallel_scale_environment_sample_budget(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-parallel-samples",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["simulation"]["workers"] = 5
+        card["simulation"]["repetitions"] = 4
+        card["simulation"]["scale_environments"] = 5
+        card["simulation"]["min_concurrent_environments"] = 5
+
+        card_helper.validate_card(card)
+
+    def test_validate_rejects_policy_gradient_below_target_trust_sample_budget(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-high-target",
+            code_commit="1" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-17T00:25:00Z",
+        )
+        card["policy_gradient"]["policy_update"]["gradient_trust_gate"]["target_samples_per_candidate"] = 25
+
+        with self.assertRaisesRegex(card_helper.CardValidationError, "requested samples per candidate >= 25"):
             card_helper.validate_card(card)
 
     def test_policy_gradient_rejects_stale_strategy_variant_candidate_policy_id(self) -> None:
@@ -2614,7 +2681,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
 
-    def test_cli_generation_floors_policy_gradient_ticks_and_accepts_repetitions(self) -> None:
+    def test_cli_generation_floors_policy_gradient_ticks_and_repetitions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "card.json"
             exit_code = card_helper.main(
@@ -2644,7 +2711,7 @@ class RlExperimentCardTest(unittest.TestCase):
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.ticks, 500)
-        self.assertEqual(config.repetitions, 6)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
 

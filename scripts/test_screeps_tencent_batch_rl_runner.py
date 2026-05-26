@@ -3271,6 +3271,8 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.training_approach, "policy_gradient")
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
+        self.assertEqual(args.workers, 5)
+        self.assertEqual(args.repetitions, 4)
         self.assertFalse(args.run_id.startswith("tencent-single-"))
         self.assertEqual(controller.final_status, "preflight_ok")
         self.assertEqual(summary["finalStatus"], "preflight_ok")
@@ -3292,6 +3294,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(guard["currentLaunch"]["isE1S1SingleRoomNoHostile"])
         self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(guard["currentLaunch"]["effectiveTicks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(
+            guard["currentLaunch"]["policyGradientTrustSampleRequest"]["requestedSamplesPerCandidate"],
+            20,
+        )
+        self.assertTrue(guard["currentLaunch"]["policyGradientTrustSampleRequest"]["meetsTrustSampleTarget"])
         self.assertEqual(guard["evidence"]["count"], 0)
         self.assertIn("experiment_card", events)
         self.assertNotIn("scale_up", events)
@@ -3305,6 +3312,9 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.training_approach, "policy_gradient")
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
+        self.assertEqual(args.workers, 5)
+        self.assertEqual(args.repetitions, 4)
+        self.assertEqual(runner.policy_gradient_samples_per_candidate(args), 20)
         self.assertEqual(runner.effective_training_ticks(args), runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
 
     def test_preflight_command_uses_preflight_run_id_prefix(self) -> None:
@@ -3631,6 +3641,22 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(args.require_multi_tier_scenario)
+        self.assertEqual(args.workers, 5)
+        self.assertEqual(args.repetitions, 4)
+
+    def test_policy_gradient_validation_defaults_tolerate_unset_workers_and_repetitions(self) -> None:
+        args = runner.build_parser().parse_args([
+            "preflight",
+            "--training-approach",
+            "policy_gradient",
+        ])
+        args.workers = None
+        args.repetitions = None
+
+        runner.apply_cli_scenario_defaults(args)
+
+        self.assertEqual(args.workers, 5)
+        self.assertEqual(args.repetitions, 4)
 
     def test_generate_experiment_card_writes_multi_environment_scale_proof_spec(self) -> None:
         args = controller_args()

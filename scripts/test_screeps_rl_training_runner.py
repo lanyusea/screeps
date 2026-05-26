@@ -3248,9 +3248,12 @@ export const STRATEGY_REGISTRY = [
         self.assertGreater(abs(float(update["gradient"]["territorySignalWeight"])), 0)
         self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
         self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
+        self.assertIn("fewer Monte Carlo return samples per candidate", stability["reason"])
         self.assertTrue(stability["sampleOnly"])
         self.assertEqual(stability["insufficientCandidates"][0]["returnSampleCount"], 5)
         self.assertEqual(update["promotionGate"]["status"], "blocked_gradient_stability_untrusted")
+        self.assertEqual(update["promotionGate"]["gradientTrustGateReason"], stability["reason"])
+        self.assertEqual(update["promotionGate"]["highVarianceReason"], stability["reason"])
         self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
         self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
         self.assertIn("gradient_stability", update["promotionGate"]["missingPrerequisites"])
@@ -4003,6 +4006,7 @@ export const STRATEGY_REGISTRY = [
             "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
             "learning_rate": 1,
         }
+        card["simulation"]["repetitions"] = 2
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results: dict[str, JsonObject] = {}
@@ -4066,6 +4070,7 @@ export const STRATEGY_REGISTRY = [
             simulation_ticks=100,
             simulation_repetitions=1,
         )
+        card["simulation"]["repetitions"] = 1
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results: dict[str, JsonObject] = {}
@@ -4149,6 +4154,9 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["gradientStable"])
         self.assertFalse(report["trustedGradientUpdate"])
         self.assertTrue(report["highVariance"])
+        self.assertEqual(report["gradientTrustGateReason"], report["gradientStability"]["reason"])
+        self.assertEqual(report["highVarianceReason"], report["gradientStability"]["reason"])
+        self.assertEqual(report["gradientTrustGateClassification"], "insufficient_sample_high_variance")
         self.assertEqual(report["gradientEstimation"]["gradientReward"], "scalar_weighted_sum")
         self.assertIsInstance(report["gradientEstimation"]["schemeIdentity"], dict)
         self.assertEqual(report["gradientEstimationSchemeKey"], report["gradientEstimation"]["schemeKey"])
@@ -4641,6 +4649,7 @@ export const STRATEGY_REGISTRY = [
             simulation_ticks=100,
             simulation_repetitions=1,
         )
+        card["simulation"]["repetitions"] = 1
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
         start = tick(1, [room("W1N1", energy=100)])
         simulator_results = {
