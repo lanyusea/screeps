@@ -3044,6 +3044,39 @@ describe('planSpawn', () => {
   });
 
   it('prioritizes a runtime objective defender before source mining once local workers are stable', () => {
+    const sourcePositions = [
+      { x: 10, y: 20, roomName: 'E1S1' } as RoomPosition,
+      { x: 40, y: 28, roomName: 'E1S1' } as RoomPosition
+    ];
+    const sourceContainers = [
+      makeRemoteContainer('container0', 0, 10, 21, 'E1S1') as unknown as AnyStructure,
+      makeRemoteContainer('container1', 0, 40, 29, 'E1S1') as unknown as AnyStructure
+    ];
+    const { colony, spawn } = makeColony({
+      roomName: 'E1S1',
+      sourceCount: 2,
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      controller: makeSafeOwnedController(3),
+      sourcePositions,
+      structures: sourceContainers
+    });
+
+    expect(planSpawn(colony, { worker: 3, sourceHarvester: 0 }, 167)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-E1S1-source0-167',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'E1S1',
+        sourceHarvester: {
+          roomName: 'E1S1',
+          sourceId: 'source0',
+          containerId: 'container0'
+        }
+      }
+    });
+
     installHostileFindGlobals();
     installRuntimeConstructionPriorityPayload({
       baseScoreWeight: 1,
@@ -3051,17 +3084,6 @@ describe('planSpawn', () => {
       resourceSignalWeight: 3,
       killSignalWeight: 5,
       riskPenalty: 4
-    });
-    const { colony, spawn } = makeColony({
-      roomName: 'E1S1',
-      sourceCount: 2,
-      energyAvailable: 300,
-      energyCapacityAvailable: 300,
-      controller: makeSafeOwnedController(3),
-      sourcePositions: [
-        { x: 10, y: 20, roomName: 'E1S1' } as RoomPosition,
-        { x: 40, y: 28, roomName: 'E1S1' } as RoomPosition
-      ]
     });
     const hostileRoom = makeRuntimeObjectiveHostileRoom('E2S1');
     const describeExits = jest.fn((roomName: string) =>
