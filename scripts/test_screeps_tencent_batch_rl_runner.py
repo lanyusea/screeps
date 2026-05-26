@@ -3630,6 +3630,36 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             args.require_multi_tier_scenario = True
             runner.validate_static_inputs(args, "run-test")
 
+    def test_static_validation_rejects_s3_validation_scale_above_resource_guard_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            args = controller_args()
+            args.tccli = str(root / "tccli")
+            args.billing_guard = str(root / "billing-guard.py")
+            args.ssh_key = str(root / "id_ed25519")
+            args.secret_env = str(root / ".env")
+            args.workers = 16
+            args.scale_environments = 16
+            for path in (args.tccli, args.billing_guard, args.ssh_key, args.secret_env):
+                write_text(Path(path))
+
+            with self.assertRaisesRegex(
+                runner.BatchRunError,
+                r"S3\.2XLARGE16 validation cap exceeded.*38336 MiB.*--workers 6 --scale-environments 6",
+            ) as raised:
+                runner.validate_static_inputs(args, "run-test")
+            self.assertIn("currently enforces the S3.2XLARGE16 validation cap", str(raised.exception))
+            self.assertNotIn("larger memory instance", str(raised.exception))
+
+            args.workers = runner.TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS
+            args.scale_environments = runner.TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS
+            runner.validate_static_inputs(args, "run-test")
+
+            args.workers = runner.TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS + 1
+            args.scale_environments = None
+            with self.assertRaisesRegex(runner.BatchRunError, "validation cap exceeded"):
+                runner.validate_static_inputs(args, "run-test")
+
     def test_policy_gradient_cli_defaults_to_multi_tier_required_scenario(self) -> None:
         args = runner.build_parser().parse_args([
             "preflight",
@@ -3916,6 +3946,93 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             "simulator-artifacts/run-test/resource_guard_failure.json",
             failure["diagnostics"],
         )
+
+    def test_run_remote_training_classifies_retryable_simulator_setup_failure(self) -> None:
+        args = controller_args()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_ssh_cmd(
+                _name: str,
+                _remote_command: str,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(["ssh"], 2, "", "")
+
+            def fake_collect_remote_artifacts() -> None:
+                remote = root / "remote"
+                remote.mkdir(parents=True)
+                (remote / "training-stderr.log").write_text(
+                    "pre-scale private-simulator trainability smoke gate failed: "
+                    "docker compose up failed after 2 attempt(s): retryable setup failure: unexpected EOF\n",
+                    encoding="utf-8",
+                )
+                (remote / "training-summary.json").write_text("", encoding="utf-8")
+                (remote / "card-validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+                (remote / "report-extract.json").write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(controller, "collect_remote_artifacts", side_effect=fake_collect_remote_artifacts),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "docker compose up failed"):
+                    controller.run_remote_training()
+
+            failure = controller.result["remoteTrainingFailure"]
+
+        self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("rerun", failure["nextAction"])
+
+    def test_setup_context_network_timeout_keeps_docker_setup_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate failed: "
+                "docker compose pull failed after 2 attempt(s): Client.Timeout exceeded\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("Docker image pull/setup", failure["nextAction"])
+
+    def test_generic_network_api_diagnostic_does_not_get_docker_setup_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "Tencent API request canceled: too many requests while polling batch status\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "remote_process_failed")
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("nextAction", failure)
+
+    def test_runtime_parameter_smoke_failure_remains_non_retryable_remote_process_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate did not prove runtime parameter consumption: missing\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "remote_process_failed")
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("nextAction", failure)
 
     def test_diagnostic_redaction_covers_common_secret_formats(self) -> None:
         raw = (
