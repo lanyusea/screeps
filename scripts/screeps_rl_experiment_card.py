@@ -71,7 +71,8 @@ MULTI_TIER_ADJACENT_ROOM = "E2S1"
 MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS = "active_fixture_validated"
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 POLICY_GRADIENT_SIMULATION_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
-POLICY_GRADIENT_SIMULATION_REPETITIONS = 5
+POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
+POLICY_GRADIENT_SIMULATION_REPETITIONS = POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
 POLICY_GRADIENT_UPDATE_ALGORITHM = "reinforce_v1"
 POLICY_GRADIENT_UPDATE_LEARNING_RATE = 1
 POLICY_GRADIENT_UPDATE_ESTIMATOR = "score_function_reinforce_v1"
@@ -891,6 +892,10 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
             "learning_rate": POLICY_GRADIENT_UPDATE_LEARNING_RATE,
             "estimator": POLICY_GRADIENT_UPDATE_ESTIMATOR,
             "bounded_integer_step": True,
+            "gradient_trust_gate": {
+                "minimum_samples_per_candidate": POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE,
+                "target_samples_per_candidate": POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE,
+            },
         },
         "runner_support": {
             "inline_candidates_applied_to_simulator": True,
@@ -2567,7 +2572,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--repetitions",
         type=positive_int_arg,
         help=(
-            "Simulation repetitions to request. Defaults to 1, or 5 for policy_gradient cards."
+            "Simulation repetitions to request. Defaults to 1, or 20 for policy_gradient cards."
         ),
     )
     parser.add_argument(

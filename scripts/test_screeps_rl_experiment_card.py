@@ -134,6 +134,10 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(policy_gradient["policy_update"]["algorithm"], "reinforce_v1")
         self.assertEqual(policy_gradient["policy_update"]["learning_rate"], 1)
         self.assertEqual(policy_gradient["policy_update"]["estimator"], "score_function_reinforce_v1")
+        self.assertEqual(
+            policy_gradient["policy_update"]["gradient_trust_gate"]["minimum_samples_per_candidate"],
+            20,
+        )
         runner_support = policy_gradient["runner_support"]
         self.assertEqual(
             learnable_names,
@@ -353,7 +357,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(card["training_approach"], "policy_gradient")
         self.assertEqual(config.ticks, 500)
         self.assertEqual(config.workers, 5)
-        self.assertEqual(config.repetitions, 5)
+        self.assertEqual(config.repetitions, 20)
         self.assertEqual(supply["state"], "available")
         self.assertTrue(supply["available_for_training"])
         self.assertEqual(supply["consumer"], "loop-a-policy-gradient")
@@ -583,7 +587,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["status"], "shadow")
         self.assertEqual(generated["simulation"]["ticks"], 500)
         self.assertEqual(generated["simulation"]["workers"], 5)
-        self.assertEqual(generated["simulation"]["repetitions"], 5)
+        self.assertEqual(generated["simulation"]["repetitions"], 20)
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
@@ -2461,7 +2465,7 @@ class RlExperimentCardTest(unittest.TestCase):
         config = runner.simulation_config_from_card(card)
 
         self.assertGreaterEqual(config.ticks, 500)
-        self.assertGreaterEqual(config.repetitions, 5)
+        self.assertGreaterEqual(config.repetitions, 20)
 
     def test_validate_rejects_policy_gradient_below_long_horizon_floor(self) -> None:
         card = card_helper.build_card(

@@ -58,6 +58,8 @@ DEFAULT_ARTIFACT_ROOT = Path("runtime-artifacts/tencent-cloud/batch-runs")
 MAX_SCALE_PROOF_WORKERS = 16
 SCALE_PROOF_SUCCESS_RATE = 0.8
 POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
+POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
+POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS = 5
 REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
 REMOTE_TRAINING_DIAGNOSTIC_FILES = (
     "training-stderr.log",
@@ -420,6 +422,7 @@ class Controller:
                 "trainingApproach": self.args.training_approach,
                 "scenarioId": getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
                 "requireMultiTierScenario": getattr(self.args, "require_multi_tier_scenario", False),
+                "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(self.args),
                 "plannedBatchScale": planned_batch_scale_from_args(self.args),
                 "executionTimeouts": controller_timeout_summary(self.args),
             },
@@ -1178,6 +1181,10 @@ class Controller:
             })
         if self.args.variant:
             payload["strategy_variants"] = self.args.variant
+        trust_sample_request = policy_gradient_trust_sample_request(self.args)
+        policy_gradient = payload.get("policy_gradient")
+        if isinstance(policy_gradient, dict) and trust_sample_request is not None:
+            policy_gradient["validation_sample_request"] = trust_sample_request
         validate_requested_experiment_card_scenario(
             payload,
             requested_scenario_id=scenario_id,
@@ -1199,6 +1206,8 @@ class Controller:
             "safety": payload.get("safety"),
             "rewardModel": payload.get("reward_model"),
         }
+        if trust_sample_request is not None:
+            experiment_card_summary["policyGradientTrustSampleRequest"] = trust_sample_request
         card_supply = payload.get("card_supply")
         if isinstance(card_supply, dict):
             experiment_card_summary["cardSupply"] = card_supply
@@ -1563,6 +1572,9 @@ print(json.dumps({
   'gradientStable': d.get('gradientStable'),
   'trustedGradientUpdate': d.get('trustedGradientUpdate'),
   'highVariance': d.get('highVariance'),
+  'gradientTrustGateClassification': d.get('gradientTrustGateClassification'),
+  'gradientTrustGateReason': d.get('gradientTrustGateReason'),
+  'highVarianceReason': d.get('highVarianceReason'),
   'gradientEstimation': d.get('gradientEstimation'),
   'gradientMomentum': d.get('gradientMomentum'),
   'gradientStability': d.get('gradientStability'),
@@ -2471,6 +2483,7 @@ def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]
         "trainingApproach": getattr(args, "training_approach", None),
         "workers": getattr(args, "workers", None),
         "repetitions": getattr(args, "repetitions", None),
+        "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(args),
         "preflightOnly": bool(getattr(args, "preflight_only", False)),
         "mapSourceFile": scenario_map_source_file(scenario_id),
         "room": scenario_anchor_room(scenario_id),
@@ -3098,6 +3111,10 @@ def remote_policy_update_gradient_fields(
     for key in ("gradientStable", "trustedGradientUpdate", "highVariance"):
         value = data.get(key) if key in data else source.get(key)
         if isinstance(value, bool):
+            fields[key] = value
+    for key in ("gradientTrustGateClassification", "gradientTrustGateReason", "highVarianceReason"):
+        value = data.get(key) if key in data else source.get(key)
+        if isinstance(value, str) and value:
             fields[key] = value
     for key in ("gradientEstimation", "gradientMomentum", "gradientStability"):
         value = data.get(key) if isinstance(data.get(key), dict) else source.get(key)
@@ -4253,6 +4270,7 @@ def build_scale_proof_spec(
                 "trainingRunner": "scripts/screeps_rl_training_runner.py",
                 "simulatorHarness": "scripts/screeps_rl_simulator_harness.py",
                 "cardSimulationFields": card_simulation_fields,
+                "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(args),
             },
         },
         "asg": {
@@ -4376,6 +4394,50 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
         raise BatchRunError("controller IP must be a /32 CIDR")
 
 
+def policy_gradient_samples_per_candidate(args: argparse.Namespace) -> int:
+    repetitions = max(1, int(getattr(args, "repetitions", 1) or 1))
+    scale_environments = resolve_scale_environment_count(args) or 1
+    return repetitions * scale_environments
+
+
+def policy_gradient_min_repetitions_for_trust(args: argparse.Namespace) -> int:
+    scale_environments = resolve_scale_environment_count(args) or 1
+    return max(1, math.ceil(POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE / scale_environments))
+
+
+def policy_gradient_trust_sample_request(args: argparse.Namespace) -> dict[str, Any] | None:
+    if getattr(args, "training_approach", None) != "policy_gradient":
+        return None
+    scale_environments = resolve_scale_environment_count(args) or 1
+    requested_samples = policy_gradient_samples_per_candidate(args)
+    meets_target = requested_samples >= POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
+    return {
+        "targetSamplesPerCandidate": POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE,
+        "requestedSamplesPerCandidate": requested_samples,
+        "scaleEnvironmentsPerRepetition": scale_environments,
+        "repetitions": max(1, int(getattr(args, "repetitions", 1) or 1)),
+        "meetsTrustSampleTarget": meets_target,
+        "reason": (
+            "requested samples meet the policy-gradient trust gate target"
+            if meets_target
+            else "requested samples are below the policy-gradient trust gate target and should remain untrusted"
+        ),
+    }
+
+
+def apply_policy_gradient_validation_sample_defaults(args: argparse.Namespace) -> None:
+    if getattr(args, "training_approach", None) != "policy_gradient":
+        return
+    explicit_options = set(getattr(args, "explicit_cli_options", ()))
+    explicit_scale_environments = getattr(args, "scale_environments", None)
+    if "scale_environments" in explicit_options and "workers" not in explicit_options and explicit_scale_environments:
+        args.workers = max(args.workers, explicit_scale_environments)
+    elif "workers" not in explicit_options and "scale_environments" not in explicit_options:
+        args.workers = max(args.workers, min(POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS, MAX_SCALE_PROOF_WORKERS))
+    if "repetitions" not in explicit_options:
+        args.repetitions = max(args.repetitions, policy_gradient_min_repetitions_for_trust(args))
+
+
 def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
     explicit_options = set(getattr(args, "explicit_cli_options", ()))
     command = getattr(args, "command", None)
@@ -4384,6 +4446,7 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
         args.training_approach = "policy_gradient"
         args.scenario_id = MULTI_TIER_SCENARIO_ID
         args.require_multi_tier_scenario = True
+        apply_policy_gradient_validation_sample_defaults(args)
         return args
     if getattr(args, "scenario_id", None) is None:
         if args.training_approach == "policy_gradient" or (
@@ -4395,6 +4458,7 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
             args.scenario_id = DEFAULT_SCENARIO_ID
     elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
         args.require_multi_tier_scenario = True
+    apply_policy_gradient_validation_sample_defaults(args)
     return args
 
 

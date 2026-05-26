@@ -1690,6 +1690,14 @@ def build_training_report(
             report["gradientStable"] = gradient_stability.get("gradientStable") is True
             report["trustedGradientUpdate"] = gradient_stability.get("trustedUpdate") is True
             report["highVariance"] = gradient_stability.get("highVariance") is True
+            trust_gate_reason = text_or_none(gradient_stability.get("reason"))
+            trust_gate_classification = text_or_none(gradient_stability.get("classification"))
+            if trust_gate_reason is not None:
+                report["gradientTrustGateReason"] = trust_gate_reason
+                if report["highVariance"]:
+                    report["highVarianceReason"] = trust_gate_reason
+            if trust_gate_classification is not None:
+                report["gradientTrustGateClassification"] = trust_gate_classification
         gradient_estimation = policy_update.get("gradientEstimation")
         if isinstance(gradient_estimation, dict):
             report["gradientEstimation"] = copy.deepcopy(gradient_estimation)
@@ -6348,6 +6356,7 @@ def policy_update_promotion_gate(
     gradient_classification = (
         text_or_none(gradient_stability.get("classification")) if gradient_gate_present else None
     )
+    gradient_reason = text_or_none(gradient_stability.get("reason")) if gradient_gate_present else None
 
     if runtime_consumed and not trusted_gradient_update:
         consumption_mode = POLICY_UPDATE_CONSUMPTION_MODE_RUNTIME_CONSUMED
@@ -6425,6 +6434,10 @@ def policy_update_promotion_gate(
         payload["trustedGradientUpdate"] = trusted_gradient_update
         payload["highVariance"] = gradient_high_variance
         payload["gradientClassification"] = gradient_classification
+        if gradient_reason is not None:
+            payload["gradientTrustGateReason"] = gradient_reason
+            if gradient_high_variance:
+                payload["highVarianceReason"] = gradient_reason
         payload["gradientSchemeComparable"] = gradient_stability.get("gradientSchemeComparable") is not False
         payload["gradientSchemeComparisonStatus"] = text_or_none(
             gradient_stability.get("gradientSchemeComparisonStatus")
@@ -6626,6 +6639,9 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "gradientStable": report.get("gradientStable", False),
         "trustedGradientUpdate": report.get("trustedGradientUpdate", False),
         "highVariance": report.get("highVariance", False),
+        "gradientTrustGateClassification": report.get("gradientTrustGateClassification"),
+        "gradientTrustGateReason": report.get("gradientTrustGateReason"),
+        "highVarianceReason": report.get("highVarianceReason"),
         "gradientEstimation": copy.deepcopy(report.get("gradientEstimation")),
         "gradientMomentum": copy.deepcopy(report.get("gradientMomentum")),
         "gradientStability": copy.deepcopy(report.get("gradientStability")),
