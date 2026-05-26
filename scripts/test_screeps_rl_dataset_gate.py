@@ -220,6 +220,64 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertTrue(rollout_decision["passed"])
         self.assertEqual(run_manifest["source"]["strategyShadowReportCount"], 1)
 
+    def test_run_derives_e1_metric_floors_and_rollout_objective_from_current_kpi(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            ticks = [0, 1200, 2400, 3600, 4800, 6000, 7200, 9600]
+            artifact.write_text("".join(runtime_line(runtime_payload(tick)) for tick in ticks), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact)],
+                out_dir=root / "gates",
+                gate_id="gate-derived-floors",
+                created_at="2026-05-26T18:00:00Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="f" * 40,
+                eval_ratio_value=0,
+                repo_root=root,
+            )
+
+            gate_dir = root / "gates" / "gate-derived-floors"
+            summary = read_json(gate_dir / "gate_summary.json")
+            baseline_objective = read_json(gate_dir / "rollout_baseline_objective.json")
+            rollout_decision_exists = (gate_dir / "rollout_decision.json").exists()
+
+        expected_metrics = {"reliability": 1, "territory": 1, "resources": 1800, "kills": 0}
+        predefined_gate = report["predefinedMetricGate"]
+        predefined_checks = {check["name"]: check for check in predefined_gate["checks"]}
+        baseline_metrics = baseline_objective["metrics"]
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["blockingReasons"], [])
+        self.assertEqual(predefined_gate["status"], "pass")
+        self.assertEqual(summary["predefinedMetricGateStatus"], "pass")
+        self.assertEqual(predefined_gate["floors"], expected_metrics)
+        self.assertEqual(predefined_gate["normalizedCurrent"]["metrics"], expected_metrics)
+        self.assertEqual(predefined_gate["floorSource"]["source"], "current_runtime_kpi_window")
+        self.assertEqual(predefined_gate["floorSource"]["derivedFloors"], expected_metrics)
+        self.assertEqual(predefined_gate["floorSource"]["explicitFloors"], {})
+        self.assertEqual(predefined_gate["floorSource"]["missingMetrics"], [])
+        self.assertEqual(set(predefined_checks), set(expected_metrics))
+        for metric, expected_value in expected_metrics.items():
+            self.assertEqual(predefined_checks[metric]["actual"], expected_value)
+            self.assertEqual(predefined_checks[metric]["minimum"], expected_value)
+        self.assertEqual(report["rolloutGate"]["status"], "objective")
+        self.assertEqual(summary["rolloutGateStatus"], "objective")
+        self.assertEqual(report["rolloutGate"]["reason"], "baseline_kpi_derived_from_current_runtime_kpi")
+        self.assertEqual(report["rolloutGate"]["baselineObjective"]["status"], "pass")
+        self.assertEqual(report["rolloutGate"]["baselineObjective"]["normalizedCurrent"]["metrics"], expected_metrics)
+        self.assertEqual(baseline_objective["status"], "pass")
+        self.assertEqual(baseline_objective["missingMetrics"], [])
+        self.assertEqual(baseline_objective["normalizedCurrent"]["metrics"], expected_metrics)
+        self.assertEqual(set(baseline_metrics), set(expected_metrics))
+        for metric, expected_value in expected_metrics.items():
+            self.assertEqual(baseline_metrics[metric]["status"], "pass")
+            self.assertEqual(baseline_metrics[metric]["source"], "current_runtime_kpi_window")
+            self.assertEqual(baseline_metrics[metric]["target"], expected_value)
+        self.assertFalse(rollout_decision_exists)
+
     def test_run_rejects_dead_room_dataset_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

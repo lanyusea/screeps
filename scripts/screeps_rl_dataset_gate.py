@@ -39,6 +39,9 @@ DEFAULT_HOME_ROOM = world_profiles.PERSISTENT_DEFAULTS.room
 HOME_ROOM_ENV_VAR = "SCREEPS_HOME_ROOM"
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SOURCE_TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6}Z)")
+E1_METRIC_FLOOR_KEYS = rollout_manager.METRIC_ORDER
+DERIVED_RUNTIME_KPI_FLOOR_SOURCE = "current_runtime_kpi_window"
+DERIVED_BASELINE_OBJECTIVE_TYPE = "screeps-rl-derived-runtime-kpi-baseline-objective"
 
 JsonObject = dict[str, Any]
 
@@ -194,6 +197,7 @@ def build_contract() -> JsonObject:
                 "gateReport": "gate_report.json",
                 "gateSummary": "gate_summary.json",
                 "rolloutGateContract": "rollout_gate_contract.json",
+                "rolloutBaselineObjective": "rollout_baseline_objective.json when --baseline-kpi is absent",
                 "rolloutDecision": "rollout_decision.json when --baseline-kpi is supplied",
             },
             "linkedArtifacts": [
@@ -208,8 +212,14 @@ def build_contract() -> JsonObject:
             "qualityChecks": "dataset samples must show active harvest/upgrade work, room energy, owned creeps, and home-room owned spawns; non-home rooms may have no owned spawns",
             "shadowEvaluation": "strategy-shadow report generation succeeds unless explicitly skipped",
             "historicalValidation": "candidate report must pass when --candidate-config is supplied",
-            "predefinedMetrics": "current KPI window must satisfy configured metric floors",
-            "rolloutManager": "dry-run decision must pass when --baseline-kpi is supplied; rollout contract is always persisted",
+            "predefinedMetrics": (
+                "current KPI window must satisfy configured metric floors; missing floors are derived from the "
+                "current runtime KPI window"
+            ),
+            "rolloutManager": (
+                "dry-run decision must pass when --baseline-kpi is supplied; otherwise a derived baseline objective "
+                "from the current runtime KPI window is persisted; rollout contract is always persisted"
+            ),
         },
         "safety": safety_metadata(),
     }
@@ -809,34 +819,92 @@ def metric_floors(
     return floors
 
 
+def finite_metric_value(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+        return float(value)
+    return None
+
+
+def round_metric_value(value: float) -> float | int:
+    return rollout_manager.round_float(value)
+
+
+def derive_runtime_metric_floor_plan(normalized_current: JsonObject, explicit_floors: dict[str, float]) -> JsonObject:
+    metrics = normalized_current.get("metrics") if isinstance(normalized_current.get("metrics"), dict) else {}
+    floors: dict[str, float] = {}
+    derived_floors: dict[str, float | int] = {}
+    explicit_floor_values: dict[str, float | int] = {}
+    floor_sources: dict[str, JsonObject] = {}
+    missing_metrics: list[str] = []
+
+    for metric in E1_METRIC_FLOOR_KEYS:
+        explicit_floor = finite_metric_value(explicit_floors.get(metric))
+        if explicit_floor is not None:
+            floors[metric] = explicit_floor
+            explicit_floor_values[metric] = round_metric_value(explicit_floor)
+            floor_sources[metric] = {"mode": "explicit_cli_floor", "value": round_metric_value(explicit_floor)}
+            continue
+
+        derived_floor = finite_metric_value(metrics.get(metric))
+        if derived_floor is None:
+            missing_metrics.append(metric)
+            continue
+        floors[metric] = derived_floor
+        derived_floors[metric] = round_metric_value(derived_floor)
+        floor_sources[metric] = {"mode": DERIVED_RUNTIME_KPI_FLOOR_SOURCE, "value": round_metric_value(derived_floor)}
+
+    return {
+        "configuredMetricCount": len(floors),
+        "derivedFloors": derived_floors,
+        "explicitFloors": explicit_floor_values,
+        "floorSources": floor_sources,
+        "floors": {metric: round_metric_value(value) for metric, value in floors.items()},
+        "missingMetrics": missing_metrics,
+        "requiredMetrics": list(E1_METRIC_FLOOR_KEYS),
+        "source": DERIVED_RUNTIME_KPI_FLOOR_SOURCE,
+    }
+
+
 def evaluate_predefined_metric_gate(current_kpi: JsonObject, floors: dict[str, float], source_path: Path) -> JsonObject:
     normalized = rollout_manager.normalize_kpi_window(current_kpi, dataset_export.display_path(source_path))
-    if not floors:
-        return {
-            "status": "not_configured",
-            "checks": [],
-            "floors": {},
-            "normalizedCurrent": normalized,
-        }
-
+    floor_plan = derive_runtime_metric_floor_plan(normalized, floors)
     checks: list[JsonObject] = []
     metrics = normalized["metrics"]
-    for metric, floor in floors.items():
+    planned_floors = floor_plan["floors"] if isinstance(floor_plan.get("floors"), dict) else {}
+    for metric in E1_METRIC_FLOOR_KEYS:
+        floor = finite_metric_value(planned_floors.get(metric))
         value = metrics.get(metric)
-        passed = isinstance(value, (int, float)) and not isinstance(value, bool) and float(value) >= floor
+        if floor is None:
+            checks.append(
+                pass_fail_check(
+                    metric,
+                    False,
+                    actual=value,
+                    minimum=None,
+                    reason="missing_current_kpi_metric",
+                )
+            )
+            continue
+        actual = finite_metric_value(value)
+        passed = actual is not None and actual >= floor
         checks.append(
             pass_fail_check(
                 metric,
                 passed,
-                actual=value,
-                minimum=floor,
+                actual=round_metric_value(actual) if actual is not None else value,
+                minimum=round_metric_value(floor),
             )
         )
 
     return {
         "status": "pass" if all(check["status"] == "pass" for check in checks) else "fail",
         "checks": checks,
-        "floors": floors,
+        "floorSource": {
+            "mode": DERIVED_RUNTIME_KPI_FLOOR_SOURCE,
+            "sourcePath": dataset_export.display_path(source_path),
+            **floor_plan,
+        },
+        "floors": planned_floors,
         "normalizedCurrent": normalized,
     }
 
@@ -916,6 +984,44 @@ def run_historical_validation(
     }
 
 
+def build_rollout_baseline_objective(current_kpi: JsonObject, source_path: Path, created_at: str) -> JsonObject:
+    normalized = rollout_manager.normalize_kpi_window(current_kpi, dataset_export.display_path(source_path))
+    metrics = normalized["metrics"]
+    metric_targets: dict[str, JsonObject] = {}
+    missing_metrics: list[str] = []
+
+    for metric in E1_METRIC_FLOOR_KEYS:
+        value = finite_metric_value(metrics.get(metric))
+        if value is None:
+            missing_metrics.append(metric)
+            metric_targets[metric] = {
+                "status": "fail",
+                "reason": "missing_current_kpi_metric",
+                "source": DERIVED_RUNTIME_KPI_FLOOR_SOURCE,
+                "target": None,
+                "threshold": rollout_manager.METRIC_SPECS[metric].to_json(),
+            }
+            continue
+        metric_targets[metric] = {
+            "status": "pass",
+            "source": DERIVED_RUNTIME_KPI_FLOOR_SOURCE,
+            "target": round_metric_value(value),
+            "threshold": rollout_manager.METRIC_SPECS[metric].to_json(),
+        }
+
+    return {
+        "type": DERIVED_BASELINE_OBJECTIVE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "createdAt": created_at,
+        "derivation": DERIVED_RUNTIME_KPI_FLOOR_SOURCE,
+        "missingMetrics": missing_metrics,
+        "metrics": metric_targets,
+        "normalizedCurrent": normalized,
+        "sourcePath": dataset_export.display_path(source_path),
+        "status": "pass" if not missing_metrics else "fail",
+    }
+
+
 def run_rollout_gate(
     *,
     baseline_kpi: Path | None,
@@ -931,11 +1037,30 @@ def run_rollout_gate(
     write_json_atomic(contract_path, rollout_manager.build_gate_contract())
 
     if baseline_kpi is None:
+        objective = build_rollout_baseline_objective(current_kpi, current_kpi_path, created_at)
+        objective_path = gate_dir / "rollout_baseline_objective.json"
+        write_json_atomic(objective_path, objective)
+        if objective.get("status") != "pass":
+            return {
+                "status": "fail",
+                "ok": False,
+                "reason": "derived_baseline_objective_missing_metrics",
+                "contractPath": dataset_export.display_path(contract_path),
+                "objectivePath": dataset_export.display_path(objective_path),
+                "baselineObjective": objective,
+                "blockingReasons": [
+                    {"scope": "rolloutBaselineObjective", "metric": metric, "reason": "missing_current_kpi_metric"}
+                    for metric in objective.get("missingMetrics", [])
+                    if isinstance(metric, str)
+                ],
+            }
         return {
-            "status": "not_configured",
+            "status": "objective",
             "ok": True,
-            "reason": "baseline_kpi_not_provided",
+            "reason": "baseline_kpi_derived_from_current_runtime_kpi",
             "contractPath": dataset_export.display_path(contract_path),
+            "objectivePath": dataset_export.display_path(objective_path),
+            "baselineObjective": objective,
         }
 
     pre = load_json(baseline_kpi)
@@ -991,7 +1116,7 @@ def collect_blocking_reasons(report: JsonObject) -> list[JsonObject]:
         if not isinstance(gate, dict):
             continue
         status = gate.get("status")
-        if status in ("pass", "skipped", "not_configured"):
+        if status in ("pass", "skipped", "not_configured", "objective"):
             continue
         reasons.append(
             {
@@ -1429,6 +1554,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dataset-out-dir", type=Path, default=dataset_export.DEFAULT_OUT_DIR)
     run.add_argument("--dataset-run-id", help="Optional dataset run ID to pass to the exporter.")
     run.add_argument("--bot-commit", help="Bot commit to record. Defaults to git rev-parse HEAD.")
+    run.add_argument("--repo-root", type=Path, help="Repository root for resolving relative inputs and outputs.")
     run.add_argument("--max-file-bytes", type=positive_int, default=dataset_export.DEFAULT_MAX_FILE_BYTES)
     run.add_argument("--sample-limit", type=positive_int, default=dataset_export.DEFAULT_SAMPLE_LIMIT)
     run.add_argument("--eval-ratio", type=dataset_export.eval_ratio, default=dataset_export.DEFAULT_EVAL_RATIO)
@@ -1446,7 +1572,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Candidate strategy ID for the shadow evaluator. Repeatable.",
     )
     run.add_argument("--candidate-config", type=Path, help="Optional shadow-safe candidate config for historical validation.")
-    run.add_argument("--baseline-kpi", type=Path, help="Optional pre/baseline KPI fixture for rollout-manager dry-run.")
+    run.add_argument(
+        "--baseline-kpi",
+        type=Path,
+        help=(
+            "Optional pre/baseline KPI fixture for rollout-manager dry-run. When omitted, "
+            "a baseline objective is derived from the current runtime KPI window."
+        ),
+    )
     run.add_argument("--current-kpi", type=Path, help="Optional current KPI fixture. Defaults to the generated dataset kpi_windows.json.")
     run.add_argument("--candidate-id", help="Candidate ID recorded in rollout-manager dry-run output.")
     run.add_argument("--deploy-ref", help="Candidate deploy ref recorded in rollout-manager dry-run output.")
@@ -1513,6 +1646,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
                 min_resource_score=args.min_resource_score,
                 min_kills_score=args.min_kills_score,
                 conclusion_registry_path=args.conclusion_registry,
+                repo_root=args.repo_root,
             )
             stdout.write(canonical_json(report if args.print_report else build_summary(report)))
             return 0 if report.get("ok") is True else 1
