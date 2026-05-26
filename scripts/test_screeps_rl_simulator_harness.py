@@ -738,6 +738,9 @@ cli:
                 return {"email": cfg.email, "password": cfg.password}
 
             def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
+                state = self._state(str(cfg.server_url))
+                state["uploaded_branch"] = cfg.branch
+                state["uploaded_code_text"] = code
                 return {"branch": cfg.branch, "modules": {"main": code}}
 
             def build_spawn_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
@@ -769,7 +772,7 @@ cli:
                 }
 
             def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
-                _ = method, args
+                _ = args
                 state = self._state(base_url)
                 room = str(state["room"])
                 username = str(state["username"])
@@ -780,6 +783,15 @@ cli:
                 if path == "/api/auth/signin":
                     return Result(200, {"ok": 1, "token": f"token-{base_url.rsplit(':', 1)[-1]}"})
                 if path == "/api/user/code":
+                    if method == "GET":
+                        return Result(
+                            200,
+                            {
+                                "ok": 1,
+                                "branch": state.get("uploaded_branch"),
+                                "modules": {"main": state.get("uploaded_code_text")},
+                            },
+                        )
                     return Result(200, {"ok": 1})
                 if path == "/api/game/place-spawn":
                     return Result(200, {"ok": 1})
@@ -4699,6 +4711,240 @@ cli:
         self.assertNotIn("consumedParametersSha256", summary["variants"][1])
         self.assertNotIn("consumedStrategyVariantId", summary["variants"][1])
 
+    def test_active_code_readback_summary_compares_uploaded_main_by_hash(self) -> None:
+        uploaded = "module.exports.loop = function loop() { return 1; };\n"
+
+        matched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "default", "modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
+        mismatched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "default", "modules": {"main": uploaded + "// stale\n"}},
+            branch="default",
+            http_status=200,
+        )
+        branch_mismatched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"branch": "stale-branch", "modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
+        branchless_matched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"modules": {"main": uploaded}},
+            branch="default",
+            http_status=200,
+        )
+        branchless_mismatched = harness.private_simulator_active_code_readback_summary(
+            uploaded,
+            {"modules": {"main": uploaded + "// stale\n"}},
+            branch="default",
+            http_status=200,
+        )
+
+        self.assertEqual(matched["status"], "matched")
+        self.assertTrue(matched["activeCodeMatchesUploaded"])
+        self.assertEqual(matched["uploadedCodeSha256"], matched["activeCodeSha256"])
+        self.assertEqual(mismatched["status"], "mismatch")
+        self.assertFalse(mismatched["activeCodeMatchesUploaded"])
+        self.assertEqual(branch_mismatched["status"], "branch-mismatch")
+        self.assertFalse(branch_mismatched["activeCodeMatchesUploaded"])
+        self.assertEqual(branchless_matched["status"], "matched")
+        self.assertTrue(branchless_matched["activeCodeMatchesUploaded"])
+        self.assertNotIn("activeBranch", branchless_matched)
+        self.assertEqual(branchless_mismatched["status"], "mismatch")
+        self.assertFalse(branchless_mismatched["activeCodeMatchesUploaded"])
+        self.assertIn(
+            "active private-server code hash verification failed",
+            harness.private_simulator_active_code_readback_error(mismatched) or "",
+        )
+
+    def test_active_code_readback_poll_accepts_branchless_matching_payload(self) -> None:
+        uploaded = "module.exports.loop = function loop() { return 1; };\n"
+
+        class Cfg:
+            server_url = "http://127.0.0.1:21000"
+
+        class Result:
+            status = 200
+            payload = {"ok": 1, "modules": {"main": uploaded}}
+            headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.http_calls = 0
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                _ = headers
+                return token
+
+            def http_json(self, *_args: object, **_kwargs: object) -> Result:
+                self.http_calls += 1
+                return Result()
+
+        smoke = FakeSmoke()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token, readback = harness._poll_private_simulator_active_code_readback(
+                smoke,
+                Cfg(),
+                "token",
+                uploaded,
+                branch="default",
+                output_path=Path(temp_dir) / "active_code_readback.json",
+            )
+
+        self.assertEqual(token, "token")
+        self.assertEqual(smoke.http_calls, 1)
+        self.assertEqual(readback["status"], "matched")
+        self.assertTrue(readback["activeCodeMatchesUploaded"])
+        self.assertNotIn("activeBranch", readback)
+
+    def test_active_code_readback_poll_retries_transport_error_with_diagnostics(self) -> None:
+        uploaded = "module.exports.loop = function loop() { return 1; };\n"
+        writes: list[harness.JsonObject] = []
+
+        class Cfg:
+            server_url = "http://127.0.0.1:21000"
+
+        class Result:
+            def __init__(self) -> None:
+                self.status = 200
+                self.payload = {"branch": "default", "modules": {"main": uploaded}}
+                self.headers = {"X-Token": "next-token"}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.http_calls = 0
+                self.update_calls = 0
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                self.update_calls += 1
+                self.updated_headers = headers
+                return f"{token}-rotated"
+
+            def http_json(self, *_args: object, **_kwargs: object) -> Result:
+                self.http_calls += 1
+                if self.http_calls == 1:
+                    raise TimeoutError("readback timed out")
+                return Result()
+
+        def capture_write(path: Path, payload: harness.JsonObject) -> None:
+            _ = path
+            writes.append(copy.deepcopy(payload))
+
+        smoke = FakeSmoke()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "active_code_readback.json"
+            with mock.patch.object(harness, "write_json_atomic", side_effect=capture_write):
+                with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+                    token, readback = harness._poll_private_simulator_active_code_readback(
+                        smoke,
+                        Cfg(),
+                        "token",
+                        uploaded,
+                        branch="default",
+                        output_path=output_path,
+                    )
+
+        self.assertEqual(token, "token-rotated")
+        self.assertEqual(smoke.http_calls, 2)
+        self.assertEqual(smoke.update_calls, 1)
+        sleep.assert_called_once_with(harness.RUN_TICK_POLL_SECONDS)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(writes[0]["status"], "transport-error")
+        self.assertEqual(writes[0]["attempt"], 1)
+        self.assertEqual(writes[0]["maxAttempts"], harness.ACTIVE_CODE_READBACK_MAX_ATTEMPTS)
+        self.assertEqual(writes[0]["exceptionType"], "TimeoutError")
+        self.assertIn("readback timed out", writes[0]["error"])
+        self.assertNotIn("httpStatus", writes[0])
+        self.assertEqual(readback["status"], "matched")
+        self.assertEqual(readback["attempt"], 2)
+
+    def test_runtime_parameter_trainability_smoke_gate_blocks_missing_consumption(self) -> None:
+        code = "module.exports.loop = function loop() {};"
+        injection = self.uploaded_runtime_parameter_injection()
+        readback = harness.private_simulator_active_code_readback_summary(
+            code,
+            {"branch": "default", "modules": {"main": code}},
+            branch="default",
+            http_status=200,
+        )
+        missing = harness.runtime_parameter_consumption_check(injection, None)
+        unticked_consumed = harness.runtime_parameter_consumption_check(
+            injection,
+            self.runtime_parameter_consumption_evidence(injection),
+        )
+        consumed_evidence = self.runtime_parameter_consumption_evidence(injection)
+        consumed_evidence["tick"] = 1
+        consumed = harness.runtime_parameter_consumption_check(
+            injection,
+            consumed_evidence,
+        )
+        injection_before_consumption_tick = copy.deepcopy(injection)
+        injection_before_consumption_tick["tick"] = 0
+        injection_at_tick = copy.deepcopy(injection)
+        injection_at_tick["tick"] = 1
+        stale_tick_consumption = copy.deepcopy(consumed)
+        stale_tick_consumption["consumedTick"] = 1
+
+        self.assertIn(
+            "runtime-parameter trainability smoke gate failed",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=missing,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
+            "missing positive consumedTick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=unticked_consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
+            "missing numeric injection tick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection,
+                runtime_parameter_consumption=consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIn(
+            "did not advance beyond injection tick",
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection_at_tick,
+                runtime_parameter_consumption=stale_tick_consumption,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+            or "",
+        )
+        self.assertIsNone(
+            harness.runtime_parameter_trainability_smoke_gate_error(
+                runtime_parameter_injection=injection_before_consumption_tick,
+                runtime_parameter_consumption=consumed,
+                ticks_run=1,
+                active_code_readback=readback,
+            )
+        )
+
     def test_direct_game_loop_runtime_parameter_consumption_evidence_validates(self) -> None:
         injection = self.uploaded_runtime_parameter_injection()
         evidence = harness.direct_game_loop_runtime_parameter_consumption_evidence(
@@ -5267,6 +5513,99 @@ cli:
         self.assertEqual(observed_tick, 42)
         self.assertEqual(tick_entry["tick"], 42)
 
+    def test_runtime_parameter_injection_tick_capture_retries_missing_initial_clock(self) -> None:
+        class Result:
+            def __init__(self, payload: object, headers: dict[str, str] | None = None) -> None:
+                self.payload = payload
+                self.headers = headers or {}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.overview_calls = 0
+                self.stats_calls = 0
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return headers.get("X-Token", token)
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, kwargs
+                if path == "/api/user/overview":
+                    self.overview_calls += 1
+                    return Result(
+                        {"ok": 1, "rooms": ["E1S1"], "gametimes": []},
+                        {"X-Token": f"overview-{self.overview_calls}"},
+                    )
+                if path == "/stats":
+                    self.stats_calls += 1
+                    if self.stats_calls == 1:
+                        return Result({"ok": 1}, {"X-Token": "stats-empty"})
+                    return Result({"gametime": "37"}, {"X-Token": "stats-37"})
+                raise AssertionError(path)
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            token, tick = harness._capture_runtime_parameter_injection_tick(
+                argparse.Namespace(server_url="http://127.0.0.1"),
+                smoke,
+                "token",
+                "shardX",
+                {"ok": 1, "rooms": ["E1S1"], "gametimes": []},
+                max_attempts=3,
+            )
+
+        self.assertEqual(token, "stats-37")
+        self.assertEqual(tick, 37)
+        self.assertEqual(smoke.stats_calls, 2)
+        self.assertEqual(smoke.overview_calls, 1)
+        sleep.assert_called_once_with(harness.RUN_TICK_POLL_SECONDS)
+
+    def test_runtime_parameter_injection_tick_capture_fails_after_bounded_missing_clock(self) -> None:
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.payload = payload
+                self.headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.overview_calls = 0
+                self.stats_calls = 0
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                _ = headers
+                return token
+
+            def http_json(self, method: str, base_url: str, path: str, **kwargs: object) -> Result:
+                _ = method, base_url, kwargs
+                if path == "/api/user/overview":
+                    self.overview_calls += 1
+                    return Result({"ok": 1, "rooms": ["E1S1"], "gametimes": []})
+                if path == "/stats":
+                    self.stats_calls += 1
+                    return Result({"ok": 1})
+                raise AssertionError(path)
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "failed to capture numeric injection tick"):
+                harness._capture_runtime_parameter_injection_tick(
+                    argparse.Namespace(server_url="http://127.0.0.1"),
+                    smoke,
+                    "token",
+                    "shardX",
+                    {"ok": 1, "rooms": ["E1S1"], "gametimes": []},
+                    max_attempts=2,
+                )
+
+        self.assertEqual(smoke.stats_calls, 2)
+        self.assertEqual(smoke.overview_calls, 1)
+        sleep.assert_called_once_with(harness.RUN_TICK_POLL_SECONDS)
+
     def test_build_variant_metrics_reduces_territory_resources_and_combat(self) -> None:
         tick_log = [
             {
@@ -5388,6 +5727,8 @@ cli:
 
             def __init__(self) -> None:
                 self.uploaded_branch: str | None = None
+                self.uploaded_code_text: str | None = None
+                self.code_readback_count = 0
                 self.runtime_payload: dict[str, object] | None = None
                 self.gametime = 0
                 self.room = "E1S1"
@@ -5459,6 +5800,7 @@ cli:
 
             def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
                 self.uploaded_branch = str(cfg.branch)
+                self.uploaded_code_text = code
                 prefix = f"var {harness.RUNTIME_PARAMETER_INJECTION_GLOBAL} = "
                 start = code.find(prefix)
                 if start >= 0:
@@ -5519,7 +5861,7 @@ cli:
                 }
 
             def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
-                _ = method, base_url, args
+                _ = base_url, args
                 if path == "/api/game/room-terrain":
                     return Result(200, {"terrain": [{"room": self.room, "terrain": "0" * 2500}]})
                 if path == "/api/register/submit":
@@ -5527,6 +5869,19 @@ cli:
                 if path == "/api/auth/signin":
                     return Result(200, {"ok": 1, "token": "token"})
                 if path == "/api/user/code":
+                    if method == "GET":
+                        self.code_readback_count += 1
+                        main_code = self.uploaded_code_text
+                        if self.code_readback_count == 1 and isinstance(main_code, str):
+                            main_code = f"{main_code}\n// stale readback"
+                        return Result(
+                            200,
+                            {
+                                "ok": 1,
+                                "branch": self.uploaded_branch,
+                                "modules": {"main": main_code},
+                            },
+                        )
                     return Result(200, {"ok": 1})
                 if path == "/api/game/place-spawn":
                     return Result(200, {"ok": 1})
@@ -5581,35 +5936,45 @@ cli:
             map_path.write_text("{\"ok\": true}", encoding="utf-8")
             fake_smoke = FakeSmoke()
             with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=fake_smoke):
-                result = harness._run_variant(
-                    0,
-                    variant_id,
-                    run_id="runtime-consumption",
-                    ticks=1,
-                    room="E1S1",
-                    shard="shardX",
-                    branch="activeWorld",
-                    code_path=code_path,
-                    map_source_file=map_path,
-                    out_dir=root / "out",
-                    variant_configs={
-                        variant_id: {
-                            "id": variant_id,
-                            "candidatePolicyId": variant_id,
-                            "sourceStrategyId": "construction-priority.territory-shadow.v1",
-                            "family": "construction-priority",
-                            "parameters": parameters,
-                        }
-                    },
-                )
+                with mock.patch.object(harness.time, "sleep", return_value=None):
+                    result = harness._run_variant(
+                        0,
+                        variant_id,
+                        run_id="runtime-consumption",
+                        ticks=1,
+                        room="E1S1",
+                        shard="shardX",
+                        branch="activeWorld",
+                        code_path=code_path,
+                        map_source_file=map_path,
+                        out_dir=root / "out",
+                        variant_configs={
+                            variant_id: {
+                                "id": variant_id,
+                                "candidatePolicyId": variant_id,
+                                "sourceStrategyId": "construction-priority.territory-shadow.v1",
+                                "family": "construction-priority",
+                                "parameters": parameters,
+                            }
+                        },
+                    )
 
         self.assertEqual(fake_smoke.uploaded_branch, "default")
+        self.assertEqual(fake_smoke.code_readback_count, 2)
         self.assertTrue(result["ok"])
         self.assertEqual(result["scenario"]["activeWorldBranch"], "default")
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterInjection"])
         self.assertTrue(result["runtimeParameterInjection"]["runtimeParameterConsumption"])
         self.assertEqual(result["runtimeParameterInjection"]["runtimeParameterConsumptionStatus"], "consumed")
+        self.assertIsInstance(result["runtimeParameterInjection"].get("tick"), int)
+        self.assertTrue(result["activeCodeReadback"]["activeCodeMatchesUploaded"])
+        self.assertEqual(result["activeCodeReadback"]["status"], "matched")
+        self.assertEqual(result["activeCodeReadback"]["attempt"], 2)
         self.assertTrue(result["runtimeParameterConsumption"]["runtimeParameterConsumption"])
+        self.assertGreater(
+            result["runtimeParameterConsumption"]["consumedTick"],
+            result["runtimeParameterInjection"]["tick"],
+        )
         self.assertEqual(result["runtimeParameterConsumption"]["source"], "Memory.rlRuntimePolicyParameters")
         self.assertEqual(result["runtimeParameterConsumption"]["evaluatedParameters"], parameters)
         self.assertEqual(

@@ -5351,6 +5351,425 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(summary["perRun"][1]["successfulEnvironments"], 2)
         self.assertFalse(summary["perRun"][1]["ok"])
 
+    def test_private_runner_pre_scale_smoke_gate_runs_one_tick_before_scale(self) -> None:
+        calls: list[JsonObject] = []
+        variants = [
+            runner.StrategyVariant(
+                id="candidate.scale-env-01",
+                family="test-family",
+                parameters={"knob": 1},
+            ),
+            runner.StrategyVariant(
+                id="candidate.scale-env-02",
+                family="test-family",
+                parameters={"knob": 1},
+            ),
+        ]
+        config = runner.SimulationConfig(
+            ticks=500,
+            workers=5,
+            repetitions=1,
+            host_port_start=24125,
+            room="E1S1",
+            shard="shardX",
+            branch="activeWorld",
+            code_path=Path("prod/dist/main.js"),
+            map_source_file=Path("maps/map-0b6758af.json"),
+            simulator_out_dir=Path("runtime-artifacts/rl-simulator-test"),
+            scale_environments=5,
+            min_concurrent_environments=5,
+        )
+
+        def smoke_variant_result(variant_id: str, variant_configs: JsonObject) -> JsonObject:
+            injection = runner.simulator_harness.runtime_parameter_injection_for_variant(
+                variant_id,
+                variant_configs[variant_id],
+            )
+            code = runner.simulator_harness.apply_runtime_parameter_injection_to_code(
+                f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() {};",
+                injection,
+            )
+            injection = runner.simulator_harness.mark_runtime_parameter_injection_uploaded(
+                injection,
+                code_text=code,
+                upload_tick=0,
+            )
+            evidence = {
+                "type": runner.simulator_harness.RUNTIME_PARAMETER_CONSUMPTION_TYPE,
+                "consumerMarker": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER,
+                "consumerVersion": runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_VERSION,
+                "runtimeParameterInjection": True,
+                "consumed": True,
+                "strategyVariantId": variant_id,
+                "parameters": copy.deepcopy(injection["parameters"]),
+                "parametersSha256": injection["parametersSha256"],
+                "consumedStrategyVariantId": variant_id,
+                "consumedParametersSha256": injection["parametersSha256"],
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+                "tick": 1,
+            }
+            consumption = runner.simulator_harness.runtime_parameter_consumption_check(injection, evidence)
+            return {
+                "variant_id": variant_id,
+                "ok": True,
+                "tick_log": [{"tick": 1}],
+                "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                    code,
+                    {"branch": "default", "modules": {"main": code}},
+                    branch="default",
+                    http_status=200,
+                ),
+                "runtimeParameterInjection": runner.simulator_harness.apply_runtime_parameter_consumption_to_injection(
+                    injection,
+                    consumption,
+                ),
+                "runtimeParameterConsumption": consumption,
+            }
+
+        def fake_run_simulator(**kwargs: Any) -> JsonObject:
+            calls.append(dict(kwargs))
+            if str(kwargs["run_id"]).endswith("-pre-scale-smoke"):
+                variant_id = kwargs["variants"][0]
+                return {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": kwargs["run_id"],
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [smoke_variant_result(variant_id, kwargs["variant_configs"])],
+                }
+            return {
+                "type": "screeps-rl-simulator-run",
+                "runId": kwargs["run_id"],
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "variants": [],
+            }
+
+        with mock.patch.object(runner.simulator_harness, "run_simulator", side_effect=fake_run_simulator):
+            runs = runner.execute_simulator_runs(
+                simulator_runner=runner.simulator_harness.run_simulator,
+                variants=variants,
+                config=config,
+                card={"run_id": "scale-run"},
+                report_id="scale-run",
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["run_id"], "scale-run-pre-scale-smoke")
+        self.assertEqual(calls[0]["ticks"], 1)
+        self.assertEqual(calls[0]["workers"], 1)
+        self.assertEqual(calls[0]["variants"], ["candidate.scale-env-01"])
+        self.assertEqual(calls[0]["min_concurrent_environments"], 0)
+        self.assertEqual(calls[0]["host_port_start"], 24133)
+        self.assertEqual(calls[1]["run_id"], "scale-run")
+        self.assertEqual(calls[1]["variants"], [variant.id for variant in variants])
+        self.assertEqual(calls[1]["min_concurrent_environments"], 5)
+        self.assertEqual(calls[1]["host_port_start"], 24125)
+        self.assertEqual(runs[0]["runId"], "scale-run")
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_unsafe_smoke_run(self) -> None:
+        calls: list[JsonObject] = []
+        variants = [
+            runner.StrategyVariant(
+                id="candidate.scale-env-01",
+                family="test-family",
+                parameters={"knob": 1},
+            )
+        ]
+        config = runner.SimulationConfig(
+            ticks=500,
+            workers=5,
+            repetitions=1,
+            host_port_start=24125,
+            room="E1S1",
+            shard="shardX",
+            branch="activeWorld",
+            code_path=Path("prod/dist/main.js"),
+            map_source_file=Path("maps/map-0b6758af.json"),
+            simulator_out_dir=Path("runtime-artifacts/rl-simulator-test"),
+            scale_environments=5,
+            min_concurrent_environments=5,
+        )
+
+        def fake_run_simulator(**kwargs: Any) -> JsonObject:
+            calls.append(dict(kwargs))
+            return {
+                "type": "screeps-rl-simulator-run",
+                "runId": kwargs["run_id"],
+                "liveEffect": True,
+                "officialMmoWrites": False,
+                "variants": [],
+            }
+
+        with mock.patch.object(runner.simulator_harness, "run_simulator", side_effect=fake_run_simulator):
+            with self.assertRaisesRegex(RuntimeError, "run\\[0\\]\\.liveEffect=true"):
+                runner.execute_simulator_runs(
+                    simulator_runner=runner.simulator_harness.run_simulator,
+                    variants=variants,
+                    config=config,
+                    card={"run_id": "scale-run"},
+                    report_id="scale-run",
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["run_id"], "scale-run-pre-scale-smoke")
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_missing_requested_variant_row(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "produced no variant result"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "unrelated-success",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {"runtimeParameterConsumption": True},
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_consumption_without_numeric_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric consumedTick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_non_positive_consumed_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric consumedTick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 0,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_missing_injection_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing numeric injection tick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 1}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {"runtimeParameterInjection": True},
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 1,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_consumption_before_injection_tick(self) -> None:
+        code = (
+            f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+            "module.exports.loop = function loop() {};"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "did not advance beyond injection tick"):
+            runner.validate_pre_scale_trainability_smoke_gate(
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scale-run-pre-scale-smoke",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "variants": [
+                        {
+                            "variant_id": "candidate.scale-env-01",
+                            "ok": True,
+                            "tick_log": [{"tick": 7}],
+                            "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                                code,
+                                {"branch": "default", "modules": {"main": code}},
+                                branch="default",
+                                http_status=200,
+                            ),
+                            "runtimeParameterInjection": {
+                                "runtimeParameterInjection": True,
+                                "tick": 7,
+                            },
+                            "runtimeParameterConsumption": {
+                                "status": "consumed",
+                                "runtimeParameterConsumption": True,
+                                "consumedTick": 7,
+                            },
+                        }
+                    ],
+                },
+                "candidate.scale-env-01",
+            )
+
+    def test_private_runner_pre_scale_smoke_gate_rejects_missing_consumption_before_scale(self) -> None:
+        calls: list[JsonObject] = []
+        variants = [
+            runner.StrategyVariant(
+                id="candidate.scale-env-01",
+                family="test-family",
+                parameters={"knob": 1},
+            )
+        ]
+        config = runner.SimulationConfig(
+            ticks=500,
+            workers=5,
+            repetitions=1,
+            host_port_start=24125,
+            room="E1S1",
+            shard="shardX",
+            branch="activeWorld",
+            code_path=Path("prod/dist/main.js"),
+            map_source_file=Path("maps/map-0b6758af.json"),
+            simulator_out_dir=Path("runtime-artifacts/rl-simulator-test"),
+            scale_environments=5,
+            min_concurrent_environments=5,
+        )
+
+        def fake_run_simulator(**kwargs: Any) -> JsonObject:
+            calls.append(dict(kwargs))
+            variant_id = kwargs["variants"][0]
+            injection = runner.simulator_harness.runtime_parameter_injection_for_variant(
+                variant_id,
+                kwargs["variant_configs"][variant_id],
+            )
+            code = runner.simulator_harness.apply_runtime_parameter_injection_to_code(
+                f'var marker = "{runner.simulator_harness.RUNTIME_PARAMETER_INJECTION_CONSUMER_MARKER}";\n'
+                "module.exports.loop = function loop() {};",
+                injection,
+            )
+            injection = runner.simulator_harness.mark_runtime_parameter_injection_uploaded(injection, code_text=code)
+            return {
+                "type": "screeps-rl-simulator-run",
+                "runId": kwargs["run_id"],
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "variants": [
+                    {
+                        "variant_id": variant_id,
+                        "ok": True,
+                        "tick_log": [{"tick": 1}],
+                        "activeCodeReadback": runner.simulator_harness.private_simulator_active_code_readback_summary(
+                            code,
+                            {"branch": "default", "modules": {"main": code}},
+                            branch="default",
+                            http_status=200,
+                        ),
+                        "runtimeParameterInjection": injection,
+                        "runtimeParameterConsumption": runner.simulator_harness.runtime_parameter_consumption_check(
+                            injection,
+                            None,
+                        ),
+                    }
+                ],
+            }
+
+        with mock.patch.object(runner.simulator_harness, "run_simulator", side_effect=fake_run_simulator):
+            with self.assertRaisesRegex(RuntimeError, "did not prove runtime parameter consumption"):
+                runner.execute_simulator_runs(
+                    simulator_runner=runner.simulator_harness.run_simulator,
+                    variants=variants,
+                    config=config,
+                    card={"run_id": "scale-run"},
+                    report_id="scale-run",
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["run_id"], "scale-run-pre-scale-smoke")
+
     def test_scale_environment_card_expands_variants_and_records_success_threshold(self) -> None:
         expanded_ids = runner.simulator_harness.expand_scale_environment_variants(["baseline", "candidate"], 5)
         start = tick(1, [room("W1N1", energy=100)])
