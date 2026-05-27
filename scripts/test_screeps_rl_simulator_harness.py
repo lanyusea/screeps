@@ -6175,6 +6175,54 @@ cli:
         self.assertEqual(len(smoke.commands), harness.RUN_COMPOSE_SETUP_MAX_ATTEMPTS)
         self.assertEqual(sleep.call_count, harness.RUN_COMPOSE_SETUP_MAX_ATTEMPTS - 1)
 
+    def test_compose_setup_progress_with_disk_failure_is_not_retryable(self) -> None:
+        for message in ("no space left on device", "disk quota exceeded", "read-only file system"):
+            with self.subTest(message=message):
+                result = {
+                    "returncode": 2,
+                    "elapsed_seconds": 65.0,
+                    "output_excerpt": f"screeps Pulling\n3892befd2c3f Pulling fs layer\n{message}",
+                }
+
+                self.assertFalse(harness._is_retryable_compose_setup_failure(result))
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return {
+                    "returncode": 2,
+                    "elapsed_seconds": 65.0,
+                    "output_excerpt": (
+                        "screeps Pulling\n"
+                        "3892befd2c3f Pulling fs layer\n"
+                        "failed to register layer: no space left on device"
+                    ),
+                }
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "docker compose pull failed"):
+                harness._run_compose_setup_command_with_retry(
+                    smoke,
+                    object(),
+                    ["compose", "pull"],
+                    "docker compose pull",
+                    timeout=123,
+                )
+
+        self.assertEqual(smoke.commands, [["compose", "pull"]])
+        sleep.assert_not_called()
+
     def test_compose_setup_retry_recovers_transient_run_command_exception(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:

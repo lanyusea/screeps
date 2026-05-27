@@ -140,7 +140,8 @@ REMOTE_SIMULATOR_PULL_PROGRESS_RE = re.compile(
 )
 REMOTE_SIMULATOR_SETUP_TERMINAL_RE = re.compile(
     r"(?:manifest (?:for .* )?not found|manifest unknown|pull access denied|repository .* does not exist|"
-    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format)",
+    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format|"
+    r"no space left on device|disk quota exceeded|read-only file system)",
     re.IGNORECASE,
 )
 REMOTE_SIMULATOR_SETUP_CONTEXT_RE = re.compile(

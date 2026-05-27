@@ -158,7 +158,8 @@ RUN_COMPOSE_PULL_PROGRESS_OUTPUT_RE = re.compile(
 )
 RUN_COMPOSE_SETUP_TERMINAL_OUTPUT_RE = re.compile(
     r"(?:manifest (?:for .* )?not found|manifest unknown|pull access denied|repository .* does not exist|"
-    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format)",
+    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format|"
+    r"no space left on device|disk quota exceeded|read-only file system)",
     re.IGNORECASE,
 )
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")

@@ -4069,6 +4069,26 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(failure["retryable"])
         self.assertNotIn("nextAction", failure)
 
+    def test_setup_context_terminal_disk_error_is_not_retryable_setup_failure(self) -> None:
+        for message in ("no space left on device", "disk quota exceeded", "read-only file system"):
+            with self.subTest(message=message):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    remote = root / "remote"
+                    remote.mkdir()
+                    (remote / "training-stderr.log").write_text(
+                        "pre-scale private-simulator trainability smoke gate failed: "
+                        "docker compose pull failed: screeps Pulling\n"
+                        f"3892befd2c3f Pulling fs layer\n{message}\n",
+                        encoding="utf-8",
+                    )
+
+                    failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+                self.assertEqual(failure["failureClass"], "remote_process_failed")
+                self.assertFalse(failure["retryable"])
+                self.assertNotIn("nextAction", failure)
+
     def test_generic_network_api_diagnostic_does_not_get_docker_setup_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
