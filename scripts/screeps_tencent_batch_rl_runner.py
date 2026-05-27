@@ -134,6 +134,16 @@ REMOTE_SIMULATOR_SETUP_RETRYABLE_RE = re.compile(
     r"connection reset|temporary failure|error pulling image|failed to (?:copy|extract|pull|fetch))",
     re.IGNORECASE,
 )
+REMOTE_SIMULATOR_PULL_PROGRESS_RE = re.compile(
+    r"(?:Pulling fs layer|Download(?:ing| complete)|Verifying Checksum|Extracting|Waiting|Pull complete|\bPulling\b)",
+    re.IGNORECASE,
+)
+REMOTE_SIMULATOR_SETUP_TERMINAL_RE = re.compile(
+    r"(?:manifest (?:for .* )?not found|manifest unknown|pull access denied|repository .* does not exist|"
+    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format|"
+    r"no space left on device|disk quota exceeded|read-only file system)",
+    re.IGNORECASE,
+)
 REMOTE_SIMULATOR_SETUP_CONTEXT_RE = re.compile(
     r"(?:retryable setup failure|docker compose (?:pull|up)|screeps-rl-simulator-setup-failure|"
     r"setup_failure|error pulling image|failed to (?:copy|extract|pull|fetch))",
@@ -1657,10 +1667,12 @@ if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
   cp training-summary.json report-extract.json
 fi
 simulator_diagnostics=()
-for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json; do
-  if [ -f "simulator-artifacts/$RUN_ID/$simulator_file" ]; then
-    simulator_diagnostics+=("simulator-artifacts/$RUN_ID/$simulator_file")
-  fi
+for simulator_run_id in "$RUN_ID" "$RUN_ID-pre-scale-smoke"; do
+  for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json; do
+    if [ -f "simulator-artifacts/$simulator_run_id/$simulator_file" ]; then
+      simulator_diagnostics+=("simulator-artifacts/$simulator_run_id/$simulator_file")
+    fi
+  done
 done
 tar -czf remote-artifacts.tar.gz \
   experiment_card.json card-validation.json training-summary.json training-stderr.log report-extract.json \
@@ -2293,7 +2305,12 @@ def remote_training_report_path(artifact_dir: Path, run_id: str) -> Path:
 def remote_training_diagnostic_files(run_id: str | None = None) -> tuple[str, ...]:
     files = list(REMOTE_TRAINING_DIAGNOSTIC_FILES)
     if isinstance(run_id, str) and RUN_ID_RE.match(run_id):
-        files.extend(f"simulator-artifacts/{run_id}/{filename}" for filename in REMOTE_SIMULATOR_DIAGNOSTIC_FILES)
+        diagnostic_run_ids = (run_id, f"{run_id}-pre-scale-smoke")
+        files.extend(
+            f"simulator-artifacts/{diagnostic_run_id}/{filename}"
+            for diagnostic_run_id in diagnostic_run_ids
+            for filename in REMOTE_SIMULATOR_DIAGNOSTIC_FILES
+        )
     return tuple(files)
 
 
@@ -2370,9 +2387,11 @@ def classify_remote_training_failure(
     )
     if (
         REMOTE_SIMULATOR_SETUP_CONTEXT_RE.search(simulator_setup_text)
+        and not REMOTE_SIMULATOR_SETUP_TERMINAL_RE.search(simulator_setup_text)
         and (
             REMOTE_SIMULATOR_SETUP_RETRYABLE_RE.search(simulator_setup_text)
             or REMOTE_NETWORK_RE.search(simulator_setup_text)
+            or REMOTE_SIMULATOR_PULL_PROGRESS_RE.search(simulator_setup_text)
         )
     ):
         return "simulator_setup_retryable"

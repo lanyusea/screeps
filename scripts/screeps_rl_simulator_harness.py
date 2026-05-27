@@ -88,7 +88,7 @@ RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_RETRY_SECONDS = 1.0
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_BROKEN_PIPE_MAX_RETRIES = 1
 RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
-RUN_COMPOSE_SETUP_MAX_ATTEMPTS = 2
+RUN_COMPOSE_SETUP_MAX_ATTEMPTS = 4
 RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS = 2.0
 RUN_ID_PREFIX = "rl-sim-run"
 RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -150,6 +150,16 @@ RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE = re.compile(
     r"connection reset|connection refused|temporary failure|network .*timed? out|"
     r"net/http|Client\.Timeout|request canceled|too many requests|toomanyrequests|"
     r"error pulling image|failed to (?:copy|extract|pull|fetch))",
+    re.IGNORECASE,
+)
+RUN_COMPOSE_PULL_PROGRESS_OUTPUT_RE = re.compile(
+    r"(?:Pulling fs layer|Download(?:ing| complete)|Verifying Checksum|Extracting|Waiting|Pull complete|\bPulling\b)",
+    re.IGNORECASE,
+)
+RUN_COMPOSE_SETUP_TERMINAL_OUTPUT_RE = re.compile(
+    r"(?:manifest (?:for .* )?not found|manifest unknown|pull access denied|repository .* does not exist|"
+    r"unauthorized|authentication required|denied: requested access|no matching manifest|invalid reference format|"
+    r"no space left on device|disk quota exceeded|read-only file system)",
     re.IGNORECASE,
 )
 HARNESS_EXCLUDED_DIRECTORY_NAMES = ("node_modules", ".git", "__pycache__")
@@ -4457,7 +4467,12 @@ def _is_retryable_compose_setup_failure(result: Any) -> bool:
     if returncode is None and "exceptionType" not in result:
         return False
     output = _compose_setup_output_text(result)
-    return bool(RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE.search(output))
+    if RUN_COMPOSE_SETUP_TERMINAL_OUTPUT_RE.search(output):
+        return False
+    return bool(
+        RUN_COMPOSE_SETUP_RETRYABLE_OUTPUT_RE.search(output)
+        or RUN_COMPOSE_PULL_PROGRESS_OUTPUT_RE.search(output)
+    )
 
 
 def _run_compose_setup_command_with_retry(

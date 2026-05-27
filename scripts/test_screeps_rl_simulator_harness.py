@@ -6089,6 +6089,140 @@ cli:
         self.assertTrue(result["setupRetry"]["recovered"])
         self.assertEqual(len(result["setupRetry"]["attempts"]), 2)
 
+    def test_compose_setup_retry_recovers_interrupted_pull_progress(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+                self.results = [
+                    {
+                        "returncode": 2,
+                        "elapsed_seconds": 64.967,
+                        "output_excerpt": (
+                            " mongo Pulling \n"
+                            " screeps Pulling \n"
+                            " redis Pulling \n"
+                            " 3892befd2c3f Pulling fs layer \n"
+                            " 32ab8bed435e Download complete \n"
+                            " 3892befd2c3f Downloading"
+                        ),
+                    },
+                    {"returncode": 0, "elapsed_seconds": 0.2, "output_excerpt": ""},
+                ]
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return self.results.pop(0)
+
+            def require_success(self, result: dict[str, object]) -> dict[str, object]:
+                if result.get("returncode") != 0:
+                    raise AssertionError("failed setup attempts must be classified before require_success")
+                return result
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            result = harness._run_compose_setup_command_with_retry(
+                smoke,
+                object(),
+                ["compose", "pull"],
+                "docker compose pull",
+                timeout=123,
+            )
+
+        self.assertEqual(smoke.commands, [["compose", "pull"], ["compose", "pull"]])
+        sleep.assert_called_once_with(harness.RUN_COMPOSE_SETUP_RETRY_BACKOFF_SECONDS)
+        self.assertEqual(result["returncode"], 0)
+        self.assertTrue(result["setupRetry"]["recovered"])
+        self.assertTrue(result["setupRetry"]["attempts"][0]["retryable"])
+
+    def test_compose_setup_progress_failure_stays_retryable_after_bounded_attempts(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return {
+                    "returncode": 2,
+                    "elapsed_seconds": 65.0,
+                    "output_excerpt": "screeps Pulling\n3892befd2c3f Pulling fs layer\n3892befd2c3f Downloading",
+                }
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "retryable_setup_failure"):
+                harness._run_compose_setup_command_with_retry(
+                    smoke,
+                    object(),
+                    ["compose", "pull"],
+                    "docker compose pull",
+                    timeout=123,
+                )
+
+        self.assertEqual(len(smoke.commands), harness.RUN_COMPOSE_SETUP_MAX_ATTEMPTS)
+        self.assertEqual(sleep.call_count, harness.RUN_COMPOSE_SETUP_MAX_ATTEMPTS - 1)
+
+    def test_compose_setup_progress_with_disk_failure_is_not_retryable(self) -> None:
+        for message in ("no space left on device", "disk quota exceeded", "read-only file system"):
+            with self.subTest(message=message):
+                result = {
+                    "returncode": 2,
+                    "elapsed_seconds": 65.0,
+                    "output_excerpt": f"screeps Pulling\n3892befd2c3f Pulling fs layer\n{message}",
+                }
+
+                self.assertFalse(harness._is_retryable_compose_setup_failure(result))
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.commands: list[list[str]] = []
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: object,
+                *,
+                timeout: int,
+            ) -> dict[str, object]:
+                _ = cfg, timeout
+                self.commands.append(command)
+                return {
+                    "returncode": 2,
+                    "elapsed_seconds": 65.0,
+                    "output_excerpt": (
+                        "screeps Pulling\n"
+                        "3892befd2c3f Pulling fs layer\n"
+                        "failed to register layer: no space left on device"
+                    ),
+                }
+
+        smoke = FakeSmoke()
+        with mock.patch.object(harness.time, "sleep", return_value=None) as sleep:
+            with self.assertRaisesRegex(RuntimeError, "docker compose pull failed"):
+                harness._run_compose_setup_command_with_retry(
+                    smoke,
+                    object(),
+                    ["compose", "pull"],
+                    "docker compose pull",
+                    timeout=123,
+                )
+
+        self.assertEqual(smoke.commands, [["compose", "pull"]])
+        sleep.assert_not_called()
+
     def test_compose_setup_retry_recovers_transient_run_command_exception(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:
@@ -6185,7 +6319,7 @@ cli:
                 return {
                     "returncode": 1,
                     "elapsed_seconds": 0.1,
-                    "output_excerpt": "manifest for screeps/private-server:missing not found",
+                    "output_excerpt": "screeps Pulling\nmanifest for screeps/private-server:missing not found",
                 }
 
         smoke = FakeSmoke()

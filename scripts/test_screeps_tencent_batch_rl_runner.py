@@ -4002,6 +4002,93 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertTrue(failure["retryable"])
         self.assertIn("Docker image pull/setup", failure["nextAction"])
 
+    def test_setup_context_interrupted_pull_progress_is_retryable_setup_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate failed: "
+                "docker compose pull failed: {'ok': True, 'payload': "
+                "'{\"attempts\": [{\"attempt\": 1, \"elapsedSeconds\": 64.967, "
+                "\"outputExcerpt\": \" mongo Pulling \\\\n screeps Pulling \\\\n redis Pulling \\\\n "
+                "3892befd2c3f Pulling fs layer \\\\n 32ab8bed435e Download complete \\\\n "
+                "3892befd2c3f Downloading\"}]}' }\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("Docker image pull/setup", failure["nextAction"])
+
+    def test_pre_scale_smoke_setup_artifact_is_collected_as_retryable_setup_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            setup_dir = root / "remote" / "simulator-artifacts" / "run-test-pre-scale-smoke"
+            setup_dir.mkdir(parents=True)
+            (setup_dir / "setup_failure.json").write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-simulator-setup-failure",
+                        "phase": "run-variants",
+                        "error": (
+                            "docker compose pull failed after 4 attempt(s): "
+                            "retryable_setup_failure: screeps Pulling; 3892befd2c3f Downloading"
+                        ),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "simulator_setup_retryable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn(
+            "simulator-artifacts/run-test-pre-scale-smoke/setup_failure.json",
+            failure["diagnostics"],
+        )
+
+    def test_setup_context_terminal_pull_error_is_not_retryable_setup_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate failed: "
+                "docker compose pull failed: screeps Pulling\n"
+                "manifest for screeps/private-server:missing not found\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "remote_process_failed")
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("nextAction", failure)
+
+    def test_setup_context_terminal_disk_error_is_not_retryable_setup_failure(self) -> None:
+        for message in ("no space left on device", "disk quota exceeded", "read-only file system"):
+            with self.subTest(message=message):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    remote = root / "remote"
+                    remote.mkdir()
+                    (remote / "training-stderr.log").write_text(
+                        "pre-scale private-simulator trainability smoke gate failed: "
+                        "docker compose pull failed: screeps Pulling\n"
+                        f"3892befd2c3f Pulling fs layer\n{message}\n",
+                        encoding="utf-8",
+                    )
+
+                    failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+                self.assertEqual(failure["failureClass"], "remote_process_failed")
+                self.assertFalse(failure["retryable"])
+                self.assertNotIn("nextAction", failure)
+
     def test_generic_network_api_diagnostic_does_not_get_docker_setup_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -4123,6 +4210,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             "for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json",
             scripts[0],
         )
+        self.assertIn('for simulator_run_id in "$RUN_ID" "$RUN_ID-pre-scale-smoke"', scripts[0])
 
     def test_generate_experiment_card_passes_multi_tier_scenario_request(self) -> None:
         args = controller_args()
