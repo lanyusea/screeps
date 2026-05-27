@@ -681,6 +681,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
         self.assertEqual(runner.validate_controller_only_sg_ssh_ingress(ingress, CONTROLLER_IP_HOST), [ingress[0]])
 
+    def test_security_group_guard_accepts_controller_32_equivalent_to_host_ip(self) -> None:
+        ingress = [{"Action": "ACCEPT", "Protocol": "tcp", "Port": "22", "CidrBlock": CONTROLLER_IP_HOST}]
+
+        self.assertEqual(runner.validate_controller_only_sg_ssh_ingress(ingress, CONTROLLER_IP), [ingress[0]])
+
     def test_security_group_guard_rejects_all_protocol_broad_ssh(self) -> None:
         ingress = [
             {"Action": "ACCEPT", "Protocol": "TCP", "Port": "22", "CidrBlock": CONTROLLER_IP},
