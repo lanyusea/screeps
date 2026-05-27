@@ -1327,6 +1327,40 @@ class GenerateRoadmapPageTest(unittest.TestCase):
 
         self.assertEqual(retained, {})
 
+    def test_retained_local_delivery_metric_detail_dedupes_cache_fallback(self) -> None:
+        provenance = roadmap.delivery_metric_provenance(
+            datetime(2026, 5, 1, tzinfo=timezone.utc),
+            datetime(2026, 5, 8, tzinfo=timezone.utc),
+            "repo-attributed local Codex session JSONL",
+            ("2026/05/08/rollout-good.jsonl:2026-05-08T00:00:00Z",),
+            1,
+            source_roots=(".codex/sessions",),
+            local_cache_only=True,
+            counted_count=1,
+        )
+        suffix = roadmap.LOCAL_CACHE_FALLBACK_DETAIL
+        cached_cards = [
+            {
+                "label": "Agent tokens",
+                "value": "1,234",
+                "rawValue": 1234,
+                "detail": f"1,234 total; local cache only · {suffix} · {suffix}",
+                "provenance": provenance,
+            }
+        ]
+
+        retained = roadmap.retained_local_cache_process_card(
+            cached_cards,
+            "Agent tokens",
+            "2026-05-08T00:00:01Z",
+            7,
+        )
+
+        self.assertEqual(
+            retained["detail"],
+            f"1,234 total; local cache only · {suffix}",
+        )
+
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
