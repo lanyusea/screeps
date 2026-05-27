@@ -62,6 +62,7 @@ PUBLIC_CONTROLLER_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 CACHED_SUFFIX_RE = re.compile(r"(?:\s*·\s*cached)+\s*$")
+LOCAL_CACHE_FALLBACK_DETAIL = "cached from prior local cache snapshot; current refresh found no local cache evidence"
 MEDIA_ATTACHMENT_TRIGGER_RE = re.compile(r"\bMEDIA\s*:\s*\S*", re.IGNORECASE)
 MEDIA_ATTACHMENT_REFERENCE_PATH_RE = re.compile(r"\bmedia attachment reference\s*:\s*\S*", re.IGNORECASE)
 
@@ -3694,9 +3695,15 @@ def should_retain_local_cache_process_card(
 def retained_local_cache_detail(cached_card: Mapping[str, Any]) -> str:
     cached_detail = str(cached_card.get("detail") or "").strip()
     cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
+    cached_detail = strip_local_cache_fallback_detail(cached_detail)
     if not cached_detail:
         cached_detail = "last known local delivery metric"
-    return f"{cached_detail} · cached from prior local cache snapshot; current refresh found no local cache evidence"
+    return f"{cached_detail} · {LOCAL_CACHE_FALLBACK_DETAIL}"
+
+
+def strip_local_cache_fallback_detail(detail: str) -> str:
+    parts = [part.strip() for part in detail.split(" · ")]
+    return " · ".join(part for part in parts if part and part != LOCAL_CACHE_FALLBACK_DETAIL)
 
 
 def append_local_cache_detail(detail: str) -> str:

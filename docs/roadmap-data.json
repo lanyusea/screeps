@@ -82726,7 +82726,7 @@
       },
       {
         "delta": "cached",
-        "detail": "1,541,708,152 total; latest token_count in 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
+        "detail": "1,541,708,152 total; latest token_count in 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Agent tokens",
         "provenance": {
           "candidateFiles": 3450,
@@ -83444,7 +83444,7 @@
       },
       {
         "delta": "cached",
-        "detail": "summed first-to-last JSONL timestamps across 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
+        "detail": "summed first-to-last JSONL timestamps across 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Codex runtime",
         "provenance": {
           "candidateFiles": 3450,
@@ -84162,7 +84162,7 @@
       },
       {
         "delta": "cached",
-        "detail": "rollout JSONL files counted as Codex runs in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
+        "detail": "rollout JSONL files counted as Codex runs in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Codex runs",
         "provenance": {
           "candidateFiles": 3450,
@@ -84916,7 +84916,7 @@
       },
       {
         "delta": "cached",
-        "detail": "maximum first-to-last JSONL timestamp span across 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
+        "detail": "maximum first-to-last JSONL timestamp span across 683/683 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Longest Codex run",
         "provenance": {
           "candidateFiles": 3450,
