@@ -511,7 +511,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             training_approach="policy_gradient",
             created_at="2026-05-18T10:19:30Z",
         )
-        card["simulation"]["ticks"] = 500
+        card["simulation"]["ticks"] = runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS - 1
 
         with self.assertRaisesRegex(
             runner.TrainingCardError,
@@ -936,7 +936,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             ],
             scenario=card["scenario"],
             kpi_summary={},
-            audit={"ticks": 500},
+            audit={"ticks": runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS - 1},
         )
 
         self.assertIsNotNone(proof)
