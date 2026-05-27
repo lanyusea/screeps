@@ -37,6 +37,7 @@ from screeps_rl_experiment_card import (
     MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
     MULTI_TIER_SCENARIO_ID,
     MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
+    POLICY_GRADIENT_MIN_SIMULATION_TICKS,
     SCENARIO_IDS,
     multi_tier_scenario_fixture_summary,
     scenario_supports_multi_tier_policy_comparison,
@@ -61,7 +62,6 @@ TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS = 6
 TENCENT_S3_2XLARGE16_MEMORY_PER_ENVIRONMENT_MIB = 2300
 TENCENT_S3_2XLARGE16_HOST_RESERVE_MIB = 1536
 SCALE_PROOF_SUCCESS_RATE = 0.8
-POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS = 5
 REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
@@ -2515,8 +2515,8 @@ def build_e1s1_repeat_launch_guard(
     reason = None
     if blocked:
         reason = (
-            "recent completed 500-tick Tencent E1S1 single-room no-hostile runs "
-            "show territory=2 and kills=0 for every reported variant"
+            f"recent completed >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}-tick Tencent E1S1 "
+            "single-room no-hostile runs show territory=2 and kills=0 for every reported variant"
         )
     return {
         "type": E1S1_REPEAT_GUARD_TYPE,
@@ -4651,7 +4651,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--known-hosts-path", default=str(DEFAULT_KNOWN_HOSTS))
     parser.add_argument("--dataset-run-id", default="rl-3d29e8b9397d")
     parser.add_argument("--training-approach", default="bandit", choices=("bandit", "evolutionary", "policy_gradient"))
-    parser.add_argument("--ticks", type=int, default=50, help="Simulator ticks; policy_gradient runs are floored to 500.")
+    parser.add_argument(
+        "--ticks",
+        type=int,
+        default=50,
+        help=f"Simulator ticks; policy_gradient runs are floored to {POLICY_GRADIENT_MIN_SIMULATION_TICKS}.",
+    )
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
         "--scale-environments",

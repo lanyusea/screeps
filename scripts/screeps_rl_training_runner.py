@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from screeps_rl_experiment_card import (
+    POLICY_GRADIENT_MIN_SIMULATION_TICKS,
     scenario_supports_multi_tier_policy_comparison,
     validate_scenario_metadata,
 )
@@ -299,6 +300,7 @@ def parse_yaml_card(text: str, path: Path) -> Any:
 def validate_experiment_card(card: JsonObject) -> None:
     if card.get("status") != "shadow":
         raise TrainingCardError("status must be shadow")
+    training_approach = card.get("training_approach", card.get("trainingApproach"))
 
     safety = card.get("safety")
     if not isinstance(safety, dict):
@@ -337,7 +339,8 @@ def validate_experiment_card(card: JsonObject) -> None:
         raise TrainingCardError("experiment card must define at least one strategy variant")
 
     simulation = raw_mapping(card.get("simulation", card.get("simulator", {})), "simulation")
-    if "ticks" in simulation and positive_int_value(simulation["ticks"]) is None:
+    ticks = positive_int_value(simulation["ticks"]) if "ticks" in simulation else None
+    if "ticks" in simulation and ticks is None:
         raise TrainingCardError("simulation.ticks must be a positive integer")
     if "workers" in simulation and positive_int_value(simulation["workers"]) is None:
         raise TrainingCardError("simulation.workers must be a positive integer")
@@ -355,6 +358,10 @@ def validate_experiment_card(card: JsonObject) -> None:
         and positive_int_value(simulation.get("host_port_start", simulation.get("hostPortStart"))) is None
     ):
         raise TrainingCardError("simulation.host_port_start must be a positive integer")
+    if training_approach == "policy_gradient" and (ticks is None or ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS):
+        raise TrainingCardError(
+            f"policy_gradient cards require simulation.ticks >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}"
+        )
 
 
 def validate_card_supply(card: JsonObject) -> None:
@@ -5921,7 +5928,9 @@ def build_multi_tier_activation_proof(
         return None
     rows = [multi_tier_activation_variant_row(result) for result in results]
     usable_rows = [row for row in rows if (int_or_none(row.get("sampleCount")) or 0) > 0]
-    passed_rows = [row for row in usable_rows if row["passesActivation"]]
+    audit_ticks = int_or_none(audit.get("ticks")) if isinstance(audit, dict) else None
+    horizon_too_short = audit_ticks is not None and audit_ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS
+    passed_rows = [] if horizon_too_short else [row for row in usable_rows if row["passesActivation"]]
     transport_observed = any(row["objectiveSignalObserved"] for row in rows)
     status = "passed" if passed_rows else "blocked"
     proof: JsonObject = {
@@ -5936,6 +5945,7 @@ def build_multi_tier_activation_proof(
             "activationScoreOperator": "or",
             "territoryScoreMustExceed": MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD,
             "hostileKillsMustExceed": MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD,
+            "minimumSimulationTicks": POLICY_GRADIENT_MIN_SIMULATION_TICKS,
             "requiredForPaidTencentValidation": True,
         },
         "fixtureEvidence": multi_tier_fixture_evidence(scenario),
@@ -5955,7 +5965,13 @@ def build_multi_tier_activation_proof(
     if passed_rows:
         proof["passingVariants"] = [row["variantId"] for row in passed_rows]
     else:
-        if not usable_rows:
+        if horizon_too_short:
+            classification = "SIMULATION_HORIZON_TOO_SHORT"
+            evidence = (
+                f"multi-tier activation proof requires at least {POLICY_GRADIENT_MIN_SIMULATION_TICKS} ticks "
+                f"per simulator environment; observed {audit_ticks}"
+            )
+        elif not usable_rows:
             classification = "SIMULATOR_NO_SUCCESSFUL_SAMPLES"
             evidence = "no successful simulator samples were available for multi-tier activation proof"
         elif transport_observed:
@@ -5972,7 +5988,11 @@ def build_multi_tier_activation_proof(
             "classification": classification,
             "criticality": "P0",
             "evidence": evidence,
-            "action": "repair local/private simulator objective activation before paid Tencent validation",
+            "action": (
+                "rerun policy-gradient multi-tier validation with an extended simulation horizon"
+                if horizon_too_short
+                else "repair local/private simulator objective activation before paid Tencent validation"
+            ),
         }
     return proof
 
