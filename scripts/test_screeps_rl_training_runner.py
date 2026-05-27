@@ -504,6 +504,21 @@ class RlTrainingRunnerTest(unittest.TestCase):
         with self.assertRaisesRegex(runner.TrainingCardError, "scenario metadata is required"):
             runner.validate_experiment_card(card)
 
+    def test_experiment_card_validation_rejects_policy_gradient_below_activation_floor(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-policy-gradient-short-horizon",
+            code_commit="a" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:19:30Z",
+        )
+        card["simulation"]["ticks"] = 500
+
+        with self.assertRaisesRegex(
+            runner.TrainingCardError,
+            f"simulation\\.ticks >= {runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS}",
+        ):
+            runner.validate_experiment_card(card)
+
     def test_experiment_card_validation_rejects_inconsistent_scenario_suitability(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-scenario-invalid",
@@ -888,6 +903,50 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertTrue(proof["ok"])
         self.assertEqual(proof["passingVariants"], [variant_ids[0]])
         self.assertNotIn("blocker", proof)
+
+    def test_multi_tier_activation_proof_blocks_short_audit_horizon(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-short-audit",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:22:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+        proof = runner.build_multi_tier_activation_proof(
+            results=[
+                {
+                    "variantId": "candidate",
+                    "sampleCount": 1,
+                    "metrics": {
+                        "territory": {"delta": 3},
+                        "kills": {"hostileKills": 1},
+                        "objectiveSignal": {
+                            "initialObservedRoomCount": 2,
+                            "finalObservedRoomCount": 2,
+                            "initialHostileCreeps": 2,
+                            "finalHostileCreeps": 1,
+                            "initialHostileStructures": 1,
+                            "finalHostileStructures": 1,
+                            "initialObjectiveSignalPresent": True,
+                            "finalObjectiveSignalPresent": True,
+                        },
+                    },
+                }
+            ],
+            scenario=card["scenario"],
+            kpi_summary={},
+            audit={"ticks": 500},
+        )
+
+        self.assertIsNotNone(proof)
+        if proof is None:
+            self.fail("expected multi-tier activation proof")
+        self.assertEqual(proof["status"], "blocked")
+        self.assertFalse(proof["ok"])
+        self.assertEqual(proof["blocker"]["classification"], "SIMULATION_HORIZON_TOO_SHORT")
+        self.assertEqual(proof["criteria"]["minimumSimulationTicks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertNotIn("passingVariants", proof)
 
     def test_multi_tier_activation_proof_derives_kills_from_observed_hostile_reduction(self) -> None:
         card = card_helper.build_card(
@@ -1993,7 +2052,7 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopAPromotionEligible"])
         self.assertFalse(report["policyUpdate"]["promotionGate"]["loopBPromotionEligible"])
         self.assertNotIn("policyUpdateArtifactPath", report)
-        self.assertEqual(simulator.calls[0]["ticks"], 500)
+        self.assertEqual(simulator.calls[0]["ticks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(simulator.calls[0]["variants"], variant_ids)
         self.assertEqual(
             simulator.calls[0]["variant_configs"]["construction-priority.pg.territory-seed.v1"]["parameters"],

@@ -482,7 +482,7 @@ def write_tencent_guard_summary(
     run_id: str,
     *,
     scenario_id: str = runner.DEFAULT_SCENARIO_ID,
-    ticks: int = 500,
+    ticks: int = runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
     final_status: str = "completed",
     territory_kills: tuple[tuple[float, float], ...] = ((2, 0), (2, 0)),
     room: str = "E1S1",
@@ -3035,7 +3035,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "officialMmoWrites": False,
                             "officialMmoWritesAllowed": False,
                             "artifactCount": 25,
-                            "simulation": {"ticks": 500},
+                            "simulation": {"ticks": runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS},
                             "scaleValidation": {
                                 "ok": True,
                                 "targetEnvironments": 5,
@@ -3107,7 +3107,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(summary["execution"]["artifactCount"], 25)
         self.assertEqual(summary["execution"]["environmentsRun"], 25)
         self.assertEqual(summary["batchScale"]["environmentRows"], 25)
-        self.assertEqual(summary["batchScale"]["simulatorTicks"], 12500)
+        self.assertEqual(
+            summary["batchScale"]["simulatorTicks"],
+            25 * runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+        )
         self.assertEqual(training_report["artifactCount"], 25)
         self.assertEqual(training_report["policyUpdateIterations"], 0)
         self.assertIsNone(training_report["policyUpdateArtifactPath"])
@@ -3144,6 +3147,27 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(guard["safety"]["scaleOutAttempted"])
         self.assertEqual({item["territory"] for item in guard["evidence"]["runs"]}, {2})
         self.assertEqual({item["kills"] for item in guard["evidence"]["runs"]}, {0})
+
+    def test_e1s1_repeat_launch_guard_ignores_legacy_500_tick_policy_gradient_smokes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for run_id in ("tencent-pg-legacy-1", "tencent-pg-legacy-2", "tencent-pg-legacy-3"):
+                write_tencent_guard_summary(artifact_root, run_id, ticks=500)
+            args = controller_args()
+            args.artifact_root = artifact_root
+            args.training_approach = "policy_gradient"
+            args.ticks = 500
+
+            guard = runner.build_e1s1_repeat_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], "clear")
+        self.assertEqual(guard["evidence"]["count"], 0)
+        self.assertEqual(guard["currentLaunch"]["effectiveTicks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
 
     def test_e1s1_repeat_launch_guard_scans_past_recent_irrelevant_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3316,6 +3340,13 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(args.repetitions, 4)
         self.assertEqual(runner.policy_gradient_samples_per_candidate(args), 20)
         self.assertEqual(runner.effective_training_ticks(args), runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+
+    def test_effective_training_ticks_preserves_non_policy_gradient_request(self) -> None:
+        args = controller_args()
+        args.training_approach = "bandit"
+        args.ticks = 125
+
+        self.assertEqual(runner.effective_training_ticks(args), 125)
 
     def test_preflight_command_uses_preflight_run_id_prefix(self) -> None:
         args = runner.parse_cli_args(["preflight"])
@@ -3772,7 +3803,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(card["card_supply"]["type"], "screeps-rl-loop-a-card-supply")
         self.assertEqual(card["card_supply"]["consumer"], "loop-a-policy-gradient")
         self.assertTrue(card["card_supply"]["available_for_training"])
-        self.assertEqual(card["simulation"]["ticks"], 500)
+        self.assertEqual(card["simulation"]["ticks"], runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(card["simulation"]["workers"], 5)
         self.assertEqual(card["simulation"]["repetitions"], 5)
         self.assertFalse(card["officialMmoWrites"])
@@ -3780,7 +3811,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.result["experimentCard"]["trainingApproach"], "policy_gradient")
         self.assertEqual(controller.result["experimentCard"]["cardSupply"]["state"], "available")
         self.assertEqual(spec["experimentCard"]["cardSupply"]["state"], "available")
-        self.assertEqual(spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"], 500)
+        self.assertEqual(
+            spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["ticks"],
+            runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+        )
 
     def test_run_remote_training_collects_diagnostics_on_exit_two(self) -> None:
         args = controller_args()
@@ -5288,7 +5322,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                             "officialMmoWrites": False,
                             "officialMmoWritesAllowed": False,
                             "artifactCount": 23,
-                            "simulation": {"ticks": 500},
+                            "simulation": {"ticks": runner.POLICY_GRADIENT_MIN_SIMULATION_TICKS},
                             "scaleValidation": {
                                 "ok": False,
                                 "targetEnvironments": 5,

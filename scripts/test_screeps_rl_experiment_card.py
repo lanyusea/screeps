@@ -123,7 +123,7 @@ class RlExperimentCardTest(unittest.TestCase):
         learnable_names = [item["name"] for item in policy_gradient["learnable_parameters"]]
 
         self.assertEqual(card["training_approach"], "policy_gradient")
-        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(config.repetitions, 20)
         self.assertFalse(card["liveEffect"])
         self.assertFalse(card["officialMmoWrites"])
@@ -359,7 +359,7 @@ class RlExperimentCardTest(unittest.TestCase):
         supply = card["card_supply"]
         self.assertEqual(card["status"], "shadow")
         self.assertEqual(card["training_approach"], "policy_gradient")
-        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(config.workers, 5)
         self.assertEqual(config.repetitions, 20)
         self.assertEqual(supply["state"], "available")
@@ -589,7 +589,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["dataset_run_id"], "rl-accepted-newer")
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["status"], "shadow")
-        self.assertEqual(generated["simulation"]["ticks"], 500)
+        self.assertEqual(generated["simulation"]["ticks"], card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(generated["simulation"]["workers"], 5)
         self.assertEqual(generated["simulation"]["repetitions"], 20)
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
@@ -684,7 +684,7 @@ class RlExperimentCardTest(unittest.TestCase):
         config = runner.simulation_config_from_card(generated)
         self.assertEqual(config.workers, 5)
         self.assertEqual(config.repetitions, 20)
-        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
 
         supply = generated["card_supply"]
         self.assertEqual(generated["status"], "shadow")
@@ -2489,8 +2489,20 @@ class RlExperimentCardTest(unittest.TestCase):
         )
         config = runner.simulation_config_from_card(card)
 
-        self.assertGreaterEqual(config.ticks, 500)
+        self.assertGreaterEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertGreaterEqual(config.repetitions, 20)
+
+    def test_non_policy_gradient_card_preserves_requested_short_horizon(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-bandit-short-horizon",
+            code_commit="1" * 40,
+            training_approach="bandit",
+            created_at="2026-05-17T00:25:00Z",
+            simulation_ticks=125,
+        )
+        config = runner.simulation_config_from_card(card)
+
+        self.assertEqual(config.ticks, 125)
 
     def test_validate_rejects_policy_gradient_below_long_horizon_floor(self) -> None:
         card = card_helper.build_card(
@@ -2499,9 +2511,12 @@ class RlExperimentCardTest(unittest.TestCase):
             training_approach="policy_gradient",
             created_at="2026-05-17T00:25:00Z",
         )
-        card["simulation"]["ticks"] = 499
+        card["simulation"]["ticks"] = card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS - 1
 
-        with self.assertRaisesRegex(card_helper.CardValidationError, "simulation\\.ticks >= 500"):
+        with self.assertRaisesRegex(
+            card_helper.CardValidationError,
+            f"simulation\\.ticks >= {card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS}",
+        ):
             card_helper.validate_card(card)
 
     def test_validate_rejects_policy_gradient_below_trust_sample_budget(self) -> None:
@@ -2710,7 +2725,7 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         runner.validate_experiment_card(generated)
         config = runner.simulation_config_from_card(generated)
-        self.assertEqual(config.ticks, 500)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
         self.assertEqual(config.repetitions, 20)
         self.assertEqual(generated["training_approach"], "policy_gradient")
         self.assertEqual(generated["policy_gradient"]["target_family"], "construction-priority")
