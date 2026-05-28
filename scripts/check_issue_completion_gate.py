@@ -39,6 +39,10 @@ WITHOUT_CLOSE_RE = re.compile(
     re.IGNORECASE,
 )
 GATE_HEADING_RE = re.compile(r"^(?P<level>#{1,6})\s+Issue closure gate\b", re.IGNORECASE)
+UNIVERSAL_DONE_GATE_HEADING_RE = re.compile(
+    r"^(?P<level>#{1,6})\s+Universal task Done gate\b",
+    re.IGNORECASE,
+)
 ANY_HEADING_RE = re.compile(r"^(?P<level>#{1,6})\s+\S")
 CHECKED_LINE_RE = re.compile(r"^\s*[-*]\s+\[[xX]\]\s+(?P<text>.+?)\s*$")
 UNCHECKED_LINE_RE = re.compile(r"^\s*[-*]\s+\[\s\]\s+(?P<text>.+?)\s*$")
@@ -52,6 +56,17 @@ UNRESOLVED_EVIDENCE_RE = re.compile(
     r"\bnot\s+yet\b",
     re.IGNORECASE,
 )
+NOT_APPLICABLE_RE = re.compile(r"\b(?:n/a|not applicable|none)\b", re.IGNORECASE)
+OWNER_ACCEPTED_SUBSTITUTE_RE = re.compile(
+    r"\bowner[-\s](?:accepted|approved)\s+substitute\b",
+    re.IGNORECASE,
+)
+NAMED_SURFACE_RE = re.compile(
+    r"\b(?:Grafana|GitHub Pages|Discord route|deployed service|public URL|"
+    r"specific monitor|dashboard|report|service|route|URL)\b",
+    re.IGNORECASE,
+)
+DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE = True
 
 
 @dataclass(frozen=True)
@@ -69,9 +84,47 @@ class GateLine:
 
 
 @dataclass(frozen=True)
+class DoneGateField:
+    name: str
+    pattern: re.Pattern[str]
+
+
+@dataclass(frozen=True)
 class PullRequestCommit:
     sha: str
     message: str
+
+
+UNIVERSAL_DONE_GATE_FIELDS: tuple[DoneGateField, ...] = (
+    DoneGateField("Task type", re.compile(r"^Task type\s*:", re.IGNORECASE)),
+    DoneGateField(
+        "Expected observable outcome / named deliverable",
+        re.compile(
+            r"^Expected observable outcome\s*/\s*named deliverable\s*:",
+            re.IGNORECASE,
+        ),
+    ),
+    DoneGateField(
+        "Non-goals / accepted substitutes",
+        re.compile(r"^Non-goals\s*/\s*accepted substitutes\s*:", re.IGNORECASE),
+    ),
+    DoneGateField(
+        "Verification evidence required before Done",
+        re.compile(r"^Verification evidence required before Done\s*:", re.IGNORECASE),
+    ),
+    DoneGateField(
+        "Project Evidence / Next action / Blocked by",
+        re.compile(r"^Project Evidence\s*/\s*Next action\s*/\s*Blocked by\s*:", re.IGNORECASE),
+    ),
+    DoneGateField(
+        "Post-merge/deploy/runtime proof",
+        re.compile(r"^Post-merge/deploy/runtime proof\s*:", re.IGNORECASE),
+    ),
+    DoneGateField(
+        "Named deliverable proof",
+        re.compile(r"^Named deliverable proof\s*:", re.IGNORECASE),
+    ),
+)
 
 
 def issue_number_from_ref(ref: str) -> int | None:
@@ -125,12 +178,12 @@ def find_closing_refs(body: str) -> list[IssueRef]:
     return refs
 
 
-def extract_gate_section(body: str) -> list[tuple[int, str]] | None:
+def extract_heading_section(body: str, heading_re: re.Pattern[str]) -> list[tuple[int, str]] | None:
     lines = body.splitlines()
     start_index: int | None = None
     heading_level: int | None = None
     for index, line in enumerate(lines):
-        match = GATE_HEADING_RE.match(line.strip())
+        match = heading_re.match(line.strip())
         if match:
             start_index = index + 1
             heading_level = len(match.group("level"))
@@ -145,6 +198,10 @@ def extract_gate_section(body: str) -> list[tuple[int, str]] | None:
             end_index = index
             break
     return [(line_no, lines[line_no - 1]) for line_no in range(start_index + 1, end_index + 1)]
+
+
+def extract_gate_section(body: str) -> list[tuple[int, str]] | None:
+    return extract_heading_section(body, GATE_HEADING_RE)
 
 
 def parse_gate_lines(section: list[tuple[int, str]]) -> list[GateLine]:
@@ -168,28 +225,116 @@ def evidence_without_refs(text: str) -> str:
     return ISSUE_REF_RE.sub("", text).strip(" \t:-;,./")
 
 
+def evidence_after_colon(text: str) -> str:
+    _, separator, evidence = text.partition(":")
+    if not separator:
+        return ""
+    return evidence.strip(" \t:-;,./")
+
+
+def has_unresolved_done_gate_language(evidence: str) -> bool:
+    searchable = re.sub(r"\bBlocked by\b", "", evidence, flags=re.IGNORECASE)
+    return bool(UNRESOLVED_EVIDENCE_RE.search(searchable))
+
+
+def checked_done_gate_field_lines(gate_lines: list[GateLine], field: DoneGateField) -> list[GateLine]:
+    return [
+        gate_line
+        for gate_line in gate_lines
+        if gate_line.checked and field.pattern.search(gate_line.text)
+    ]
+
+
+def validate_universal_done_gate(body: str, *, require: bool) -> list[str]:
+    section = extract_heading_section(body, UNIVERSAL_DONE_GATE_HEADING_RE)
+    if section is None:
+        if require:
+            return [
+                "missing Universal task Done gate section with task type, named deliverable, "
+                "verification, Project state, and post-merge proof evidence"
+            ]
+        return []
+
+    gate_lines = parse_gate_lines(section)
+    errors: list[str] = []
+    for gate_line in gate_lines:
+        if not gate_line.checked:
+            errors.append(
+                f"line {gate_line.number}: Universal task Done gate contains unchecked checkbox line; "
+                "use '- [x]' only after the task contract is ready for Done"
+            )
+
+    field_values: dict[str, list[str]] = {}
+    for field in UNIVERSAL_DONE_GATE_FIELDS:
+        field_lines = checked_done_gate_field_lines(gate_lines, field)
+        if not field_lines:
+            errors.append(f"Universal task Done gate missing checked field: {field.name}")
+            continue
+        values: list[str] = []
+        for gate_line in field_lines:
+            evidence = evidence_after_colon(gate_line.text)
+            values.append(evidence)
+            if not evidence:
+                errors.append(
+                    f"line {gate_line.number}: Universal task Done gate field {field.name!r} "
+                    "has empty evidence"
+                )
+            if has_unresolved_done_gate_language(evidence):
+                errors.append(
+                    f"line {gate_line.number}: Universal task Done gate field {field.name!r} "
+                    "contains unresolved/blocking language"
+                )
+        field_values[field.name] = values
+
+    expected_values = field_values.get("Expected observable outcome / named deliverable", [])
+    named_proof_values = field_values.get("Named deliverable proof", [])
+    expected_text = " ".join(expected_values)
+    named_proof_text = " ".join(named_proof_values)
+    if NAMED_SURFACE_RE.search(expected_text):
+        proof_is_absent = NOT_APPLICABLE_RE.search(named_proof_text)
+        proof_has_substitute = OWNER_ACCEPTED_SUBSTITUTE_RE.search(named_proof_text)
+        if proof_is_absent and not proof_has_substitute:
+            errors.append(
+                "Universal task Done gate names a deliverable surface but the Named deliverable proof "
+                "field says it is not applicable; prove that named surface or cite an owner-accepted substitute"
+            )
+    return errors
+
+
 def format_issue_list(issue_numbers: list[int]) -> str:
     return ", ".join(f"#{number}" for number in issue_numbers)
 
 
-def validate_body(body: str) -> list[str]:
+def validate_body(
+    body: str,
+    *,
+    require_universal_done_gate: bool = DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE,
+) -> list[str]:
     body = visible_markdown(body)
     negated_errors = find_negated_phrases(body)
     if negated_errors:
         return negated_errors
 
+    universal_done_gate_errors = validate_universal_done_gate(
+        body,
+        require=require_universal_done_gate,
+    )
+
     closing_refs = find_closing_refs(body)
     if not closing_refs:
-        return []
+        return universal_done_gate_errors
 
     closed_issues = sorted({ref.number for ref in closing_refs})
     section = extract_gate_section(body)
     if section is None:
         issue_list = ", ".join(f"#{number}" for number in closed_issues)
-        return [f"missing Issue closure gate section for closing issue(s): {issue_list}"]
+        return [
+            *universal_done_gate_errors,
+            f"missing Issue closure gate section for closing issue(s): {issue_list}",
+        ]
 
     gate_lines = parse_gate_lines(section)
-    errors: list[str] = []
+    errors: list[str] = [*universal_done_gate_errors]
     for gate_line in gate_lines:
         if not gate_line.checked:
             errors.append(
@@ -444,6 +589,102 @@ SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
 )
 
 
+UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+    (
+        "valid_universal_done_gate_without_closing_keyword",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: docs/process.\n"
+        "- [x] Expected observable outcome / named deliverable: reusable completion policy "
+        "and checker support are documented.\n"
+        "- [x] Non-goals / accepted substitutes: no GitHub Project mutation by this worker.\n"
+        "- [x] Verification evidence required before Done: self-test and diff check pass.\n"
+        "- [x] Project Evidence / Next action / Blocked by: controller will update Project "
+        "Evidence and Next action; Blocked by remains empty because no blocker exists.\n"
+        "- [x] Post-merge/deploy/runtime proof: not applicable for docs/process checker work.\n"
+        "- [x] Named deliverable proof: not applicable; the task names no external surface.\n",
+        True,
+        None,
+    ),
+    (
+        "missing_universal_done_gate_when_required",
+        "## Summary\n\n- useful adjacent artifact exists.\n",
+        False,
+        "missing Universal task Done gate",
+    ),
+    (
+        "universal_done_gate_missing_field",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: ops.\n"
+        "- [x] Expected observable outcome / named deliverable: persistent service health.\n"
+        "- [x] Non-goals / accepted substitutes: none.\n"
+        "- [x] Verification evidence required before Done: service health check passes.\n"
+        "- [x] Project Evidence / Next action / Blocked by: fields are current.\n"
+        "- [x] Post-merge/deploy/runtime proof: service health is checked after deploy.\n",
+        False,
+        "missing checked field: Named deliverable proof",
+    ),
+    (
+        "universal_done_gate_named_surface_requires_named_proof",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: dashboard/report.\n"
+        "- [x] Expected observable outcome / named deliverable: Grafana dashboard is live.\n"
+        "- [x] Non-goals / accepted substitutes: none.\n"
+        "- [x] Verification evidence required before Done: local tests pass.\n"
+        "- [x] Project Evidence / Next action / Blocked by: fields are current.\n"
+        "- [x] Post-merge/deploy/runtime proof: runtime health check passed.\n"
+        "- [x] Named deliverable proof: not applicable.\n",
+        False,
+        "names a deliverable surface",
+    ),
+    (
+        "universal_done_gate_owner_accepted_substitute",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: dashboard/report.\n"
+        "- [x] Expected observable outcome / named deliverable: Grafana dashboard is live.\n"
+        "- [x] Non-goals / accepted substitutes: owner-accepted substitute is a static "
+        "GitHub Pages report.\n"
+        "- [x] Verification evidence required before Done: Pages URL and screenshot are captured.\n"
+        "- [x] Project Evidence / Next action / Blocked by: fields are current with no blocker.\n"
+        "- [x] Post-merge/deploy/runtime proof: post-merge Pages refresh is verified.\n"
+        "- [x] Named deliverable proof: owner-accepted substitute recorded in Project Evidence.\n",
+        True,
+        None,
+    ),
+)
+
+
+DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+    (
+        "missing_universal_done_gate_by_default",
+        "## Summary\n\n- useful adjacent artifact exists.\n",
+        False,
+        "missing Universal task Done gate",
+    ),
+)
+
+
+LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+    (
+        "missing_universal_done_gate_with_legacy_opt_out",
+        "## Summary\n\n- useful adjacent artifact exists.\n",
+        True,
+        None,
+    ),
+    (
+        "present_optional_universal_done_gate_missing_field",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: ops.\n"
+        "- [x] Expected observable outcome / named deliverable: persistent service health.\n"
+        "- [x] Non-goals / accepted substitutes: none.\n"
+        "- [x] Verification evidence required before Done: service health check passes.\n"
+        "- [x] Project Evidence / Next action / Blocked by: fields are current.\n"
+        "- [x] Post-merge/deploy/runtime proof: service health is checked after deploy.\n",
+        False,
+        "missing checked field: Named deliverable proof",
+    ),
+)
+
+
 COMMIT_SELF_TESTS: tuple[tuple[str, PullRequestCommit, bool, str | None], ...] = (
     (
         "commit_clean_message",
@@ -469,7 +710,31 @@ COMMIT_SELF_TESTS: tuple[tuple[str, PullRequestCommit, bool, str | None], ...] =
 def run_self_tests() -> int:
     failures: list[str] = []
     for name, body, expect_pass, expected_message in SELF_TESTS:
+        errors = validate_body(body, require_universal_done_gate=False)
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, body, expect_pass, expected_message in UNIVERSAL_DONE_GATE_SELF_TESTS:
+        errors = validate_body(body, require_universal_done_gate=True)
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, body, expect_pass, expected_message in DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS:
         errors = validate_body(body)
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, body, expect_pass, expected_message in LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS:
+        errors = validate_body(body, require_universal_done_gate=False)
         passed = not errors
         if passed != expect_pass:
             failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
@@ -487,12 +752,29 @@ def run_self_tests() -> int:
     paginated = parse_paginated_json('[{"sha": "a"}]\n[{"sha": "b"}]\n')
     if paginated != [{"sha": "a"}, {"sha": "b"}]:
         failures.append(f"paginated_json: expected two flattened objects, got {paginated!r}")
+    parser = build_parser()
+    default_args = parser.parse_args(["--body-file", "/tmp/example-pr-body.md"])
+    if default_args.require_universal_done_gate is not True:
+        failures.append("argparse_default: Universal task Done gate must be required by default")
+    opt_out_args = parser.parse_args(
+        ["--body-file", "/tmp/example-pr-body.md", "--no-require-universal-done-gate"]
+    )
+    if opt_out_args.require_universal_done_gate is not False:
+        failures.append("argparse_opt_out: --no-require-universal-done-gate must disable the requirement")
     if failures:
         print("FAIL: self-test")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print(f"PASS: self-test ({len(SELF_TESTS) + len(COMMIT_SELF_TESTS)} fixture(s))")
+    fixture_count = (
+        len(SELF_TESTS)
+        + len(UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS)
+        + len(COMMIT_SELF_TESTS)
+        + 2
+    )
+    print(f"PASS: self-test ({fixture_count} fixture(s))")
     return 0
 
 
@@ -512,13 +794,34 @@ def print_validation_result(body: str, errors: list[str]) -> int:
     return 0
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--body-file", help="path to a file containing the PR body, or '-' for stdin")
     source.add_argument("--pr", type=int, help="PR number to read with gh pr view")
     parser.add_argument("--repo", help="repository full name for gh pr view, for example owner/name")
+    universal_gate = parser.add_mutually_exclusive_group()
+    universal_gate.add_argument(
+        "--require-universal-done-gate",
+        action="store_true",
+        default=DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE,
+        help=(
+            "require a checked Universal task Done gate section in the PR/issue completion "
+            "evidence (default)"
+        ),
+    )
+    universal_gate.add_argument(
+        "--no-require-universal-done-gate",
+        action="store_false",
+        dest="require_universal_done_gate",
+        help="legacy/manual opt-out: do not require a Universal task Done gate section",
+    )
     parser.add_argument("--self-test", action="store_true", help="run built-in validator fixtures")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     if not args.self_test and args.body_file is None and args.pr is None:
@@ -530,7 +833,16 @@ def main() -> int:
 
     if args.body_file is not None:
         body = read_body_file(args.body_file)
-        exit_code = max(exit_code, print_validation_result(body, validate_body(body)))
+        exit_code = max(
+            exit_code,
+            print_validation_result(
+                body,
+                validate_body(
+                    body,
+                    require_universal_done_gate=args.require_universal_done_gate,
+                ),
+            ),
+        )
     elif args.pr is not None:
         try:
             body = fetch_pr_body(args.pr, args.repo)
@@ -538,7 +850,13 @@ def main() -> int:
         except (OSError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
             print(f"FAIL: unable to read PR data with gh: {exc}")
             return 1
-        errors = [*validate_body(body), *validate_commit_messages(commits)]
+        errors = [
+            *validate_body(
+                body,
+                require_universal_done_gate=args.require_universal_done_gate,
+            ),
+            *validate_commit_messages(commits),
+        ]
         exit_code = max(exit_code, print_validation_result(body, errors))
 
     return exit_code

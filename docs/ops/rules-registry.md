@@ -89,9 +89,11 @@ A meaningful task is not complete until:
 1. The linked issue/PR is current in Project `screeps` #3.
 2. `Status`, `Evidence`, and `Next action` are accurate.
 3. If blocked, the item has both a `blocked` label and a non-empty `Blocked by` field, with a concrete unblock action.
-4. Acceptance-first PR bodies may use a closing keyword (`Fixes #...`, `Closes #...`, or `Resolves #...`) only when they complete a tracked issue and include the Issue closure gate; commit messages must not contain GitHub closing keywords for tracked issues.
-5. Required checks, automated review findings, review threads, QA gate, and elapsed review window are satisfied before merge.
-6. Gameplay/runtime-affecting merged work also satisfies the Deployment Floor: official deploy evidence plus post-deploy observation, or an explicit HELD blocker.
+4. The `Universal task Done gate` states the task type, expected observable outcome / named deliverable, non-goals or owner-accepted substitutes, required verification evidence, Project `Evidence` / `Next action` / `Blocked by` state, post-merge/deploy/runtime proof, and named deliverable proof.
+5. Any named surface in the task contract is proven literally: Grafana, GitHub Pages, Discord route, deployed service, public URL, specific monitor, dashboard, report, or equivalent concrete deliverable require evidence of that surface unless Project `Evidence` records an owner-accepted substitute.
+6. Acceptance-first PR bodies may use a closing keyword (`Fixes #...`, `Closes #...`, or `Resolves #...`) only when they complete a tracked issue and include the Issue closure gate; commit messages must not contain GitHub closing keywords for tracked issues.
+7. Required checks, automated review findings, review threads, QA gate, and elapsed review window are satisfied before merge.
+8. Gameplay/runtime-affecting merged work also satisfies the Deployment Floor: official deploy evidence plus post-deploy observation, or an explicit HELD blocker.
 
 Closed/Done issues are not reopened. Repeated or corrected scope gets a new linked issue.
 

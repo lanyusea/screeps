@@ -23,6 +23,16 @@ Related / non-closing linkage:
 - [ ] QA gate: <!-- PASS / not required with reason -->
 - [ ] No secrets, unsafe local paths, or owner-facing raw attachment trigger lines are included.
 
+## Universal task Done gate
+
+- [ ] Task type: <!-- code behavior / bugfix / ops service / dashboard/report / docs/process / research / refactor / cleanup / other explicit type -->
+- [ ] Expected observable outcome / named deliverable: <!-- original requested outcome or named surface -->
+- [ ] Non-goals / accepted substitutes: <!-- excluded scope, or owner-accepted substitute with evidence -->
+- [ ] Verification evidence required before Done: <!-- tests/checks/review/artifact/smoke/citation/runtime proof -->
+- [ ] Project Evidence / Next action / Blocked by: <!-- current Project state required for closure -->
+- [ ] Post-merge/deploy/runtime proof: <!-- proof required after merge/deploy/runtime, or not applicable with reason -->
+- [ ] Named deliverable proof: <!-- proof of named surface, or owner-accepted substitute -->
+
 ## Issue closure gate
 
 For every issue linked above in the PR body with a closing keyword:
