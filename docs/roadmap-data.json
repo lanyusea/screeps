@@ -3,39 +3,19 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-28T05:32:54Z",
-  "generatedAtCst": "2026-05-28T13:32:54+08:00",
+  "generatedAt": "2026-05-28T10:34:20Z",
+  "generatedAtCst": "2026-05-28T18:34:20+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
-      {
-        "createdAt": "2026-05-27T19:01:17Z",
-        "domain": "Agent OS",
-        "domainSource": "heuristic",
-        "kind": "ops",
-        "labels": [
-          "kind:ops",
-          "priority:p0",
-          "roadmap",
-          "roadmap:p0-agent-ops"
-        ],
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "number": 1465,
-        "priority": "P0",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P0: Repair empty-response failures in active Screeps cron jobs",
-        "type": "Issue",
-        "updatedAt": "2026-05-27T21:00:57Z",
-        "url": "https://github.com/lanyusea/screeps/issues/1465"
-      },
       {
         "createdAt": "2026-05-25T23:12:32Z",
         "domain": "RL flywheel",
         "domainSource": "heuristic",
         "kind": "ops",
         "labels": [
+          "blocked",
           "kind:ops",
           "priority:p1",
           "roadmap",
@@ -45,10 +25,10 @@
         "number": 1438,
         "priority": "P1",
         "state": "OPEN",
-        "status": "Ready",
+        "status": "Backlog",
         "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
         "type": "Issue",
-        "updatedAt": "2026-05-28T02:40:11Z",
+        "updatedAt": "2026-05-28T10:29:41Z",
         "url": "https://github.com/lanyusea/screeps/issues/1438"
       },
       {
@@ -114,7 +94,7 @@
         "status": "Backlog",
         "title": "P0: Run validation-scale policy-gradient samples for trusted updates",
         "type": "Issue",
-        "updatedAt": "2026-05-28T03:38:15Z",
+        "updatedAt": "2026-05-28T10:29:40Z",
         "url": "https://github.com/lanyusea/screeps/issues/1337"
       },
       {
@@ -135,7 +115,7 @@
         "status": "Ready",
         "title": "P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-intent deploy",
         "type": "Issue",
-        "updatedAt": "2026-05-27T22:18:11Z",
+        "updatedAt": "2026-05-28T08:55:08Z",
         "url": "https://github.com/lanyusea/screeps/issues/1318"
       },
       {
@@ -178,7 +158,7 @@
         "status": "Ready",
         "title": "P0: Restore RL steward autonomous compute dispatch cadence",
         "type": "Issue",
-        "updatedAt": "2026-05-28T03:38:12Z",
+        "updatedAt": "2026-05-28T10:29:38Z",
         "url": "https://github.com/lanyusea/screeps/issues/1233"
       },
       {
@@ -199,7 +179,7 @@
         "status": "Ready",
         "title": "Agent OS PM defect: convert prose-only P0/P1 actions into tracked issues",
         "type": "Issue",
-        "updatedAt": "2026-05-26T18:39:56Z",
+        "updatedAt": "2026-05-28T09:44:08Z",
         "url": "https://github.com/lanyusea/screeps/issues/1191"
       },
       {
@@ -288,7 +268,7 @@
         "status": "Backlog",
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
-        "updatedAt": "2026-05-27T17:41:21Z",
+        "updatedAt": "2026-05-28T10:29:37Z",
         "url": "https://github.com/lanyusea/screeps/issues/1032"
       },
       {
@@ -331,7 +311,7 @@
         "status": "Ready",
         "title": "P0: ALL IN RL execution mode \u2014 turn the flywheel into a recurring train/sim/deploy feedback loop",
         "type": "Issue",
-        "updatedAt": "2026-05-28T05:11:45Z",
+        "updatedAt": "2026-05-28T10:29:35Z",
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ],
@@ -340,7 +320,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:00Z state audit repaired stale #1456 active-process evidence into PR #1472 and refreshed runtime/RL Project fields; open PR backlog now only #1472.",
+          "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -358,7 +338,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:00Z no foreground CI/CodeRabbit/elapsed wait used; controller verifier ran as bounded background proc_[redacted] and completed; PR #1472 left to next scheduler gate.",
+          "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -376,7 +356,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
+          "evidence": "2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/2026-05-28_17-35-28.md had full issueification table; all P0/P1 items mapped to #879/#906/#907/#924/#1028/#1032/#1191/#1233/#1318/#1337/#1438/#1465/#1474/#1475; no new missing P0/P1 issue found. #1465 closed after live recovery verification.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -389,43 +369,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1028",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "createdAt": "2026-05-28T04:41:16Z",
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "",
-          "kind": "docs",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 1473,
-          "priority": "P1",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "In progress",
-          "title": "chore(roadmap): refresh Pages artifacts",
-          "type": "PullRequest",
-          "updatedAt": "2026-05-28T04:49:29Z",
-          "url": "https://github.com/lanyusea/screeps/pull/1473",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "2026-05-28 scheduler pre-run cron registry check PASS; latest Gameplay Review c7b3dda8f1ac produced non-empty report. Keep ready only for recurrence/last_status audit.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 1465,
-          "priority": "P0",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Ready",
-          "title": "P0: Repair empty-response failures in active Screeps cron jobs",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1465",
           "visionLayer": "foundation blocker"
         },
         {
@@ -732,6 +675,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1108",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-05-28T09:59Z live cron registry verified 75cedbb77150, 1df5ef0c3835, and c7b3dda8f1ac recovered to last_status=ok/no delivery errors; latest runtime-alert final response is [SILENT]; latest Gameplay Review has full non-empty response; registry check PASS (16 recurring + ignored one-shot). Issue closed completed.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1465,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1465",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1704,6 +1665,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1454",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "docs",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1473,
+          "priority": "P1",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1473",
           "visionLayer": "foundation blocker"
         },
         {
@@ -11897,7 +11876,7 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "project",
-          "evidence": "2026-05-28T03:55Z fresh scheduler monitor healthy across E29N55/E29N57/E29N56; alert=false; no construction sites or hostiles. Bootstrap/model validation remains active.",
+          "evidence": "",
           "kind": "ops",
           "lane": "Territory/Economy",
           "nextAction": "",
@@ -11905,11 +11884,30 @@
           "priority": "P1",
           "projectDomain": "Territory/Economy",
           "state": "",
-          "status": "In progress",
+          "status": "In review",
           "title": "P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-intent deploy",
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1318",
+          "visionLayer": "territory"
+        },
+        {
+          "createdAt": "2026-05-28T10:08:46Z",
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-05-28T10:09Z PR #1476 opened for #1318 at head 56b5d729. Codex-authored commit verified by controller: git diff --check, npm run typecheck, npm test -- --runInBand (103 suites/2066 tests), npm run build. Files: prod strategy/territory source/tests and dist/main.js.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 1476,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "In review",
+          "title": "fix(gameplay): suppress stale owned-room scout recommendations",
+          "type": "PullRequest",
+          "updatedAt": "2026-05-28T10:17:06Z",
+          "url": "https://github.com/lanyusea/screeps/pull/1476",
           "visionLayer": "territory"
         },
         {
@@ -19493,7 +19491,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc. Active Tencent t034503z pid 2321703/ssh child 2322122 is still running on worker ins-fdh3tp50; strict known-host path succeeded; no duplicate compute.",
+          "evidence": "2026-05-28T10:28Z: t091003z smoke complete but gradients untrusted; standalone card refreshed/validated; active t102503z pid2465215, ASG 1/1/1. Comment 4563130652.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19511,7 +19509,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:36Z compute cadence active under guard: preflight ok, billing guard OK (~$0.72/$50), ASG desired=1 with t034503z running; PR #1472 merged hardening for host-key recurrence.",
+          "evidence": "2026-05-28T10:28Z: ASG asg-csw592ro desired/in-service/instance=1/1/1 for active t102503z; billing guard OK. Comment 4563131129.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19547,8 +19545,8 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:36Z #1456 hardening merged. t034503z is active smoke-class: planned 25 env rows / 50k ticks, below validation threshold (>=200 env rows AND >=200k ticks); controller finalStatus=unknown.",
-          "kind": "code",
+          "evidence": "2026-05-28T10:28Z: t091003z all comparisons gradientStable=false/highVariance=true/trustedGradientUpdate=false; active t102503z collecting more evidence. Comment 4563131344.",
+          "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
           "number": 1337,
@@ -19565,7 +19563,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T04:36Z scale-first path active but not complete: t034503z running on worker ins-fdh3tp50; controller summary still partial/finalStatus unknown; smoke-class evidence only.",
+          "evidence": "2026-05-28T10:28Z: smoke t091003z proved compute but not trusted gradients; t102503z active with safe internal card. Comment 4563130954.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19583,7 +19581,25 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
+          "evidence": "2026-05-28T10:28Z: regenerated/validated standalone card runtime-artifacts/rl-experiment-cards/experiment_card.json from gate e1-gate-20260528T091220Z dataset rl-8b37e67a811b; select ok. Comment 4563131480.",
+          "kind": "ops",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1438,
+          "priority": "P1",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "In progress",
+          "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1438",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-28T10:04Z momentum accumulation remains queued behind active validation evidence: t091003z PID 2437999 running, finalStatus=unknown, no training report yet; latest Loop A still reports insufficient_sample_high_variance.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19601,7 +19617,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
+          "evidence": "2026-05-28T10:04Z reward reweight remains decision-only: #1475 Grafana proof is merged, but active t091003z has not produced trusted scorecard/gradient evidence yet. No reward change is authorized from prose.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19615,24 +19631,6 @@
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1396",
           "visionLayer": "enemy kills"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-28T04:36Z Loop A still reports P1 NO_EXPERIMENT_CARD for standalone fallback; per-run t034503z experiment_card.json exists but does not replace standalone fallback artifact. Queued, not dispatched, because active t034503z is the current RL lane.",
-          "kind": "ops",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 1438,
-          "priority": "P1",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "Ready",
-          "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1438",
-          "visionLayer": "foundation blocker"
         },
         {
           "domain": "RL flywheel",
@@ -20339,7 +20337,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-25: conclusion registry process operational; conclusion 158 moved ACTIONED with linked issue/PR evidence.",
+          "evidence": "2026-05-28T10:28Z: closed ledger-foundation issue received registry evidence comment 4563130793; live execution remains tracked under #879/#1032/#1233/#1337/#1438.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -20514,6 +20512,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1194",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-28T09:44Z completed: PR #1475 merged 546abaf7; actual Grafana container reachable on 127.0.0.1:3000; validator PASS static+live, 38 checks, 0 errors/warnings; proof artifacts runtime-artifacts/rl-grafana/grafana-proof-20260528T094327Z.json and grafana-validate-20260528T094327Z.json.",
+          "kind": "ops",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1474,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Reconcile RL Grafana dashboard false-Done acceptance gap",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1474",
           "visionLayer": "foundation blocker"
         },
         {
@@ -21234,6 +21250,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1448",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-28T09:44Z merged PR #1475 at 546abaf7 after final gate: elapsed 69m, exact head 6b306039, checks green, CodeRabbit SUCCESS/approved, threads [], Project verified.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1475,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "fix(rl): add Grafana metrics contract",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1475",
           "visionLayer": "foundation blocker"
         },
         {
@@ -26107,26 +26141,7 @@
               "status": "Backlog"
             },
             {
-              "cards": [
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "2026-05-28 scheduler pre-run cron registry check PASS; latest Gameplay Review c7b3dda8f1ac produced non-empty report. Keep ready only for recurrence/last_status audit.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 1465,
-                  "priority": "P0",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P0: Repair empty-response failures in active Screeps cron jobs",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1465",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "Ready"
             },
             {
@@ -26134,7 +26149,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:00Z state audit repaired stale #1456 active-process evidence into PR #1472 and refreshed runtime/RL Project fields; open PR backlog now only #1472.",
+                  "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26152,7 +26167,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:00Z no foreground CI/CodeRabbit/elapsed wait used; controller verifier ran as bounded background proc_[redacted] and completed; PR #1472 left to next scheduler gate.",
+                  "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26170,7 +26185,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
+                  "evidence": "2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/2026-05-28_17-35-28.md had full issueification table; all P0/P1 items mapped to #879/#906/#907/#924/#1028/#1032/#1191/#1233/#1318/#1337/#1438/#1465/#1474/#1475; no new missing P0/P1 issue found. #1465 closed after live recovery verification.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26183,25 +26198,6 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1028",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "createdAt": "2026-05-28T04:41:16Z",
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "docs",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 1473,
-                  "priority": "P1",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "In progress",
-                  "title": "chore(roadmap): refresh Pages artifacts",
-                  "type": "PullRequest",
-                  "updatedAt": "2026-05-28T04:49:29Z",
-                  "url": "https://github.com/lanyusea/screeps/pull/1473",
                   "visionLayer": "foundation blocker"
                 }
               ],
@@ -26517,6 +26513,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1108",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T09:59Z live cron registry verified 75cedbb77150, 1df5ef0c3835, and c7b3dda8f1ac recovered to last_status=ok/no delivery errors; latest runtime-alert final response is [SILENT]; latest Gameplay Review has full non-empty response; registry check PASS (16 recurring + ignored one-shot). Issue closed completed.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1465,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1465",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -27291,6 +27305,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1454",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "docs",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1473,
+                  "priority": "P1",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1473",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -35492,11 +35524,15 @@
               "status": "Ready"
             },
             {
+              "cards": [],
+              "status": "In progress"
+            },
+            {
               "cards": [
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T03:55Z fresh scheduler monitor healthy across E29N55/E29N57/E29N56; alert=false; no construction sites or hostiles. Bootstrap/model validation remains active.",
+                  "evidence": "",
                   "kind": "ops",
                   "lane": "Territory/Economy",
                   "nextAction": "",
@@ -35504,18 +35540,33 @@
                   "priority": "P1",
                   "projectDomain": "Territory/Economy",
                   "state": "",
-                  "status": "In progress",
+                  "status": "In review",
                   "title": "P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-intent deploy",
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1318",
                   "visionLayer": "territory"
+                },
+                {
+                  "createdAt": "2026-05-28T10:08:46Z",
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T10:09Z PR #1476 opened for #1318 at head 56b5d729. Codex-authored commit verified by controller: git diff --check, npm run typecheck, npm test -- --runInBand (103 suites/2066 tests), npm run build. Files: prod strategy/territory source/tests and dist/main.js.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 1476,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "In review",
+                  "title": "fix(gameplay): suppress stale owned-room scout recommendations",
+                  "type": "PullRequest",
+                  "updatedAt": "2026-05-28T10:17:06Z",
+                  "url": "https://github.com/lanyusea/screeps/pull/1476",
+                  "visionLayer": "territory"
                 }
               ],
-              "status": "In progress"
-            },
-            {
-              "cards": [],
               "status": "In review"
             },
             {
@@ -39831,7 +39882,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
+                  "evidence": "2026-05-28T10:04Z momentum accumulation remains queued behind active validation evidence: t091003z PID 2437999 running, finalStatus=unknown, no training report yet; latest Loop A still reports insufficient_sample_high_variance.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39849,7 +39900,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
+                  "evidence": "2026-05-28T10:04Z reward reweight remains decision-only: #1475 Grafana proof is merged, but active t091003z has not produced trusted scorecard/gradient evidence yet. No reward change is authorized from prose.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39863,24 +39914,6 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1396",
                   "visionLayer": "enemy kills"
-                },
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-28T04:36Z Loop A still reports P1 NO_EXPERIMENT_CARD for standalone fallback; per-run t034503z experiment_card.json exists but does not replace standalone fallback artifact. Queued, not dispatched, because active t034503z is the current RL lane.",
-                  "kind": "ops",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 1438,
-                  "priority": "P1",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1438",
-                  "visionLayer": "foundation blocker"
                 }
               ],
               "status": "Ready"
@@ -39890,7 +39923,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc. Active Tencent t034503z pid 2321703/ssh child 2322122 is still running on worker ins-fdh3tp50; strict known-host path succeeded; no duplicate compute.",
+                  "evidence": "2026-05-28T10:28Z: t091003z smoke complete but gradients untrusted; standalone card refreshed/validated; active t102503z pid2465215, ASG 1/1/1. Comment 4563130652.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39908,7 +39941,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:36Z compute cadence active under guard: preflight ok, billing guard OK (~$0.72/$50), ASG desired=1 with t034503z running; PR #1472 merged hardening for host-key recurrence.",
+                  "evidence": "2026-05-28T10:28Z: ASG asg-csw592ro desired/in-service/instance=1/1/1 for active t102503z; billing guard OK. Comment 4563131129.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39944,8 +39977,8 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:36Z #1456 hardening merged. t034503z is active smoke-class: planned 25 env rows / 50k ticks, below validation threshold (>=200 env rows AND >=200k ticks); controller finalStatus=unknown.",
-                  "kind": "code",
+                  "evidence": "2026-05-28T10:28Z: t091003z all comparisons gradientStable=false/highVariance=true/trustedGradientUpdate=false; active t102503z collecting more evidence. Comment 4563131344.",
+                  "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
                   "number": 1337,
@@ -39962,7 +39995,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T04:36Z scale-first path active but not complete: t034503z running on worker ins-fdh3tp50; controller summary still partial/finalStatus unknown; smoke-class evidence only.",
+                  "evidence": "2026-05-28T10:28Z: smoke t091003z proved compute but not trusted gradients; t102503z active with safe internal card. Comment 4563130954.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39975,6 +40008,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1032",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T10:28Z: regenerated/validated standalone card runtime-artifacts/rl-experiment-cards/experiment_card.json from gate e1-gate-20260528T091220Z dataset rl-8b37e67a811b; select ok. Comment 4563131480.",
+                  "kind": "ops",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1438,
+                  "priority": "P1",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "In progress",
+                  "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1438",
                   "visionLayer": "foundation blocker"
                 }
               ],
@@ -40655,7 +40706,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-25: conclusion registry process operational; conclusion 158 moved ACTIONED with linked issue/PR evidence.",
+                  "evidence": "2026-05-28T10:28Z: closed ledger-foundation issue received registry evidence comment 4563130793; live execution remains tracked under #879/#1032/#1233/#1337/#1438.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40830,6 +40881,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1194",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T09:44Z completed: PR #1475 merged 546abaf7; actual Grafana container reachable on 127.0.0.1:3000; validator PASS static+live, 38 checks, 0 errors/warnings; proof artifacts runtime-artifacts/rl-grafana/grafana-proof-20260528T094327Z.json and grafana-validate-20260528T094327Z.json.",
+                  "kind": "ops",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1474,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Reconcile RL Grafana dashboard false-Done acceptance gap",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1474",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -41550,6 +41619,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1448",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T09:44Z merged PR #1475 at 546abaf7 after final gate: elapsed 69m, exact head 6b306039, checks green, CodeRabbit SUCCESS/approved, threads [], Project verified.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1475,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix(rl): add Grafana metrics contract",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1475",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -45784,7 +45871,7 @@
       {
         "instrumented": true,
         "label": "Open roadmap issues",
-        "value": 15
+        "value": 14
       },
       {
         "instrumented": true,
@@ -45794,22 +45881,22 @@
       {
         "instrumented": true,
         "label": "Blocked cards",
-        "value": 32
+        "value": 34
       },
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 1431
+        "value": 1434
       },
       {
         "instrumented": true,
         "label": "In progress",
-        "value": 10
+        "value": 9
       },
       {
         "instrumented": true,
         "label": "In review",
-        "value": 0
+        "value": 2
       }
     ],
     "projectItems": [
@@ -63689,7 +63776,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc. Active Tencent t034503z pid 2321703/ssh child 2322122 is still running on worker ins-fdh3tp50; strict known-host path succeeded; no duplicate compute.",
+        "evidence": "2026-05-28T10:28Z: t091003z smoke complete but gradients untrusted; standalone card refreshed/validated; active t102503z pid2465215, ASG 1/1/1. Comment 4563130652.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -63991,7 +64078,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-25: conclusion registry process operational; conclusion 158 moved ACTIONED with linked issue/PR evidence.",
+        "evidence": "2026-05-28T10:28Z: closed ledger-foundation issue received registry evidence comment 4563130793; live execution remains tracked under #879/#1032/#1233/#1337/#1438.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -66908,7 +66995,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
+        "evidence": "2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/2026-05-28_17-35-28.md had full issueification table; all P0/P1 items mapped to #879/#906/#907/#924/#1028/#1032/#1191/#1233/#1318/#1337/#1438/#1465/#1474/#1475; no new missing P0/P1 issue found. #1465 closed after live recovery verification.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -67006,7 +67093,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z scale-first path active but not complete: t034503z running on worker ins-fdh3tp50; controller summary still partial/finalStatus unknown; smoke-class evidence only.",
+        "evidence": "2026-05-28T10:28Z: smoke t091003z proved compute but not trusted gradients; t102503z active with safe internal card. Comment 4563130954.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -69258,7 +69345,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:00Z no foreground CI/CodeRabbit/elapsed wait used; controller verifier ran as bounded background proc_[redacted] and completed; PR #1472 left to next scheduler gate.",
+        "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -70485,7 +70572,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:00Z state audit repaired stale #1456 active-process evidence into PR #1472 and refreshed runtime/RL Project fields; open PR backlog now only #1472.",
+        "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -71394,7 +71481,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z compute cadence active under guard: preflight ok, billing guard OK (~$0.72/$50), ASG desired=1 with t034503z running; PR #1472 merged hardening for host-key recurrence.",
+        "evidence": "2026-05-28T10:28Z: ASG asg-csw592ro desired/in-service/instance=1/1/1 for active t102503z; billing guard OK. Comment 4563131129.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -73264,7 +73351,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "2026-05-28T03:55Z fresh scheduler monitor healthy across E29N55/E29N57/E29N56; alert=false; no construction sites or hostiles. Bootstrap/model validation remains active.",
+        "evidence": "",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -73278,7 +73365,7 @@
         "priority": "P1",
         "projectDomain": "Territory/Economy",
         "state": "",
-        "status": "In progress",
+        "status": "In review",
         "title": "P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-intent deploy",
         "type": "Issue",
         "updatedAt": "",
@@ -73693,8 +73780,8 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z #1456 hardening merged. t034503z is active smoke-class: planned 25 env rows / 50k ticks, below validation threshold (>=200 env rows AND >=200k ticks); controller finalStatus=unknown.",
-        "kind": "code",
+        "evidence": "2026-05-28T10:28Z: t091003z all comparisons gradientStable=false/highVariance=true/trustedGradientUpdate=false; active t102503z collecting more evidence. Comment 4563131344.",
+        "kind": "ops",
         "labels": [
           "blocked",
           "kind:code",
@@ -74082,7 +74169,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
+        "evidence": "2026-05-28T10:04Z momentum accumulation remains queued behind active validation evidence: t091003z PID 2437999 running, finalStatus=unknown, no training report yet; latest Loop A still reports insufficient_sample_high_variance.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -74916,7 +75003,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
+        "evidence": "2026-05-28T10:04Z reward reweight remains decision-only: #1475 Grafana proof is merged, but active t091003z has not produced trusted scorecard/gradient evidence yet. No reward change is authorized from prose.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -75799,9 +75886,10 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z Loop A still reports P1 NO_EXPERIMENT_CARD for standalone fallback; per-run t034503z experiment_card.json exists but does not replace standalone fallback artifact. Queued, not dispatched, because active t034503z is the current RL lane.",
+        "evidence": "2026-05-28T10:28Z: regenerated/validated standalone card runtime-artifacts/rl-experiment-cards/experiment_card.json from gate e1-gate-20260528T091220Z dataset rl-8b37e67a811b; select ok. Comment 4563131480.",
         "kind": "ops",
         "labels": [
+          "blocked",
           "kind:ops",
           "priority:p1",
           "roadmap",
@@ -75813,7 +75901,7 @@
         "priority": "P1",
         "projectDomain": "RL flywheel",
         "state": "",
-        "status": "Ready",
+        "status": "In progress",
         "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
         "type": "Issue",
         "updatedAt": "",
@@ -76380,7 +76468,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28 scheduler pre-run cron registry check PASS; latest Gameplay Review c7b3dda8f1ac produced non-empty report. Keep ready only for recurrence/last_status audit.",
+        "evidence": "2026-05-28T09:59Z live cron registry verified 75cedbb77150, 1df5ef0c3835, and c7b3dda8f1ac recovered to last_status=ok/no delivery errors; latest runtime-alert final response is [SILENT]; latest Gameplay Review has full non-empty response; registry check PASS (16 recurring + ignored one-shot). Issue closed completed.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -76394,7 +76482,7 @@
         "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "Ready",
+        "status": "Done",
         "title": "P0: Repair empty-response failures in active Screeps cron jobs",
         "type": "Issue",
         "updatedAt": "",
@@ -76558,18 +76646,80 @@
         "priority": "P1",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "In progress",
+        "status": "Done",
         "title": "chore(roadmap): refresh Pages artifacts",
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/1473"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-28T09:44Z completed: PR #1475 merged 546abaf7; actual Grafana container reachable on 127.0.0.1:3000; validator PASS static+live, 38 checks, 0 errors/warnings; proof artifacts runtime-artifacts/rl-grafana/grafana-proof-20260528T094327Z.json and grafana-validate-20260528T094327Z.json.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1474,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "P0: Reconcile RL Grafana dashboard false-Done acceptance gap",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1474"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-28T09:44Z merged PR #1475 at 546abaf7 after final gate: elapsed 69m, exact head 6b306039, checks green, CodeRabbit SUCCESS/approved, threads [], Project verified.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1475,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "fix(rl): add Grafana metrics contract",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1475"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-05-28T10:09Z PR #1476 opened for #1318 at head 56b5d729. Codex-authored commit verified by controller: git diff --check, npm run typecheck, npm test -- --runInBand (103 suites/2066 tests), npm run build. Files: prod strategy/territory source/tests and dist/main.js.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1476,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "In review",
+        "title": "fix(gameplay): suppress stale owned-room scout recommendations",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1476"
       }
     ],
     "projectItemsCompleteness": {
       "complete": true,
       "limit": 2000,
-      "returnedCount": 1431,
-      "totalCount": 1431
+      "returnedCount": 1434,
+      "totalCount": 1434
     },
     "projectItemsSource": "live",
     "pullRequests": [
@@ -76580,29 +76730,29 @@
           "success": 4,
           "total": 4
         },
-        "createdAt": "2026-05-28T04:41:16Z",
+        "createdAt": "2026-05-28T10:08:46Z",
         "domain": "Bot capability",
         "domainSource": "heuristic",
         "isDraft": false,
         "kind": "code",
         "labels": [],
         "milestone": "",
-        "number": 1473,
+        "number": 1476,
         "priority": "P1",
         "reviewDecision": "CHANGES_REQUESTED",
         "state": "OPEN",
         "status": "In review",
-        "title": "chore(roadmap): refresh Pages artifacts",
+        "title": "fix(gameplay): suppress stale owned-room scout recommendations",
         "type": "PullRequest",
-        "updatedAt": "2026-05-28T04:49:29Z",
-        "url": "https://github.com/lanyusea/screeps/pull/1473"
+        "updatedAt": "2026-05-28T10:17:06Z",
+        "url": "https://github.com/lanyusea/screeps/pull/1476"
       }
     ],
     "roadmapCards": [
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:00Z state audit repaired stale #1456 active-process evidence into PR #1472 and refreshed runtime/RL Project fields; open PR backlog now only #1472.",
+        "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1191,
@@ -76617,7 +76767,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc. Active Tencent t034503z pid 2321703/ssh child 2322122 is still running on worker ins-fdh3tp50; strict known-host path succeeded; no duplicate compute.",
+        "evidence": "2026-05-28T10:28Z: t091003z smoke complete but gradients untrusted; standalone card refreshed/validated; active t102503z pid2465215, ASG 1/1/1. Comment 4563130652.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 879,
@@ -76632,7 +76782,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:00Z no foreground CI/CodeRabbit/elapsed wait used; controller verifier ran as bounded background proc_[redacted] and completed; PR #1472 left to next scheduler gate.",
+        "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1135,
@@ -76647,7 +76797,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
+        "evidence": "2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/2026-05-28_17-35-28.md had full issueification table; all P0/P1 items mapped to #879/#906/#907/#924/#1028/#1032/#1191/#1233/#1318/#1337/#1438/#1465/#1474/#1475; no new missing P0/P1 issue found. #1465 closed after live recovery verification.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1028,
@@ -76662,7 +76812,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z compute cadence active under guard: preflight ok, billing guard OK (~$0.72/$50), ASG desired=1 with t034503z running; PR #1472 merged hardening for host-key recurrence.",
+        "evidence": "2026-05-28T10:28Z: ASG asg-csw592ro desired/in-service/instance=1/1/1 for active t102503z; billing guard OK. Comment 4563131129.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1233,
@@ -76692,7 +76842,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z #1456 hardening merged. t034503z is active smoke-class: planned 25 env rows / 50k ticks, below validation threshold (>=200 env rows AND >=200k ticks); controller finalStatus=unknown.",
+        "evidence": "2026-05-28T10:28Z: t091003z all comparisons gradientStable=false/highVariance=true/trustedGradientUpdate=false; active t102503z collecting more evidence. Comment 4563131344.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1337,
@@ -76707,7 +76857,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T04:36Z scale-first path active but not complete: t034503z running on worker ins-fdh3tp50; controller summary still partial/finalStatus unknown; smoke-class evidence only.",
+        "evidence": "2026-05-28T10:28Z: smoke t091003z proved compute but not trusted gradients; t102503z active with safe internal card. Comment 4563130954.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1032,
@@ -76717,21 +76867,6 @@
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1032",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "2026-05-28 scheduler pre-run cron registry check PASS; latest Gameplay Review c7b3dda8f1ac produced non-empty report. Keep ready only for recurrence/last_status audit.",
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "nextAction": "",
-        "number": 1465,
-        "priority": "P0",
-        "projectDomain": "Agent OS",
-        "status": "Ready",
-        "title": "P0: Repair empty-response failures in active Screeps cron jobs",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1465",
         "visionLayer": "foundation blocker"
       },
       {
@@ -76778,6 +76913,21 @@
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1461",
         "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-05-18T16:28Z audit repair: closed duplicate PM-defect issue #1192 was intentionally closed as duplicate of canonical #1191; added to Project Done so closed issue state no longer lacks Done status.",
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 1192,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "status": "Done",
+        "title": "Agent OS: convert prose-only P0/P1 action items from recent cron outputs to tracked issues",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1192",
+        "visionLayer": "foundation blocker"
       }
     ],
     "seededFallbackIssueCount": 0,
@@ -76795,37 +76945,53 @@
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Owned room count in the latest runtime KPI window.",
-            "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "details": {
+              "gained": [],
+              "latest": [
+                "E29N55",
+                "E29N56",
+                "E29N57"
+              ],
+              "lost": []
+            },
+            "formattedValue": "3",
+            "instrumented": true,
             "key": "owned_rooms",
             "label": "Owned rooms",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary rooms",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "rooms",
-            "value": null
+            "value": 3
           },
           {
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Net owned-room gain or loss across the runtime KPI window.",
-            "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "details": {
+              "gained": [],
+              "latest": [
+                "E29N55",
+                "E29N56",
+                "E29N57"
+              ],
+              "lost": []
+            },
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "owned_room_delta",
             "label": "Owned-room delta",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary rooms",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "rooms/window",
-            "value": null
+            "value": 0
           },
           {
             "category": "territory",
@@ -76850,36 +77016,36 @@
             "categoryLabel": "Territory",
             "description": "Sum of latest room controller levels.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "11",
+            "instrumented": true,
             "key": "controller_level_sum",
             "label": "Controller level sum",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 40,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "RCL",
-            "value": null
+            "value": 11
           },
           {
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Total controller progress movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "controller_progress_delta",
             "label": "Controller progress delta",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 50,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "progress/window",
-            "value": null
+            "value": 0
           }
         ]
       },
@@ -76893,98 +77059,98 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "61810",
+            "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 61810
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Stored energy movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "stored_energy_delta",
             "label": "Stored-energy delta",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy/window",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Energy currently carried by workers.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "2651",
+            "instrumented": true,
             "key": "worker_carried_energy",
             "label": "Worker carried energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 30,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 2651
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Visible dropped energy in owned rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "dropped_energy",
             "label": "Dropped energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 40,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Visible source count in currently observed owned rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "4",
+            "instrumented": true,
             "key": "source_count",
             "label": "Source count",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 50,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "sources",
-            "value": null
+            "value": 4
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Energy harvested from runtime event totals when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "harvested_energy",
             "label": "Harvested energy",
             "layer": "resources",
@@ -76992,7 +77158,7 @@
             "observed": false,
             "priority": 60,
             "source": "runtime-summary resource events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "energy/window",
             "value": null
           },
@@ -77001,8 +77167,8 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy transferred from runtime event totals when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "transferred_energy",
             "label": "Transferred energy",
             "layer": "resources",
@@ -77010,7 +77176,7 @@
             "observed": false,
             "priority": 70,
             "source": "runtime-summary resource events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "energy/window",
             "value": null
           },
@@ -77062,44 +77228,44 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Latest hostile creep count in observed rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "hostile_creeps",
             "label": "Hostile creeps",
             "layer": "enemy kills",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary combat fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "creeps",
-            "value": null
+            "value": 0
           },
           {
             "category": "combat",
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Latest hostile structure count in observed rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "hostile_structures",
             "label": "Hostile structures",
             "layer": "enemy kills",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary combat fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "structures",
-            "value": null
+            "value": 0
           },
           {
             "category": "combat",
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Attack event total across the runtime KPI window when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "attack_count",
             "label": "Attack events",
             "layer": "enemy kills",
@@ -77107,7 +77273,7 @@
             "observed": false,
             "priority": 30,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "events/window",
             "value": null
           },
@@ -77116,8 +77282,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Attack damage total across the runtime KPI window when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "attack_damage",
             "label": "Attack damage",
             "layer": "enemy kills",
@@ -77125,7 +77291,7 @@
             "observed": false,
             "priority": 40,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "damage/window",
             "value": null
           },
@@ -77134,8 +77300,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Generic destroyed-object event total; this is not enemy-kill proof.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "objects_destroyed",
             "label": "Objects destroyed",
             "layer": "enemy kills",
@@ -77143,7 +77309,7 @@
             "observed": false,
             "priority": 50,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "objects/window",
             "value": null
           },
@@ -77152,8 +77318,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Generic destroyed-creep event total; this can include own losses.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "creeps_destroyed_generic",
             "label": "Creeps destroyed, generic",
             "layer": "enemy kills",
@@ -77161,7 +77327,7 @@
             "observed": false,
             "priority": 60,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "creeps/window",
             "value": null
           },
@@ -77215,7 +77381,7 @@
             "categoryLabel": "Guardrails / Reliability",
             "description": "Runtime-summary lines found by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "0",
+            "formattedValue": "1",
             "instrumented": true,
             "key": "runtime_summary_samples",
             "label": "Runtime summary samples",
@@ -77226,14 +77392,14 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "samples",
-            "value": 0
+            "value": 1
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Files matched by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "0",
+            "formattedValue": "1",
             "instrumented": true,
             "key": "kpi_artifact_files",
             "label": "KPI artifact files",
@@ -77244,15 +77410,15 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "files",
-            "value": 0
+            "value": 1
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Minimum ticks-to-downgrade among observed controllers.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "controller_downgrade_min_ticks",
             "label": "Downgrade risk",
             "layer": "guardrails",
@@ -77260,7 +77426,7 @@
             "observed": false,
             "priority": 30,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "ticks",
             "value": null
           },
@@ -77559,6 +77725,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -77706,6 +77900,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -77857,6 +78079,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -78004,6 +78254,34 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
         }
@@ -78155,6 +78433,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -78304,6 +78610,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 11.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 11.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 11
         }
       ],
       "controller_progress_delta": [
@@ -78453,6 +78787,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "cpu_bucket": [
@@ -78600,6 +78962,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -78751,6 +79141,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -78898,6 +79316,34 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
         }
@@ -79049,6 +79495,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "enemy_kills": [
@@ -79196,6 +79670,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -79347,6 +79849,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -79494,6 +80024,34 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
         }
@@ -79645,6 +80203,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "hostile_structures": [
@@ -79794,6 +80380,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "kpi_artifact_files": [
@@ -79943,6 +80557,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "objects_destroyed": [
@@ -80090,6 +80732,34 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not observed",
           "value": null
         }
@@ -80241,6 +80911,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -80390,6 +81088,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "owned_rooms": [
@@ -80539,6 +81265,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 3.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 3.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 3
         }
       ],
       "reserved_remote_rooms": [
@@ -80686,6 +81440,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -80837,6 +81619,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -80986,6 +81796,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 1
         }
       ],
       "source_count": [
@@ -81135,6 +81973,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 4.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 4.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 4
         }
       ],
       "spawn_queue_pressure": [
@@ -81282,6 +82148,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -81433,6 +82327,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -81582,6 +82504,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 48560.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 61810.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 61810
         }
       ],
       "stored_energy_delta": [
@@ -81731,6 +82681,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 0
         }
       ],
       "telemetry_silence_minutes": [
@@ -81878,6 +82856,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-28T04:40:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
           "status": "not instrumented",
           "value": null
         }
@@ -82029,6 +83035,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not observed",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -82178,6 +83212,34 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "observed",
           "value": 1949.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "observed",
+          "value": 2651.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "observed",
+          "value": 2651
         }
       ],
       "worker_recovery_state": [
@@ -82327,26 +83389,58 @@
           "sampledAt": "2026-05-28T04:40:20Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "reducerSchemaVersion": 1,
+          "sampledAt": "2026-05-28T10:34:20Z",
+          "scope": {
+            "observedRooms": [
+              "E29N55",
+              "E29N56",
+              "E29N57"
+            ],
+            "targetRoom": "E29N55",
+            "targetShard": "shardX",
+            "targetStatus": "official target",
+            "targetWorld": "persistent",
+            "worldId": "persistent"
+          },
+          "sourceKind": "runtime-summary-artifact",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     },
     "historySource": {
       "runtimeArtifacts": {
-        "dailyBucketDays": 0,
+        "dailyBucketDays": 1,
         "inputPaths": [
           "runtime-artifacts"
         ],
-        "matchedFiles": 0,
-        "message": "No timestamped runtime-summary artifacts were available for the visible KPI window.",
-        "runtimeSummaryLines": 0,
-        "scannedFiles": 0,
-        "selectedRuntimeSummaryLines": 0,
-        "skippedFileCount": 1,
-        "status": "unavailable",
+        "matchedFiles": 1,
+        "message": "Derived 1/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
+        "runtimeSummaryLines": 1,
+        "scannedFiles": 8,
+        "selectedRuntimeSummaryLines": 1,
+        "skippedFileCount": 0,
+        "status": "observed",
         "untimestampedRuntimeSummaryLines": 0,
         "worldId": "persistent",
-        "worldIdCounts": {},
-        "worldIdStatusCounts": {}
+        "worldIdCounts": {
+          "persistent": 1
+        },
+        "worldIdStatusCounts": {
+          "fallback": 1
+        }
       },
       "sqlite": {
         "coldStart": false,
@@ -82363,14 +83457,14 @@
     "projectUrl": "https://github.com/users/lanyusea/projects/3",
     "screepsRoom": {
       "label": "shardX/E29N55",
-      "message": "Target room from SCREEPS_SHARD and SCREEPS_ROOM with the AGENTS.md official target as fallback.",
+      "message": "Target room from the AGENTS.md official deployment target.",
       "room": "E29N55",
       "shard": "shardX",
       "sources": {
-        "room": "environment",
-        "shard": "environment"
+        "room": "AGENTS.md official target",
+        "shard": "AGENTS.md official target"
       },
-      "status": "configured",
+      "status": "official target",
       "url": "https://screeps.com/a/#!/room/shardX/E29N55"
     },
     "url": "https://github.com/lanyusea/screeps"
@@ -82381,7 +83475,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new R...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/2026-05-28_17-35-28....",
             "domain": "Agent OS",
             "number": 1028,
             "priority": "P0",
@@ -82390,7 +83484,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1028"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T04:00Z no foreground CI/CodeRabbit/elapsed wait used; controller verifier...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreg...",
             "domain": "Agent OS",
             "number": 1135,
             "priority": "P0",
@@ -82399,22 +83493,13 @@
             "url": "https://github.com/lanyusea/screeps/issues/1135"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T04:00Z state audit repaired stale #1456 active-process evidence into PR #...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure...",
             "domain": "Agent OS",
             "number": 1191,
             "priority": "P0",
             "status": "In progress",
             "title": "#1191 Agent OS PM defect: convert prose-only P0/P1 actions into track...",
             "url": "https://github.com/lanyusea/screeps/issues/1191"
-          },
-          {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T04:49:29Z chore(roadmap): refresh Pages artifacts",
-            "domain": "Agent OS",
-            "number": 1473,
-            "priority": "P1",
-            "status": "In progress",
-            "title": "#1473 chore(roadmap): refresh Pages artifacts",
-            "url": "https://github.com/lanyusea/screeps/pull/1473"
           }
         ],
         "title": "Agent OS"
@@ -82442,13 +83527,22 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 Territory/Economy \u00b7 2026-05-28T03:55Z fresh scheduler monitor healthy across E29N55/E29N57/E29N...",
+            "description": "In review \u00b7 Territory/Economy \u00b7 2026-05-28T08:55:08Z P1: Validate E29N56/E29N57 multi-room bootstrap after re...",
             "domain": "Territory/Economy",
             "number": 1318,
             "priority": "P1",
-            "status": "In progress",
+            "status": "In review",
             "title": "#1318 P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-i...",
             "url": "https://github.com/lanyusea/screeps/issues/1318"
+          },
+          {
+            "description": "In review \u00b7 Territory/Economy \u00b7 2026-05-28T10:09Z PR #1476 opened for #1318 at head 56b5d729. Codex-authored...",
+            "domain": "Territory/Economy",
+            "number": 1476,
+            "priority": "P1",
+            "status": "In review",
+            "title": "#1476 fix(gameplay): suppress stale owned-room scout recommendations",
+            "url": "https://github.com/lanyusea/screeps/pull/1476"
           }
         ],
         "title": "Territory/Economy"
@@ -82460,7 +83554,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc. Active Tencent...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T10:28Z: t091003z smoke complete but gradients untrusted; standalone ca...",
             "domain": "RL flywheel",
             "number": 879,
             "priority": "P0",
@@ -82469,7 +83563,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/879"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T04:36Z scale-first path active but not complete: t034503z running on w...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T10:28Z: smoke t091003z proved compute but not trusted gradients; t1025...",
             "domain": "RL flywheel",
             "number": 1032,
             "priority": "P0",
@@ -82478,7 +83572,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1032"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T04:36Z compute cadence active under guard: preflight ok, billing guard...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T10:28Z: ASG asg-csw592ro desired/in-service/instance=1/1/1 for active...",
             "domain": "RL flywheel",
             "number": 1233,
             "priority": "P0",
@@ -82531,21 +83625,25 @@
           "observedDays": 7,
           "source": {
             "runtimeArtifacts": {
-              "dailyBucketDays": 0,
+              "dailyBucketDays": 1,
               "inputPaths": [
                 "runtime-artifacts"
               ],
-              "matchedFiles": 0,
-              "message": "No timestamped runtime-summary artifacts were available for the visible KPI window.",
-              "runtimeSummaryLines": 0,
-              "scannedFiles": 0,
-              "selectedRuntimeSummaryLines": 0,
-              "skippedFileCount": 1,
-              "status": "unavailable",
+              "matchedFiles": 1,
+              "message": "Derived 1/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
+              "runtimeSummaryLines": 1,
+              "scannedFiles": 8,
+              "selectedRuntimeSummaryLines": 1,
+              "skippedFileCount": 0,
+              "status": "observed",
               "untimestampedRuntimeSummaryLines": 0,
               "worldId": "persistent",
-              "worldIdCounts": {},
-              "worldIdStatusCounts": {}
+              "worldIdCounts": {
+                "persistent": 1
+              },
+              "worldIdStatusCounts": {
+                "fallback": 1
+              }
             },
             "sqlite": {
               "coldStart": false,
@@ -82669,21 +83767,25 @@
           "observedDays": 7,
           "source": {
             "runtimeArtifacts": {
-              "dailyBucketDays": 0,
+              "dailyBucketDays": 1,
               "inputPaths": [
                 "runtime-artifacts"
               ],
-              "matchedFiles": 0,
-              "message": "No timestamped runtime-summary artifacts were available for the visible KPI window.",
-              "runtimeSummaryLines": 0,
-              "scannedFiles": 0,
-              "selectedRuntimeSummaryLines": 0,
-              "skippedFileCount": 1,
-              "status": "unavailable",
+              "matchedFiles": 1,
+              "message": "Derived 1/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
+              "runtimeSummaryLines": 1,
+              "scannedFiles": 8,
+              "selectedRuntimeSummaryLines": 1,
+              "skippedFileCount": 0,
+              "status": "observed",
               "untimestampedRuntimeSummaryLines": 0,
               "worldId": "persistent",
-              "worldIdCounts": {},
-              "worldIdStatusCounts": {}
+              "worldIdCounts": {
+                "persistent": 1
+              },
+              "worldIdStatusCounts": {
+                "fallback": 1
+              }
             },
             "sqlite": {
               "coldStart": false,
@@ -82696,7 +83798,7 @@
           "windowDays": 7
         },
         "key": "resources",
-        "max": 50000,
+        "max": 70000,
         "pill": "energy",
         "series": [
           {
@@ -82719,7 +83821,7 @@
               13516,
               12253,
               11903,
-              48560
+              61810
             ],
             "width": 2
           },
@@ -82768,7 +83870,7 @@
               1685,
               2152,
               1185,
-              1949
+              2651
             ],
             "width": 3
           }
@@ -82776,8 +83878,8 @@
         "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
         "ticks": [
           0,
-          25000.0,
-          50000
+          35000.0,
+          70000
         ],
         "title": "Resources"
       },
@@ -82807,21 +83909,25 @@
           "observedDays": 7,
           "source": {
             "runtimeArtifacts": {
-              "dailyBucketDays": 0,
+              "dailyBucketDays": 1,
               "inputPaths": [
                 "runtime-artifacts"
               ],
-              "matchedFiles": 0,
-              "message": "No timestamped runtime-summary artifacts were available for the visible KPI window.",
-              "runtimeSummaryLines": 0,
-              "scannedFiles": 0,
-              "selectedRuntimeSummaryLines": 0,
-              "skippedFileCount": 1,
-              "status": "unavailable",
+              "matchedFiles": 1,
+              "message": "Derived 1/7 daily KPI bucket(s) from persisted runtime-summary artifacts.",
+              "runtimeSummaryLines": 1,
+              "scannedFiles": 8,
+              "selectedRuntimeSummaryLines": 1,
+              "skippedFileCount": 0,
+              "status": "observed",
               "untimestampedRuntimeSummaryLines": 0,
               "worldId": "persistent",
-              "worldIdCounts": {},
-              "worldIdStatusCounts": {}
+              "worldIdCounts": {
+                "persistent": 1
+              },
+              "worldIdStatusCounts": {
+                "fallback": 1
+              }
             },
             "sqlite": {
               "coldStart": false,
@@ -82922,28 +84028,28 @@
     ],
     "processCards": [
       {
-        "delta": "+0",
+        "delta": "+1",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 862,
+        "rawValue": 863,
         "source": "git rev-list --count HEAD",
-        "value": 862
+        "value": 863
       },
       {
-        "delta": "+0",
-        "detail": "15 open",
+        "delta": "+1",
+        "detail": "14 open",
         "label": "Issues",
-        "rawValue": 715,
+        "rawValue": 716,
         "source": "github",
-        "value": 715
+        "value": 716
       },
       {
-        "delta": "+0",
-        "detail": "740 merged",
+        "delta": "+2",
+        "detail": "742 merged",
         "label": "PRs",
-        "rawValue": 758,
+        "rawValue": 760,
         "source": "github",
-        "value": 758
+        "value": 760
       },
       {
         "delta": "n/a",
@@ -82971,8 +84077,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T05:32:54Z",
-            "start": "2026-05-21T05:32:54Z"
+            "end": "2026-05-28T10:34:20Z",
+            "start": "2026-05-21T10:34:20Z"
           }
         },
         "source": "unavailable",
@@ -83004,16 +84110,16 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T05:32:54Z",
-            "start": "2026-05-21T05:32:54Z"
+            "end": "2026-05-28T10:34:20Z",
+            "start": "2026-05-21T10:34:20Z"
           }
         },
         "source": "unavailable",
         "value": "unavailable"
       },
       {
-        "delta": "no prior snapshot",
-        "detail": "1,182,878,241 total; latest token_count in 482/482 sessions in last 7d; local cache only",
+        "delta": "cached",
+        "detail": "1,182,878,241 total; latest token_count in 482/482 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Agent tokens",
         "provenance": {
           "candidateFiles": 3613,
@@ -83525,12 +84631,12 @@
           }
         },
         "rawValue": 1182878241,
-        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+        "source": "cached local cache",
         "value": "1.2B"
       },
       {
-        "delta": "no prior snapshot",
-        "detail": "summed first-to-last JSONL timestamps across 482/482 sessions in last 7d; local cache only",
+        "delta": "cached",
+        "detail": "summed first-to-last JSONL timestamps across 482/482 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Codex runtime",
         "provenance": {
           "candidateFiles": 3613,
@@ -84042,12 +85148,12 @@
           }
         },
         "rawValueSeconds": 145287,
-        "source": "",
+        "source": "cached local cache",
         "value": "1d 16h"
       },
       {
-        "delta": "no prior snapshot",
-        "detail": "rollout JSONL files counted as Codex runs in last 7d; local cache only",
+        "delta": "cached",
+        "detail": "rollout JSONL files counted as Codex runs in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Codex runs",
         "provenance": {
           "candidateFiles": 3613,
@@ -84559,12 +85665,12 @@
           }
         },
         "rawValue": 482,
-        "source": "",
+        "source": "cached local cache",
         "value": "482"
       },
       {
-        "delta": "-2",
-        "detail": "4,063 cron outputs across 16 jobs in last 7d; local cache only",
+        "delta": "cached",
+        "detail": "4,063 cron outputs across 16 jobs in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Cron runs",
         "provenance": {
           "candidateFiles": 15783,
@@ -88660,12 +89766,12 @@
           }
         },
         "rawValue": 4063,
-        "source": "repo-attributed local Hermes cron output cache",
+        "source": "cached local cache",
         "value": "4,063"
       },
       {
-        "delta": "no prior snapshot",
-        "detail": "maximum first-to-last JSONL timestamp span across 482/482 sessions in last 7d; local cache only",
+        "delta": "cached",
+        "detail": "maximum first-to-last JSONL timestamp span across 482/482 sessions in last 7d; local cache only \u00b7 cached from prior local cache snapshot; current refresh found no local cache evidence",
         "label": "Longest Codex run",
         "provenance": {
           "candidateFiles": 3613,
@@ -89177,19 +90283,19 @@
           }
         },
         "rawValueSeconds": 1550,
-        "source": "",
+        "source": "cached local cache",
         "value": "25m"
       }
     ],
     "roadmapCards": [
       {
-        "activeItems": 5,
+        "activeItems": 3,
         "domain": "Agent OS",
-        "doneItems": 78,
+        "doneItems": 80,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
-        "next": "Current: #1028 In progress - 2026-05-27T18:18Z latest Gameplay Review file had no generated r...",
-        "progress": 94,
-        "status": "83 Project items \u00b7 5 active \u00b7 78 done",
+        "next": "Current: #1028 In progress - 2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/...",
+        "progress": 96,
+        "status": "83 Project items \u00b7 3 active \u00b7 80 done",
         "title": "Agent OS",
         "totalItems": 83,
         "url": "https://github.com/lanyusea/screeps/issues/1028"
@@ -89255,15 +90361,15 @@
         "url": "https://github.com/lanyusea/screeps/issues/977"
       },
       {
-        "activeItems": 1,
+        "activeItems": 2,
         "domain": "Territory/Economy",
         "doneItems": 233,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
-        "next": "Current: #1318 In progress - 2026-05-28T03:55Z fresh scheduler monitor healthy across E29N55/...",
-        "progress": 100,
-        "status": "234 Project items \u00b7 1 active \u00b7 233 done",
+        "next": "Current: #1318 In review - P1: Validate E29N56/E29N57 multi-room bootstrap after reserve-inte...",
+        "progress": 99,
+        "status": "235 Project items \u00b7 2 active \u00b7 233 done",
         "title": "Territory/Economy",
-        "totalItems": 234,
+        "totalItems": 235,
         "url": "https://github.com/lanyusea/screeps/issues/1318"
       },
       {
@@ -89281,13 +90387,13 @@
       {
         "activeItems": 8,
         "domain": "RL flywheel",
-        "doneItems": 293,
+        "doneItems": 295,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
-        "next": "Current: #879 In progress - 2026-05-28T04:36Z PR #1472/#1456 merged+verified on main 0f4811cc...",
+        "next": "Current: #879 In progress - 2026-05-28T10:28Z: t091003z smoke complete but gradients untruste...",
         "progress": 97,
-        "status": "301 Project items \u00b7 8 active \u00b7 293 done",
+        "status": "303 Project items \u00b7 8 active \u00b7 295 done",
         "title": "RL flywheel",
-        "totalItems": 301,
+        "totalItems": 303,
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ]
@@ -89297,15 +90403,15 @@
       "inputPaths": [
         ""
       ],
-      "matchedFiles": 0,
+      "matchedFiles": 1,
       "reason": "",
-      "runtimeSummaryLines": 0,
-      "scannedFiles": 0,
-      "skippedFileCount": 1
+      "runtimeSummaryLines": 1,
+      "scannedFiles": 8,
+      "skippedFileCount": 0
     },
     "window": {
-      "firstTick": null,
-      "latestTick": null
+      "firstTick": 1483013,
+      "latestTick": 1483013
     }
   },
   "schemaVersion": 1,
