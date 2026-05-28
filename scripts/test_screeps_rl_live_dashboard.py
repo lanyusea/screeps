@@ -256,6 +256,7 @@ def make_unbound_live_server(
     server.summary_cache_dashboard_url = None
     server.summary_cache_until = 0.0
     server.summary_cache_generation = 0
+    server.active_refresh_token = None
     server.refresh_state = {
         "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
         "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
@@ -1901,6 +1902,31 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertFalse(first["refresh"]["refreshInProgress"])
         self.assertFalse(second["refresh"]["refreshInProgress"])
 
+    def test_finish_refresh_progress_ignores_stale_refresh_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            config = live.LiveDashboardConfig(repo_root=repo_root, artifact_root=artifact_root, db_path=db_path)
+            server = make_unbound_live_server(config)
+
+            first_token = server.mark_refresh_started("auto")
+            second_token = server.mark_refresh_started("manual")
+            second_started_at = server.refresh_snapshot()["activeRefreshStartedAt"]
+
+            server.finish_refresh_progress(refresh_token=first_token)
+            stale_finish = server.refresh_snapshot()
+            server.finish_refresh_progress(refresh_token=second_token)
+            final_finish = server.refresh_snapshot()
+
+        self.assertNotEqual(first_token, second_token)
+        self.assertTrue(stale_finish["refreshInProgress"])
+        self.assertEqual(stale_finish["activeRefreshStartedAt"], second_started_at)
+        self.assertEqual(stale_finish["activeRefreshReason"], "manual")
+        self.assertFalse(final_finish["refreshInProgress"])
+        self.assertIsNone(final_finish["activeRefreshStartedAt"])
+        self.assertIsNone(final_finish["activeRefreshReason"])
+
     def test_successful_refresh_keeps_primed_summary_cache_after_finishing(self) -> None:
         original_refresh_metrics = live.refresh_metrics
         original_build_live_summary = live.build_live_summary
@@ -1963,6 +1989,72 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertIsNone(summary["refresh"]["activeRefreshReason"])
         self.assertTrue(summary["refresh"]["lastRefreshOk"])
         self.assertEqual(summary["refresh"]["lastRefresh"]["files_scanned"], 7)
+
+    def test_failed_summary_priming_clears_refresh_progress_and_stale_cache(self) -> None:
+        original_refresh_metrics = live.refresh_metrics
+        original_build_live_summary = live.build_live_summary
+        primed_refreshes: list[JsonObject] = []
+
+        def successful_refresh_metrics(
+            db_path: Path,
+            artifact_root: Path,
+            paths: Any = None,
+            **_kwargs: Any,
+        ) -> JsonObject:
+            return {"ok": True, "files_scanned": 7}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            artifact_root = repo_root / "runtime-artifacts"
+            db_path = repo_root / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
+            config = live.LiveDashboardConfig(
+                repo_root=repo_root,
+                artifact_root=artifact_root,
+                db_path=db_path,
+                summary_cache_seconds=60,
+            )
+            server = make_unbound_live_server(config)
+
+            def failing_build_live_summary(*_args: Any, **kwargs: Any) -> JsonObject:
+                refresh = dict(kwargs.get("refresh") or {})
+                primed_refreshes.append(refresh)
+                with server.summary_lock:
+                    server.summary_cache = {
+                        "type": "screeps-rl-live-dashboard",
+                        "generatedAt": "stale-in-progress",
+                        "dashboardUrl": kwargs.get("dashboard_url"),
+                        "health": {"ok": True, "status": "ok", "failures": []},
+                        "db": {
+                            "exists": True,
+                            "schemaReady": True,
+                            "tables": {"metric_observations": 1},
+                            "latestObservedAt": "2026-05-18T10:09:00Z",
+                        },
+                        "refresh": refresh,
+                    }
+                    server.summary_cache_dashboard_url = str(kwargs.get("dashboard_url"))
+                    server.summary_cache_until = time.monotonic() + 60
+                raise RuntimeError("summary priming failed")
+
+            live.refresh_metrics = successful_refresh_metrics
+            live.build_live_summary = failing_build_live_summary
+            try:
+                refresh = server.run_refresh_cycle("manual")
+                snapshot = server.refresh_snapshot()
+                with server.summary_lock:
+                    cached_summary = server.summary_cache
+            finally:
+                live.refresh_metrics = original_refresh_metrics
+                live.build_live_summary = original_build_live_summary
+
+        self.assertTrue(refresh["ok"])
+        self.assertEqual(len(primed_refreshes), 1)
+        self.assertTrue(primed_refreshes[0]["refreshInProgress"])
+        self.assertEqual(primed_refreshes[0]["activeRefreshReason"], "manual summary")
+        self.assertFalse(snapshot["refreshInProgress"])
+        self.assertIsNone(snapshot["activeRefreshStartedAt"])
+        self.assertIsNone(snapshot["activeRefreshReason"])
+        self.assertIsNone(cached_summary)
 
     def test_live_acceptance_passes_running_service(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

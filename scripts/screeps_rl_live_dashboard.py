@@ -218,6 +218,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.summary_cache_dashboard_url: str | None = None
         self.summary_cache_until = 0.0
         self.summary_cache_generation = 0
+        self.active_refresh_token: str | None = None
         self.refresh_state: JsonObject = {
             "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
             "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
@@ -250,6 +251,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 self.refresh_state.get("activeRefreshStartedAt") if keep_in_progress else None
             )
             self.refresh_state["activeRefreshReason"] = active_reason if keep_in_progress else None
+            if not keep_in_progress:
+                self.active_refresh_token = None
             self.refresh_state["lastRefreshAt"] = timestamp
             self.refresh_state["lastRefreshOk"] = refresh_succeeded(refresh)
             self.refresh_state["lastRefresh"] = dashboard_json_safe(refresh, self.config.repo_root)
@@ -264,11 +267,14 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         with self.refresh_state_lock:
             return dict(self.refresh_state)
 
-    def finish_refresh_progress(self, *, preserve_summary: bool = False) -> None:
+    def finish_refresh_progress(self, *, refresh_token: str, preserve_summary: bool = False) -> None:
         with self.refresh_state_lock:
+            if getattr(self, "active_refresh_token", None) != refresh_token:
+                return
             self.refresh_state["refreshInProgress"] = False
             self.refresh_state["activeRefreshStartedAt"] = None
             self.refresh_state["activeRefreshReason"] = None
+            self.active_refresh_token = None
             refresh = dict(self.refresh_state)
         if preserve_summary:
             self.refresh_cached_summary_state(refresh)
@@ -277,6 +283,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
 
     def mark_refresh_started(self, reason: str) -> str:
         timestamp = utc_now_iso()
+        refresh_token = f"{timestamp}:{time.monotonic_ns()}"
         with self.refresh_state_lock:
             previous_refresh_ok = self.refresh_state.get("lastRefreshOk") is True and bool(
                 self.refresh_state.get("lastRefreshAt")
@@ -284,12 +291,13 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             self.refresh_state["refreshInProgress"] = True
             self.refresh_state["activeRefreshStartedAt"] = timestamp
             self.refresh_state["activeRefreshReason"] = reason
+            self.active_refresh_token = refresh_token
         self.invalidate_summary_cache(preserve_existing=previous_refresh_ok)
-        return timestamp
+        return refresh_token
 
     def run_refresh_cycle(self, reason: str) -> JsonObject:
         with self.refresh_lock:
-            self.mark_refresh_started(reason)
+            refresh_token = self.mark_refresh_started(reason)
             try:
                 refresh = refresh_metrics(
                     self.config.db_path,
@@ -309,9 +317,9 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 self.prime_summary_cache()
                 summary_primed = True
             except Exception:
-                self.invalidate_summary_cache()
+                summary_primed = False
             finally:
-                self.finish_refresh_progress(preserve_summary=summary_primed)
+                self.finish_refresh_progress(refresh_token=refresh_token, preserve_summary=summary_primed)
         return refresh
 
     def start_background_refresh(self, reason: str) -> threading.Thread:

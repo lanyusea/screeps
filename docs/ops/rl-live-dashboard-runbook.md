@@ -82,7 +82,7 @@ python3 scripts/screeps_rl_live_dashboard.py serve \
   --auto-refresh-seconds 300
 ```
 
-The live server precomputes and caches generated `/api/summary` and HTML summary data, invalidates that cache after each refresh, and bounds newest-artifact evidence scans. The default summary inspects the newest 25 files per targeted source group and exposes truncation metadata in `artifactEvidenceScan` plus `tencentBatch.truncated`, so capped scans are visible instead of silent. The standard local service therefore keeps health checks and summary reads fast while still refreshing SQLite on start and every 300 seconds while running.
+The live server precomputes and caches generated `/api/summary` and HTML summary data, preserves the last usable summary while a refresh is in progress, keeps the primed summary after a successful refresh, and invalidates the cache when refresh data changes without a usable primed summary. The default summary inspects the newest 25 files per targeted source group and exposes truncation metadata in `artifactEvidenceScan` plus `tencentBatch.truncated`, so capped scans are visible instead of silent. The standard local service therefore keeps health checks and summary reads fast while still refreshing SQLite on start and every 300 seconds while running.
 
 Trigger a local refresh through the running service only after starting it with `--enable-refresh-endpoint`:
 
