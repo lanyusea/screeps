@@ -186,6 +186,7 @@ type TerritoryCandidateSource =
   | 'satisfiedClaimAdjacent'
   | 'satisfiedReserveAdjacent'
   | 'activeReserveAdjacent'
+  | 'ownedAdjacent'
   | 'adjacent';
 
 interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
@@ -1552,6 +1553,15 @@ function selectTerritoryTarget(
           !hasBlockingConfiguredTarget,
           'adjacent',
           0,
+          routeDistanceLookupContext
+        ),
+        ...getVisibleOwnedRoomAdjacentReserveCandidates(
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          !hasBlockingConfiguredTarget,
           routeDistanceLookupContext
         ),
         ...getAdjacentFollowUpReserveCandidates(
@@ -3148,6 +3158,47 @@ function getActiveCoveredConfiguredReserveTargets(
   });
 }
 
+function getVisibleOwnedRoomAdjacentReserveCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  includeScoutCandidates: boolean,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  return getVisibleOwnedAdjacentScoutOriginRooms(colonyName, routeDistanceLookupContext).flatMap(
+    (originRoomName, index) =>
+      getAdjacentReserveCandidates(
+        colonyName,
+        originRoomName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        includeScoutCandidates,
+        'ownedAdjacent',
+        (index + 1) * EXIT_DIRECTION_ORDER.length,
+        routeDistanceLookupContext
+      ).filter((candidate) => candidate.intentAction === 'scout')
+  );
+}
+
+function getVisibleOwnedAdjacentScoutOriginRooms(
+  colonyName: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): string[] {
+  return getVisibleOwnedRoomNames(colonyName)
+    .filter((roomName) => roomName !== colonyName)
+    .sort(
+      (left, right) =>
+        compareOptionalNumbers(
+          getKnownRouteLength(colonyName, left, routeDistanceLookupContext) ?? undefined,
+          getKnownRouteLength(colonyName, right, routeDistanceLookupContext) ?? undefined
+        ) || left.localeCompare(right)
+    );
+}
+
 function getSatisfiedConfiguredClaimTargets(
   colonyName: string,
   colonyOwnerUsername: string | null,
@@ -4147,7 +4198,11 @@ function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): 
     return 3;
   }
 
-  return source === 'activeReserveAdjacent' ? 4 : 5;
+  if (source === 'activeReserveAdjacent') {
+    return 4;
+  }
+
+  return source === 'adjacent' ? 5 : 6;
 }
 
 function buildTerritoryFollowUp(

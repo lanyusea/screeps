@@ -1,4 +1,5 @@
 import {
+  buildStrategyRecommendationRoomState,
   generateStrategyRecommendations,
   rejectUncertain,
   type StrategyRecommendation,
@@ -6,6 +7,11 @@ import {
 } from '../src/strategy/strategyRecommender';
 
 describe('strategy recommender', () => {
+  afterEach(() => {
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
+  });
+
   it('filters recommendations below the default confidence threshold', () => {
     const recommendations = rejectUncertain([
       makeRecommendation({ confidence: 0.69, reasoning: 'below threshold' }),
@@ -119,6 +125,39 @@ describe('strategy recommender', () => {
         defensePosture: 'passive'
       })
     );
+  });
+
+  it('does not recommend visible owned rooms from stale territory memory as remote or expansion targets', () => {
+    const colony = makeRecommendationColony('W1N1');
+    (globalThis as unknown as { Game: Partial<Game> & { rooms: Record<string, Room> } }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: {
+          name: 'W1N2',
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        } as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false, owner: { username: 'me' } } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' }
+        ]
+      }
+    };
+
+    const state = buildStrategyRecommendationRoomState(colony, []);
+    const recommendations = generateStrategyRecommendations(state);
+
+    expect(state.territory?.remoteTargets).toEqual([]);
+    expect(state.territory?.expansionCandidates).toEqual([]);
+    expect(recommendations.some((recommendation) => recommendation.remoteTarget)).toBe(false);
+    expect(recommendations.some((recommendation) => recommendation.expansionCandidate)).toBe(false);
   });
 
   it.each([2, 3, 4])(
@@ -239,5 +278,25 @@ function makeStableHighRclRoom(): StrategyRecommendationRoomState {
         { roomName: 'W2N1', action: 'claim', score: 880, routeDistance: 1, sourceCount: 2, evidenceStatus: 'sufficient' }
       ]
     }
+  };
+}
+
+function makeRecommendationColony(roomName: string) {
+  const room = {
+    name: roomName,
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level: 5,
+      ticksToDowngrade: 20_000
+    } as StructureController,
+    find: jest.fn(() => [])
+  } as unknown as Room;
+
+  return {
+    room,
+    spawns: [],
+    energyAvailable: 1300,
+    energyCapacityAvailable: 1300
   };
 }
