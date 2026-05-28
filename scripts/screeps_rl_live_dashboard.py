@@ -218,6 +218,7 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         self.summary_cache_dashboard_url: str | None = None
         self.summary_cache_until = 0.0
         self.summary_cache_generation = 0
+        self.active_refresh_token: str | None = None
         self.refresh_state: JsonObject = {
             "mode": "auto" if config.auto_refresh_seconds > 0 else "manual",
             "autoRefreshSeconds": config.auto_refresh_seconds if config.auto_refresh_seconds > 0 else None,
@@ -250,6 +251,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 self.refresh_state.get("activeRefreshStartedAt") if keep_in_progress else None
             )
             self.refresh_state["activeRefreshReason"] = active_reason if keep_in_progress else None
+            if not keep_in_progress:
+                self.active_refresh_token = None
             self.refresh_state["lastRefreshAt"] = timestamp
             self.refresh_state["lastRefreshOk"] = refresh_succeeded(refresh)
             self.refresh_state["lastRefresh"] = dashboard_json_safe(refresh, self.config.repo_root)
@@ -264,15 +267,23 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         with self.refresh_state_lock:
             return dict(self.refresh_state)
 
-    def finish_refresh_progress(self) -> None:
+    def finish_refresh_progress(self, *, refresh_token: str, preserve_summary: bool = False) -> None:
         with self.refresh_state_lock:
+            if getattr(self, "active_refresh_token", None) != refresh_token:
+                return
             self.refresh_state["refreshInProgress"] = False
             self.refresh_state["activeRefreshStartedAt"] = None
             self.refresh_state["activeRefreshReason"] = None
-        self.invalidate_summary_cache()
+            self.active_refresh_token = None
+            refresh = dict(self.refresh_state)
+        if preserve_summary:
+            self.refresh_cached_summary_state(refresh)
+        else:
+            self.invalidate_summary_cache()
 
     def mark_refresh_started(self, reason: str) -> str:
         timestamp = utc_now_iso()
+        refresh_token = f"{timestamp}:{time.monotonic_ns()}"
         with self.refresh_state_lock:
             previous_refresh_ok = self.refresh_state.get("lastRefreshOk") is True and bool(
                 self.refresh_state.get("lastRefreshAt")
@@ -280,12 +291,13 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             self.refresh_state["refreshInProgress"] = True
             self.refresh_state["activeRefreshStartedAt"] = timestamp
             self.refresh_state["activeRefreshReason"] = reason
+            self.active_refresh_token = refresh_token
         self.invalidate_summary_cache(preserve_existing=previous_refresh_ok)
-        return timestamp
+        return refresh_token
 
     def run_refresh_cycle(self, reason: str) -> JsonObject:
         with self.refresh_lock:
-            self.mark_refresh_started(reason)
+            refresh_token = self.mark_refresh_started(reason)
             try:
                 refresh = refresh_metrics(
                     self.config.db_path,
@@ -300,12 +312,14 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 active_reason=f"{reason} summary",
             )
         if refresh_succeeded(refresh):
+            summary_primed = False
             try:
                 self.prime_summary_cache()
+                summary_primed = True
             except Exception:
-                self.invalidate_summary_cache()
+                summary_primed = False
             finally:
-                self.finish_refresh_progress()
+                self.finish_refresh_progress(refresh_token=refresh_token, preserve_summary=summary_primed)
         return refresh
 
     def start_background_refresh(self, reason: str) -> threading.Thread:
@@ -351,8 +365,21 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 self.summary_cache_until = 0.0
             self.summary_cache_generation += 1
 
+    def refresh_cached_summary_state(self, refresh: JsonObject) -> None:
+        with self.summary_lock:
+            if self.summary_cache is None:
+                return
+            self.summary_cache = summary_with_refresh(self.summary_cache, refresh)
+            cache_ttl = max(0.0, float(self.config.summary_cache_seconds))
+            self.summary_cache_until = time.monotonic() + cache_ttl if cache_ttl > 0 else 0.0
+            self.summary_cache_generation += 1
+
     def prime_summary_cache(self) -> JsonObject:
-        return self.summary_snapshot(self.dashboard_url(), allow_refresh_placeholder=False)
+        return self.summary_snapshot(
+            self.dashboard_url(),
+            allow_refresh_placeholder=False,
+            force_rebuild_cache=True,
+        )
 
     def cached_summary_for_refresh(self, dashboard_url: str, refresh: JsonObject) -> JsonObject | None:
         with self.summary_lock:
@@ -363,7 +390,13 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 return None
             return summary_with_refresh(cached, refresh)
 
-    def summary_snapshot(self, dashboard_url: str, *, allow_refresh_placeholder: bool = True) -> JsonObject:
+    def summary_snapshot(
+        self,
+        dashboard_url: str,
+        *,
+        allow_refresh_placeholder: bool = True,
+        force_rebuild_cache: bool = False,
+    ) -> JsonObject:
         refresh = self.refresh_snapshot()
         if allow_refresh_placeholder and refresh.get("refreshInProgress"):
             cached = self.cached_summary_for_refresh(dashboard_url, refresh)
@@ -374,7 +407,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         current_monotonic = time.monotonic()
         with self.summary_lock:
             if (
-                not refresh.get("refreshInProgress")
+                not force_rebuild_cache
+                and not refresh.get("refreshInProgress")
                 and cache_ttl > 0
                 and self.summary_cache is not None
                 and self.summary_cache_dashboard_url == dashboard_url
@@ -409,7 +443,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         current_monotonic = time.monotonic()
         with self.summary_lock:
             if (
-                cache_ttl > 0
+                not force_rebuild_cache
+                and cache_ttl > 0
                 and self.summary_cache is not None
                 and self.summary_cache_dashboard_url == dashboard_url
                 and current_monotonic < self.summary_cache_until
