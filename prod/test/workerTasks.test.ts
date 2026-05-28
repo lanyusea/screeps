@@ -1,5 +1,6 @@
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  ACTIVE_RAMPART_REPAIR_HITS_CEILING,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   CRITICAL_SPAWN_REPAIR_HITS_RATIO,
@@ -14890,6 +14891,42 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('repairs repeated active-alert rampart damage before controller boost below the construction floor', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 40_727,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const rampart = makeStructure(
+      'e29n56-repeated-alert-rampart',
+      'rampart' as StructureConstant,
+      ACTIVE_RAMPART_REPAIR_HITS_CEILING - 2_199,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'E29N56BoostWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        controllerUpgrade: { roomName: 'E29N56', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        name: 'E29N56',
+        controller,
+        energyAvailable: 299,
+        energyCapacityAvailable: 550,
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'e29n56-repeated-alert-rampart' });
   });
 
   it('prioritizes barrier repair in threatened rooms before ordinary repair work', () => {

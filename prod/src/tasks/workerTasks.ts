@@ -85,6 +85,7 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
 export const EMERGENCY_RAMPART_REPAIR_HITS_CEILING = 10_000;
+export const ACTIVE_RAMPART_REPAIR_HITS_CEILING = 120_000;
 // Keep routine barrier maintenance above the monitor's critical rampart damage band.
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 150_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
@@ -429,6 +430,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return constructionBacklogEnergyAcquisitionTask;
       }
 
+      const activeRampartRepairEnergyAcquisitionTask = selectActiveRampartRepairEnergyAcquisitionTask(creep);
+      if (activeRampartRepairEnergyAcquisitionTask) {
+        return activeRampartRepairEnergyAcquisitionTask;
+      }
+
       const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
       if (nearbyWorkerEnergyAcquisitionTask) {
         return nearbyWorkerEnergyAcquisitionTask;
@@ -737,6 +743,15 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'repair',
       targetId: threatenedBarrierRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const activeRampartRepairTarget =
+    constructionSites.length === 0 ? selectActiveOwnedRampartRepairTarget(creep) : null;
+  if (activeRampartRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: activeRampartRepairTarget.id as Id<Structure>
     });
   }
 
@@ -6463,6 +6478,40 @@ function selectRoutineRampartMaintenanceRepairTarget(creep: Creep): StructureRam
   return selectAvailableRoutineRepairTarget(creep, computeRoutineRampartMaintenanceRepairTargets(creep.room));
 }
 
+function selectActiveRampartRepairEnergyAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
+  if (getFreeEnergyCapacity(creep) <= 0 || !selectActiveOwnedRampartRepairTarget(creep)) {
+    return null;
+  }
+
+  return selectWorkerEnergyCriticalAcquisitionTask(creep);
+}
+
+function selectActiveOwnedRampartRepairTarget(creep: Creep): StructureRampart | null {
+  if (
+    creep.room.controller?.my !== true ||
+    hasVisibleHostilePresence(creep.room) ||
+    !hasActiveRampartRepairEnergyReserve(creep.room)
+  ) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(creep.room)
+    .filter(isActiveOwnedRampartRepairTarget)
+    .filter((structure) => hasActiveRampartRepairAssignmentCapacity(creep, structure));
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function hasActiveRampartRepairEnergyReserve(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable === null || energyAvailable >= CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
 function getRoutineBarrierMaintenanceRepairTargets(room: Room): Array<StructureRampart | StructureWall> {
   const gameTick = getGameTick();
   const roomName = getRoomName(room);
@@ -6768,6 +6817,13 @@ function hasRoutineRepairAssignmentCapacity(creep: Creep, structure: RepairableW
   );
 }
 
+function hasActiveRampartRepairAssignmentCapacity(creep: Creep, structure: StructureRampart): boolean {
+  return (
+    isWorkerAssignedToRepairTarget(creep, structure) ||
+    !hasOtherLoadedWorkerAssignedToRepairTarget(creep, structure)
+  );
+}
+
 function isUrgentBarrierRepairTarget(structure: RepairableWorkerStructure): boolean {
   return (
     isWorkerBarrierRepairStructure(structure) &&
@@ -6780,6 +6836,16 @@ function hasOtherWorkerAssignedToRepairTarget(creep: Creep, structure: Repairabl
     (worker) =>
       !isSameCreep(worker, creep) &&
       worker.memory?.role === 'worker' &&
+      isWorkerAssignedToRepairTarget(worker, structure)
+  );
+}
+
+function hasOtherLoadedWorkerAssignedToRepairTarget(creep: Creep, structure: RepairableWorkerStructure): boolean {
+  return getRoomOwnedCreeps(creep.room).some(
+    (worker) =>
+      !isSameCreep(worker, creep) &&
+      worker.memory?.role === 'worker' &&
+      getUsedEnergy(worker) > 0 &&
       isWorkerAssignedToRepairTarget(worker, structure)
   );
 }
@@ -6855,6 +6921,15 @@ function isEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure
     isOwnedRampart(structure) &&
     !isWorkerRepairTargetComplete(structure) &&
     structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+  );
+}
+
+function isActiveOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    isOwnedRampart(structure) &&
+    !isWorkerRepairTargetComplete(structure) &&
+    structure.hits <= Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING)
   );
 }
 
