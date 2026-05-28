@@ -668,6 +668,36 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             },
         )
 
+    def test_run_cp_records_timeout_as_failed_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            controller = runner.Controller(args=controller_args(), run_id="run-test", artifact_dir=Path(temp_dir))
+            timeout_error = subprocess.TimeoutExpired(
+                ["ssh", "worker"],
+                7,
+                output=b"partial stdout",
+                stderr=b"partial stderr",
+            )
+
+            with mock.patch("subprocess.run", side_effect=timeout_error):
+                cp = controller.run_cp("remote_training", ["ssh", "worker"], check=False, timeout=7)
+
+            summary = json.loads((controller.artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(cp.returncode, runner.PROCESS_TIMEOUT_RETURN_CODE)
+        self.assertEqual(cp.stdout, "partial stdout")
+        self.assertIn("TimeoutExpired: command timed out after 7 seconds", cp.stderr)
+        self.assertIn("partial stderr", cp.stderr)
+        self.assertTrue(summary["partial"])
+        self.assertTrue(summary["execution"]["remoteTrainingAttempted"])
+        self.assertFalse(summary["execution"]["trainingReportProduced"])
+        self.assertEqual(summary["execution"]["environmentsRun"], 0)
+        step = summary["steps"][0]
+        self.assertEqual(step["name"], "remote_training")
+        self.assertFalse(step["ok"])
+        self.assertEqual(step["returncode"], runner.PROCESS_TIMEOUT_RETURN_CODE)
+        self.assertIn("TimeoutExpired: command timed out after 7 seconds", step["stderr_tail"])
+        self.assertNotIn("['ssh', 'worker']", step["stderr_tail"])
+
     def test_security_group_guard_accepts_single_controller_ssh_rule(self) -> None:
         ingress = [
             {"Action": "ACCEPT", "Protocol": "TCP", "Port": "22", "CidrBlock": CONTROLLER_IP},
@@ -3894,6 +3924,58 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertIn("simulator argument rejected", stderr["tail"])
             self.assertIn("STEAM_KEY=[REDACTED]", stderr["tail"])
             self.assertNotIn("secret-value", stderr["tail"])
+
+    def test_run_remote_training_classifies_timeout_and_collects_partial_diagnostics(self) -> None:
+        args = controller_args()
+        args.training_timeout_seconds = 3600
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+            calls: list[tuple[str, dict[str, object]]] = []
+
+            def fake_ssh_cmd(
+                name: str,
+                _remote_command: str,
+                **kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                calls.append((name, kwargs))
+                return subprocess.CompletedProcess(
+                    ["ssh"],
+                    runner.PROCESS_TIMEOUT_RETURN_CODE,
+                    "",
+                    "TimeoutExpired: command timed out after 3600 seconds\n",
+                )
+
+            def fake_collect_remote_artifacts() -> None:
+                remote = root / "remote"
+                remote.mkdir(parents=True)
+                (remote / "training-stderr.log").write_text(
+                    "validation heartbeat: environmentsStarted=0 environmentsCompleted=0\n",
+                    encoding="utf-8",
+                )
+                (remote / "training-summary.json").write_text("", encoding="utf-8")
+                (remote / "card-validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+                (remote / "report-extract.json").write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(controller, "collect_remote_artifacts", side_effect=fake_collect_remote_artifacts),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "validation heartbeat"):
+                    controller.run_remote_training()
+
+            failure = controller.result["remoteTrainingFailure"]
+
+        self.assertEqual(calls[0][0], "remote_training")
+        self.assertEqual(calls[0][1]["timeout"], 3600)
+        self.assertEqual(failure["returncode"], runner.PROCESS_TIMEOUT_RETURN_CODE)
+        self.assertEqual(failure["failureClass"], "remote_training_timeout")
+        self.assertFalse(failure["retryable"])
+        self.assertIn("smaller chunks", failure["nextAction"])
+        self.assertIn(
+            "validation heartbeat",
+            failure["diagnostics"]["training-stderr.log"]["tail"],
+        )
 
     def test_run_remote_training_classifies_ssh_server_timeout(self) -> None:
         args = controller_args()
