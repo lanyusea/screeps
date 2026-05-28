@@ -15,6 +15,7 @@ import argparse
 import base64
 import copy
 import datetime as dt
+import ipaddress
 import json
 import math
 import os
@@ -37,6 +38,7 @@ from screeps_rl_experiment_card import (
     MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
     MULTI_TIER_SCENARIO_ID,
     MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
+    POLICY_GRADIENT_MIN_SIMULATION_TICKS,
     SCENARIO_IDS,
     multi_tier_scenario_fixture_summary,
     scenario_supports_multi_tier_policy_comparison,
@@ -61,7 +63,6 @@ TENCENT_S3_2XLARGE16_MAX_VALIDATION_ENVIRONMENTS = 6
 TENCENT_S3_2XLARGE16_MEMORY_PER_ENVIRONMENT_MIB = 2300
 TENCENT_S3_2XLARGE16_HOST_RESERVE_MIB = 1536
 SCALE_PROOF_SUCCESS_RATE = 0.8
-POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
 POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 POLICY_GRADIENT_DEFAULT_VALIDATION_WORKERS = 5
 REWARD_TIER_ORDER = ("reliability", "territory", "resources", "kills")
@@ -1397,7 +1398,9 @@ printf 'sshd='; sudo sshd -T 2>/dev/null | egrep '^(passwordauthentication|kbdin
 """.strip()
         cp = self.ssh_cmd("verify_worker_security", bash_lc(cmd), timeout=180)
         out = cp.stdout
-        validate_controller_only_worker_ssh(out, self.args.controller_ip)
+        security_group = self.result.get("securityGroup")
+        sg_ssh_ingress = security_group.get("sshIngress") if isinstance(security_group, dict) else None
+        validate_controller_only_worker_ssh(out, self.args.controller_ip, sg_ssh_ingress=sg_ssh_ingress)
         if "passwordauthentication no" not in out.lower():
             raise BatchRunError("worker sshd does not report passwordauthentication no")
         self.result["workerSecurity"] = {"summary": out[-3000:]}
@@ -2515,8 +2518,8 @@ def build_e1s1_repeat_launch_guard(
     reason = None
     if blocked:
         reason = (
-            "recent completed 500-tick Tencent E1S1 single-room no-hostile runs "
-            "show territory=2 and kills=0 for every reported variant"
+            f"recent completed >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}-tick Tencent E1S1 "
+            "single-room no-hostile runs show territory=2 and kills=0 for every reported variant"
         )
     return {
         "type": E1S1_REPEAT_GUARD_TYPE,
@@ -2950,9 +2953,36 @@ def sg_rule_sources(rule: dict[str, Any]) -> list[str]:
     return sources or ["<unspecified>"]
 
 
+def single_host_source_address(source: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    source = source.strip()
+    try:
+        return ipaddress.ip_address(source)
+    except ValueError:
+        pass
+    try:
+        network = ipaddress.ip_network(source, strict=False)
+    except ValueError:
+        return None
+    if network.num_addresses != 1:
+        return None
+    return network.network_address
+
+
+def source_is_controller_host(source: str, controller_ip: str) -> bool:
+    source_address = single_host_source_address(source)
+    controller_address = single_host_source_address(controller_ip)
+    if source_address is None or controller_address is None:
+        return source.strip() == controller_ip.strip()
+    return source_address == controller_address
+
+
 def validate_controller_only_sg_ssh_ingress(ingress: Sequence[Any], controller_ip: str) -> list[dict[str, Any]]:
     ssh_rules = [rule for rule in ingress if isinstance(rule, dict) and sg_rule_allows_ssh(rule)]
-    bad = [rule for rule in ssh_rules if set(sg_rule_sources(rule)) != {controller_ip}]
+    bad = [
+        rule
+        for rule in ssh_rules
+        if not all(source_is_controller_host(source, controller_ip) for source in sg_rule_sources(rule))
+    ]
     if bad or len(ssh_rules) != 1:
         raise BatchRunError(f"security group SSH ingress is not controller-only: {ssh_rules}")
     return ssh_rules
@@ -3087,19 +3117,31 @@ def narrowed_ssh_source_scope(current_scope: str, tokens: Sequence[str], control
     if current_scope == "controller":
         return "controller"
     source = iptables_source(tokens)
-    if source == controller_ip and not iptables_source_is_negated(tokens):
+    if (
+        source is not None
+        and source_is_controller_host(source, controller_ip)
+        and not iptables_source_is_negated(tokens)
+    ):
         return "controller"
     return "broad"
 
 
-def validate_controller_only_worker_ssh(output: str, controller_ip: str) -> None:
+def validate_controller_only_worker_ssh(
+    output: str,
+    controller_ip: str,
+    sg_ssh_ingress: Sequence[Any] | None = None,
+) -> None:
     rules = extract_iptables_input_rules(output)
     if not rules:
         raise BatchRunError("worker iptables output is empty")
+    has_sg_ssh_closure = False
+    if sg_ssh_ingress is not None:
+        validate_controller_only_sg_ssh_ingress(sg_ssh_ingress, controller_ip)
+        has_sg_ssh_closure = True
     policies, chains = build_iptables_filter_model(rules)
     controller_accepts: list[str] = []
     broad_accepts: list[str] = []
-    has_ssh_closure = False
+    has_ssh_closure = has_sg_ssh_closure
 
     def visit_chain(chain: str, source_scope: str, stack: tuple[str, ...]) -> None:
         nonlocal has_ssh_closure
@@ -3129,10 +3171,19 @@ def validate_controller_only_worker_ssh(output: str, controller_ip: str) -> None
     visit_chain("INPUT", "broad", ())
     if policies.get("INPUT") in {"DROP", "REJECT"}:
         has_ssh_closure = True
-    if not controller_accepts or broad_accepts or not has_ssh_closure:
+    has_controller_accept = bool(controller_accepts) or has_sg_ssh_closure
+    if not has_controller_accept or broad_accepts or not has_ssh_closure:
         raise BatchRunError(
             "worker SSH ingress is not controller-only: "
-            + json.dumps({"controllerAccepts": controller_accepts, "broadAccepts": broad_accepts, "hasSshClosure": has_ssh_closure}, sort_keys=True)
+            + json.dumps(
+                {
+                    "controllerAccepts": controller_accepts,
+                    "broadAccepts": broad_accepts,
+                    "hasSgSshClosure": has_sg_ssh_closure,
+                    "hasSshClosure": has_ssh_closure,
+                },
+                sort_keys=True,
+            )
         )
 
 
@@ -4651,7 +4702,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--known-hosts-path", default=str(DEFAULT_KNOWN_HOSTS))
     parser.add_argument("--dataset-run-id", default="rl-3d29e8b9397d")
     parser.add_argument("--training-approach", default="bandit", choices=("bandit", "evolutionary", "policy_gradient"))
-    parser.add_argument("--ticks", type=int, default=50, help="Simulator ticks; policy_gradient runs are floored to 500.")
+    parser.add_argument(
+        "--ticks",
+        type=int,
+        default=50,
+        help=f"Simulator ticks; policy_gradient runs are floored to {POLICY_GRADIENT_MIN_SIMULATION_TICKS}.",
+    )
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
         "--scale-environments",

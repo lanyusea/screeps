@@ -69,7 +69,7 @@ DEFAULT_SIMULATION_WORKERS = 1
 MULTI_TIER_ANCHOR_ROOM = "E1S1"
 MULTI_TIER_ADJACENT_ROOM = "E2S1"
 MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS = "active_fixture_validated"
-POLICY_GRADIENT_MIN_SIMULATION_TICKS = 500
+POLICY_GRADIENT_MIN_SIMULATION_TICKS = 2000
 POLICY_GRADIENT_SIMULATION_TICKS = POLICY_GRADIENT_MIN_SIMULATION_TICKS
 POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE = 20
 POLICY_GRADIENT_SIMULATION_REPETITIONS = POLICY_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
@@ -2605,7 +2605,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--ticks",
         type=positive_int_arg,
         help=(
-            "Simulation ticks to request. Defaults to 50, or 500 for policy_gradient cards."
+            f"Simulation ticks to request. Defaults to 50, or {POLICY_GRADIENT_MIN_SIMULATION_TICKS} "
+            "for policy_gradient cards."
         ),
     )
     parser.add_argument(
@@ -2653,7 +2654,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
             "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
-            "20 repetitions, and 500 ticks."
+            f"20 repetitions, and {POLICY_GRADIENT_MIN_SIMULATION_TICKS} ticks."
         ),
     )
     parser.add_argument(
