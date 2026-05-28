@@ -4603,7 +4603,53 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.steps[-1].detail["status"], "new_known_host")
         self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
 
-    def test_prepare_worker_known_host_clears_stale_entry_and_rescans_after_empty_keyscan(self) -> None:
+    def test_prepare_worker_known_host_preserves_existing_entry_when_keyscan_unavailable(self) -> None:
+        existing_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexisting"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = controller_args()
+            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
+            known_hosts = Path(args.known_hosts_path)
+            known_hosts.write_text(existing_key + "\n", encoding="utf-8")
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
+            controller.public_ip = "203.0.113.10"
+            keyscan_calls = 0
+
+            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal keyscan_calls
+                if cmd[0] == "ssh-keyscan":
+                    keyscan_calls += 1
+                    return subprocess.CompletedProcess(cmd, 1, "", "")
+                if cmd[0] == "ssh-keygen":
+                    raise AssertionError("existing known_hosts entry should not be removed before strict SSH")
+                raise AssertionError(cmd)
+
+            with (
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None) as sleep,
+            ):
+                result = controller.prepare_worker_known_host()
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.status, "existing_known_host_keyscan_unavailable")
+            self.assertEqual(known_hosts.read_text(encoding="utf-8"), existing_key + "\n")
+
+        self.assertEqual(keyscan_calls, 3)
+        sleep.assert_has_calls([mock.call(2.0), mock.call(5.0)])
+        self.assertEqual(
+            [step.name for step in controller.steps],
+            [
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "scan_worker_host_key",
+                "prepare_worker_known_host",
+            ],
+        )
+        self.assertEqual(controller.steps[-1].detail["status"], "existing_known_host_keyscan_unavailable")
+        self.assertEqual(controller.steps[-1].detail["keyscanStatus"], "host_key_scan_unavailable")
+        self.assertEqual(controller.steps[-1].detail["hostKeyCount"], 1)
+        self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
+
+    def test_ssh_cmd_preserves_existing_entry_then_self_heals_strict_mismatch(self) -> None:
         stale_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIstale"
         current_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIcurrent"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4614,6 +4660,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
             controller.public_ip = "203.0.113.10"
             keyscan_calls = 0
+            operation_commands: list[list[str]] = []
 
             def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
                 nonlocal keyscan_calls
@@ -4627,66 +4674,57 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     return subprocess.CompletedProcess(cmd, 0, "# Host 203.0.113.10 found: line 1\nknown_hosts updated.\n", "")
                 raise AssertionError(cmd)
 
-            with (
-                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
-                mock.patch.object(runner.time, "sleep", return_value=None) as sleep,
-            ):
-                result = controller.prepare_worker_known_host()
+            def fake_run_cp(
+                name: str,
+                cmd: list[str],
+                *,
+                check: bool = True,
+                timeout: int | None = None,
+                cwd: Path | None = None,
+                input_text: str | None = None,
+                env: dict[str, str] | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                self.assertEqual(name, "ssh_probe")
+                self.assertIs(check, False)
+                operation_commands.append(cmd)
+                if len(operation_commands) == 1:
+                    stderr = "REMOTE HOST IDENTIFICATION HAS CHANGED!\nOffending ED25519 key in known_hosts:1\n"
+                    return subprocess.CompletedProcess(cmd, 255, "", stderr)
+                return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
 
-            self.assertTrue(result.ok)
-            self.assertEqual(result.status, "rotated_known_host")
+            with (
+                mock.patch.object(controller, "run_cp", side_effect=fake_run_cp),
+                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(runner.time, "sleep", return_value=None),
+            ):
+                cp = controller.ssh_cmd("ssh_probe", "true")
+
+            self.assertEqual(cp.returncode, 0)
             self.assertEqual(known_hosts.read_text(encoding="utf-8"), current_key + "\n")
 
         self.assertEqual(keyscan_calls, 4)
-        sleep.assert_has_calls([mock.call(2.0), mock.call(5.0)])
+        self.assertEqual([cmd[0] for cmd in operation_commands], ["ssh", "ssh"])
+        for cmd in operation_commands:
+            with self.subTest(command=cmd):
+                self.assertIn("StrictHostKeyChecking=yes", cmd)
+                self.assertIn(f"UserKnownHostsFile={args.known_hosts_path}", cmd)
+                self.assertNotIn("StrictHostKeyChecking=no", cmd)
+                self.assertNotIn("StrictHostKeyChecking=accept-new", cmd)
         self.assertEqual(
             [step.name for step in controller.steps],
             [
                 "scan_worker_host_key",
                 "scan_worker_host_key",
                 "scan_worker_host_key",
+                "prepare_worker_known_host",
                 "clear_worker_known_host",
                 "scan_worker_host_key",
                 "install_worker_known_host",
             ],
         )
-        self.assertEqual(controller.steps[3].detail["warning"], False)
+        self.assertEqual(controller.steps[3].detail["status"], "existing_known_host_keyscan_unavailable")
         self.assertEqual(controller.steps[-1].detail["status"], "rotated_known_host")
         self.assertIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
-
-    def test_prepare_worker_known_host_blocks_unverified_existing_entry_when_rescan_stays_empty(self) -> None:
-        stale_key = "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIstale"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            args = controller_args()
-            args.known_hosts_path = str(Path(temp_dir) / "known_hosts")
-            known_hosts = Path(args.known_hosts_path)
-            known_hosts.write_text(stale_key + "\n", encoding="utf-8")
-            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=Path(temp_dir))
-            controller.public_ip = "203.0.113.10"
-
-            def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-                if cmd[0] == "ssh-keyscan":
-                    return subprocess.CompletedProcess(cmd, 1, "", "")
-                if cmd[0] == "ssh-keygen":
-                    known_hosts.write_text("", encoding="utf-8")
-                    return subprocess.CompletedProcess(cmd, 0, "# Host 203.0.113.10 found: line 1\nknown_hosts updated.\n", "")
-                raise AssertionError(cmd)
-
-            with (
-                mock.patch.object(runner.subprocess, "run", side_effect=fake_run),
-                mock.patch.object(runner.time, "sleep", return_value=None),
-            ):
-                result = controller.prepare_worker_known_host()
-
-            self.assertFalse(result.ok)
-            self.assertFalse(result.retryable)
-            self.assertEqual(result.status, "host_key_unverified_existing_entry_blocked")
-            self.assertEqual(known_hosts.read_text(encoding="utf-8"), "")
-
-        self.assertEqual(controller.steps[-1].detail["status"], "host_key_unverified_existing_entry_blocked")
-        self.assertTrue(controller.steps[-1].detail["staleKnownHostRemoved"])
-        self.assertTrue(controller.steps[-1].detail["unsafeExistingKnownHostBlocked"])
-        self.assertNotIn("203.0.113.10", controller.known_hosts_prepared_public_ips)
 
     def test_prepare_worker_known_host_accept_new_fallback_after_empty_keyscan_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

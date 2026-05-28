@@ -780,40 +780,25 @@ class Controller:
             )
 
         if current_lines:
-            if not self.clear_worker_known_host():
-                return KnownHostPrepareResult(
-                    False,
-                    "host_key_self_healing_failed",
-                    reason="ssh-keygen failed while clearing stale known_hosts before replacement keyscan",
-                )
-            rescan_result, rescanned_lines = self.scan_worker_host_keys()
-            if rescan_result.ok:
-                return self.install_worker_known_host(rescanned_lines, had_plain_entry=True)
-            status = (
-                "host_key_unverified_existing_entry_blocked"
-                if rescan_result.status == "host_key_scan_unavailable"
-                else "host_key_self_healing_failed"
-            )
-            reason = (
-                "existing known_hosts entry was not trusted after ssh-keyscan returned no replacement keys"
-            )
-            if rescan_result.reason:
-                reason = f"{reason}: {rescan_result.reason}"
             self.record_step(
                 "prepare_worker_known_host",
                 started,
-                False,
+                True,
                 None,
                 publicIp=self.public_ip,
                 knownHostsFile=str(known_hosts),
-                status=status,
+                status="existing_known_host_keyscan_unavailable",
                 retryable=False,
-                keyscanStatus=rescan_result.status,
-                staleKnownHostRemoved=True,
-                unsafeExistingKnownHostBlocked=True,
-                hostKeyCount=0,
+                keyscanStatus=scan_result.status,
+                keyscanRetryable=scan_result.retryable,
+                hostKeyCount=len(current_lines),
             )
-            return KnownHostPrepareResult(False, status, retryable=False, reason=reason)
+            self.mark_worker_known_host_prepared()
+            return KnownHostPrepareResult(
+                True,
+                "existing_known_host_keyscan_unavailable",
+                host_key_count=len(current_lines),
+            )
 
         if not self.clear_worker_known_host():
             return KnownHostPrepareResult(
