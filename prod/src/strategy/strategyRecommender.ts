@@ -359,6 +359,9 @@ function buildMemoryTerritoryState(roomName: string): StrategyRecommendationTerr
       if (!action) {
         continue;
       }
+      if (isVisibleOwnedByColonyAccount(target.roomName, roomName)) {
+        continue;
+      }
       const candidate = {
         roomName: target.roomName,
         action
@@ -376,7 +379,8 @@ function buildMemoryTerritoryState(roomName: string): StrategyRecommendationTerr
   if (
     cachedExpansionSelection?.status === 'planned' &&
     cachedExpansionSelection.colony === roomName &&
-    cachedExpansionSelection.targetRoom
+    cachedExpansionSelection.targetRoom &&
+    !isVisibleOwnedByColonyAccount(cachedExpansionSelection.targetRoom, roomName)
   ) {
     expansionCandidates.push({
       roomName: cachedExpansionSelection.targetRoom,
@@ -418,6 +422,32 @@ function countVisibleOwnedRooms(): number {
     return 0;
   }
   return Object.values(rooms).filter((room) => room?.controller?.my === true).length;
+}
+
+function isVisibleOwnedByColonyAccount(targetRoomName: string, colonyRoomName: string): boolean {
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  const targetController = rooms?.[targetRoomName]?.controller;
+  if (!targetController) {
+    return false;
+  }
+
+  if (targetController.my === true) {
+    return true;
+  }
+
+  const colonyOwnerUsername = getControllerOwnerUsername(rooms?.[colonyRoomName]?.controller);
+  const targetOwnerUsername = getControllerOwnerUsername(targetController);
+  return (
+    typeof colonyOwnerUsername === 'string' &&
+    colonyOwnerUsername.length > 0 &&
+    targetOwnerUsername === colonyOwnerUsername
+  );
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | null {
+  const username = (controller as (StructureController & { owner?: { username?: string } }) | undefined)?.owner
+    ?.username;
+  return typeof username === 'string' && username.length > 0 ? username : null;
 }
 
 function countStructuresByType(structures: unknown[], globalName: string, fallback: string): number {
