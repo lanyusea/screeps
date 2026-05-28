@@ -71,7 +71,7 @@ Repeat policy values:
 | Job | ID | Schedule | Delivery | Provider | Model | Workdir | Repeat | Criticality | Purpose |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `8,28,48 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P0 | Dispatcher/reconciler for safe work lanes. |
-| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Autonomous-system health monitor, registry-drift detector, and consolidated Tencent Cloud cost guard. |
+| Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P0 | Autonomous-system health monitor, registry-drift detector, and consolidated Tencent Cloud cost guard. |
 | Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | `openai-codex` | `gpt-5.5` | `-` | `forever` | P0 | Runtime alert/tactical response for all owned rooms; no-alert runs return exactly `[SILENT]`. |
 | Screeps owner-decision escalation fanout | `bbc7f783075e` | `3,13,23,33,43,53 * * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P0 | Mirrors fresh unresolved owner-action decisions to the canonical decisions route. |
 | Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Runtime summary report/images for all owned rooms. |
