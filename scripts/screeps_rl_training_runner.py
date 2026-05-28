@@ -77,6 +77,11 @@ GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
 POLICY_GRADIENT_SCALAR_REWARD = "scalar_weighted_sum"
 POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE = "gradient_estimation_only_non_promotional"
+POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR = "lexicographic_per_tier_score_function_reinforce_v1"
+POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD = "lexicographic_per_tier"
+POLICY_GRADIENT_LEXICOGRAPHIC_TIER_BASELINE = "anchor_candidate_mean_return"
+POLICY_GRADIENT_LEXICOGRAPHIC_TIER_SELECTION = "first_nonzero_reward_tier_by_parameter"
+POLICY_GRADIENT_LEXICOGRAPHIC_PAIRWISE_ADVANTAGE_SCALE = 0.5
 POLICY_GRADIENT_LEXICOGRAPHIC_REWARD = "lexicographic"
 # Cap the estimator reward scale used by the update gradient; promotion remains
 # lexicographic-gated.
@@ -2069,33 +2074,17 @@ def build_reinforce_policy_update(
     learning_rate = policy_update_learning_rate(policy_gradient)
     bounded_integer_step = policy_update_uses_bounded_integer_step(policy_gradient)
     anchor_parameters = anchor["parameters"]
-    gradient_by_tier: JsonObject = {}
-    selected_reward_tier_by_parameter: JsonObject = {}
-
-    for name, spec in parameter_space.items():
-        anchor_value = float(anchor_parameters[name])
-        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
-        tier_gradients: dict[str, float | int] = {}
-        for tier_index, tier in enumerate(REWARD_TIERS):
-            raw_gradient = 0.0
-            for sample in samples:
-                row = sample["candidate"]
-                normalized_delta = (float(row["parameters"][name]) - anchor_value) / span
-                advantage = float(sample["returnTuple"][tier_index]) - float(return_baseline[tier_index])
-                raw_gradient += advantage * normalized_delta
-            tier_gradients[tier] = round_policy_number(raw_gradient / len(samples))
-        selected_tier, selected_gradient = first_nonzero_tier_gradient(tier_gradients)
-        selected_reward_tier_by_parameter[name] = selected_tier
-        gradient_by_tier[name] = tier_gradients
-        del selected_gradient
-
-    gradient_estimation = policy_update_scalar_weighted_gradient_estimation(
+    anchor_return_baseline = policy_update_candidate_return_baseline(anchor)
+    gradient_estimation = policy_update_lexicographic_reinforce_gradient_estimation(
         policy_gradient=policy_gradient,
         parameter_space=parameter_space,
         samples=samples,
         anchor_parameters=anchor_parameters,
+        anchor_return_baseline=anchor_return_baseline,
     )
     raw_gradient = gradient_estimation["gradient"]
+    gradient_by_tier = gradient_estimation["gradientByRewardTier"]
+    selected_reward_tier_by_parameter = gradient_estimation["selectedRewardTierByParameter"]
     gradient_momentum = policy_update_gradient_momentum_evidence(
         policy_gradient=policy_gradient,
         raw_gradient=raw_gradient,
@@ -2141,6 +2130,10 @@ def build_reinforce_policy_update(
         gradient_momentum=gradient_momentum,
     )
     parameter_evidence = policy_update_runtime_injection_ready_parameter_evidence(policy_gradient, candidates)
+    gradient_stability = policy_update_gradient_stability_with_parameter_evidence(
+        gradient_stability,
+        parameter_evidence,
+    )
     if parameter_evidence.get("policyUpdateEligible") is not True:
         return {
             **base,
@@ -2241,8 +2234,8 @@ def build_reinforce_policy_update(
         "parameterEvidence": {
             "derivation": (
                 "deterministic REINFORCE score-function estimate from offline simulator Monte Carlo "
-                "reward-tuple returns, using scalar weighted-sum rewards for gradient estimation only "
-                "and preserving lexicographic ranking/promotion gates"
+                "reward-tuple returns, selecting the first lexicographic reward tier with per-parameter "
+                "evidence and preserving lexicographic ranking/promotion gates"
             ),
             "targetFamily": target_family,
             "learnableKnobs": list(parameter_space),
@@ -2282,7 +2275,7 @@ def build_reinforce_policy_update(
         "iterations": 1,
         "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
         "trueGradient": True,
-        "policyGradientEstimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
+        "policyGradientEstimator": POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
         "gradientStable": gradient_stability["gradientStable"],
         "trustedGradientUpdate": trusted_gradient_update,
         "highVariance": gradient_stability["highVariance"],
@@ -2401,6 +2394,24 @@ def policy_update_scalar_gradient_scheme_identity(weight_evidence: JsonObject) -
     }
 
 
+def policy_update_lexicographic_reinforce_gradient_scheme_identity() -> JsonObject:
+    return {
+        "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "estimator": POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        "gradientReward": POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
+        "gradientUse": "policy_gradient_estimation_only",
+        "scalarWeightedSumUse": "not_used",
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rewardComponentOrder": list(REWARD_TIERS),
+        "tierBaseline": POLICY_GRADIENT_LEXICOGRAPHIC_TIER_BASELINE,
+        "tierSelection": POLICY_GRADIENT_LEXICOGRAPHIC_TIER_SELECTION,
+        "advantageScale": POLICY_GRADIENT_LEXICOGRAPHIC_PAIRWISE_ADVANTAGE_SCALE,
+        "lexicographicRankingPreserved": True,
+        "scalarWeightedSumAuthorized": False,
+    }
+
+
 def policy_update_lexicographic_gradient_scheme_identity() -> JsonObject:
     return {
         "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
@@ -2428,6 +2439,9 @@ GRADIENT_SCHEME_COMPARISON_IDENTITY_FIELDS = (
     "scalarWeightedSumUse",
     "rankingRewardModel",
     "rewardComponentOrder",
+    "tierBaseline",
+    "tierSelection",
+    "advantageScale",
     "lexicographicRankingPreserved",
     "scalarWeightedSumAuthorized",
     "normalizedWeightsByRewardTier",
@@ -2481,6 +2495,9 @@ def policy_update_gradient_scheme_identity_from_evidence(raw: Any) -> JsonObject
         ("normalizationCap", "normalizationCap"),
         ("normalizationFactor", "normalizationFactor"),
         ("scalarRewardScaleFactor", "scalarRewardScaleFactor"),
+        ("tierBaseline", "tierBaseline"),
+        ("tierSelection", "tierSelection"),
+        ("advantageScale", "advantageScale"),
     ):
         if source_key in raw:
             identity[dest_key] = copy.deepcopy(raw[source_key])
@@ -2636,6 +2653,171 @@ def mean_policy_return_tuple(return_tuples: Sequence[Sequence[Any]]) -> list[flo
         return [0 for _tier in REWARD_TIERS]
     columns = list(zip(*return_tuples))
     return [round_policy_number(statistics.fmean(float(value) for value in column)) for column in columns]
+
+
+def policy_update_candidate_return_baseline(row: JsonObject) -> list[float | int]:
+    mean_return = policy_return_tuple_from_sequence(row.get("meanReturn"))
+    if mean_return is not None:
+        return mean_return
+    raw_samples = row.get("returnSamples")
+    if isinstance(raw_samples, list):
+        samples = [
+            sample
+            for raw_sample in raw_samples
+            for sample in [policy_return_tuple_from_sequence(raw_sample)]
+            if sample is not None
+        ]
+        if samples:
+            return mean_policy_return_tuple(samples)
+    reward_tuple = policy_return_tuple_from_sequence(row.get("rewardTuple"))
+    if reward_tuple is not None:
+        return reward_tuple
+    return [0 for _tier in REWARD_TIERS]
+
+
+def policy_update_lexicographic_reinforce_gradient_estimation(
+    *,
+    policy_gradient: JsonObject,
+    parameter_space: dict[str, JsonObject],
+    samples: Sequence[JsonObject],
+    anchor_parameters: JsonObject,
+    anchor_return_baseline: Sequence[float | int],
+) -> JsonObject:
+    del policy_gradient
+    scheme_identity = policy_update_lexicographic_reinforce_gradient_scheme_identity()
+    scheme_key = policy_update_gradient_scheme_key(scheme_identity)
+    gradient: JsonObject = {}
+    cap_normalized_gradient: JsonObject = {}
+    gradient_by_tier: JsonObject = {}
+    raw_gradient_by_tier: JsonObject = {}
+    tier_evidence_by_parameter: JsonObject = {}
+    selected_reward_tier_by_parameter: JsonObject = {}
+    direction_by_parameter: JsonObject = {}
+
+    for name, spec in parameter_space.items():
+        span = max(float(spec["max"]) - float(spec["min"]), 1.0)
+        anchor_value = float(anchor_parameters[name])
+        tier_raw_gradients: JsonObject = {}
+        tier_rounded_gradients: JsonObject = {}
+        tier_evidence: JsonObject = {}
+        for tier_index, tier in enumerate(REWARD_TIERS):
+            raw_gradient = 0.0
+            contribution_sum = 0.0
+            positive_count = 0
+            negative_count = 0
+            zero_count = 0
+            baseline_value = (
+                float(anchor_return_baseline[tier_index])
+                if tier_index < len(anchor_return_baseline)
+                else 0.0
+            )
+            for sample in samples:
+                row = sample["candidate"]
+                normalized_delta = (float(row["parameters"][name]) - anchor_value) / span
+                return_tuple = sample["returnTuple"]
+                tier_return = float(return_tuple[tier_index]) if tier_index < len(return_tuple) else 0.0
+                advantage = tier_return - baseline_value
+                advantage *= POLICY_GRADIENT_LEXICOGRAPHIC_PAIRWISE_ADVANTAGE_SCALE
+                contribution = advantage * normalized_delta
+                raw_gradient += contribution
+                contribution_sum += contribution
+                if contribution > 1e-12:
+                    positive_count += 1
+                elif contribution < -1e-12:
+                    negative_count += 1
+                else:
+                    zero_count += 1
+            estimate = raw_gradient / len(samples) if samples else 0.0
+            rounded_estimate = round_policy_number(estimate)
+            nonzero_count = positive_count + negative_count
+            dominant_count = max(positive_count, negative_count)
+            dominant_ratio = 1.0 if nonzero_count == 0 else dominant_count / nonzero_count
+            tier_raw_gradients[tier] = estimate
+            tier_rounded_gradients[tier] = rounded_estimate
+            tier_evidence[tier] = {
+                "rewardTier": tier,
+                "gradient": rounded_estimate,
+                "rawGradient": estimate,
+                "anchorReturnBaseline": round_policy_number(baseline_value),
+                "contributionSum": round_policy_number(contribution_sum),
+                "positiveContributionCount": positive_count,
+                "negativeContributionCount": negative_count,
+                "zeroContributionCount": zero_count,
+                "nonZeroContributionCount": nonzero_count,
+                "dominantDirectionRatio": round_policy_number(dominant_ratio),
+            }
+
+        selected_tier, selected_rounded_gradient = first_nonzero_tier_gradient(tier_rounded_gradients)
+        selected_gradient = (
+            tier_raw_gradients.get(selected_tier, selected_rounded_gradient)
+            if selected_tier is not None
+            else 0
+        )
+        selected_reward_tier_by_parameter[name] = selected_tier
+        gradient[name] = selected_gradient
+        cap_normalized_gradient[name] = round_policy_number(selected_gradient)
+        gradient_by_tier[name] = tier_rounded_gradients
+        raw_gradient_by_tier[name] = tier_raw_gradients
+        tier_evidence_by_parameter[name] = tier_evidence
+        selected_evidence = (
+            copy.deepcopy(tier_evidence[selected_tier])
+            if selected_tier is not None
+            else {
+                "rewardTier": None,
+                "gradient": 0,
+                "rawGradient": 0,
+                "anchorReturnBaseline": None,
+                "contributionSum": 0,
+                "positiveContributionCount": 0,
+                "negativeContributionCount": 0,
+                "zeroContributionCount": len(samples),
+                "nonZeroContributionCount": 0,
+                "dominantDirectionRatio": 1,
+            }
+        )
+        selected_evidence.update(
+            {
+                "gradientReward": POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
+                "selectedRewardTier": selected_tier,
+                "gradientByRewardTier": copy.deepcopy(tier_rounded_gradients),
+                "rawGradientByRewardTier": copy.deepcopy(tier_raw_gradients),
+            }
+        )
+        direction_by_parameter[name] = selected_evidence
+
+    return {
+        "type": GRADIENT_ESTIMATION_EVIDENCE_TYPE,
+        "schemaVersion": SCHEMA_VERSION,
+        "estimator": POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        "gradientReward": POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
+        "gradientUse": "policy_gradient_estimation_only",
+        "scalarWeightedSumUse": "not_used",
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "rewardComponentOrder": list(REWARD_TIERS),
+        "tierBaseline": POLICY_GRADIENT_LEXICOGRAPHIC_TIER_BASELINE,
+        "tierSelection": POLICY_GRADIENT_LEXICOGRAPHIC_TIER_SELECTION,
+        "advantageScale": POLICY_GRADIENT_LEXICOGRAPHIC_PAIRWISE_ADVANTAGE_SCALE,
+        "lexicographicRankingPreserved": True,
+        "scalarWeightedSumAuthorized": False,
+        "schemeIdentity": scheme_identity,
+        "schemeKey": scheme_key,
+        "comparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
+        "trustedComparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
+        "returnBaseline": [round_policy_number(float(value)) for value in anchor_return_baseline],
+        "returnBaselineType": POLICY_GRADIENT_LEXICOGRAPHIC_TIER_BASELINE,
+        "gradient": gradient,
+        "capNormalizedGradient": cap_normalized_gradient,
+        "gradientByRewardTier": gradient_by_tier,
+        "rawGradientByRewardTier": raw_gradient_by_tier,
+        "tierEvidenceByParameter": tier_evidence_by_parameter,
+        "selectedRewardTierByParameter": selected_reward_tier_by_parameter,
+        "sampleCount": len(samples),
+        "directionByParameter": direction_by_parameter,
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
 
 
 def policy_update_scalar_weighted_gradient_estimation(
@@ -3040,7 +3222,7 @@ def policy_update_gradient_stability_gate(
         classification = "conflicting_direction_high_variance"
         convergence_label = "high_variance_not_convergence"
         reason = (
-            "true-gradient estimate has opposing per-sample update directions for scalar weighted-sum rewards"
+            "true-gradient estimate has opposing per-sample update directions for selected lexicographic reward tiers"
         )
     elif conflicting_momentum_parameters:
         classification = "momentum_conflict_high_variance"
@@ -3095,6 +3277,39 @@ def policy_update_gradient_stability_gate(
             payload["gradientSchemeIdentity"] = copy.deepcopy(scheme_identity)
     if isinstance(gradient_momentum, dict):
         payload["gradientMomentum"] = copy.deepcopy(gradient_momentum)
+    return payload
+
+
+def policy_update_gradient_stability_with_parameter_evidence(
+    gradient_stability: JsonObject,
+    parameter_evidence: JsonObject,
+) -> JsonObject:
+    if (
+        gradient_stability.get("trustedUpdate") is not True
+        or parameter_evidence.get("eligibilityMode") != "runtime_injected_metadata_scorecard_ranking"
+        or parameter_evidence.get("runtimeParameterConsumption") is True
+    ):
+        return gradient_stability
+
+    payload = copy.deepcopy(gradient_stability)
+    reason = (
+        "runtime-injected candidate metadata produced an offline scorecard ranking, but the private simulator "
+        "did not expose runtime parameter consumption evidence, so the gradient remains offline/shadow-only "
+        "and untrusted"
+    )
+    payload.update(
+        {
+            "status": "untrusted",
+            "classification": "runtime_parameter_consumption_missing",
+            "convergenceLabel": "runtime_parameter_consumption_missing",
+            "convergenceStatus": "not_converged_high_variance",
+            "gradientStable": False,
+            "trustedUpdate": False,
+            "trustedGradientUpdate": False,
+            "highVariance": True,
+            "reason": reason,
+        }
+    )
     return payload
 
 
