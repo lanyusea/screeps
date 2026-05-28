@@ -3,32 +3,53 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-27T16:13:10Z",
-  "generatedAtCst": "2026-05-28T00:13:10+08:00",
+  "generatedAt": "2026-05-27T20:29:29Z",
+  "generatedAtCst": "2026-05-28T04:29:29+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
       {
-        "createdAt": "2026-05-26T20:11:44Z",
+        "createdAt": "2026-05-27T19:01:17Z",
+        "domain": "Agent OS",
+        "domainSource": "heuristic",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-agent-ops"
+        ],
+        "milestone": "",
+        "number": 1465,
+        "priority": "P0",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+        "type": "Issue",
+        "updatedAt": "2026-05-27T19:52:38Z",
+        "url": "https://github.com/lanyusea/screeps/issues/1465"
+      },
+      {
+        "createdAt": "2026-05-27T18:08:21Z",
         "domain": "RL flywheel",
         "domainSource": "heuristic",
-        "kind": "code",
+        "kind": "ops",
         "labels": [
-          "kind:code",
+          "kind:ops",
           "priority:p0",
           "roadmap",
           "roadmap:rl-flywheel"
         ],
         "milestone": "P1: RL strategy flywheel gate",
-        "number": 1459,
+        "number": 1464,
         "priority": "P0",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
+        "title": "P0: Make RL live dashboard process durable after #1388 went non-running",
         "type": "Issue",
-        "updatedAt": "2026-05-26T22:53:15Z",
-        "url": "https://github.com/lanyusea/screeps/issues/1459"
+        "updatedAt": "2026-05-27T18:35:07Z",
+        "url": "https://github.com/lanyusea/screeps/issues/1464"
       },
       {
         "createdAt": "2026-05-26T18:08:16Z",
@@ -69,7 +90,7 @@
         "status": "Ready",
         "title": "P0: Fix RL simulator objective activation after post-1448 smoke remains territory=2/kills=0",
         "type": "Issue",
-        "updatedAt": "2026-05-26T22:55:20Z",
+        "updatedAt": "2026-05-27T19:52:37Z",
         "url": "https://github.com/lanyusea/screeps/issues/1450"
       },
       {
@@ -242,7 +263,7 @@
         "status": "Ready",
         "title": "P0: Restore RL steward autonomous compute dispatch cadence",
         "type": "Issue",
-        "updatedAt": "2026-05-26T22:55:22Z",
+        "updatedAt": "2026-05-27T17:51:05Z",
         "url": "https://github.com/lanyusea/screeps/issues/1233"
       },
       {
@@ -352,7 +373,7 @@
         "status": "Backlog",
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
-        "updatedAt": "2026-05-26T22:16:11Z",
+        "updatedAt": "2026-05-27T17:41:21Z",
         "url": "https://github.com/lanyusea/screeps/issues/1032"
       },
       {
@@ -395,7 +416,7 @@
         "status": "Ready",
         "title": "P0: ALL IN RL execution mode \u2014 turn the flywheel into a recurring train/sim/deploy feedback loop",
         "type": "Issue",
-        "updatedAt": "2026-05-27T16:05:34Z",
+        "updatedAt": "2026-05-27T20:17:44Z",
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ],
@@ -404,7 +425,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:06Z roadmap audit: open PRs=0; open roadmap issues=18/18 have screeps Project item and milestone. Repaired current Project Evidence/Next action for #879/#1032/#1233/#1337/#1299/#1450/#1459/#1438/#1456 plus Agent OS gates.",
+          "evidence": "",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -422,7 +443,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:06Z no-wait audit: no foreground sleeps/waits started by this run. Hermes process registry empty; OS has active Codex #1459 pid 443329/443359 and active Tencent t230505 pid 462512. Scheduler checkpointed instead of waiting through Codex/compute/CI gates.",
+          "evidence": "2026-05-27T18:18Z no-wait gate held: no foreground sleep/long wait used. Long work is background Codex proc_[redacted] and active Tencent pid2122720; PR #1462 was merged only after same-run gate evidence.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -440,7 +461,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:06Z issueification gate: latest Gameplay Evolution Review says practical closed-loop OK and all P0/P1 recommendations have issue coverage. Latest Loop A NO_EXPERIMENT_CARD recurrence already mapped to #1438; no new prose-only P0/P1 issue gap found.",
+          "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -453,6 +474,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1028",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-05-27T19:54Z latest Gameplay Evolution output c7b3dda8f1ac/2026-05-28_00-00-46.md still ended with (No response generated); runtime-summary captures are fresh (<2000 ticks).",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1465,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Ready",
+          "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1465",
           "visionLayer": "foundation blocker"
         },
         {
@@ -3963,6 +4002,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1406",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "review",
+          "lane": "Runtime monitor",
+          "nextAction": "",
+          "number": 1463,
+          "priority": "P1",
+          "projectDomain": "Runtime monitor",
+          "state": "",
+          "status": "Done",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1463",
           "visionLayer": "foundation blocker"
         },
         {
@@ -19484,7 +19541,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; PR #1463 merged de3b536d; t184504 post-fix completed 25 env/500 ticks, consumption true, activation blocked territory=2/kills=0; t193003 active pid2150143.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19502,7 +19559,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T19:54Z dfd66845 post-fix run t184504 completed 25 env/500 ticks with runtime consumption true but activationProof.ok=false, best territory=2, hostileKills=0. t193003 is active.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19520,7 +19577,25 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T19:53Z RL dashboard still running: npm pid2133141/python pid2133168 alive for 1h24m; prior health/acceptance PASS remains current enough for this RL state check.",
+          "kind": "ops",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1464,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "In progress",
+          "title": "P0: Make RL live dashboard process durable after #1388 went non-running",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1464",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-27T18:16Z Steward cadence unblock advanced: PR #1462 merged as dfd66845 and #1459 closed. t172008 completed/scaled down; active t180503 pid2122720 remains current compute surface.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19538,7 +19613,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845; #1459 closed Done. Runtime consumption remains tracked, but current active Tencent t180503 pid2122720 started pre-merge from dcc1656f, so its result is pre-fix evidence.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19556,7 +19631,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845 and #1459 closed Done; post-merge main verification passed. Active Tencent t180503 pid2122720 is smoke/pre-fix relative to dfd66845; no duplicate validation-scale compute launched.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19574,7 +19649,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+          "evidence": "2026-05-27T18:16Z Scale-first loop: t172008 completed/scaled down; PR #1462 merged as dfd66845; active successor t180503 pid2122720 is still running and started before the merge.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19592,61 +19667,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:06Z state audit: latest Loop A ledger 20260526T224746Z still lists NO_EXPERIMENT_CARD_STANDALONE (P1) after the 22:40 local fallback card action. Existing issue #1438 covers it; no duplicate issue created. Hard P0 #1459 and active t230505 pre-fix run take priority.",
-          "kind": "ops",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 1438,
-          "priority": "P1",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "In progress",
-          "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1438",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-          "kind": "code",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 1459,
-          "priority": "P0",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "In review",
-          "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1459",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-          "kind": "code",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 1462,
-          "priority": "P0",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "In review",
-          "title": "fix: harden Tencent pre-scale docker pulls",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/1462",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 blocks trusted-gradient validation before momentum tuning.",
+          "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19664,7 +19685,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; kill reward reweight remains decision-only until consumption plus objective/scorecard evidence is fresh after #1459.",
+          "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19682,7 +19703,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 zero-env Tencent blocker selected first. Risk-aware seed promotion still depends on validation-scale objective/scorecard evidence.",
+          "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Risk-aware seed promotion remains Ready P1 but waits for post-dfd66845 objective/scorecard evidence.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19700,7 +19721,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-26T23:06Z state audit: #1460 merged, but #1459 reopened from post-merge zero-env validation failures and is now the active hard P0 Codex lane. #1456 remains executable P1 host-key self-healing recurrence work but is not selected while #1459/t230505 are active.",
+          "evidence": "2026-05-27T18:18Z #1459 is no longer the blocker: PR #1462 merged as dfd66845 and #1459 closed Done. #1456 remains queued P1 behind active P0 RL compute/validation gates.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19713,6 +19734,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1456",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-27T18:18Z #1459 merged/closed; standalone experiment-card fallback recurrence remains a Ready P1 follow-up, not blocked by PR #1462. Latest active compute t180503 takes priority.",
+          "kind": "ops",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1438,
+          "priority": "P1",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Ready",
+          "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1438",
           "visionLayer": "foundation blocker"
         },
         {
@@ -20289,6 +20328,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1350",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-27 17:39Z: PR #1462 review-fix pushed d3d5745b; controller py_compile + 298 focused tests + diff-check passed.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1459,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1459",
           "visionLayer": "foundation blocker"
         },
         {
@@ -22395,6 +22452,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1053",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-27 17:39Z: Codex-authored fix d3d5745b pushed; py_compile, 298 unit tests, diff-check passed; prod-ci green, CodeRabbit pending.",
+          "kind": "review",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1462,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "fix: harden Tencent pre-scale docker pulls",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1462",
           "visionLayer": "foundation blocker"
         },
         {
@@ -25972,7 +26047,26 @@
               "status": "Backlog"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-05-27T19:54Z latest Gameplay Evolution output c7b3dda8f1ac/2026-05-28_00-00-46.md still ended with (No response generated); runtime-summary captures are fresh (<2000 ticks).",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1465,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Ready",
+                  "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1465",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
               "status": "Ready"
             },
             {
@@ -25980,7 +26074,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:06Z roadmap audit: open PRs=0; open roadmap issues=18/18 have screeps Project item and milestone. Repaired current Project Evidence/Next action for #879/#1032/#1233/#1337/#1299/#1450/#1459/#1438/#1456 plus Agent OS gates.",
+                  "evidence": "",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -25998,7 +26092,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:06Z no-wait audit: no foreground sleeps/waits started by this run. Hermes process registry empty; OS has active Codex #1459 pid 443329/443359 and active Tencent t230505 pid 462512. Scheduler checkpointed instead of waiting through Codex/compute/CI gates.",
+                  "evidence": "2026-05-27T18:18Z no-wait gate held: no foreground sleep/long wait used. Long work is background Codex proc_[redacted] and active Tencent pid2122720; PR #1462 was merged only after same-run gate evidence.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26016,7 +26110,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:06Z issueification gate: latest Gameplay Evolution Review says practical closed-loop OK and all P0/P1 recommendations have issue coverage. Latest Loop A NO_EXPERIMENT_CARD recurrence already mapped to #1438; no new prose-only P0/P1 issue gap found.",
+                  "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -28486,6 +28580,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1406",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "review",
+                  "lane": "Runtime monitor",
+                  "nextAction": "",
+                  "number": 1463,
+                  "priority": "P1",
+                  "projectDomain": "Runtime monitor",
+                  "state": "",
+                  "status": "Done",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1463",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -39622,7 +39734,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 blocks trusted-gradient validation before momentum tuning.",
+                  "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39640,7 +39752,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; kill reward reweight remains decision-only until consumption plus objective/scorecard evidence is fresh after #1459.",
+                  "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39658,7 +39770,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 zero-env Tencent blocker selected first. Risk-aware seed promotion still depends on validation-scale objective/scorecard evidence.",
+                  "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Risk-aware seed promotion remains Ready P1 but waits for post-dfd66845 objective/scorecard evidence.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39676,7 +39788,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:06Z state audit: #1460 merged, but #1459 reopened from post-merge zero-env validation failures and is now the active hard P0 Codex lane. #1456 remains executable P1 host-key self-healing recurrence work but is not selected while #1459/t230505 are active.",
+                  "evidence": "2026-05-27T18:18Z #1459 is no longer the blocker: PR #1462 merged as dfd66845 and #1459 closed Done. #1456 remains queued P1 behind active P0 RL compute/validation gates.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39690,6 +39802,24 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1456",
                   "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-27T18:18Z #1459 merged/closed; standalone experiment-card fallback recurrence remains a Ready P1 follow-up, not blocked by PR #1462. Latest active compute t180503 takes priority.",
+                  "kind": "ops",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1438,
+                  "priority": "P1",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Ready",
+                  "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1438",
+                  "visionLayer": "foundation blocker"
                 }
               ],
               "status": "Ready"
@@ -39699,7 +39829,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; PR #1463 merged de3b536d; t184504 post-fix completed 25 env/500 ticks, consumption true, activation blocked territory=2/kills=0; t193003 active pid2150143.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39717,7 +39847,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T19:54Z dfd66845 post-fix run t184504 completed 25 env/500 ticks with runtime consumption true but activationProof.ok=false, best territory=2, hostileKills=0. t193003 is active.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39735,7 +39865,25 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T19:53Z RL dashboard still running: npm pid2133141/python pid2133168 alive for 1h24m; prior health/acceptance PASS remains current enough for this RL state check.",
+                  "kind": "ops",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1464,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "In progress",
+                  "title": "P0: Make RL live dashboard process durable after #1388 went non-running",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1464",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-27T18:16Z Steward cadence unblock advanced: PR #1462 merged as dfd66845 and #1459 closed. t172008 completed/scaled down; active t180503 pid2122720 remains current compute surface.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39753,7 +39901,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845; #1459 closed Done. Runtime consumption remains tracked, but current active Tencent t180503 pid2122720 started pre-merge from dcc1656f, so its result is pre-fix evidence.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39771,7 +39919,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845 and #1459 closed Done; post-merge main verification passed. Active Tencent t180503 pid2122720 is smoke/pre-fix relative to dfd66845; no duplicate validation-scale compute launched.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39789,7 +39937,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+                  "evidence": "2026-05-27T18:16Z Scale-first loop: t172008 completed/scaled down; PR #1462 merged as dfd66845; active successor t180503 pid2122720 is still running and started before the merge.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -39803,67 +39951,12 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1032",
                   "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-26T23:06Z state audit: latest Loop A ledger 20260526T224746Z still lists NO_EXPERIMENT_CARD_STANDALONE (P1) after the 22:40 local fallback card action. Existing issue #1438 covers it; no duplicate issue created. Hard P0 #1459 and active t230505 pre-fix run take priority.",
-                  "kind": "ops",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 1438,
-                  "priority": "P1",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "In progress",
-                  "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1438",
-                  "visionLayer": "foundation blocker"
                 }
               ],
               "status": "In progress"
             },
             {
-              "cards": [
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-                  "kind": "code",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 1459,
-                  "priority": "P0",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "In review",
-                  "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1459",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-                  "kind": "code",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 1462,
-                  "priority": "P0",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "In review",
-                  "title": "fix: harden Tencent pre-scale docker pulls",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/1462",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "In review"
             },
             {
@@ -40406,6 +40499,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1350",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-27 17:39Z: PR #1462 review-fix pushed d3d5745b; controller py_compile + 298 focused tests + diff-check passed.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1459,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1459",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -42512,6 +42623,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1053",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-27 17:39Z: Codex-authored fix d3d5745b pushed; py_compile, 298 unit tests, diff-check passed; prod-ci green, CodeRabbit pending.",
+                  "kind": "review",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1462,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: harden Tencent pre-scale docker pulls",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1462",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -45450,12 +45579,12 @@
       {
         "instrumented": true,
         "label": "Open roadmap issues",
-        "value": 18
+        "value": 19
       },
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 2
+        "value": 0
       },
       {
         "instrumented": true,
@@ -45465,7 +45594,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 1420
+        "value": 1423
       },
       {
         "instrumented": true,
@@ -45475,7 +45604,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 2
+        "value": 0
       }
     ],
     "projectItems": [
@@ -63355,7 +63484,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; PR #1463 merged de3b536d; t184504 post-fix completed 25 env/500 ticks, consumption true, activation blocked territory=2/kills=0; t193003 active pid2150143.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -66574,7 +66703,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z issueification gate: latest Gameplay Evolution Review says practical closed-loop OK and all P0/P1 recommendations have issue coverage. Latest Loop A NO_EXPERIMENT_CARD recurrence already mapped to #1438; no new prose-only P0/P1 issue gap found.",
+        "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -66672,7 +66801,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z Scale-first loop: t172008 completed/scaled down; PR #1462 merged as dfd66845; active successor t180503 pid2122720 is still running and started before the merge.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -68924,7 +69053,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z no-wait audit: no foreground sleeps/waits started by this run. Hermes process registry empty; OS has active Codex #1459 pid 443329/443359 and active Tencent t230505 pid 462512. Scheduler checkpointed instead of waiting through Codex/compute/CI gates.",
+        "evidence": "2026-05-27T18:18Z no-wait gate held: no foreground sleep/long wait used. Long work is background Codex proc_[redacted] and active Tencent pid2122720; PR #1462 was merged only after same-run gate evidence.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -70151,7 +70280,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z roadmap audit: open PRs=0; open roadmap issues=18/18 have screeps Project item and milestone. Repaired current Project Evidence/Next action for #879/#1032/#1233/#1337/#1299/#1450/#1459/#1438/#1456 plus Agent OS gates.",
+        "evidence": "",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -71060,7 +71189,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z Steward cadence unblock advanced: PR #1462 merged as dfd66845 and #1459 closed. t172008 completed/scaled down; active t180503 pid2122720 remains current compute surface.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -71831,7 +71960,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 zero-env Tencent blocker selected first. Risk-aware seed promotion still depends on validation-scale objective/scorecard evidence.",
+        "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Risk-aware seed promotion remains Ready P1 but waits for post-dfd66845 objective/scorecard evidence.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -72523,7 +72652,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845; #1459 closed Done. Runtime consumption remains tracked, but current active Tencent t180503 pid2122720 started pre-merge from dcc1656f, so its result is pre-fix evidence.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -73359,7 +73488,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845 and #1459 closed Done; post-merge main verification passed. Active Tencent t180503 pid2122720 is smoke/pre-fix relative to dfd66845; no duplicate validation-scale compute launched.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -73748,7 +73877,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; #1459 hard P0 blocks trusted-gradient validation before momentum tuning.",
+        "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Momentum accumulation remains Ready P1 but depends on post-dfd66845 trusted-gradient evidence.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -74582,7 +74711,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T20:21Z: Aged P1 remains tracked; kill reward reweight remains decision-only until consumption plus objective/scorecard evidence is fresh after #1459.",
+        "evidence": "2026-05-27T18:18Z #1459 closed via PR #1462. Kill reward reweight remains decision-only until post-dfd66845 objective/scorecard evidence is available.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -75465,7 +75594,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z state audit: latest Loop A ledger 20260526T224746Z still lists NO_EXPERIMENT_CARD_STANDALONE (P1) after the 22:40 local fallback card action. Existing issue #1438 covers it; no duplicate issue created. Hard P0 #1459 and active t230505 pre-fix run take priority.",
+        "evidence": "2026-05-27T18:18Z #1459 merged/closed; standalone experiment-card fallback recurrence remains a Ready P1 follow-up, not blocked by PR #1462. Latest active compute t180503 takes priority.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -75479,7 +75608,7 @@
         "priority": "P1",
         "projectDomain": "RL flywheel",
         "state": "",
-        "status": "In progress",
+        "status": "Ready",
         "title": "P1: Restore standalone RL experiment-card fallback for latest E1 gate",
         "type": "Issue",
         "updatedAt": "",
@@ -75719,7 +75848,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T19:54Z dfd66845 post-fix run t184504 completed 25 env/500 ticks with runtime consumption true but activationProof.ok=false, best territory=2, hostileKills=0. t193003 is active.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -75855,7 +75984,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z state audit: #1460 merged, but #1459 reopened from post-merge zero-env validation failures and is now the active hard P0 Codex lane. #1456 remains executable P1 host-key self-healing recurrence work but is not selected while #1459/t230505 are active.",
+        "evidence": "2026-05-27T18:18Z #1459 is no longer the blocker: PR #1462 merged as dfd66845 and #1459 closed Done. #1456 remains queued P1 behind active P0 RL compute/validation gates.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -75917,7 +76046,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27 17:39Z: PR #1462 review-fix pushed d3d5745b; controller py_compile + 298 focused tests + diff-check passed.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -75931,7 +76060,7 @@
         "priority": "P0",
         "projectDomain": "RL flywheel",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
         "type": "Issue",
         "updatedAt": "",
@@ -75984,8 +76113,8 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-        "kind": "code",
+        "evidence": "2026-05-27 17:39Z: Codex-authored fix d3d5745b pushed; py_compile, 298 unit tests, diff-check passed; prod-ci green, CodeRabbit pending.",
+        "kind": "review",
         "labels": [],
         "milestone": "",
         "nextAction": "",
@@ -75993,75 +76122,93 @@
         "priority": "P0",
         "projectDomain": "RL flywheel",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "fix: harden Tencent pre-scale docker pulls",
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/1462"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-27T19:53Z RL dashboard still running: npm pid2133141/python pid2133168 alive for 1h24m; prior health/acceptance PASS remains current enough for this RL state check.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1464,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "In progress",
+        "title": "P0: Make RL live dashboard process durable after #1388 went non-running",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1464"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1463,
+        "priority": "P1",
+        "projectDomain": "Runtime monitor",
+        "state": "",
+        "status": "Done",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1463"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-05-27T19:54Z latest Gameplay Evolution output c7b3dda8f1ac/2026-05-28_00-00-46.md still ended with (No response generated); runtime-summary captures are fresh (<2000 ticks).",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-agent-ops"
+        ],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1465,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "state": "",
+        "status": "Ready",
+        "title": "P0: Repair empty-response failures in active Screeps cron jobs",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1465"
       }
     ],
     "projectItemsCompleteness": {
       "complete": true,
       "limit": 2000,
-      "returnedCount": 1420,
-      "totalCount": 1420
+      "returnedCount": 1423,
+      "totalCount": 1423
     },
     "projectItemsSource": "live",
-    "pullRequests": [
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 4,
-          "total": 4
-        },
-        "createdAt": "2026-05-27T04:50:09Z",
-        "domain": "Bot capability",
-        "domainSource": "heuristic",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 1463,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "chore(roadmap): refresh Pages artifacts",
-        "type": "PullRequest",
-        "updatedAt": "2026-05-27T10:30:29Z",
-        "url": "https://github.com/lanyusea/screeps/pull/1463"
-      },
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 4,
-          "total": 4
-        },
-        "createdAt": "2026-05-26T23:13:51Z",
-        "domain": "Bot capability",
-        "domainSource": "heuristic",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 1462,
-        "priority": "P1",
-        "reviewDecision": "CHANGES_REQUESTED",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "fix: harden Tencent pre-scale docker pulls",
-        "type": "PullRequest",
-        "updatedAt": "2026-05-26T23:18:50Z",
-        "url": "https://github.com/lanyusea/screeps/pull/1462"
-      }
-    ],
+    "pullRequests": [],
     "roadmapCards": [
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z roadmap audit: open PRs=0; open roadmap issues=18/18 have screeps Project item and milestone. Repaired current Project Evidence/Next action for #879/#1032/#1233/#1337/#1299/#1450/#1459/#1438/#1456 plus Agent OS gates.",
+        "evidence": "",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1191,
@@ -76076,7 +76223,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; PR #1463 merged de3b536d; t184504 post-fix completed 25 env/500 ticks, consumption true, activation blocked territory=2/kills=0; t193003 active pid2150143.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 879,
@@ -76091,7 +76238,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z no-wait audit: no foreground sleeps/waits started by this run. Hermes process registry empty; OS has active Codex #1459 pid 443329/443359 and active Tencent t230505 pid 462512. Scheduler checkpointed instead of waiting through Codex/compute/CI gates.",
+        "evidence": "2026-05-27T18:18Z no-wait gate held: no foreground sleep/long wait used. Long work is background Codex proc_[redacted] and active Tencent pid2122720; PR #1462 was merged only after same-run gate evidence.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1135,
@@ -76106,7 +76253,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T19:54Z dfd66845 post-fix run t184504 completed 25 env/500 ticks with runtime consumption true but activationProof.ok=false, best territory=2, hostileKills=0. t193003 is active.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1450,
@@ -76119,9 +76266,24 @@
         "visionLayer": "territory"
       },
       {
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-27T19:53Z RL dashboard still running: npm pid2133141/python pid2133168 alive for 1h24m; prior health/acceptance PASS remains current enough for this RL state check.",
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1464,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "status": "In progress",
+        "title": "P0: Make RL live dashboard process durable after #1388 went non-running",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1464",
+        "visionLayer": "foundation blocker"
+      },
+      {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:06Z issueification gate: latest Gameplay Evolution Review says practical closed-loop OK and all P0/P1 recommendations have issue coverage. Latest Loop A NO_EXPERIMENT_CARD recurrence already mapped to #1438; no new prose-only P0/P1 issue gap found.",
+        "evidence": "2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new Review-authored P0/P1 action items. Scheduler still converted live PR #1463 Project gap to managed work.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1028,
@@ -76136,7 +76298,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z Steward cadence unblock advanced: PR #1462 merged as dfd66845 and #1459 closed. t172008 completed/scaled down; active t180503 pid2122720 remains current compute surface.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1233,
@@ -76151,7 +76313,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845; #1459 closed Done. Runtime consumption remains tracked, but current active Tencent t180503 pid2122720 started pre-merge from dcc1656f, so its result is pre-fix evidence.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1299,
@@ -76166,7 +76328,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z PR #1462 merged as dfd66845 and #1459 closed Done; post-merge main verification passed. Active Tencent t180503 pid2122720 is smoke/pre-fix relative to dfd66845; no duplicate validation-scale compute launched.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1337,
@@ -76181,7 +76343,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
+        "evidence": "2026-05-27T18:16Z Scale-first loop: t172008 completed/scaled down; PR #1462 merged as dfd66845; active successor t180503 pid2122720 is still running and started before the merge.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1032,
@@ -76194,18 +76356,18 @@
         "visionLayer": "foundation blocker"
       },
       {
-        "domain": "RL flywheel",
+        "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller verification passed diff-check, py_compile, and 296 focused unittests. Exact-head checks now green for prod-ci, issue-completion gate, and roadmap Pages; CodeRabbit remains pending, review threads=0, mergeState=UNSTABLE, elapsed gate not yet 15m.",
-        "milestone": "P1: RL strategy flywheel gate",
+        "evidence": "2026-05-27T19:54Z latest Gameplay Evolution output c7b3dda8f1ac/2026-05-28_00-00-46.md still ended with (No response generated); runtime-summary captures are fresh (<2000 ticks).",
+        "milestone": "",
         "nextAction": "",
-        "number": 1459,
+        "number": 1465,
         "priority": "P0",
-        "projectDomain": "RL flywheel",
-        "status": "In review",
-        "title": "P0: Make Tencent pre-scale simulator smoke robust after zero-environment validation failures",
+        "projectDomain": "Agent OS",
+        "status": "Ready",
+        "title": "P0: Repair empty-response failures in active Screeps cron jobs",
         "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1459",
+        "url": "https://github.com/lanyusea/screeps/issues/1465",
         "visionLayer": "foundation blocker"
       },
       {
@@ -76221,21 +76383,6 @@
         "title": "Add E1S1 repeat-launch guard for Tencent RL batch runs",
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1197",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "",
-        "milestone": "P1: RL strategy flywheel gate",
-        "nextAction": "",
-        "number": 1230,
-        "priority": "P0",
-        "projectDomain": "Agent OS",
-        "status": "Done",
-        "title": "Agent OS",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1230",
         "visionLayer": "foundation blocker"
       }
     ],
@@ -76368,7 +76515,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "21470",
+            "formattedValue": "31515",
             "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
@@ -76379,7 +76526,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 21470
+            "value": 31515
           },
           {
             "category": "resources",
@@ -76404,7 +76551,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy currently carried by workers.",
             "details": {},
-            "formattedValue": "1968",
+            "formattedValue": "1708",
             "instrumented": true,
             "key": "worker_carried_energy",
             "label": "Worker carried energy",
@@ -76415,7 +76562,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 1968
+            "value": 1708
           },
           {
             "category": "resources",
@@ -77024,8 +77171,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77180,8 +77334,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77336,8 +77497,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77492,8 +77660,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77648,8 +77823,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77804,8 +77986,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 11.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -77960,8 +78149,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78116,8 +78312,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78272,8 +78475,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78428,8 +78638,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78584,8 +78801,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78740,8 +78964,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78896,8 +79127,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79052,8 +79290,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79208,8 +79453,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79364,8 +79616,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79518,10 +79777,17 @@
           "value": 1.0
         },
         {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79676,8 +79942,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79832,8 +80105,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79988,8 +80268,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80144,8 +80431,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 3.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80300,8 +80594,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80456,8 +80757,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80612,8 +80920,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80768,8 +81083,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 4.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80924,8 +81246,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81080,8 +81409,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81236,8 +81572,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 31515.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81252,7 +81595,7 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 21470
+          "value": 31515
         }
       ],
       "stored_energy_delta": [
@@ -81392,8 +81735,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81548,8 +81898,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81704,8 +82061,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81860,8 +82224,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "observed",
+          "value": 1708.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81876,7 +82247,7 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 1968
+          "value": 1708
         }
       ],
       "worker_recovery_state": [
@@ -82016,8 +82387,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-27T20:29:29Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-27T16:13:10Z",
+          "sampledAt": "2026-05-27T20:29:29Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82091,7 +82469,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-26T23:06Z issueification gate: latest Gameplay Evolution Review says practic...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-27T18:18Z latest Gameplay Review file had no generated response, so no new R...",
             "domain": "Agent OS",
             "number": 1028,
             "priority": "P0",
@@ -82100,7 +82478,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1028"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-26T23:06Z no-wait audit: no foreground sleeps/waits started by this run. Her...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-27T18:18Z no-wait gate held: no foreground sleep/long wait used. Long work i...",
             "domain": "Agent OS",
             "number": 1135,
             "priority": "P0",
@@ -82109,13 +82487,22 @@
             "url": "https://github.com/lanyusea/screeps/issues/1135"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-26T23:06Z roadmap audit: open PRs=0; open roadmap issues=18/18 have screeps...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-18 Agent OS PM defect: convert prose-only P0/P1 actions into tracked issues",
             "domain": "Agent OS",
             "number": 1191,
             "priority": "P0",
             "status": "In progress",
             "title": "#1191 Agent OS PM defect: convert prose-only P0/P1 actions into track...",
             "url": "https://github.com/lanyusea/screeps/issues/1191"
+          },
+          {
+            "description": "Ready \u00b7 Agent OS \u00b7 2026-05-27T19:54Z latest Gameplay Evolution output c7b3dda8f1ac/2026-05-28_00-00-46.md sti...",
+            "domain": "Agent OS",
+            "number": 1465,
+            "priority": "P0",
+            "status": "Ready",
+            "title": "#1465 P0: Repair empty-response failures in active Screeps cron jobs",
+            "url": "https://github.com/lanyusea/screeps/issues/1465"
           }
         ],
         "title": "Agent OS"
@@ -82161,7 +82548,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; PR #1463 merged d...",
             "domain": "RL flywheel",
             "number": 879,
             "priority": "P0",
@@ -82170,7 +82557,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/879"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-27T18:16Z Scale-first loop: t172008 completed/scaled down; PR #1462 merge...",
             "domain": "RL flywheel",
             "number": 1032,
             "priority": "P0",
@@ -82179,7 +82566,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1032"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-27T18:16Z Steward cadence unblock advanced: PR #1462 merged as dfd66845 a...",
             "domain": "RL flywheel",
             "number": 1233,
             "priority": "P0",
@@ -82188,7 +82575,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1233"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #1459. Controller...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-27T18:16Z PR #1462 merged as dfd66845; #1459 closed Done. Runtime consump...",
             "domain": "RL flywheel",
             "number": 1299,
             "priority": "P0",
@@ -82405,7 +82792,7 @@
           "windowDays": 7
         },
         "key": "resources",
-        "max": 30000,
+        "max": 40000,
         "pill": "energy",
         "series": [
           {
@@ -82428,7 +82815,7 @@
               13516,
               12253,
               11903,
-              21470
+              31515
             ],
             "width": 2
           },
@@ -82477,7 +82864,7 @@
               1685,
               2152,
               1185,
-              1968
+              1708
             ],
             "width": 3
           }
@@ -82485,8 +82872,8 @@
         "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
         "ticks": [
           0,
-          15000.0,
-          30000
+          20000.0,
+          40000
         ],
         "title": "Resources"
       },
@@ -82635,24 +83022,24 @@
     ],
     "processCards": [
       {
-        "delta": "+5",
+        "delta": "+2",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 854,
+        "rawValue": 856,
         "source": "git rev-list --count HEAD",
-        "value": 854
+        "value": 856
       },
       {
-        "delta": "+4",
-        "detail": "18 open",
+        "delta": "+2",
+        "detail": "19 open",
         "label": "Issues",
-        "rawValue": 711,
+        "rawValue": 713,
         "source": "github",
-        "value": 711
+        "value": 713
       },
       {
-        "delta": "+6",
-        "detail": "733 merged",
+        "delta": "+0",
+        "detail": "735 merged",
         "label": "PRs",
         "rawValue": 752,
         "source": "github",
@@ -82684,8 +83071,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-27T16:13:10Z",
-            "start": "2026-05-20T16:13:10Z"
+            "end": "2026-05-27T20:29:29Z",
+            "start": "2026-05-20T20:29:29Z"
           }
         },
         "source": "unavailable",
@@ -82717,8 +83104,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-27T16:13:10Z",
-            "start": "2026-05-20T16:13:10Z"
+            "end": "2026-05-27T20:29:29Z",
+            "start": "2026-05-20T20:29:29Z"
           }
         },
         "source": "unavailable",
@@ -84907,8 +85294,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-27T16:13:10Z",
-            "start": "2026-05-20T16:13:10Z"
+            "end": "2026-05-27T20:29:29Z",
+            "start": "2026-05-20T20:29:29Z"
           }
         },
         "source": "local cache",
@@ -85635,15 +86022,15 @@
     ],
     "roadmapCards": [
       {
-        "activeItems": 3,
+        "activeItems": 4,
         "domain": "Agent OS",
         "doneItems": 78,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
-        "next": "Current: #1028 In progress - 2026-05-26T23:06Z issueification gate: latest Gameplay Evolution...",
-        "progress": 96,
-        "status": "81 Project items \u00b7 3 active \u00b7 78 done",
+        "next": "Current: #1028 In progress - 2026-05-27T18:18Z latest Gameplay Review file had no generated r...",
+        "progress": 95,
+        "status": "82 Project items \u00b7 4 active \u00b7 78 done",
         "title": "Agent OS",
-        "totalItems": 81,
+        "totalItems": 82,
         "url": "https://github.com/lanyusea/screeps/issues/1028"
       },
       {
@@ -85661,13 +86048,13 @@
       {
         "activeItems": 0,
         "domain": "Runtime monitor",
-        "doneItems": 71,
+        "doneItems": 72,
         "goal": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
         "next": "No active item; latest tracked: #313 Done - Incident: official shardX/E48S28 summary reports...",
         "progress": 100,
-        "status": "71 Project items \u00b7 0 active \u00b7 71 done",
+        "status": "72 Project items \u00b7 0 active \u00b7 72 done",
         "title": "Runtime monitor",
-        "totalItems": 71,
+        "totalItems": 72,
         "url": "https://github.com/lanyusea/screeps/issues/313"
       },
       {
@@ -85731,15 +86118,15 @@
         "url": "https://github.com/lanyusea/screeps/issues/878"
       },
       {
-        "activeItems": 13,
+        "activeItems": 12,
         "domain": "RL flywheel",
-        "doneItems": 282,
+        "doneItems": 284,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
-        "next": "Current: #879 In progress - 2026-05-26T23:16Z: PR #1462 head 70009419 is open/In review for #...",
+        "next": "Current: #879 In progress - 2026-05-27T19:54Z RL state refreshed: PR #1462 merged dfd66845; P...",
         "progress": 96,
-        "status": "295 Project items \u00b7 13 active \u00b7 282 done",
+        "status": "296 Project items \u00b7 12 active \u00b7 284 done",
         "title": "RL flywheel",
-        "totalItems": 295,
+        "totalItems": 296,
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ]
@@ -85756,8 +86143,8 @@
       "skippedFileCount": 0
     },
     "window": {
-      "firstTick": 1452086,
-      "latestTick": 1452086
+      "firstTick": 1459978,
+      "latestTick": 1459978
     }
   },
   "schemaVersion": 1,
