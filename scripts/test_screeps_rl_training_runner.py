@@ -90,6 +90,10 @@ def scalar_gradient_scheme_identity(policy_gradient: JsonObject | None = None) -
     )
 
 
+def lexicographic_reinforce_gradient_scheme_identity() -> JsonObject:
+    return runner.policy_update_lexicographic_reinforce_gradient_scheme_identity()
+
+
 def base_card(variant_ids: list[str] | None = None) -> JsonObject:
     ids = variant_ids or ["baseline", "candidate"]
     return {
@@ -2844,18 +2848,24 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(stability["sampleCountByCandidate"], {"variant-a": 20, "variant-b": 20})
         self.assertEqual(stability["classification"], "stable")
         self.assertEqual(stability["convergenceLabel"], "trusted_gradient_update")
-        self.assertEqual(update["policyGradientEstimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
-        self.assertEqual(update["gradientEstimation"]["gradientReward"], "scalar_weighted_sum")
-        self.assertEqual(update["gradientEstimation"]["scalarWeightedSumUse"], "gradient_estimation_only_non_promotional")
+        self.assertEqual(
+            update["policyGradientEstimator"],
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        )
+        self.assertEqual(
+            update["gradientEstimation"]["gradientReward"],
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
+        )
+        self.assertEqual(update["gradientEstimation"]["scalarWeightedSumUse"], "not_used")
         self.assertTrue(update["gradientEstimation"]["lexicographicRankingPreserved"])
         self.assertFalse(update["gradientEstimation"]["scalarWeightedSumAuthorized"])
         self.assertEqual(
             update["gradientEstimation"]["schemeIdentity"]["estimator"],
-            runner.POLICY_GRADIENT_SCALAR_ESTIMATOR,
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
         )
         self.assertEqual(
             update["gradientEstimation"]["schemeIdentity"]["gradientReward"],
-            "scalar_weighted_sum",
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
         )
         self.assertEqual(
             update["gradientEstimation"]["schemeKey"],
@@ -2873,19 +2883,21 @@ export const STRATEGY_REGISTRY = [
             update["nextCandidatePolicy"]["gradientEstimationSchemeKey"],
             update["gradientEstimation"]["schemeKey"],
         )
-        self.assertEqual(update["gradientEstimation"]["sourceMaxComponentWeight"], 1000000000)
-        self.assertEqual(update["gradientEstimation"]["normalizationCap"], 10000)
-        self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
-        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
+        self.assertNotIn("sourceMaxComponentWeight", update["gradientEstimation"])
+        self.assertNotIn("scalarRewardScaleFactor", update["gradientEstimation"])
+        self.assertEqual(
+            update["gradientEstimation"]["selectedRewardTierByParameter"],
+            {"territorySignalWeight": "reliability"},
+        )
         self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
         self.assertEqual(
             runner.round_policy_number(update["gradient"]["territorySignalWeight"]),
             update["gradientMomentum"]["emaGradient"]["territorySignalWeight"],
         )
-        self.assertAlmostEqual(float(update["gradient"]["territorySignalWeight"]), 1666.666667, places=6)
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
-        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
+        self.assertAlmostEqual(float(update["gradient"]["territorySignalWeight"]), 0.016667, places=6)
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.5})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.5})
+        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 0.016667})
         self.assertEqual(
             runner.round_policy_number(update["gradientEstimation"]["gradient"]["territorySignalWeight"]),
             update["gradientEstimation"]["capNormalizedGradient"]["territorySignalWeight"],
@@ -2902,7 +2914,7 @@ export const STRATEGY_REGISTRY = [
         policy_gradient["policyUpdate"]["gradient_momentum"] = {
             "ema_decay": 0.8,
             "previous_ema_gradient": {"territorySignalWeight": 0.25},
-            "previous_gradient_estimation_scheme": scalar_gradient_scheme_identity(policy_gradient),
+            "previous_gradient_estimation_scheme": lexicographic_reinforce_gradient_scheme_identity(),
         }
 
         update = runner.build_policy_update(
@@ -2986,14 +2998,7 @@ export const STRATEGY_REGISTRY = [
             runner.policy_update_gradient_scheme_comparison_key(different_estimator),
         )
 
-    def test_reinforce_gradient_stability_trusts_scaled_equivalent_previous_scheme(self) -> None:
-        previous_policy_gradient = reinforce_stability_policy_gradient()
-        previous_policy_gradient["policyUpdate"]["gradient_reward_weights"] = {
-            "reliability": 100,
-            "territory": 50,
-            "resources": 25,
-            "kills": 10,
-        }
+    def test_reinforce_gradient_stability_trusts_weight_changes_under_lexicographic_scheme(self) -> None:
         policy_gradient = reinforce_stability_policy_gradient()
         policy_gradient["policyUpdate"]["gradient_reward_weights"] = {
             "reliability": 200,
@@ -3004,7 +3009,7 @@ export const STRATEGY_REGISTRY = [
         policy_gradient["policyUpdate"]["gradient_momentum"] = {
             "ema_decay": 0.8,
             "previous_ema_gradient": {"territorySignalWeight": 0.25},
-            "previous_gradient_estimation_scheme": scalar_gradient_scheme_identity(previous_policy_gradient),
+            "previous_gradient_estimation_scheme": lexicographic_reinforce_gradient_scheme_identity(),
         }
 
         update = runner.build_policy_update(
@@ -3181,7 +3186,7 @@ export const STRATEGY_REGISTRY = [
         self.assertGreater(direction["contributionSum"], 0)
         self.assertEqual(direction["contributionSum"], direction["capNormalizedContributionSum"])
 
-    def test_reinforce_policy_update_preserves_large_source_weight_scale(self) -> None:
+    def test_reinforce_policy_update_ignores_scalar_weight_scale_for_active_gradient(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
             "policyUpdate": {
@@ -3241,16 +3246,197 @@ export const STRATEGY_REGISTRY = [
         )
 
         self.assertEqual(update["iterations"], 1)
-        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00000001)
-        self.assertEqual(update["gradient"], {"territorySignalWeight": 12500000})
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 1})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 2})
+        self.assertEqual(
+            update["gradientEstimation"]["estimator"],
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        )
+        self.assertNotIn("scalarRewardScaleFactor", update["gradientEstimation"])
+        self.assertEqual(update["gradient"], {"territorySignalWeight": 0.125})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.025})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 1.025})
         self.assertEqual(
             update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
-            {"territorySignalWeight": 1},
+            {"territorySignalWeight": 0.025},
         )
 
-    def test_reinforce_policy_update_uses_unrounded_scalar_gradient_for_parameter_delta(self) -> None:
+    def test_reinforce_lexicographic_gradient_estimator_does_not_let_reliability_weight_mask_lower_tiers(self) -> None:
+        policy_gradient = {
+            "targetFamily": "test-family",
+            "policyUpdate": {
+                "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
+                "learning_rate": 0.1,
+                "gradient_reward_weights": {
+                    "reliability": 1_000_000_000_000.0,
+                    "territory": 1_000_000.0,
+                    "resources": 1_000.0,
+                    "kills": 1.0,
+                },
+                "gradient_stability_gate": {"minimum_samples_per_candidate": 1},
+            },
+            "runner_support": {
+                "runtime_parameter_injection": True,
+                "inline_candidates_runtime_injected": True,
+                "candidate_parameter_scope": "runtime_injected",
+                "simulator_variant_transport": "variant_ids_with_runtime_injected_parameters",
+                "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
+                "runtime_parameter_consumption_status": "consumed",
+            },
+            "learnableParameters": [
+                {"name": "reliabilitySignalWeight", "min": 0, "max": 2},
+                {"name": "territorySignalWeight", "min": 0, "max": 2},
+                {"name": "resourceSignalWeight", "min": 0, "max": 2},
+                {"name": "combatSignalWeight", "min": 0, "max": 2},
+            ],
+            "candidateParameterVectors": [
+                {
+                    "candidatePolicyId": "candidate-anchor",
+                    "strategyVariantId": "variant-anchor",
+                    "rolloutStatus": "incumbent",
+                    "parameters": {
+                        "reliabilitySignalWeight": 0,
+                        "territorySignalWeight": 0,
+                        "resourceSignalWeight": 0,
+                        "combatSignalWeight": 0,
+                    },
+                },
+                {
+                    "candidatePolicyId": "candidate-reliability",
+                    "strategyVariantId": "variant-reliability",
+                    "rolloutStatus": "shadow",
+                    "parameters": {
+                        "reliabilitySignalWeight": 1,
+                        "territorySignalWeight": 0,
+                        "resourceSignalWeight": 0,
+                        "combatSignalWeight": 0,
+                    },
+                },
+                {
+                    "candidatePolicyId": "candidate-territory",
+                    "strategyVariantId": "variant-territory",
+                    "rolloutStatus": "shadow",
+                    "parameters": {
+                        "reliabilitySignalWeight": 0,
+                        "territorySignalWeight": 1,
+                        "resourceSignalWeight": 0,
+                        "combatSignalWeight": 0,
+                    },
+                },
+                {
+                    "candidatePolicyId": "candidate-resources",
+                    "strategyVariantId": "variant-resources",
+                    "rolloutStatus": "shadow",
+                    "parameters": {
+                        "reliabilitySignalWeight": 0,
+                        "territorySignalWeight": 0,
+                        "resourceSignalWeight": 1,
+                        "combatSignalWeight": 0,
+                    },
+                },
+                {
+                    "candidatePolicyId": "candidate-kills",
+                    "strategyVariantId": "variant-kills",
+                    "rolloutStatus": "shadow",
+                    "parameters": {
+                        "reliabilitySignalWeight": 0,
+                        "territorySignalWeight": 0,
+                        "resourceSignalWeight": 0,
+                        "combatSignalWeight": 1,
+                    },
+                },
+            ],
+        }
+        results = [
+            {
+                "variantId": "variant-anchor",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 0]},
+                "evaluatedParameters": {
+                    "reliabilitySignalWeight": 0,
+                    "territorySignalWeight": 0,
+                    "resourceSignalWeight": 0,
+                    "combatSignalWeight": 0,
+                },
+            },
+            {
+                "variantId": "variant-reliability",
+                "sampleCount": 1,
+                "reward": {"tuple": [2, 0, 0, 0]},
+                "evaluatedParameters": {
+                    "reliabilitySignalWeight": 1,
+                    "territorySignalWeight": 0,
+                    "resourceSignalWeight": 0,
+                    "combatSignalWeight": 0,
+                },
+            },
+            {
+                "variantId": "variant-territory",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 5, 0, 0]},
+                "evaluatedParameters": {
+                    "reliabilitySignalWeight": 0,
+                    "territorySignalWeight": 1,
+                    "resourceSignalWeight": 0,
+                    "combatSignalWeight": 0,
+                },
+            },
+            {
+                "variantId": "variant-resources",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 7, 0]},
+                "evaluatedParameters": {
+                    "reliabilitySignalWeight": 0,
+                    "territorySignalWeight": 0,
+                    "resourceSignalWeight": 1,
+                    "combatSignalWeight": 0,
+                },
+            },
+            {
+                "variantId": "variant-kills",
+                "sampleCount": 1,
+                "reward": {"tuple": [1, 0, 0, 11]},
+                "evaluatedParameters": {
+                    "reliabilitySignalWeight": 0,
+                    "territorySignalWeight": 0,
+                    "resourceSignalWeight": 0,
+                    "combatSignalWeight": 1,
+                },
+            },
+        ]
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-lexicographic-tier-selection",
+            generated_at="2026-05-22T00:02:00Z",
+        )
+
+        selected = update["gradientEstimation"]["selectedRewardTierByParameter"]
+        per_tier = update["gradientEstimation"]["gradientByRewardTier"]
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["policyGradientEstimator"], runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR)
+        self.assertNotEqual(update["policyGradientEstimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
+        self.assertEqual(
+            selected,
+            {
+                "reliabilitySignalWeight": "reliability",
+                "territorySignalWeight": "territory",
+                "resourceSignalWeight": "resources",
+                "combatSignalWeight": "kills",
+            },
+        )
+        self.assertEqual(per_tier["territorySignalWeight"]["reliability"], 0)
+        self.assertGreater(per_tier["territorySignalWeight"]["territory"], 0)
+        self.assertEqual(per_tier["resourceSignalWeight"]["reliability"], 0)
+        self.assertGreater(per_tier["resourceSignalWeight"]["resources"], 0)
+        self.assertEqual(per_tier["combatSignalWeight"]["reliability"], 0)
+        self.assertGreater(per_tier["combatSignalWeight"]["kills"], 0)
+        self.assertFalse(update["gradientEstimation"]["scalarWeightedSumAuthorized"])
+        self.assertEqual(update["gradientEstimation"]["scalarWeightedSumUse"], "not_used")
+        self.assertFalse(update["liveEffect"])
+        self.assertFalse(update["officialMmoWrites"])
+        self.assertFalse(update["officialMmoWritesAllowed"])
+
+    def test_reinforce_policy_update_uses_unrounded_lexicographic_gradient_for_parameter_delta(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
             "policyUpdate": {
@@ -3364,11 +3550,9 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["gradientStable"])
         self.assertFalse(update["trustedGradientUpdate"])
         self.assertTrue(update["highVariance"])
-        self.assertEqual(update["gradientEstimation"]["normalizationFactor"], 10000)
-        self.assertEqual(update["gradientEstimation"]["scalarRewardScaleFactor"], 0.00001)
-        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 1666.666667})
-        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 24})
-        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 30})
+        self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"territorySignalWeight": 0.016667})
+        self.assertEqual(update["parameterDelta"], {"territorySignalWeight": 0.5})
+        self.assertEqual(update["updatedParameters"], {"territorySignalWeight": 6.5})
         self.assertGreater(abs(float(update["gradient"]["territorySignalWeight"])), 0)
         self.assertEqual(stability["classification"], "insufficient_sample_high_variance")
         self.assertEqual(stability["convergenceLabel"], "sample_only_not_convergence")
@@ -3452,7 +3636,7 @@ export const STRATEGY_REGISTRY = [
         policy_gradient["policyUpdate"]["gradient_momentum"] = {
             "ema_decay": 0.8,
             "previous_ema_gradient": {"territorySignalWeight": 0.25},
-            "previous_gradient_estimation_scheme": scalar_gradient_scheme_identity(policy_gradient),
+            "previous_gradient_estimation_scheme": lexicographic_reinforce_gradient_scheme_identity(),
         }
         update = runner.build_policy_update(
             policy_gradient=policy_gradient,
@@ -4281,7 +4465,10 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["gradientTrustGateReason"], report["gradientStability"]["reason"])
         self.assertEqual(report["highVarianceReason"], report["gradientStability"]["reason"])
         self.assertEqual(report["gradientTrustGateClassification"], "insufficient_sample_high_variance")
-        self.assertEqual(report["gradientEstimation"]["gradientReward"], "scalar_weighted_sum")
+        self.assertEqual(
+            report["gradientEstimation"]["gradientReward"],
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD,
+        )
         self.assertIsInstance(report["gradientEstimation"]["schemeIdentity"], dict)
         self.assertEqual(report["gradientEstimationSchemeKey"], report["gradientEstimation"]["schemeKey"])
         self.assertEqual(report["gradientComparisonKey"], report["gradientEstimation"]["comparisonKey"])
@@ -4292,7 +4479,10 @@ export const STRATEGY_REGISTRY = [
         )
         self.assertEqual(report["gradientMomentum"]["type"], runner.GRADIENT_MOMENTUM_EVIDENCE_TYPE)
         self.assertFalse(persisted["trustedGradientUpdate"])
-        self.assertEqual(persisted["gradientEstimation"]["estimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
+        self.assertEqual(
+            persisted["gradientEstimation"]["estimator"],
+            runner.POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        )
         self.assertEqual(persisted["gradientEstimationSchemeKey"], report["gradientEstimation"]["schemeKey"])
         self.assertIsNotNone(report["policyUpdateCandidatePolicyId"])
         self.assertIn("policyUpdateArtifactPath", report)
