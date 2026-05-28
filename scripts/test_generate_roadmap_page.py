@@ -1812,6 +1812,32 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(merged["milestone"], "Phase C")
         self.assertEqual(merged["updatedAt"], "2026-05-25T10:48:41Z")
 
+    def test_merge_issue_context_fills_empty_project_timestamps_from_context(self) -> None:
+        merged = roadmap.merge_issue_context(
+            {
+                "type": "PullRequest",
+                "number": 1473,
+                "title": "Project PR item",
+                "updatedAt": "",
+                "createdAt": "",
+                "evidence": "",
+                "nextAction": "",
+            },
+            {
+                1473: {
+                    "updatedAt": "2026-05-28T04:49:29Z",
+                    "createdAt": "2026-05-28T04:41:16Z",
+                    "evidence": "context evidence should not replace explicit empty Project evidence",
+                    "nextAction": "context action should not replace explicit empty Project action",
+                }
+            },
+        )
+
+        self.assertEqual(merged["updatedAt"], "2026-05-28T04:49:29Z")
+        self.assertEqual(merged["createdAt"], "2026-05-28T04:41:16Z")
+        self.assertEqual(merged["evidence"], "")
+        self.assertEqual(merged["nextAction"], "")
+
     def test_domain_kanban_falls_back_to_issue_recency_and_title_when_project_evidence_is_empty(self) -> None:
         snapshot = {
             "sourceMode": "live",
@@ -1858,8 +1884,67 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         combat_column = next(column for column in domain_board if column["title"] == "Combat")
         description = combat_column["items"][0]["description"]
 
-        self.assertIn("In progress · Combat · 2026-05-25 P1: E29N56 rampart damage", description)
+        self.assertIn("In progress · Combat · 2026-05-25T10:48:41Z P1: E29N56 rampart damage", description)
         self.assertNotIn("Combat · Combat", description)
+
+    def test_domain_kanban_falls_back_to_pr_recency_when_project_timestamp_is_empty(self) -> None:
+        snapshot = {
+            "sourceMode": "live",
+            "fetched": True,
+            "fetchErrors": [],
+            "projectItemsSource": "live",
+            "projectItemsCompleteness": {"complete": True, "returnedCount": 1, "totalCount": 1, "limit": 2000},
+            "issues": [],
+            "projectItems": [
+                {
+                    "type": "PullRequest",
+                    "number": 1473,
+                    "title": "chore(roadmap): refresh Pages artifacts",
+                    "url": "https://github.com/lanyusea/screeps/pull/1473",
+                    "status": "In progress",
+                    "priority": "P1",
+                    "domain": "Agent OS",
+                    "projectDomain": "Agent OS",
+                    "domainSource": "project",
+                    "evidence": "",
+                    "nextAction": "",
+                    "updatedAt": "",
+                }
+            ],
+            "pullRequests": [
+                {
+                    "type": "PullRequest",
+                    "number": 1473,
+                    "title": "chore(roadmap): refresh Pages artifacts",
+                    "url": "https://github.com/lanyusea/screeps/pull/1473",
+                    "state": "OPEN",
+                    "status": "In review",
+                    "priority": "P1",
+                    "domain": "Bot capability",
+                    "domainSource": "heuristic",
+                    "kind": "code",
+                    "updatedAt": "2026-05-28T04:49:29Z",
+                    "createdAt": "2026-05-28T04:41:16Z",
+                }
+            ],
+            "roadmapCards": [],
+        }
+
+        domain_board = roadmap.build_report_domain_kanban(snapshot)
+        agent_column = next(column for column in domain_board if column["title"] == "Agent OS")
+        card = agent_column["items"][0]
+
+        self.assertEqual(card["number"], 1473)
+        self.assertEqual(card["url"], "https://github.com/lanyusea/screeps/pull/1473")
+        self.assertIn(
+            "In progress · Agent OS · 2026-05-28T04:49:29Z chore(roadmap): refresh Pages artifacts",
+            card["description"],
+        )
+
+        kanban_cards = roadmap.build_kanban_cards(snapshot["projectItems"], snapshot["issues"], snapshot["pullRequests"])
+        kanban_card = next(item for item in kanban_cards if item["number"] == 1473)
+        self.assertEqual(kanban_card["updatedAt"], "2026-05-28T04:49:29Z")
+        self.assertEqual(kanban_card["createdAt"], "2026-05-28T04:41:16Z")
 
     def test_fetch_github_snapshot_marks_cached_project_items_when_project_fetch_fails(self) -> None:
         cached_snapshot = {
