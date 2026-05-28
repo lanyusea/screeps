@@ -310,10 +310,9 @@ def validate_body(body: str, *, require_universal_done_gate: bool = False) -> li
     if negated_errors:
         return negated_errors
 
-    universal_done_gate_errors = (
-        validate_universal_done_gate(body, require=True)
-        if require_universal_done_gate
-        else []
+    universal_done_gate_errors = validate_universal_done_gate(
+        body,
+        require=require_universal_done_gate,
     )
 
     closing_refs = find_closing_refs(body)
@@ -649,6 +648,28 @@ UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = 
 )
 
 
+OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+    (
+        "missing_optional_universal_done_gate_without_requirement",
+        "## Summary\n\n- useful adjacent artifact exists.\n",
+        True,
+        None,
+    ),
+    (
+        "present_optional_universal_done_gate_missing_field",
+        "## Universal task Done gate\n\n"
+        "- [x] Task type: ops.\n"
+        "- [x] Expected observable outcome / named deliverable: persistent service health.\n"
+        "- [x] Non-goals / accepted substitutes: none.\n"
+        "- [x] Verification evidence required before Done: service health check passes.\n"
+        "- [x] Project Evidence / Next action / Blocked by: fields are current.\n"
+        "- [x] Post-merge/deploy/runtime proof: service health is checked after deploy.\n",
+        False,
+        "missing checked field: Named deliverable proof",
+    ),
+)
+
+
 COMMIT_SELF_TESTS: tuple[tuple[str, PullRequestCommit, bool, str | None], ...] = (
     (
         "commit_clean_message",
@@ -689,6 +710,14 @@ def run_self_tests() -> int:
             continue
         if expected_message and not any(expected_message in error for error in errors):
             failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, body, expect_pass, expected_message in OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS:
+        errors = validate_body(body)
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
     for name, commit, expect_pass, expected_message in COMMIT_SELF_TESTS:
         errors = validate_commit_messages([commit])
         passed = not errors
@@ -705,7 +734,12 @@ def run_self_tests() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    fixture_count = len(SELF_TESTS) + len(UNIVERSAL_DONE_GATE_SELF_TESTS) + len(COMMIT_SELF_TESTS)
+    fixture_count = (
+        len(SELF_TESTS)
+        + len(UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(COMMIT_SELF_TESTS)
+    )
     print(f"PASS: self-test ({fixture_count} fixture(s))")
     return 0
 
