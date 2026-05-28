@@ -18031,6 +18031,15 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
           0,
           routeDistanceLookupContext
         ),
+        ...getVisibleOwnedRoomAdjacentReserveCandidates(
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          !hasBlockingConfiguredTarget,
+          routeDistanceLookupContext
+        ),
         ...getAdjacentFollowUpReserveCandidates(
           colonyName,
           colonyOwnerUsername,
@@ -18988,6 +18997,33 @@ function getActiveCoveredConfiguredReserveTargets(colonyName, colonyOwnerUsernam
     return [{ target, order }];
   });
 }
+function getVisibleOwnedRoomAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, routeDistanceLookupContext) {
+  return getVisibleOwnedAdjacentScoutOriginRooms(colonyName, routeDistanceLookupContext).flatMap(
+    (originRoomName, index) => getAdjacentReserveCandidates(
+      colonyName,
+      originRoomName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      includeScoutCandidates,
+      "ownedAdjacent",
+      (index + 1) * EXIT_DIRECTION_ORDER5.length,
+      routeDistanceLookupContext
+    ).filter((candidate) => candidate.intentAction === "scout")
+  );
+}
+function getVisibleOwnedAdjacentScoutOriginRooms(colonyName, routeDistanceLookupContext) {
+  return getVisibleOwnedRoomNames4(colonyName).filter((roomName) => roomName !== colonyName).sort(
+    (left, right) => {
+      var _a, _b;
+      return compareOptionalNumbers5(
+        (_a = getKnownRouteLength2(colonyName, left, routeDistanceLookupContext)) != null ? _a : void 0,
+        (_b = getKnownRouteLength2(colonyName, right, routeDistanceLookupContext)) != null ? _b : void 0
+      ) || left.localeCompare(right);
+    }
+  );
+}
 function getSatisfiedConfiguredClaimTargets(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
   return getSatisfiedConfiguredTargets(
     colonyName,
@@ -19586,7 +19622,10 @@ function getTerritoryCandidateSourcePriority(source) {
   if (source === "satisfiedReserveAdjacent") {
     return 3;
   }
-  return source === "activeReserveAdjacent" ? 4 : 5;
+  if (source === "activeReserveAdjacent") {
+    return 4;
+  }
+  return source === "adjacent" ? 5 : 6;
 }
 function buildTerritoryFollowUp(source, originRoom) {
   const originAction = getTerritoryFollowUpOriginAction2(source);
@@ -46365,6 +46404,9 @@ function buildMemoryTerritoryState(roomName) {
       if (!action) {
         continue;
       }
+      if (isVisibleOwnedByColonyAccount(target.roomName, roomName)) {
+        continue;
+      }
       const candidate = {
         roomName: target.roomName,
         action
@@ -46378,7 +46420,7 @@ function buildMemoryTerritoryState(roomName) {
   }
   const roomMemory = (_d = (_c = (_b = globalThis.Game) == null ? void 0 : _b.rooms) == null ? void 0 : _c[roomName]) == null ? void 0 : _d.memory;
   const cachedExpansionSelection = roomMemory == null ? void 0 : roomMemory.cachedExpansionSelection;
-  if ((cachedExpansionSelection == null ? void 0 : cachedExpansionSelection.status) === "planned" && cachedExpansionSelection.colony === roomName && cachedExpansionSelection.targetRoom) {
+  if ((cachedExpansionSelection == null ? void 0 : cachedExpansionSelection.status) === "planned" && cachedExpansionSelection.colony === roomName && cachedExpansionSelection.targetRoom && !isVisibleOwnedByColonyAccount(cachedExpansionSelection.targetRoom, roomName)) {
     expansionCandidates.push({
       roomName: cachedExpansionSelection.targetRoom,
       action: "claim",
@@ -46417,6 +46459,25 @@ function countVisibleOwnedRooms7() {
     var _a2;
     return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
   }).length;
+}
+function isVisibleOwnedByColonyAccount(targetRoomName, colonyRoomName) {
+  var _a, _b, _c;
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  const targetController = (_b = rooms == null ? void 0 : rooms[targetRoomName]) == null ? void 0 : _b.controller;
+  if (!targetController) {
+    return false;
+  }
+  if (targetController.my === true) {
+    return true;
+  }
+  const colonyOwnerUsername = getControllerOwnerUsername15((_c = rooms == null ? void 0 : rooms[colonyRoomName]) == null ? void 0 : _c.controller);
+  const targetOwnerUsername = getControllerOwnerUsername15(targetController);
+  return typeof colonyOwnerUsername === "string" && colonyOwnerUsername.length > 0 && targetOwnerUsername === colonyOwnerUsername;
+}
+function getControllerOwnerUsername15(controller) {
+  var _a;
+  const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
+  return typeof username === "string" && username.length > 0 ? username : null;
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(

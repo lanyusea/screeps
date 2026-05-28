@@ -639,6 +639,76 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('scouts missing visibility adjacent to current owned rooms without reserve or claim control', () => {
+    const colony = makeSafeColony({
+      roomName: 'E29N55',
+      controller: { my: true, owner: { username: 'me' }, level: 5, ticksToDowngrade: 20_000 } as StructureController,
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
+    const describeExits = jest.fn((roomName: string) => {
+      if (roomName === 'E29N55') {
+        return { '1': 'E29N54' };
+      }
+      if (roomName === 'E29N57') {
+        return { '3': 'E30N57' };
+      }
+      return {};
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        E29N55: colony.room,
+        E29N57: {
+          name: 'E29N57',
+          controller: { my: true, owner: { username: 'me' }, level: 4 } as StructureController
+        } as Room
+      },
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        527,
+        { scoutOnly: true, scoutOnlyTargetRooms: ['E29N54'] }
+      )
+    ).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E29N54',
+      action: 'scout'
+    });
+
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        528,
+        { scoutOnly: true, scoutOnlyTargetRooms: ['E30N57'] }
+      )
+    ).toEqual({
+      colony: 'E29N55',
+      targetRoom: 'E30N57',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('E29N55');
+    expect(describeExits).toHaveBeenCalledWith('E29N57');
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E29N55',
+        targetRoom: 'E30N57',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 528
+      }
+    ]);
+  });
+
   it('suppresses duplicate scout spawns for targets already covered by a healthy scout', () => {
     const roleCounts = { worker: 4, scout: 1, scoutsByTargetRoom: { E28N54: 1 } };
 
