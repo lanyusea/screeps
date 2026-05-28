@@ -28,6 +28,7 @@ EXPECTED_PROCESS_LABELS = [
     "Longest Codex run",
 ]
 EXPECTED_KPI_TITLES = ("Territory", "Resources", "Combat")
+MISSING_LOCAL_CACHE_EVIDENCE = "current refresh found no local cache evidence"
 
 
 def load_generator(repo_root: Path) -> ModuleType:
@@ -215,6 +216,19 @@ def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
             failures,
             official_deploys != 0,
             "docs/roadmap-data.json: Deploys must not report 0 when no deploy evidence is observed",
+        )
+
+    for card in cards if isinstance(cards, list) else []:
+        if not isinstance(card, dict):
+            continue
+        detail = str(card.get("detail") or "")
+        if MISSING_LOCAL_CACHE_EVIDENCE not in detail:
+            continue
+        label = str(card.get("label") or "")
+        assert_check(
+            failures,
+            card.get("value") == "unavailable",
+            f"docs/roadmap-data.json: {label} reports no current local cache evidence and must render unavailable",
         )
 
 

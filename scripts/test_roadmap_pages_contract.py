@@ -147,6 +147,30 @@ class RoadmapPagesContractTests(unittest.TestCase):
 
         self.assertIn("Deploys must either reflect observed official deploy evidence", "\n".join(failures))
 
+    def test_process_metric_rejects_values_without_current_local_cache_evidence(self) -> None:
+        cards = [
+            {
+                "label": label,
+                "value": "1.2B" if label == "Agent tokens" else "unavailable",
+                "detail": (
+                    "1,182,878,241 total; local cache only; "
+                    "current refresh found no local cache evidence"
+                    if label == "Agent tokens"
+                    else "unavailable"
+                ),
+            }
+            for label in kpi_checker.EXPECTED_PROCESS_LABELS
+        ]
+        data = {
+            "report": {"processCards": cards},
+            "github": {"issues": [], "projectItems": []},
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_process_metrics(data, failures)
+
+        self.assertIn("Agent tokens reports no current local cache evidence", "\n".join(failures))
+
 
 if __name__ == "__main__":
     unittest.main()

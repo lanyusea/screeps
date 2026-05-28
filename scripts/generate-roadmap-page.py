@@ -31,6 +31,7 @@ DELIVERY_METRICS_WINDOW_DAYS = 7
 RUNTIME_ARTIFACT_SOURCE_KIND = "runtime-summary-artifact"
 RUNTIME_ARTIFACT_PATHS_ENV = "SCREEPS_ROADMAP_RUNTIME_ARTIFACT_PATHS"
 CRON_OUTPUT_ROOT_ENV = "SCREEPS_ROADMAP_CRON_OUTPUT_ROOT"
+CODEX_SESSION_ROOT_ENV = "SCREEPS_ROADMAP_CODEX_SESSION_ROOT"
 SOURCE_EVIDENCE_METRIC_KEYS = frozenset({"runtime_summary_samples", "kpi_artifact_files"})
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
@@ -63,6 +64,7 @@ PUBLIC_CONTROLLER_TEXT_RE = re.compile(
 )
 CACHED_SUFFIX_RE = re.compile(r"(?:\s*·\s*cached)+\s*$")
 LOCAL_CACHE_FALLBACK_DETAIL = "cached from prior local cache snapshot; current refresh found no local cache evidence"
+LOCAL_CACHE_WITHHELD_DETAIL = "prior local cache snapshot withheld from value; current refresh found no local cache evidence"
 MEDIA_ATTACHMENT_TRIGGER_RE = re.compile(r"\bMEDIA\s*:\s*\S*", re.IGNORECASE)
 MEDIA_ATTACHMENT_REFERENCE_PATH_RE = re.compile(r"\bmedia attachment reference\s*:\s*\S*", re.IGNORECASE)
 
@@ -614,7 +616,8 @@ OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
     "official-screeps-deploy-*.json",
 )
 PRIVATE_SMOKE_EVIDENCE_PATTERN = "private-smoke-report-*.json"
-CODEX_SESSION_ROOT = Path("/root/.codex/sessions")
+DEFAULT_CODEX_SESSION_ROOT = Path("/root/.codex/sessions")
+CODEX_SESSION_ROOT = DEFAULT_CODEX_SESSION_ROOT
 CODEX_SESSION_PATTERN = "rollout-*.jsonl"
 HOST_HERMES_CRON_OUTPUT_ROOT = Path("/root/.hermes/cron/output")
 HERMES_CRON_OUTPUT_ROOT = HOST_HERMES_CRON_OUTPUT_ROOT
@@ -1726,6 +1729,13 @@ def roadmap_cron_output_root(repo_root: Path, explicit_root: str | None = None) 
     if path_exists_without_error(HERMES_CRON_OUTPUT_ROOT):
         return HERMES_CRON_OUTPUT_ROOT
     return repo_root / "runtime-artifacts" / "cron-output"
+
+
+def roadmap_codex_session_root(repo_root: Path) -> Path:
+    configured = str(os.environ.get(CODEX_SESSION_ROOT_ENV) or "").strip()
+    if configured:
+        return normalize_repo_scoped_path(repo_root, configured)
+    return CODEX_SESSION_ROOT
 
 
 def normalize_repo_scoped_path(repo_root: Path, path_text: str) -> Path:
@@ -3417,7 +3427,12 @@ def build_agent_process_cards(
     cron_output_root: Path | None = None,
 ) -> list[JsonObject]:
     attribution = build_repo_attribution(repo_root, repo)
-    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution, generated_at, delivery_window_days)
+    codex_metrics = summarize_codex_sessions(
+        roadmap_codex_session_root(repo_root),
+        attribution,
+        generated_at,
+        delivery_window_days,
+    )
     automation_metrics = summarize_automation_runs(
         cron_output_root or roadmap_cron_output_root(repo_root),
         attribution,
@@ -3663,6 +3678,8 @@ def retained_or_unavailable_local_cache_process_card(
 ) -> JsonObject:
     retained = retained_local_cache_process_card(cached_process_cards, label, generated_at, retention_days)
     if retained:
+        retained["detail"] = retained_local_cache_unavailable_detail(detail)
+        retained["provenance"] = provenance
         return retained
     return unavailable_local_cache_process_card(label, detail, provenance)
 
@@ -3676,11 +3693,23 @@ def retained_local_cache_process_card(
     cached_card = cached_process_card(cached_process_cards, label)
     if not should_retain_local_cache_process_card(cached_card, generated_at, retention_days):
         return {}
-    retained = deepcopy(cached_card)
-    retained["detail"] = retained_local_cache_detail(cached_card)
-    retained["delta"] = "cached"
-    retained["source"] = "cached local cache"
-    return retained
+    return {
+        "value": "unavailable",
+        "label": label,
+        "detail": LOCAL_CACHE_WITHHELD_DETAIL,
+        "delta": "n/a",
+        "source": "local cache unavailable",
+        "provenance": deepcopy(cached_card.get("provenance", {})),
+    }
+
+
+def retained_local_cache_unavailable_detail(detail: str) -> str:
+    current_detail = strip_local_cache_fallback_detail(str(detail or "").strip())
+    if not current_detail:
+        current_detail = "local delivery metric unavailable"
+    if LOCAL_CACHE_WITHHELD_DETAIL in current_detail:
+        return current_detail
+    return f"{current_detail}; {LOCAL_CACHE_WITHHELD_DETAIL}"
 
 
 def should_retain_local_cache_process_card(
