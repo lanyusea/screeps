@@ -324,7 +324,15 @@ def validate_live(base_url: str = DEFAULT_GRAFANA_URL, timeout: float = 2.0) -> 
             f"{datasource_endpoint} must return {DATASOURCE_UID}/{DATASOURCE_TYPE}",
         )
     except urllib.error.HTTPError as error:
-        append_check(report, "grafana datasource reachability", False, f"{datasource_endpoint} returned HTTP {error.code}")
+        if error.code in (401, 403):
+            details = (
+                f"{datasource_endpoint} returned HTTP {error.code}; anonymous Viewer access cannot read "
+                "datasource metadata, so static provisioning validation is authoritative for the datasource contract"
+            )
+            report["checks"].append(check_result("grafana datasource reachability", "SKIP", details))
+            report["warnings"].append(details)
+        else:
+            append_check(report, "grafana datasource reachability", False, f"{datasource_endpoint} returned HTTP {error.code}")
     except (OSError, ValueError, json.JSONDecodeError) as error:
         append_check(report, "grafana datasource reachability", False, str(error))
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import urllib.error
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -54,6 +56,29 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
 
         self.assertEqual(report["status"], "NOT_RUNNING")
         self.assertEqual(report["checks"][0]["status"], "NOT_RUNNING")
+
+    def test_live_validator_tolerates_datasource_api_forbidden_for_anonymous_viewer(self) -> None:
+        def fake_fetch_json(url: str, timeout: float) -> tuple[int, grafana.JsonObject]:
+            if url.endswith("/api/health"):
+                return 200, {"database": "ok", "version": "test"}
+            if url.endswith(f"/api/datasources/uid/{grafana.DATASOURCE_UID}"):
+                raise urllib.error.HTTPError(url, 403, "Forbidden", hdrs=None, fp=None)
+            if url.endswith(f"/api/dashboards/uid/{grafana.DASHBOARD_UID}"):
+                return 200, {"dashboard": {"uid": grafana.DASHBOARD_UID, "title": grafana.DASHBOARD_TITLE}}
+            raise AssertionError(f"unexpected JSON fetch: {url}")
+
+        with patch.object(grafana, "fetch_json", side_effect=fake_fetch_json), patch.object(
+            grafana, "fetch_status", return_value=200
+        ):
+            report = grafana.validate_live("http://grafana.test", timeout=0.1)
+
+        datasource_check = next(
+            check for check in report["checks"] if check["name"] == "grafana datasource reachability"
+        )
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(datasource_check["status"], "SKIP")
+        self.assertIn("anonymous Viewer", datasource_check["details"])
+        self.assertTrue(any("static provisioning validation is authoritative" in warning for warning in report["warnings"]))
 
     def test_docker_command_mounts_provisioning_dashboard_and_metrics_db(self) -> None:
         db_path = REPO_ROOT / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite"
