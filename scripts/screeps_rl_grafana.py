@@ -28,6 +28,7 @@ DEFAULT_CONTAINER_NAME = "screeps-rl-grafana"
 CONTAINER_DB_PATH = "/var/lib/grafana/rl-metrics/rl_metrics.sqlite"
 CONTAINER_DASHBOARD_PATH = "/var/lib/grafana/dashboards/screeps"
 CONTAINER_PROVISIONING_PATH = "/etc/grafana/provisioning"
+LOCAL_GRAFANA_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 REQUIRED_QUERY_COVERAGE = {
     "metric observation history": "FROM metric_observations",
@@ -43,6 +44,31 @@ REQUIRED_QUERY_COVERAGE = {
 
 
 JsonObject = dict[str, Any]
+
+
+class HostBindingError(ValueError):
+    """Raised when Grafana would be exposed beyond loopback by default."""
+
+
+def validate_host_binding(host: str, allow_nonlocal: bool) -> None:
+    if allow_nonlocal or host in LOCAL_GRAFANA_HOSTS:
+        return
+    allowed_hosts = ", ".join(sorted(LOCAL_GRAFANA_HOSTS))
+    raise HostBindingError(
+        f"refusing non-local host binding {host!r} without --allow-nonlocal; "
+        f"allowed local hosts: {allowed_hosts}"
+    )
+
+
+def docker_port_binding(host: str, port: int) -> str:
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]:{port}:3000"
+    return f"{host}:{port}:3000"
+
+
+def host_binding_error(error: HostBindingError) -> int:
+    print(f"ERROR: {error}", file=sys.stderr)
+    return 2
 
 
 def default_repo_root() -> Path:
@@ -383,7 +409,9 @@ def build_docker_command(
     image: str,
     plugin: str,
     container_name: str,
+    allow_nonlocal: bool = False,
 ) -> list[str]:
+    validate_host_binding(host, allow_nonlocal)
     repo_root = repo_root.resolve()
     db_path = db_path.resolve()
     return [
@@ -393,7 +421,7 @@ def build_docker_command(
         "--name",
         container_name,
         "-p",
-        f"{host}:{port}:3000",
+        docker_port_binding(host, port),
         "-e",
         f"GF_INSTALL_PLUGINS={plugin}",
         "-e",
@@ -415,7 +443,7 @@ def build_docker_command(
         "-v",
         f"{grafana_root(repo_root)}:{CONTAINER_DASHBOARD_PATH}:ro",
         "-v",
-        f"{db_path.parent}:/var/lib/grafana/rl-metrics:ro",
+        f"{db_path}:{CONTAINER_DB_PATH}:ro",
         image,
     ]
 
@@ -473,20 +501,29 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_docker_command(args: argparse.Namespace) -> int:
-    command = build_docker_command(
-        repo_root=args.repo_root,
-        db_path=args.db_path,
-        host=args.host,
-        port=args.port,
-        image=args.image,
-        plugin=args.plugin,
-        container_name=args.container_name,
-    )
+    try:
+        command = build_docker_command(
+            repo_root=args.repo_root,
+            db_path=args.db_path,
+            host=args.host,
+            port=args.port,
+            image=args.image,
+            plugin=args.plugin,
+            container_name=args.container_name,
+            allow_nonlocal=args.allow_nonlocal,
+        )
+    except HostBindingError as error:
+        return host_binding_error(error)
     print(render_command(command))
     return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    try:
+        validate_host_binding(args.host, args.allow_nonlocal)
+    except HostBindingError as error:
+        return host_binding_error(error)
+
     repo_root = args.repo_root.resolve()
     db_path = args.db_path.resolve()
     static_report = validate_static(repo_root)
@@ -505,6 +542,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         image=args.image,
         plugin=args.plugin,
         container_name=args.container_name,
+        allow_nonlocal=args.allow_nonlocal,
     )
     if args.print_only:
         print(render_command(command))
@@ -532,6 +570,7 @@ def build_parser() -> argparse.ArgumentParser:
     docker_parser.add_argument("--image", default=DEFAULT_GRAFANA_IMAGE)
     docker_parser.add_argument("--plugin", default=DEFAULT_GRAFANA_PLUGIN)
     docker_parser.add_argument("--container-name", default=DEFAULT_CONTAINER_NAME)
+    docker_parser.add_argument("--allow-nonlocal", action="store_true")
     docker_parser.set_defaults(func=cmd_docker_command)
 
     run_parser = subparsers.add_parser("run", help="Run Grafana in Docker for the local RL metrics DB.")
@@ -544,6 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--container-name", default=DEFAULT_CONTAINER_NAME)
     run_parser.add_argument("--print-only", action="store_true")
     run_parser.add_argument("--json", action="store_true")
+    run_parser.add_argument("--allow-nonlocal", action="store_true")
     run_parser.set_defaults(func=cmd_run)
 
     return parser

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
 import sys
 import urllib.error
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -99,9 +101,67 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertIn(f"GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS={grafana.DATASOURCE_TYPE}", command)
         self.assertIn(f"{grafana.grafana_root(REPO_ROOT) / 'provisioning'}:{grafana.CONTAINER_PROVISIONING_PATH}:ro", command)
         self.assertIn(f"{grafana.grafana_root(REPO_ROOT)}:{grafana.CONTAINER_DASHBOARD_PATH}:ro", command)
-        self.assertIn(f"{db_path.parent.resolve()}:/var/lib/grafana/rl-metrics:ro", command)
+        self.assertIn(f"{db_path.resolve()}:{grafana.CONTAINER_DB_PATH}:ro", command)
+        self.assertNotIn(f"{db_path.parent.resolve()}:/var/lib/grafana/rl-metrics:ro", command)
         self.assertIn("grafana/grafana-oss:test", command)
         self.assertNotIn("0.0.0.0:3000:3000", command_text)
+
+    def test_docker_command_mounts_custom_db_file_to_provisioned_container_path(self) -> None:
+        db_path = Path("/tmp/custom-rl-metrics.sqlite")
+
+        command = grafana.build_docker_command(
+            repo_root=REPO_ROOT,
+            db_path=db_path,
+            host="127.0.0.1",
+            port=3000,
+            image="grafana/grafana-oss:test",
+            plugin=grafana.DATASOURCE_TYPE,
+            container_name="screeps-rl-grafana-test",
+        )
+
+        self.assertIn(f"{db_path.resolve()}:{grafana.CONTAINER_DB_PATH}:ro", command)
+        self.assertNotIn(f"{db_path.parent.resolve()}:/var/lib/grafana/rl-metrics:ro", command)
+
+    def test_docker_command_rejects_nonlocal_host_without_override(self) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            exit_code = grafana.main(["docker-command", "--host", "0.0.0.0"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("refusing non-local host binding", stderr.getvalue())
+        self.assertIn("--allow-nonlocal", stderr.getvalue())
+
+    def test_run_rejects_nonlocal_host_before_starting_container(self) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            exit_code = grafana.main(["run", "--host", "0.0.0.0", "--print-only"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("refusing non-local host binding", stderr.getvalue())
+
+    def test_docker_command_allows_explicit_nonlocal_override(self) -> None:
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = grafana.main(["docker-command", "--host", "0.0.0.0", "--allow-nonlocal"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("0.0.0.0:3000:3000", stdout.getvalue())
+
+    def test_docker_command_formats_ipv6_loopback_binding(self) -> None:
+        command = grafana.build_docker_command(
+            repo_root=REPO_ROOT,
+            db_path=REPO_ROOT / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite",
+            host="::1",
+            port=3000,
+            image="grafana/grafana-oss:test",
+            plugin=grafana.DATASOURCE_TYPE,
+            container_name="screeps-rl-grafana-test",
+        )
+
+        self.assertIn("[::1]:3000:3000", command)
 
 
 if __name__ == "__main__":
