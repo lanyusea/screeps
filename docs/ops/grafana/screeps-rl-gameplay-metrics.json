@@ -446,6 +446,42 @@
       ],
       "title": "Worker Load Efficiency Distribution",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "screeps-rl-metrics-sqlite"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 13,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "format": "table",
+          "queryText": "SELECT created_at, decision_key, status, rationale, source_artifact FROM metric_iteration_decisions ORDER BY created_at DESC LIMIT 100;",
+          "rawQuery": true,
+          "refId": "A"
+        },
+        {
+          "format": "table",
+          "queryText": "SELECT observed_at, metric_name, value, source_artifact FROM metric_observations WHERE metric_name = 'source.rl_metrics_refresh.completed' ORDER BY observed_at DESC LIMIT 20;",
+          "rawQuery": true,
+          "refId": "B"
+        }
+      ],
+      "title": "#879 Decision And Refresh Evidence",
+      "type": "table"
     }
   ],
   "refresh": "5m",

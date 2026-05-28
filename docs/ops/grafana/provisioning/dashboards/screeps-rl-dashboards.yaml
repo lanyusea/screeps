@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: screeps-rl-dashboards
+    orgId: 1
+    folder: Screeps RL
+    folderUid: screeps-rl
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/screeps
+      foldersFromFilesStructure: false
