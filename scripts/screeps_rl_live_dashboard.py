@@ -264,12 +264,16 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         with self.refresh_state_lock:
             return dict(self.refresh_state)
 
-    def finish_refresh_progress(self) -> None:
+    def finish_refresh_progress(self, *, preserve_summary: bool = False) -> None:
         with self.refresh_state_lock:
             self.refresh_state["refreshInProgress"] = False
             self.refresh_state["activeRefreshStartedAt"] = None
             self.refresh_state["activeRefreshReason"] = None
-        self.invalidate_summary_cache()
+            refresh = dict(self.refresh_state)
+        if preserve_summary:
+            self.refresh_cached_summary_state(refresh)
+        else:
+            self.invalidate_summary_cache()
 
     def mark_refresh_started(self, reason: str) -> str:
         timestamp = utc_now_iso()
@@ -300,12 +304,14 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 active_reason=f"{reason} summary",
             )
         if refresh_succeeded(refresh):
+            summary_primed = False
             try:
                 self.prime_summary_cache()
+                summary_primed = True
             except Exception:
                 self.invalidate_summary_cache()
             finally:
-                self.finish_refresh_progress()
+                self.finish_refresh_progress(preserve_summary=summary_primed)
         return refresh
 
     def start_background_refresh(self, reason: str) -> threading.Thread:
@@ -349,6 +355,15 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 self.summary_cache = None
                 self.summary_cache_dashboard_url = None
                 self.summary_cache_until = 0.0
+            self.summary_cache_generation += 1
+
+    def refresh_cached_summary_state(self, refresh: JsonObject) -> None:
+        with self.summary_lock:
+            if self.summary_cache is None:
+                return
+            self.summary_cache = summary_with_refresh(self.summary_cache, refresh)
+            cache_ttl = max(0.0, float(self.config.summary_cache_seconds))
+            self.summary_cache_until = time.monotonic() + cache_ttl if cache_ttl > 0 else 0.0
             self.summary_cache_generation += 1
 
     def prime_summary_cache(self) -> JsonObject:
