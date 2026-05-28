@@ -29016,10 +29016,13 @@ function selectRoutineRampartMaintenanceRepairTarget(creep) {
   return selectAvailableRoutineRepairTarget(creep, computeRoutineRampartMaintenanceRepairTargets(creep.room));
 }
 function selectActiveRampartRepairEnergyAcquisitionTask(creep) {
-  if (getFreeEnergyCapacity8(creep) <= 0 || !selectActiveOwnedRampartRepairTarget(creep)) {
+  if (getFreeEnergyCapacity8(creep) <= 0 || hasVisibleConstructionSites(creep.room) || !selectActiveOwnedRampartRepairTarget(creep)) {
     return null;
   }
   return selectWorkerEnergyCriticalAcquisitionTask(creep);
+}
+function hasVisibleConstructionSites(room) {
+  return typeof FIND_CONSTRUCTION_SITES === "number" && room.find(FIND_CONSTRUCTION_SITES).length > 0;
 }
 function selectActiveOwnedRampartRepairTarget(creep) {
   var _a;
@@ -29272,7 +29275,8 @@ function isEmergencyOwnedRampartRepairTarget(structure) {
   return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING;
 }
 function isActiveOwnedRampartRepairTarget(structure) {
-  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && !isWorkerRepairTargetComplete(structure) && structure.hits <= Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING);
+  const repairCeiling = Math.min(structure.hitsMax, ACTIVE_RAMPART_REPAIR_HITS_CEILING);
+  return matchesStructureType18(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure) && structure.hits < repairCeiling;
 }
 function isOwnedSpawnRepairTarget(structure) {
   return isSpawnRepairTarget(structure) && structure.my === true;

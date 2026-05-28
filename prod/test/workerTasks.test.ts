@@ -24,6 +24,7 @@ import {
   canSpendWorkerEnergyOnConstructionSite,
   canUpgradeController,
   isUpgraderBoostActive,
+  selectActiveRampartRepairEnergyAcquisitionTask,
   selectWorkerEnergyCriticalAcquisitionTask,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
@@ -14378,6 +14379,86 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'e29n56-rampart-alert-buffer' });
+  });
+
+  it('does not acquire active rampart repair energy while construction sites remain', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const source = makeSource('source1', 20, 20);
+    const rampart = makeStructure(
+      'rampart-active-alert',
+      'rampart' as StructureConstant,
+      ACTIVE_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000,
+      { my: true }
+    );
+    const creep = {
+      name: 'EmptyRepairer',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [extensionSite],
+        controller,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        sources: [source],
+        structures: [rampart]
+      })
+    } as unknown as Creep;
+
+    expect(selectActiveRampartRepairEnergyAcquisitionTask(creep)).toBeNull();
+  });
+
+  it('repairs bootstrap-gated active ramparts before controller boost work', () => {
+    const structures: AnyStructure[] = [];
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      progress: 40_727,
+      progressTotal: 45_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      structures
+    });
+    const activeSpawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(17, 24, 'E29N55')
+    });
+    const rampart = makeStructure(
+      'rampart-bootstrap-active-alert',
+      'rampart' as StructureConstant,
+      80_000,
+      300_000,
+      { my: true, room }
+    );
+    structures.push(activeSpawn, rampart);
+    const creep = {
+      name: 'BootstrapBoostWorker',
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        controllerUpgrade: { roomName: 'E29N55', controllerId: 'controller1' }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(isWorkerRepairTargetComplete(rampart)).toBe(true);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-bootstrap-active-alert' });
   });
 
   it('repairs E29N55 active-decay ramparts before controller upgrade pressure', () => {
