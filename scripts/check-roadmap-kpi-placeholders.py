@@ -230,6 +230,41 @@ def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
             card.get("value") == "unavailable",
             f"docs/roadmap-data.json: {label} reports no current local cache evidence and must render unavailable",
         )
+        provenance = card.get("provenance")
+        assert_check(
+            failures,
+            isinstance(provenance, dict),
+            f"docs/roadmap-data.json: {label} with withheld local cache evidence must include current unavailable provenance",
+        )
+        if not isinstance(provenance, dict):
+            continue
+        completeness = provenance.get("completeness")
+        counted_artifacts = completeness.get("countedArtifacts") if isinstance(completeness, dict) else None
+        assert_check(
+            failures,
+            counted_artifacts == 0,
+            f"docs/roadmap-data.json: {label} with withheld local cache evidence must not expose counted provenance",
+        )
+        assert_check(
+            failures,
+            provenance.get("countedIds") == [],
+            f"docs/roadmap-data.json: {label} with withheld local cache evidence must not expose counted provenance ids",
+        )
+        captured_range = provenance.get("capturedRange")
+        assert_check(
+            failures,
+            captured_range == {"start": "", "end": ""},
+            f"docs/roadmap-data.json: {label} with withheld local cache evidence must not expose stale captured ranges",
+        )
+        generated_at = str(data.get("generatedAt") or "")
+        window = provenance.get("window")
+        window_end = str(window.get("end") or "") if isinstance(window, dict) else ""
+        if generated_at:
+            assert_check(
+                failures,
+                window_end == generated_at,
+                f"docs/roadmap-data.json: {label} with withheld local cache evidence must use the current generatedAt provenance window",
+            )
 
 
 def resolve_repo_root(arg: str | None) -> Path:

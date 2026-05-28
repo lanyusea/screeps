@@ -1307,6 +1307,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 self.assertNotIn("rawValue", card)
                 self.assertNotIn("rawValueSeconds", card)
                 self.assertIn("current refresh found no local cache evidence", card["detail"])
+                self.assertEqual(card["provenance"]["window"]["end"], "2026-05-08T06:00:00Z")
+                self.assertEqual(card["provenance"]["countedIds"], [])
+                self.assertEqual(card["provenance"]["capturedRange"], {"start": "", "end": ""})
+                self.assertEqual(card["provenance"]["completeness"]["countedArtifacts"], 0)
 
     def test_retained_local_delivery_metrics_expire_after_window(self) -> None:
         provenance = roadmap.delivery_metric_provenance(
@@ -1372,6 +1376,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(retained["source"], "local cache unavailable")
         self.assertNotIn("rawValue", retained)
         self.assertNotIn("rawValueSeconds", retained)
+        self.assertNotIn("provenance", retained)
         self.assertEqual(retained["detail"], roadmap.LOCAL_CACHE_WITHHELD_DETAIL)
 
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:

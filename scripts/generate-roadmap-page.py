@@ -3664,7 +3664,7 @@ def unavailable_local_cache_process_card(
         "detail": append_local_cache_detail(detail),
         "delta": "n/a",
         "source": "local cache",
-        "provenance": provenance,
+        "provenance": unavailable_local_cache_provenance(provenance),
     }
 
 
@@ -3679,7 +3679,7 @@ def retained_or_unavailable_local_cache_process_card(
     retained = retained_local_cache_process_card(cached_process_cards, label, generated_at, retention_days)
     if retained:
         retained["detail"] = retained_local_cache_unavailable_detail(detail)
-        retained["provenance"] = provenance
+        retained["provenance"] = unavailable_local_cache_provenance(provenance)
         return retained
     return unavailable_local_cache_process_card(label, detail, provenance)
 
@@ -3699,8 +3699,19 @@ def retained_local_cache_process_card(
         "detail": LOCAL_CACHE_WITHHELD_DETAIL,
         "delta": "n/a",
         "source": "local cache unavailable",
-        "provenance": deepcopy(cached_card.get("provenance", {})),
     }
+
+
+def unavailable_local_cache_provenance(provenance: Mapping[str, Any]) -> JsonObject:
+    unavailable = deepcopy(dict(provenance))
+    unavailable["countedIds"] = []
+    unavailable["capturedRange"] = {"start": "", "end": ""}
+    completeness = unavailable.get("completeness")
+    if isinstance(completeness, Mapping):
+        unavailable["completeness"] = {**completeness, "countedArtifacts": 0}
+    else:
+        unavailable["completeness"] = {"countedArtifacts": 0}
+    return unavailable
 
 
 def retained_local_cache_unavailable_detail(detail: str) -> str:
