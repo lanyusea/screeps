@@ -66,6 +66,7 @@ NAMED_SURFACE_RE = re.compile(
     r"specific monitor|dashboard|report|service|route|URL)\b",
     re.IGNORECASE,
 )
+DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE = True
 
 
 @dataclass(frozen=True)
@@ -304,7 +305,11 @@ def format_issue_list(issue_numbers: list[int]) -> str:
     return ", ".join(f"#{number}" for number in issue_numbers)
 
 
-def validate_body(body: str, *, require_universal_done_gate: bool = False) -> list[str]:
+def validate_body(
+    body: str,
+    *,
+    require_universal_done_gate: bool = DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE,
+) -> list[str]:
     body = visible_markdown(body)
     negated_errors = find_negated_phrases(body)
     if negated_errors:
@@ -648,9 +653,19 @@ UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = 
 )
 
 
-OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
     (
-        "missing_optional_universal_done_gate_without_requirement",
+        "missing_universal_done_gate_by_default",
+        "## Summary\n\n- useful adjacent artifact exists.\n",
+        False,
+        "missing Universal task Done gate",
+    ),
+)
+
+
+LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS: tuple[tuple[str, str, bool, str | None], ...] = (
+    (
+        "missing_universal_done_gate_with_legacy_opt_out",
         "## Summary\n\n- useful adjacent artifact exists.\n",
         True,
         None,
@@ -695,7 +710,7 @@ COMMIT_SELF_TESTS: tuple[tuple[str, PullRequestCommit, bool, str | None], ...] =
 def run_self_tests() -> int:
     failures: list[str] = []
     for name, body, expect_pass, expected_message in SELF_TESTS:
-        errors = validate_body(body)
+        errors = validate_body(body, require_universal_done_gate=False)
         passed = not errors
         if passed != expect_pass:
             failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
@@ -710,8 +725,16 @@ def run_self_tests() -> int:
             continue
         if expected_message and not any(expected_message in error for error in errors):
             failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
-    for name, body, expect_pass, expected_message in OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS:
+    for name, body, expect_pass, expected_message in DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS:
         errors = validate_body(body)
+        passed = not errors
+        if passed != expect_pass:
+            failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
+            continue
+        if expected_message and not any(expected_message in error for error in errors):
+            failures.append(f"{name}: expected error containing {expected_message!r}, got {errors!r}")
+    for name, body, expect_pass, expected_message in LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS:
+        errors = validate_body(body, require_universal_done_gate=False)
         passed = not errors
         if passed != expect_pass:
             failures.append(f"{name}: expected pass={expect_pass}, got errors={errors!r}")
@@ -729,6 +752,15 @@ def run_self_tests() -> int:
     paginated = parse_paginated_json('[{"sha": "a"}]\n[{"sha": "b"}]\n')
     if paginated != [{"sha": "a"}, {"sha": "b"}]:
         failures.append(f"paginated_json: expected two flattened objects, got {paginated!r}")
+    parser = build_parser()
+    default_args = parser.parse_args(["--body-file", "/tmp/example-pr-body.md"])
+    if default_args.require_universal_done_gate is not True:
+        failures.append("argparse_default: Universal task Done gate must be required by default")
+    opt_out_args = parser.parse_args(
+        ["--body-file", "/tmp/example-pr-body.md", "--no-require-universal-done-gate"]
+    )
+    if opt_out_args.require_universal_done_gate is not False:
+        failures.append("argparse_opt_out: --no-require-universal-done-gate must disable the requirement")
     if failures:
         print("FAIL: self-test")
         for failure in failures:
@@ -737,8 +769,10 @@ def run_self_tests() -> int:
     fixture_count = (
         len(SELF_TESTS)
         + len(UNIVERSAL_DONE_GATE_SELF_TESTS)
-        + len(OPTIONAL_UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(DEFAULT_UNIVERSAL_DONE_GATE_SELF_TESTS)
+        + len(LEGACY_UNIVERSAL_DONE_GATE_OPT_OUT_SELF_TESTS)
         + len(COMMIT_SELF_TESTS)
+        + 2
     )
     print(f"PASS: self-test ({fixture_count} fixture(s))")
     return 0
@@ -760,18 +794,34 @@ def print_validation_result(body: str, errors: list[str]) -> int:
     return 0
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--body-file", help="path to a file containing the PR body, or '-' for stdin")
     source.add_argument("--pr", type=int, help="PR number to read with gh pr view")
     parser.add_argument("--repo", help="repository full name for gh pr view, for example owner/name")
-    parser.add_argument(
+    universal_gate = parser.add_mutually_exclusive_group()
+    universal_gate.add_argument(
         "--require-universal-done-gate",
         action="store_true",
-        help="require a checked Universal task Done gate section in the PR/issue completion evidence",
+        default=DEFAULT_REQUIRE_UNIVERSAL_DONE_GATE,
+        help=(
+            "require a checked Universal task Done gate section in the PR/issue completion "
+            "evidence (default)"
+        ),
+    )
+    universal_gate.add_argument(
+        "--no-require-universal-done-gate",
+        action="store_false",
+        dest="require_universal_done_gate",
+        help="legacy/manual opt-out: do not require a Universal task Done gate section",
     )
     parser.add_argument("--self-test", action="store_true", help="run built-in validator fixtures")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     if not args.self_test and args.body_file is None and args.pr is None:
