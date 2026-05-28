@@ -209,6 +209,110 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn("Agent tokens with withheld local cache evidence must not expose counted provenance ids", joined)
         self.assertIn("Agent tokens with withheld local cache evidence must use the current generatedAt provenance window", joined)
 
+    def test_project_handoff_evidence_rejects_blank_active_in_review_and_recent_done_items(self) -> None:
+        generator = kpi_checker.load_generator(REPO_ROOT)
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectItems": [
+                    {
+                        "number": 1479,
+                        "type": "Issue",
+                        "status": "In progress",
+                        "priority": "P0",
+                        "title": "P0 monitor recurrence",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1484,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "priority": "P0",
+                        "title": "review-stage handoff",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1483,
+                        "type": "PullRequest",
+                        "status": "Done",
+                        "priority": "P0",
+                        "title": "fix(rl): add lexicographic gradient estimator",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1200,
+                        "type": "PullRequest",
+                        "status": "Done",
+                        "priority": "P0",
+                        "title": "legacy Done item from before the evidence gate",
+                        "evidence": "",
+                    },
+                ],
+                "roadmapCards": [
+                    {
+                        "number": 1479,
+                        "type": "Issue",
+                        "status": "In progress",
+                        "priority": "P0",
+                        "title": "P0 monitor recurrence",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1484,
+                        "type": "PullRequest",
+                        "status": "In review",
+                        "priority": "P0",
+                        "title": "review-stage handoff",
+                        "evidence": "",
+                    },
+                ],
+                "kanban": {
+                    "cards": [
+                        {
+                            "number": 1485,
+                            "type": "PullRequest",
+                            "status": "In review",
+                            "priority": "P0",
+                            "title": "review-stage flat kanban handoff",
+                            "evidence": "",
+                        }
+                    ],
+                    "columns": [
+                        {
+                            "domain": "Automation",
+                            "statuses": [
+                                {
+                                    "status": "In review",
+                                    "cards": [
+                                        {
+                                            "number": 1486,
+                                            "type": "PullRequest",
+                                            "status": "In review",
+                                            "priority": "P0",
+                                            "title": "review-stage nested kanban handoff",
+                                            "evidence": "",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        }
+
+        failures = generator.validate_project_handoff_evidence(data)
+        joined = "\n".join(failures)
+
+        self.assertIn("github.projectItems[0] #1479 In progress", joined)
+        self.assertIn("github.projectItems[1] #1484 In review", joined)
+        self.assertIn("github.projectItems[2] #1483 Done", joined)
+        self.assertIn("github.roadmapCards[0] #1479 In progress", joined)
+        self.assertIn("github.roadmapCards[1] #1484 In review", joined)
+        self.assertIn("github.kanban.cards[0] #1485 In review", joined)
+        self.assertIn("github.kanban.columns[0].statuses[0].cards[0] #1486 In review", joined)
+        self.assertNotIn("#1200", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

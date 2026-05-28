@@ -3,12 +3,34 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-28T16:34:45Z",
-  "generatedAtCst": "2026-05-29T00:34:45+08:00",
+  "generatedAt": "2026-05-28T20:37:46Z",
+  "generatedAtCst": "2026-05-29T04:37:46+08:00",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
+      {
+        "createdAt": "2026-05-28T18:59:20Z",
+        "domain": "Change-control",
+        "domainSource": "heuristic",
+        "kind": "incident",
+        "labels": [
+          "kind:incident",
+          "priority:p1",
+          "roadmap",
+          "roadmap:combat",
+          "runtime-alert"
+        ],
+        "milestone": "P1: Territory/Economy gameplay gate",
+        "number": 1484,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Triage E29N56 rampart damage runtime alert",
+        "type": "Issue",
+        "updatedAt": "2026-05-28T19:04:52Z",
+        "url": "https://github.com/lanyusea/screeps/issues/1484"
+      },
       {
         "createdAt": "2026-05-28T13:43:34Z",
         "domain": "Agent OS",
@@ -27,29 +49,8 @@
         "status": "Ready",
         "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
         "type": "Issue",
-        "updatedAt": "2026-05-28T15:06:54Z",
+        "updatedAt": "2026-05-28T19:30:55Z",
         "url": "https://github.com/lanyusea/screeps/issues/1479"
-      },
-      {
-        "createdAt": "2026-05-28T11:31:41Z",
-        "domain": "Agent OS",
-        "domainSource": "heuristic",
-        "kind": "ops",
-        "labels": [
-          "kind:ops",
-          "priority:p0",
-          "roadmap",
-          "roadmap:p0-agent-ops"
-        ],
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "number": 1478,
-        "priority": "P0",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P0: Generalize development task acceptance contracts and Done gates",
-        "type": "Issue",
-        "updatedAt": "2026-05-28T13:17:37Z",
-        "url": "https://github.com/lanyusea/screeps/issues/1478"
       },
       {
         "createdAt": "2026-05-24T13:36:05Z",
@@ -114,7 +115,7 @@
         "status": "Backlog",
         "title": "P0: Run validation-scale policy-gradient samples for trusted updates",
         "type": "Issue",
-        "updatedAt": "2026-05-28T11:41:01Z",
+        "updatedAt": "2026-05-28T18:34:24Z",
         "url": "https://github.com/lanyusea/screeps/issues/1337"
       },
       {
@@ -267,7 +268,7 @@
         "status": "Backlog",
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
-        "updatedAt": "2026-05-28T10:29:37Z",
+        "updatedAt": "2026-05-28T18:34:25Z",
         "url": "https://github.com/lanyusea/screeps/issues/1032"
       },
       {
@@ -310,7 +311,7 @@
         "status": "Ready",
         "title": "P0: ALL IN RL execution mode \u2014 turn the flywheel into a recurring train/sim/deploy feedback loop",
         "type": "Issue",
-        "updatedAt": "2026-05-28T16:25:32Z",
+        "updatedAt": "2026-05-28T19:50:20Z",
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ],
@@ -319,7 +320,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
+          "evidence": "2026-05-28T20:35Z PR #1485 merged universal Done gate evidence into template/checker/docs; issueification guard strengthened.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -337,7 +338,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
+          "evidence": "2026-05-28T19:34Z no-wait guard respected: merged gate-ready #1481/#1480/#1483 without sleep; did not wait through CI/CodeRabbit windows, only re-queried as they completed during useful work. Active Tencent t190003z was not duplicated.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -373,7 +374,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "",
+          "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -381,48 +382,11 @@
           "priority": "P0",
           "projectDomain": "Agent OS",
           "state": "",
-          "status": "In review",
+          "status": "In progress",
           "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1479",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "createdAt": "2026-05-28T15:05:23Z",
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 1480,
-          "priority": "P0",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "In review",
-          "title": "fix(agent-os): align p0 monitor registry provider",
-          "type": "PullRequest",
-          "updatedAt": "2026-05-28T15:11:26Z",
-          "url": "https://github.com/lanyusea/screeps/pull/1480",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z audit repair: PR #1477 is merged, so #1478 is not waiting on that PR. #1478 remains Ready and not dispatched this slice because hard-P0 #1479/PR #1480 registry repair is still blocked by mergeStateStatus=UNSTABLE.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 1478,
-          "priority": "P0",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Ready",
-          "title": "P0: Generalize development task acceptance contracts and Done gates",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/1478",
           "visionLayer": "foundation blocker"
         },
         {
@@ -716,6 +680,24 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
+          "evidence": "2026-05-28T20:35Z PR #1485 merged as 1ee8f049; post-merge diff-check, py_compile, self-test, cron-registry PASS.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1478,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Generalize development task acceptance contracts and Done gates",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1478",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
           "evidence": "",
           "kind": "ops",
           "lane": "Agent OS",
@@ -820,6 +802,24 @@
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/1048",
           "visionLayer": "territory"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-05-28T20:35Z merged as 1ee8f049 after 26.8m gate, green checks, CodeRabbit SUCCESS, threads resolved; post-merge verification PASS.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1485,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "agent-os: require universal Done gate evidence",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1485",
+          "visionLayer": "foundation blocker"
         },
         {
           "domain": "Agent OS",
@@ -1089,6 +1089,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1118",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-05-28T19:30Z: merged as fe5906e4 after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 1480,
+          "priority": "P0",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "fix(agent-os): align p0 monitor registry provider",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1480",
           "visionLayer": "foundation blocker"
         },
         {
@@ -11138,6 +11156,24 @@
         {
           "domain": "Combat",
           "domainSource": "project",
+          "evidence": "2026-05-28T20:03Z: fresh runtime-summary monitor 20260528T195053Z and console 20260528T195131Z show E29N56 spawn alive, 4 workers, hostiles=0, no construction sites; latest alert cron output is stale at 17:26Z.",
+          "kind": "bug",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 1484,
+          "priority": "P1",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "In progress",
+          "title": "P1: Triage E29N56 rampart damage runtime alert",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1484",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
           "evidence": "Post-closure 2026-05-12T23:25Z: live alert=false, tactical=[SILENT], owned_spawns=1, owned_creeps=7, hostiles=0. Tower remains 0 but is strategic progression under #879/#979, not active defense incident.",
           "kind": "code",
           "lane": "Combat",
@@ -19562,7 +19598,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+          "evidence": "2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencent validation active pid 2669650; E1 gate PASS; Loop B MIXED.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19580,7 +19616,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+          "evidence": "2026-05-28T20:35Z compute cadence alive: t200504z active; preflight OK; no Codex agents active.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19598,7 +19634,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:23Z: freshness PASS (runtime-summary 15:16Z, tick 1491572, ~119 ticks old; energy telemetry nonzero). t140003z completed/scaled down: 25 envs, report produced, trueGradient=true, runtimeParameterConsumption=true, reportConsumedVariantCount=5 but per-comparison consumedVariantCount=1; trustedGradientUpdate=false/gradientStable=false. t151003z active pid 2564527, finalStatus=unknown; guarded preflight OK and ASG desired=1.",
+          "evidence": "2026-05-28T20:35Z runtime injection/true-gradient path proven pre-fix; #1483 merged; post-fix validation t200504z active.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19616,7 +19652,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+          "evidence": "2026-05-28T20:35Z validation-scale/trusted-update gate waiting on active t200504z pid 2669650; no duplicate paid compute.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19634,7 +19670,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+          "evidence": "2026-05-28T20:35Z scale-first RL continues via active t200504z pid 2669650 on post-fix f1ced2f7; billing/preflight OK.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19652,7 +19688,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z momentum decision still held. Loop B 20260528T115955Z reported regressions; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not implement EMA/momentum before trust-gate digest.",
+          "evidence": "2026-05-28T20:35Z momentum remains held; #1483 estimator fix merged but no post-fix trusted-gradient evidence yet; t200504z active.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -19670,7 +19706,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "2026-05-28T15:57Z reward decision still held. Loop B 20260528T115955Z reported resource/safety regression; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not tune rewards from prose or before trust-gate digest.",
+          "evidence": "2026-05-28T20:35Z reward decision remains held; Loop B MIXED and post-fix validation pending; no online rollout.",
           "kind": "ops",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -20660,6 +20696,24 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
+          "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1482,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P0: Replace scalar policy-gradient estimator with lexicographic per-tier estimator",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/1482",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
           "evidence": "",
           "kind": "ops",
           "lane": "RL flywheel",
@@ -21321,6 +21375,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/1475",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 1483,
+          "priority": "P0",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "fix(rl): add lexicographic gradient estimator",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1483",
           "visionLayer": "foundation blocker"
         },
         {
@@ -25915,6 +25987,24 @@
         },
         {
           "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "2026-05-28T19:12Z: PR #1481 merged as e2f824b3 after same-run gate: elapsed 156m, checks all SUCCESS, CodeRabbit APPROVED/no actionable, Gemini no feedback, reviewThreads=0, mergeState=CLEAN. Main fast-forwarded clean. Docs/Pages only; no official MMO deploy needed.",
+          "kind": "docs",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 1481,
+          "priority": "P1",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "chore(roadmap): refresh Pages artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/1481",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
           "domainSource": "heuristic",
           "evidence": "",
           "kind": "code",
@@ -26212,26 +26302,7 @@
               "status": "Backlog"
             },
             {
-              "cards": [
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z audit repair: PR #1477 is merged, so #1478 is not waiting on that PR. #1478 remains Ready and not dispatched this slice because hard-P0 #1479/PR #1480 registry repair is still blocked by mergeStateStatus=UNSTABLE.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 1478,
-                  "priority": "P0",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P0: Generalize development task acceptance contracts and Done gates",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/1478",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "Ready"
             },
             {
@@ -26239,7 +26310,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
+                  "evidence": "2026-05-28T20:35Z PR #1485 merged universal Done gate evidence into template/checker/docs; issueification guard strengthened.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26257,7 +26328,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
+                  "evidence": "2026-05-28T19:34Z no-wait guard respected: merged gate-ready #1481/#1480/#1483 without sleep; did not wait through CI/CodeRabbit windows, only re-queried as they completed during useful work. Active Tencent t190003z was not duplicated.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26289,16 +26360,11 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1028",
                   "visionLayer": "foundation blocker"
-                }
-              ],
-              "status": "In progress"
-            },
-            {
-              "cards": [
+                },
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "",
+                  "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -26306,33 +26372,18 @@
                   "priority": "P0",
                   "projectDomain": "Agent OS",
                   "state": "",
-                  "status": "In review",
+                  "status": "In progress",
                   "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1479",
                   "visionLayer": "foundation blocker"
-                },
-                {
-                  "createdAt": "2026-05-28T15:05:23Z",
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 1480,
-                  "priority": "P0",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "In review",
-                  "title": "fix(agent-os): align p0 monitor registry provider",
-                  "type": "PullRequest",
-                  "updatedAt": "2026-05-28T15:11:26Z",
-                  "url": "https://github.com/lanyusea/screeps/pull/1480",
-                  "visionLayer": "foundation blocker"
                 }
               ],
+              "status": "In progress"
+            },
+            {
+              "cards": [],
               "status": "In review"
             },
             {
@@ -26628,6 +26679,24 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
+                  "evidence": "2026-05-28T20:35Z PR #1485 merged as 1ee8f049; post-merge diff-check, py_compile, self-test, cron-registry PASS.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1478,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Generalize development task acceptance contracts and Done gates",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1478",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
                   "evidence": "",
                   "kind": "ops",
                   "lane": "Agent OS",
@@ -26732,6 +26801,24 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/1048",
                   "visionLayer": "territory"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T20:35Z merged as 1ee8f049 after 26.8m gate, green checks, CodeRabbit SUCCESS, threads resolved; post-merge verification PASS.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1485,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "agent-os: require universal Done gate evidence",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1485",
+                  "visionLayer": "foundation blocker"
                 },
                 {
                   "domain": "Agent OS",
@@ -27001,6 +27088,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1118",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T19:30Z: merged as fe5906e4 after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 1480,
+                  "priority": "P0",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix(agent-os): align p0 monitor registry provider",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1480",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -35031,7 +35136,26 @@
               "status": "Ready"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T20:03Z: fresh runtime-summary monitor 20260528T195053Z and console 20260528T195131Z show E29N56 spawn alive, 4 workers, hostiles=0, no construction sites; latest alert cron output is stale at 17:26Z.",
+                  "kind": "bug",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 1484,
+                  "priority": "P1",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "In progress",
+                  "title": "P1: Triage E29N56 rampart damage runtime alert",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1484",
+                  "visionLayer": "territory"
+                }
+              ],
               "status": "In progress"
             },
             {
@@ -40026,7 +40150,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z momentum decision still held. Loop B 20260528T115955Z reported regressions; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not implement EMA/momentum before trust-gate digest.",
+                  "evidence": "2026-05-28T20:35Z momentum remains held; #1483 estimator fix merged but no post-fix trusted-gradient evidence yet; t200504z active.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40044,7 +40168,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z reward decision still held. Loop B 20260528T115955Z reported resource/safety regression; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not tune rewards from prose or before trust-gate digest.",
+                  "evidence": "2026-05-28T20:35Z reward decision remains held; Loop B MIXED and post-fix validation pending; no online rollout.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40067,7 +40191,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+                  "evidence": "2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencent validation active pid 2669650; E1 gate PASS; Loop B MIXED.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40085,7 +40209,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+                  "evidence": "2026-05-28T20:35Z compute cadence alive: t200504z active; preflight OK; no Codex agents active.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40103,7 +40227,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:23Z: freshness PASS (runtime-summary 15:16Z, tick 1491572, ~119 ticks old; energy telemetry nonzero). t140003z completed/scaled down: 25 envs, report produced, trueGradient=true, runtimeParameterConsumption=true, reportConsumedVariantCount=5 but per-comparison consumedVariantCount=1; trustedGradientUpdate=false/gradientStable=false. t151003z active pid 2564527, finalStatus=unknown; guarded preflight OK and ASG desired=1.",
+                  "evidence": "2026-05-28T20:35Z runtime injection/true-gradient path proven pre-fix; #1483 merged; post-fix validation t200504z active.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40121,7 +40245,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+                  "evidence": "2026-05-28T20:35Z validation-scale/trusted-update gate waiting on active t200504z pid 2669650; no duplicate paid compute.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -40139,7 +40263,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+                  "evidence": "2026-05-28T20:35Z scale-first RL continues via active t200504z pid 2669650 on post-fix f1ced2f7; billing/preflight OK.",
                   "kind": "ops",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -41102,6 +41226,24 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
+                  "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1482,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P0: Replace scalar policy-gradient estimator with lexicographic per-tier estimator",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/1482",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
                   "evidence": "",
                   "kind": "ops",
                   "lane": "RL flywheel",
@@ -41763,6 +41905,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/1475",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 1483,
+                  "priority": "P0",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix(rl): add lexicographic gradient estimator",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1483",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -45791,6 +45951,24 @@
                 {
                   "domain": "Docs/process",
                   "domainSource": "project",
+                  "evidence": "2026-05-28T19:12Z: PR #1481 merged as e2f824b3 after same-run gate: elapsed 156m, checks all SUCCESS, CodeRabbit APPROVED/no actionable, Gemini no feedback, reviewThreads=0, mergeState=CLEAN. Main fast-forwarded clean. Docs/Pages only; no official MMO deploy needed.",
+                  "kind": "docs",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 1481,
+                  "priority": "P1",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "chore(roadmap): refresh Pages artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/1481",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
                   "evidence": "PR #64 merged at 2026-04-27T02:09Z as 0377388; prod-ci and CodeRabbit green, Gemini no feedback, review threads empty, QA blocker resolved before merge.",
                   "kind": "docs",
                   "lane": "Docs/process",
@@ -46020,7 +46198,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 1
+        "value": 0
       },
       {
         "instrumented": true,
@@ -46030,17 +46208,17 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 1438
+        "value": 1443
       },
       {
         "instrumented": true,
         "label": "In progress",
-        "value": 8
+        "value": 10
       },
       {
         "instrumented": true,
         "label": "In review",
-        "value": 2
+        "value": 0
       }
     ],
     "projectItems": [
@@ -63920,7 +64098,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencent validation active pid 2669650; E1 gate PASS; Loop B MIXED.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -67237,7 +67415,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z scale-first RL continues via active t200504z pid 2669650 on post-fix f1ced2f7; billing/preflight OK.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -69489,7 +69667,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
+        "evidence": "2026-05-28T19:34Z no-wait guard respected: merged gate-ready #1481/#1480/#1483 without sleep; did not wait through CI/CodeRabbit windows, only re-queried as they completed during useful work. Active Tencent t190003z was not duplicated.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -70716,7 +70894,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
+        "evidence": "2026-05-28T20:35Z PR #1485 merged universal Done gate evidence into template/checker/docs; issueification guard strengthened.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -71625,7 +71803,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z compute cadence alive: t200504z active; preflight OK; no Codex agents active.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -73088,7 +73266,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:23Z: freshness PASS (runtime-summary 15:16Z, tick 1491572, ~119 ticks old; energy telemetry nonzero). t140003z completed/scaled down: 25 envs, report produced, trueGradient=true, runtimeParameterConsumption=true, reportConsumedVariantCount=5 but per-comparison consumedVariantCount=1; trustedGradientUpdate=false/gradientStable=false. t151003z active pid 2564527, finalStatus=unknown; guarded preflight OK and ASG desired=1.",
+        "evidence": "2026-05-28T20:35Z runtime injection/true-gradient path proven pre-fix; #1483 merged; post-fix validation t200504z active.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -73924,7 +74102,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z validation-scale/trusted-update gate waiting on active t200504z pid 2669650; no duplicate paid compute.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -74313,7 +74491,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z momentum decision still held. Loop B 20260528T115955Z reported regressions; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not implement EMA/momentum before trust-gate digest.",
+        "evidence": "2026-05-28T20:35Z momentum remains held; #1483 estimator fix merged but no post-fix trusted-gradient evidence yet; t200504z active.",
         "kind": "code",
         "labels": [
           "blocked",
@@ -75147,7 +75325,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z reward decision still held. Loop B 20260528T115955Z reported resource/safety regression; latest Loop A 20260528T154821Z shows trueGradient functional but sample-limited and t151003z active. Do not tune rewards from prose or before trust-gate digest.",
+        "evidence": "2026-05-28T20:35Z reward decision remains held; Loop B MIXED and post-fix validation pending; no online rollout.",
         "kind": "ops",
         "labels": [
           "blocked",
@@ -76861,7 +77039,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z audit repair: PR #1477 is merged, so #1478 is not waiting on that PR. #1478 remains Ready and not dispatched this slice because hard-P0 #1479/PR #1480 registry repair is still blocked by mergeStateStatus=UNSTABLE.",
+        "evidence": "2026-05-28T20:35Z PR #1485 merged as 1ee8f049; post-merge diff-check, py_compile, self-test, cron-registry PASS.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -76875,7 +77053,7 @@
         "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "Ready",
+        "status": "Done",
         "title": "P0: Generalize development task acceptance contracts and Done gates",
         "type": "Issue",
         "updatedAt": "",
@@ -76904,7 +77082,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -76918,7 +77096,7 @@
         "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "In review",
+        "status": "In progress",
         "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
         "type": "Issue",
         "updatedAt": "",
@@ -76928,7 +77106,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "2026-05-28T19:30Z: merged as fe5906e4 after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward.",
         "kind": "ops",
         "labels": [],
         "milestone": "",
@@ -76937,51 +77115,132 @@
         "priority": "P0",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "fix(agent-os): align p0 monitor registry provider",
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/1480"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p0",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1482,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "P0: Replace scalar policy-gradient estimator with lexicographic per-tier estimator",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1482"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "2026-05-28T19:12Z: PR #1481 merged as e2f824b3 after same-run gate: elapsed 156m, checks all SUCCESS, CodeRabbit APPROVED/no actionable, Gemini no feedback, reviewThreads=0, mergeState=CLEAN. Main fast-forwarded clean. Docs/Pages only; no official MMO deploy needed.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1481,
+        "priority": "P1",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "Done",
+        "title": "chore(roadmap): refresh Pages artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1481"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1483,
+        "priority": "P0",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "fix(rl): add lexicographic gradient estimator",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1483"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "2026-05-28T20:03Z: fresh runtime-summary monitor 20260528T195053Z and console 20260528T195131Z show E29N56 spawn alive, 4 workers, hostiles=0, no construction sites; latest alert cron output is stale at 17:26Z.",
+        "kind": "bug",
+        "labels": [
+          "kind:incident",
+          "priority:p1",
+          "roadmap",
+          "roadmap:combat",
+          "runtime-alert"
+        ],
+        "milestone": "P1: Territory/Economy gameplay gate",
+        "nextAction": "",
+        "number": 1484,
+        "priority": "P1",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "In progress",
+        "title": "P1: Triage E29N56 rampart damage runtime alert",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/1484"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-05-28T20:35Z merged as 1ee8f049 after 26.8m gate, green checks, CodeRabbit SUCCESS, threads resolved; post-merge verification PASS.",
+        "kind": "ops",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 1485,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "state": "",
+        "status": "Done",
+        "title": "agent-os: require universal Done gate evidence",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/1485"
       }
     ],
     "projectItemsCompleteness": {
       "complete": true,
       "limit": 2000,
-      "returnedCount": 1438,
-      "totalCount": 1438
+      "returnedCount": 1443,
+      "totalCount": 1443
     },
     "projectItemsSource": "live",
-    "pullRequests": [
-      {
-        "checks": {
-          "failure": 1,
-          "pending": 0,
-          "success": 4,
-          "total": 5
-        },
-        "createdAt": "2026-05-28T15:05:23Z",
-        "domain": "Agent OS",
-        "domainSource": "heuristic",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 1480,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "fix(agent-os): align p0 monitor registry provider",
-        "type": "PullRequest",
-        "updatedAt": "2026-05-28T15:11:26Z",
-        "url": "https://github.com/lanyusea/screeps/pull/1480"
-      }
-    ],
+    "pullRequests": [],
     "roadmapCards": [
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure must prove the named surface (actual Grafana) or explicit owner-accepted equivalent; substrate/code/runbook evidence is not Done.",
+        "evidence": "2026-05-28T20:35Z PR #1485 merged universal Done gate evidence into template/checker/docs; issueification guard strengthened.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1191,
@@ -76996,7 +77255,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencent validation active pid 2669650; E1 gate PASS; Loop B MIXED.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 879,
@@ -77011,7 +77270,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreground sleep/CI/review wait used; open PR count=0; long-running work delegated to Codex proc_[redacted] and Tencent PID 2437999; console capture was triggered for next scheduler tick instead of waiting.",
+        "evidence": "2026-05-28T19:34Z no-wait guard respected: merged gate-ready #1481/#1480/#1483 without sleep; did not wait through CI/CodeRabbit windows, only re-queried as they completed during useful work. Active Tencent t190003z was not duplicated.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1135,
@@ -77039,9 +77298,24 @@
         "visionLayer": "foundation blocker"
       },
       {
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 1479,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "status": "In progress",
+        "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1479",
+        "visionLayer": "foundation blocker"
+      },
+      {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z compute cadence alive: t200504z active; preflight OK; no Codex agents active.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1233,
@@ -77056,7 +77330,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:23Z: freshness PASS (runtime-summary 15:16Z, tick 1491572, ~119 ticks old; energy telemetry nonzero). t140003z completed/scaled down: 25 envs, report produced, trueGradient=true, runtimeParameterConsumption=true, reportConsumedVariantCount=5 but per-comparison consumedVariantCount=1; trustedGradientUpdate=false/gradientStable=false. t151003z active pid 2564527, finalStatus=unknown; guarded preflight OK and ASG desired=1.",
+        "evidence": "2026-05-28T20:35Z runtime injection/true-gradient path proven pre-fix; #1483 merged; post-fix validation t200504z active.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1299,
@@ -77071,7 +77345,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z validation-scale/trusted-update gate waiting on active t200504z pid 2669650; no duplicate paid compute.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1337,
@@ -77086,7 +77360,7 @@
       {
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOMALY, trainingDidRun=true, E1 gate fresh PASS, 225 env requested/225 started/194 completed/6 failed/25 in progress; trueGradientCount=8 but trustedGradientUpdate=false/gradientStable=false. Active Tencent runner t151003z pid 2564527, controller summary still finalStatus=unknown/envRun=0/scaleDownAttempted=false.",
+        "evidence": "2026-05-28T20:35Z scale-first RL continues via active t200504z pid 2669650 on post-fix f1ced2f7; billing/preflight OK.",
         "milestone": "P1: RL strategy flywheel gate",
         "nextAction": "",
         "number": 1032,
@@ -77096,51 +77370,6 @@
         "title": "P0: Scale-first offline/private RL training campaign",
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1032",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "",
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "nextAction": "",
-        "number": 1479,
-        "priority": "P0",
-        "projectDomain": "Agent OS",
-        "status": "In review",
-        "title": "P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1479",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "",
-        "milestone": "",
-        "nextAction": "",
-        "number": 1480,
-        "priority": "P0",
-        "projectDomain": "Agent OS",
-        "status": "In review",
-        "title": "fix(agent-os): align p0 monitor registry provider",
-        "type": "PullRequest",
-        "url": "https://github.com/lanyusea/screeps/pull/1480",
-        "visionLayer": "foundation blocker"
-      },
-      {
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "2026-05-28T15:57Z audit repair: PR #1477 is merged, so #1478 is not waiting on that PR. #1478 remains Ready and not dispatched this slice because hard-P0 #1479/PR #1480 registry repair is still blocked by mergeStateStatus=UNSTABLE.",
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "nextAction": "",
-        "number": 1478,
-        "priority": "P0",
-        "projectDomain": "Agent OS",
-        "status": "Ready",
-        "title": "P0: Generalize development task acceptance contracts and Done gates",
-        "type": "Issue",
-        "url": "https://github.com/lanyusea/screeps/issues/1478",
         "visionLayer": "foundation blocker"
       },
       {
@@ -77156,6 +77385,36 @@
         "title": "Add E1S1 repeat-launch guard for Tencent RL batch runs",
         "type": "Issue",
         "url": "https://github.com/lanyusea/screeps/issues/1197",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "",
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 1230,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "status": "Done",
+        "title": "Agent OS",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1230",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "",
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 1461,
+        "priority": "P0",
+        "projectDomain": "Agent OS",
+        "status": "Done",
+        "title": "Agent OS",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/1461",
         "visionLayer": "foundation blocker"
       }
     ],
@@ -77288,7 +77547,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "80889",
+            "formattedValue": "79909",
             "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
@@ -77299,7 +77558,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 80889
+            "value": 79909
           },
           {
             "category": "resources",
@@ -77324,7 +77583,7 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy currently carried by workers.",
             "details": {},
-            "formattedValue": "1906",
+            "formattedValue": "1690",
             "instrumented": true,
             "key": "worker_carried_energy",
             "label": "Worker carried energy",
@@ -77335,7 +77594,7 @@
             "source": "runtime-summary resource fields",
             "status": "observed",
             "unit": "energy",
-            "value": 1906
+            "value": 1690
           },
           {
             "category": "resources",
@@ -77965,8 +78224,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78142,8 +78408,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78319,8 +78592,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78496,8 +78776,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78673,8 +78960,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -78850,8 +79144,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 11.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79027,8 +79328,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79204,8 +79512,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79381,8 +79696,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79558,8 +79880,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79735,8 +80064,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -79912,8 +80248,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80089,8 +80432,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80266,8 +80616,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80443,8 +80800,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80620,8 +80984,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80795,10 +81166,17 @@
           "value": 1.0
         },
         {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
           "instrumented": false,
           "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -80974,8 +81352,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81151,8 +81536,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81328,8 +81720,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81505,8 +81904,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 3.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81682,8 +82088,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -81859,8 +82272,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82036,8 +82456,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82213,8 +82640,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 4.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82390,8 +82824,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82567,8 +83008,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82744,8 +83192,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 79909.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -82760,7 +83215,7 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 80889
+          "value": 79909
         }
       ],
       "stored_energy_delta": [
@@ -82921,8 +83376,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -83098,8 +83560,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -83275,8 +83744,15 @@
         {
           "instrumented": true,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -83452,8 +83928,15 @@
         {
           "instrumented": true,
           "observed": true,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "observed",
+          "value": 1690.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -83468,7 +83951,7 @@
           },
           "sourceKind": "runtime-summary-artifact",
           "status": "observed",
-          "value": 1906
+          "value": 1690
         }
       ],
       "worker_recovery_state": [
@@ -83629,8 +84112,15 @@
         {
           "instrumented": false,
           "observed": false,
+          "sampledAt": "2026-05-28T20:37:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
           "reducerSchemaVersion": 1,
-          "sampledAt": "2026-05-28T16:34:45Z",
+          "sampledAt": "2026-05-28T20:37:46Z",
           "scope": {
             "observedRooms": [
               "E29N55",
@@ -83713,7 +84203,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1028"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T10:04Z no-wait recurrence guard respected in this scheduler run: no foreg...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T19:34Z no-wait guard respected: merged gate-ready #1481/#1480/#1483 witho...",
             "domain": "Agent OS",
             "number": 1135,
             "priority": "P0",
@@ -83722,7 +84212,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1135"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T09:44Z PM-control note added from #1474/#1475: named deliverable closure...",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T20:35Z PR #1485 merged universal Done gate evidence into template/checker...",
             "domain": "Agent OS",
             "number": 1191,
             "priority": "P0",
@@ -83731,11 +84221,11 @@
             "url": "https://github.com/lanyusea/screeps/issues/1191"
           },
           {
-            "description": "In review \u00b7 Agent OS \u00b7 2026-05-28T15:06:54Z P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair...",
             "domain": "Agent OS",
             "number": 1479,
             "priority": "P0",
-            "status": "In review",
+            "status": "In progress",
             "title": "#1479 P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
             "url": "https://github.com/lanyusea/screeps/issues/1479"
           }
@@ -83759,7 +84249,17 @@
         "title": "Bot capability"
       },
       {
-        "items": [],
+        "items": [
+          {
+            "description": "In progress \u00b7 Combat \u00b7 2026-05-28T20:03Z: fresh runtime-summary monitor 20260528T195053Z and console 20260528...",
+            "domain": "Combat",
+            "number": 1484,
+            "priority": "P1",
+            "status": "In progress",
+            "title": "#1484 P1: Triage E29N56 rampart damage runtime alert",
+            "url": "https://github.com/lanyusea/screeps/issues/1484"
+          }
+        ],
         "title": "Combat"
       },
       {
@@ -83773,7 +84273,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOM...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencent validation act...",
             "domain": "RL flywheel",
             "number": 879,
             "priority": "P0",
@@ -83782,7 +84282,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/879"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOM...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T20:35Z scale-first RL continues via active t200504z pid 2669650 on pos...",
             "domain": "RL flywheel",
             "number": 1032,
             "priority": "P0",
@@ -83791,7 +84291,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1032"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T154821Z RUN_WITH_ANOM...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T20:35Z compute cadence alive: t200504z active; preflight OK; no Codex...",
             "domain": "RL flywheel",
             "number": 1233,
             "priority": "P0",
@@ -83800,7 +84300,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1233"
           },
           {
-            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T15:23Z: freshness PASS (runtime-summary 15:16Z, tick 1491572, ~119 tic...",
+            "description": "In progress \u00b7 RL flywheel \u00b7 2026-05-28T20:35Z runtime injection/true-gradient path proven pre-fix; #1483 merg...",
             "domain": "RL flywheel",
             "number": 1299,
             "priority": "P0",
@@ -84017,7 +84517,7 @@
           "windowDays": 7
         },
         "key": "resources",
-        "max": 90000,
+        "max": 80000,
         "pill": "energy",
         "series": [
           {
@@ -84040,7 +84540,7 @@
               12253,
               11903,
               61810,
-              80889
+              79909
             ],
             "width": 2
           },
@@ -84089,7 +84589,7 @@
               2152,
               1185,
               2651,
-              1906
+              1690
             ],
             "width": 3
           }
@@ -84097,8 +84597,8 @@
         "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
         "ticks": [
           0,
-          45000.0,
-          90000
+          40000.0,
+          80000
         ],
         "title": "Resources"
       },
@@ -84247,28 +84747,28 @@
     ],
     "processCards": [
       {
-        "delta": "+2",
+        "delta": "+4",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 865,
+        "rawValue": 869,
         "source": "git rev-list --count HEAD",
-        "value": 865
+        "value": 869
       },
       {
         "delta": "+2",
         "detail": "14 open",
         "label": "Issues",
-        "rawValue": 718,
+        "rawValue": 720,
         "source": "github",
-        "value": 718
+        "value": 720
       },
       {
-        "delta": "+2",
-        "detail": "744 merged",
+        "delta": "+3",
+        "detail": "748 merged",
         "label": "PRs",
-        "rawValue": 762,
+        "rawValue": 765,
         "source": "github",
-        "value": 762
+        "value": 765
       },
       {
         "delta": "n/a",
@@ -84296,8 +84796,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "unavailable",
@@ -84329,8 +84829,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "unavailable",
@@ -84362,8 +84862,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "local cache",
@@ -84395,8 +84895,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "local cache",
@@ -84428,8 +84928,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "local cache",
@@ -84464,8 +84964,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "local cache",
@@ -84497,8 +84997,8 @@
           ],
           "window": {
             "days": 7,
-            "end": "2026-05-28T16:34:45Z",
-            "start": "2026-05-21T16:34:45Z"
+            "end": "2026-05-28T20:37:46Z",
+            "start": "2026-05-21T20:37:46Z"
           }
         },
         "source": "local cache",
@@ -84507,15 +85007,15 @@
     ],
     "roadmapCards": [
       {
-        "activeItems": 6,
+        "activeItems": 4,
         "domain": "Agent OS",
-        "doneItems": 81,
+        "doneItems": 84,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
         "next": "Current: #1028 In progress - 2026-05-28T10:04Z latest Gameplay Evolution Review c7b3dda8f1ac/...",
-        "progress": 93,
-        "status": "87 Project items \u00b7 6 active \u00b7 81 done",
+        "progress": 95,
+        "status": "88 Project items \u00b7 4 active \u00b7 84 done",
         "title": "Agent OS",
-        "totalItems": 87,
+        "totalItems": 88,
         "url": "https://github.com/lanyusea/screeps/issues/1028"
       },
       {
@@ -84567,16 +85067,16 @@
         "url": "https://github.com/lanyusea/screeps/issues/362"
       },
       {
-        "activeItems": 0,
+        "activeItems": 1,
         "domain": "Combat",
         "doneItems": 34,
         "goal": "Protect survival, hostile response, and defense/combat readiness.",
-        "next": "No active item; latest tracked: #977 Done - Post-closure 2026-05-12T23:25Z: live alert=false,...",
-        "progress": 100,
-        "status": "34 Project items \u00b7 0 active \u00b7 34 done",
+        "next": "Current: #1484 In progress - 2026-05-28T20:03Z: fresh runtime-summary monitor 20260528T195053...",
+        "progress": 97,
+        "status": "35 Project items \u00b7 1 active \u00b7 34 done",
         "title": "Combat",
-        "totalItems": 34,
-        "url": "https://github.com/lanyusea/screeps/issues/977"
+        "totalItems": 35,
+        "url": "https://github.com/lanyusea/screeps/issues/1484"
       },
       {
         "activeItems": 0,
@@ -84605,13 +85105,13 @@
       {
         "activeItems": 7,
         "domain": "RL flywheel",
-        "doneItems": 296,
+        "doneItems": 298,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
-        "next": "Current: #879 In progress - 2026-05-28T15:57Z RL recheck: latest Loop A ledger 20260528T15482...",
+        "next": "Current: #879 In progress - 2026-05-28T20:35Z #1483 merged f1ced2f7; t200504z post-fix Tencen...",
         "progress": 98,
-        "status": "303 Project items \u00b7 7 active \u00b7 296 done",
+        "status": "305 Project items \u00b7 7 active \u00b7 298 done",
         "title": "RL flywheel",
-        "totalItems": 303,
+        "totalItems": 305,
         "url": "https://github.com/lanyusea/screeps/issues/879"
       }
     ]
@@ -84628,8 +85128,8 @@
       "skippedFileCount": 0
     },
     "window": {
-      "firstTick": 1493987,
-      "latestTick": 1493987
+      "firstTick": 1501603,
+      "latestTick": 1501603
     }
   },
   "schemaVersion": 1,
