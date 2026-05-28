@@ -1973,11 +1973,38 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
                 summary_cache_seconds=60,
             )
             server = make_unbound_live_server(config)
+            dashboard_url = server.dashboard_url()
+            stale_refresh = dict(server.refresh_state)
+            stale_refresh["lastRefreshAt"] = "2026-05-18T10:00:00Z"
+            stale_refresh["lastRefreshOk"] = True
+            stale_refresh["lastRefresh"] = {"ok": True, "files_scanned": 1}
+            server.refresh_state.update(stale_refresh)
+            with server.summary_lock:
+                server.summary_cache = {
+                    "type": "screeps-rl-live-dashboard",
+                    "generatedAt": "stale-cached-summary",
+                    "dashboardUrl": dashboard_url,
+                    "health": {"ok": True, "status": "ok", "failures": []},
+                    "db": {
+                        "exists": True,
+                        "schemaReady": True,
+                        "tables": {"metric_observations": 1},
+                        "latestObservedAt": "2026-05-18T10:00:00Z",
+                    },
+                    "refresh": stale_refresh,
+                    "e1Gate": {"status": "OK"},
+                    "loopA": {"environment": {}, "training": {}},
+                    "loopB": {"policy": {}, "scorecard": {"status": "OK"}},
+                    "tencentBatch": {"hasData": True},
+                    "projectGates": [{"issue": "#1233", "status": "OK"}],
+                }
+                server.summary_cache_dashboard_url = dashboard_url
+                server.summary_cache_until = time.monotonic() + 60
             live.refresh_metrics = successful_refresh_metrics
             live.build_live_summary = cached_build_live_summary
             try:
                 refresh = server.run_refresh_cycle("manual")
-                summary = server.summary_snapshot(server.dashboard_url())
+                summary = server.summary_snapshot(dashboard_url)
             finally:
                 live.refresh_metrics = original_refresh_metrics
                 live.build_live_summary = original_build_live_summary
@@ -1985,6 +2012,7 @@ class ScreepsRlLiveDashboardTest(unittest.TestCase):
         self.assertTrue(refresh["ok"])
         self.assertEqual(len(build_calls), 1)
         self.assertEqual(summary["generatedAt"], "primed-call-1")
+        self.assertNotEqual(summary["generatedAt"], "stale-cached-summary")
         self.assertFalse(summary["refresh"]["refreshInProgress"])
         self.assertIsNone(summary["refresh"]["activeRefreshReason"])
         self.assertTrue(summary["refresh"]["lastRefreshOk"])

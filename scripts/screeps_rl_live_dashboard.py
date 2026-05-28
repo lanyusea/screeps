@@ -375,7 +375,11 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
             self.summary_cache_generation += 1
 
     def prime_summary_cache(self) -> JsonObject:
-        return self.summary_snapshot(self.dashboard_url(), allow_refresh_placeholder=False)
+        return self.summary_snapshot(
+            self.dashboard_url(),
+            allow_refresh_placeholder=False,
+            force_rebuild_cache=True,
+        )
 
     def cached_summary_for_refresh(self, dashboard_url: str, refresh: JsonObject) -> JsonObject | None:
         with self.summary_lock:
@@ -386,7 +390,13 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
                 return None
             return summary_with_refresh(cached, refresh)
 
-    def summary_snapshot(self, dashboard_url: str, *, allow_refresh_placeholder: bool = True) -> JsonObject:
+    def summary_snapshot(
+        self,
+        dashboard_url: str,
+        *,
+        allow_refresh_placeholder: bool = True,
+        force_rebuild_cache: bool = False,
+    ) -> JsonObject:
         refresh = self.refresh_snapshot()
         if allow_refresh_placeholder and refresh.get("refreshInProgress"):
             cached = self.cached_summary_for_refresh(dashboard_url, refresh)
@@ -397,7 +407,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         current_monotonic = time.monotonic()
         with self.summary_lock:
             if (
-                not refresh.get("refreshInProgress")
+                not force_rebuild_cache
+                and not refresh.get("refreshInProgress")
                 and cache_ttl > 0
                 and self.summary_cache is not None
                 and self.summary_cache_dashboard_url == dashboard_url
@@ -432,7 +443,8 @@ class LiveDashboardHTTPServer(ThreadingHTTPServer):
         current_monotonic = time.monotonic()
         with self.summary_lock:
             if (
-                cache_ttl > 0
+                not force_rebuild_cache
+                and cache_ttl > 0
                 and self.summary_cache is not None
                 and self.summary_cache_dashboard_url == dashboard_url
                 and current_monotonic < self.summary_cache_until
