@@ -72,7 +72,7 @@ OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
 NOT_INSTRUMENTED = "not instrumented"
 INSUFFICIENT_EVIDENCE = "insufficient evidence"
-ACTIVE_HANDOFF_EVIDENCE_STATUSES = frozenset({"In progress", "Ready"})
+ACTIVE_HANDOFF_EVIDENCE_STATUSES = frozenset({"In progress", "In review", "Ready"})
 RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER = 1479
 
 
