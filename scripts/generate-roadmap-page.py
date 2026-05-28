@@ -2150,7 +2150,7 @@ def normalize_project_item(item: JsonObject) -> JsonObject:
     explicit_domain = project_domain(item)
     domain = explicit_domain or infer_domain(labels, milestone, title)
     kind = str(item.get("Kind") or item.get("kind") or infer_kind(labels))
-    return {
+    normalized = {
         "type": item.get("type") or content.get("type") or "",
         "number": item.get("number") or content.get("number"),
         "title": title,
@@ -2169,6 +2169,10 @@ def normalize_project_item(item: JsonObject) -> JsonObject:
         "blockedBy": str(item.get("Blocked by") or item.get("blockedBy") or ""),
         "updatedAt": item.get("updatedAt") or content.get("updatedAt") or "",
     }
+    created_at = item.get("createdAt") or content.get("createdAt") or ""
+    if created_at:
+        normalized["createdAt"] = created_at
+    return normalized
 
 
 def labels_from(value: Any) -> list[str]:
@@ -2341,8 +2345,12 @@ def build_kanban_cards(
     pull_requests: Sequence[JsonObject],
 ) -> list[JsonObject]:
     source_items = list(project_items) or [*issues, *pull_requests]
+    context_lookup = build_issue_context_lookup({"issues": issues, "pullRequests": pull_requests})
     cards: list[JsonObject] = []
-    for item in source_items:
+    for source_item in source_items:
+        item = dict(source_item)
+        if item.get("type") == "PullRequest":
+            item = merge_issue_context(item, context_lookup)
         if not item.get("title"):
             continue
         vision_layer = classify_vision_layer(item)
@@ -2354,26 +2362,27 @@ def build_kanban_cards(
         else:
             next_action = first_visible_report_text(item.get("nextAction"))
             evidence = first_visible_report_text(item.get("evidence"))
-        cards.append(
-            {
-                "title": title,
-                "url": item.get("url", ""),
-                "type": item.get("type", ""),
-                "number": item.get("number"),
-                "status": normalize_status(item.get("status")),
-                "priority": item.get("priority", "P1"),
-                "domain": item.get("domain", "Bot capability"),
-                "projectDomain": project_domain(item),
-                "domainSource": item.get("domainSource", ""),
-                "kind": item.get("kind", "code"),
-                "visionLayer": vision_layer,
-                "lane": project_domain(item),
-                "nextAction": next_action,
-                "evidence": evidence,
-                "state": item.get("state", ""),
-                "updatedAt": item.get("updatedAt", ""),
-            }
-        )
+        card = {
+            "title": title,
+            "url": item.get("url", ""),
+            "type": item.get("type", ""),
+            "number": item.get("number"),
+            "status": normalize_status(item.get("status")),
+            "priority": item.get("priority", "P1"),
+            "domain": item.get("domain", "Bot capability"),
+            "projectDomain": project_domain(item),
+            "domainSource": item.get("domainSource", ""),
+            "kind": item.get("kind", "code"),
+            "visionLayer": vision_layer,
+            "lane": project_domain(item),
+            "nextAction": next_action,
+            "evidence": evidence,
+            "state": item.get("state", ""),
+            "updatedAt": item.get("updatedAt", ""),
+        }
+        if item.get("createdAt"):
+            card["createdAt"] = item["createdAt"]
+        cards.append(card)
     return sorted(cards, key=kanban_sort_key)
 
 
@@ -2922,8 +2931,11 @@ def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]
         return dict(item)
     context = issue_lookup.get(number, {})
     merged = {**context, **item}
-    for key in ("state", "labels", "milestone", "kind", "evidence", "nextAction", "updatedAt", "createdAt"):
+    for key in ("state", "labels", "milestone", "kind", "evidence", "nextAction"):
         if key not in item and context.get(key):
+            merged[key] = context[key]
+    for key in ("updatedAt", "createdAt"):
+        if not item.get(key) and context.get(key):
             merged[key] = context[key]
     return merged
 
@@ -3168,7 +3180,7 @@ def report_item_context_date(card: JsonObject) -> str:
     parsed = parse_timestamp(timestamp)
     if parsed is None:
         return ""
-    return parsed.astimezone(timezone.utc).date().isoformat()
+    return format_timestamp_z(parsed)
 
 
 def format_cst(generated_at: str) -> str:
@@ -3220,7 +3232,7 @@ def report_kanban_with_urls(
 
 def build_issue_context_lookup(github_snapshot: JsonObject) -> dict[int, JsonObject]:
     lookup: dict[int, JsonObject] = {}
-    for collection_name in ("issues", "projectItems"):
+    for collection_name in ("issues", "pullRequests", "projectItems"):
         collection = github_snapshot.get(collection_name)
         if not isinstance(collection, list):
             continue
