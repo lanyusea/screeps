@@ -147,6 +147,68 @@ class RoadmapPagesContractTests(unittest.TestCase):
 
         self.assertIn("Deploys must either reflect observed official deploy evidence", "\n".join(failures))
 
+    def test_process_metric_rejects_values_without_current_local_cache_evidence(self) -> None:
+        cards = [
+            {
+                "label": label,
+                "value": "1.2B" if label == "Agent tokens" else "unavailable",
+                "detail": (
+                    "1,182,878,241 total; local cache only; "
+                    "current refresh found no local cache evidence"
+                    if label == "Agent tokens"
+                    else "unavailable"
+                ),
+            }
+            for label in kpi_checker.EXPECTED_PROCESS_LABELS
+        ]
+        data = {
+            "report": {"processCards": cards},
+            "github": {"issues": [], "projectItems": []},
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_process_metrics(data, failures)
+
+        self.assertIn("Agent tokens reports no current local cache evidence", "\n".join(failures))
+
+    def test_process_metric_rejects_counted_provenance_when_local_cache_withheld(self) -> None:
+        cards = [
+            {
+                "label": label,
+                "value": "unavailable",
+                "detail": (
+                    "prior local cache snapshot withheld from value; "
+                    "current refresh found no local cache evidence"
+                    if label == "Agent tokens"
+                    else "unavailable"
+                ),
+                "provenance": (
+                    {
+                        "window": {"start": "2026-05-21T05:32:54Z", "end": "2026-05-28T05:32:54Z"},
+                        "capturedRange": {"start": "2026-05-21T05:17:53Z", "end": "2026-05-28T05:25:46Z"},
+                        "completeness": {"countedArtifacts": 482},
+                        "countedIds": ["2026/05/28/rollout-old.jsonl:2026-05-28T05:25:46Z"],
+                    }
+                    if label == "Agent tokens"
+                    else {}
+                ),
+            }
+            for label in kpi_checker.EXPECTED_PROCESS_LABELS
+        ]
+        data = {
+            "generatedAt": "2026-05-28T10:34:20Z",
+            "report": {"processCards": cards},
+            "github": {"issues": [], "projectItems": []},
+        }
+        failures: list[str] = []
+
+        kpi_checker.validate_process_metrics(data, failures)
+
+        joined = "\n".join(failures)
+        self.assertIn("Agent tokens with withheld local cache evidence must not expose counted provenance", joined)
+        self.assertIn("Agent tokens with withheld local cache evidence must not expose counted provenance ids", joined)
+        self.assertIn("Agent tokens with withheld local cache evidence must use the current generatedAt provenance window", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -502,6 +502,15 @@ class GenerateRoadmapPageTest(unittest.TestCase):
 
         self.assertEqual(path, Path("/root/.hermes/cron/output"))
 
+    def test_codex_session_root_env_overrides_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+
+            with patch.dict("os.environ", {roadmap.CODEX_SESSION_ROOT_ENV: "runtime-artifacts/codex-sessions"}):
+                path = roadmap.roadmap_codex_session_root(repo_root)
+
+        self.assertEqual(path, repo_root / "runtime-artifacts" / "codex-sessions")
+
     def test_runtime_kpi_report_invokes_bridge_with_scoped_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
@@ -1189,7 +1198,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 self.assertIn(command, card["detail"])
                 self.assertIn("unavailable", card["detail"])
 
-    def test_report_process_cards_retain_fresh_local_delivery_metrics_when_runner_cache_is_empty(self) -> None:
+    def test_report_process_cards_withhold_cached_local_delivery_metrics_when_runner_cache_is_empty(self) -> None:
         window_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
         window_end = datetime(2026, 5, 8, tzinfo=timezone.utc)
         codex_provenance = roadmap.delivery_metric_provenance(
@@ -1292,10 +1301,16 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         for label in ("Agent tokens", "Codex runtime", "Codex runs", "Cron runs", "Longest Codex run"):
             with self.subTest(label=label):
                 card = cards_by_label[label]
-                self.assertNotEqual(card["value"], "unavailable")
-                self.assertEqual(card["delta"], "cached")
-                self.assertEqual(card["source"], "cached local cache")
-                self.assertIn("cached from prior local cache snapshot", card["detail"])
+                self.assertEqual(card["value"], "unavailable")
+                self.assertEqual(card["delta"], "n/a")
+                self.assertEqual(card["source"], "local cache unavailable")
+                self.assertNotIn("rawValue", card)
+                self.assertNotIn("rawValueSeconds", card)
+                self.assertIn("current refresh found no local cache evidence", card["detail"])
+                self.assertEqual(card["provenance"]["window"]["end"], "2026-05-08T06:00:00Z")
+                self.assertEqual(card["provenance"]["countedIds"], [])
+                self.assertEqual(card["provenance"]["capturedRange"], {"start": "", "end": ""})
+                self.assertEqual(card["provenance"]["completeness"]["countedArtifacts"], 0)
 
     def test_retained_local_delivery_metrics_expire_after_window(self) -> None:
         provenance = roadmap.delivery_metric_provenance(
@@ -1327,7 +1342,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
 
         self.assertEqual(retained, {})
 
-    def test_retained_local_delivery_metric_detail_dedupes_cache_fallback(self) -> None:
+    def test_retained_local_delivery_metric_withholds_cached_value(self) -> None:
         provenance = roadmap.delivery_metric_provenance(
             datetime(2026, 5, 1, tzinfo=timezone.utc),
             datetime(2026, 5, 8, tzinfo=timezone.utc),
@@ -1356,10 +1371,13 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             7,
         )
 
-        self.assertEqual(
-            retained["detail"],
-            f"1,234 total; local cache only · {suffix}",
-        )
+        self.assertEqual(retained["value"], "unavailable")
+        self.assertEqual(retained["delta"], "n/a")
+        self.assertEqual(retained["source"], "local cache unavailable")
+        self.assertNotIn("rawValue", retained)
+        self.assertNotIn("rawValueSeconds", retained)
+        self.assertNotIn("provenance", retained)
+        self.assertEqual(retained["detail"], roadmap.LOCAL_CACHE_WITHHELD_DETAIL)
 
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
