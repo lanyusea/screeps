@@ -3436,12 +3436,13 @@ export const STRATEGY_REGISTRY = [
         self.assertFalse(update["officialMmoWrites"])
         self.assertFalse(update["officialMmoWritesAllowed"])
 
-    def test_reinforce_policy_update_uses_unrounded_lexicographic_gradient_for_parameter_delta(self) -> None:
+    def test_reinforce_policy_update_does_not_move_on_rounded_zero_lexicographic_gradient(self) -> None:
         policy_gradient = {
             "targetFamily": "test-family",
             "policyUpdate": {
                 "algorithm": runner.TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
                 "learning_rate": 1,
+                "bounded_integer_step": True,
                 "gradient_reward_weights": {
                     "reliability": 1,
                     "territory": 1,
@@ -3457,7 +3458,7 @@ export const STRATEGY_REGISTRY = [
                 "policy_update_reward_use": "eligible_with_evaluated_runtime_parameters",
                 "runtime_parameter_consumption_status": "consumed",
             },
-            "learnableParameters": [{"name": "tinySignalWeight", "min": 0, "max": 10_000_000}],
+            "learnableParameters": [{"name": "tinySignalWeight", "min": 0, "max": 10_000_000, "step": 1}],
             "candidateParameterVectors": [
                 {
                     "candidatePolicyId": "candidate-a",
@@ -3495,24 +3496,26 @@ export const STRATEGY_REGISTRY = [
             generated_at="2026-05-22T00:05:00Z",
         )
 
-        raw_gradient = float(update["rawGradient"]["tinySignalWeight"])
-        self.assertEqual(update["iterations"], 1)
-        self.assertGreater(raw_gradient, 0)
-        self.assertLess(raw_gradient, 0.0000005)
-        self.assertEqual(runner.round_policy_number(raw_gradient), 0)
+        raw_tier_gradient = float(
+            update["gradientEstimation"]["rawGradientByRewardTier"]["tinySignalWeight"]["reliability"]
+        )
+        self.assertEqual(update["iterations"], 0)
+        self.assertEqual(update["skippedReason"], "bounded_update_no_parameter_change")
+        self.assertTrue(update["boundedIntegerStep"])
+        self.assertGreater(raw_tier_gradient, 0)
+        self.assertLess(raw_tier_gradient, 0.0000005)
+        self.assertEqual(runner.round_policy_number(raw_tier_gradient), 0)
+        self.assertEqual(update["gradientEstimation"]["selectedRewardTierByParameter"], {"tinySignalWeight": None})
+        self.assertEqual(update["rawGradient"], {"tinySignalWeight": 0})
         self.assertEqual(update["gradientEstimation"]["capNormalizedGradient"], {"tinySignalWeight": 0})
         self.assertEqual(update["gradientEstimation"]["directionByParameter"]["tinySignalWeight"]["gradient"], 0)
         self.assertEqual(update["gradient"], update["gradientMomentum"]["rawEmaGradient"])
         self.assertEqual(update["gradientMomentum"]["emaGradient"], {"tinySignalWeight": 0})
         self.assertEqual(update["gradientMomentum"]["directionByParameter"]["tinySignalWeight"]["emaGradient"], 0)
-        self.assertGreater(float(update["gradient"]["tinySignalWeight"]), 0)
-        self.assertGreater(float(update["gradientMomentum"]["rawEmaGradient"]["tinySignalWeight"]), 0)
-        self.assertEqual(update["parameterDelta"], {"tinySignalWeight": 2.5})
-        self.assertEqual(update["updatedParameters"], {"tinySignalWeight": 2.5})
-        self.assertEqual(
-            update["nextCandidatePolicy"]["parameterEvidence"]["parameterDelta"],
-            {"tinySignalWeight": 2.5},
-        )
+        self.assertEqual(update["gradient"], {"tinySignalWeight": 0})
+        self.assertNotIn("parameterDelta", update)
+        self.assertNotIn("updatedParameters", update)
+        self.assertNotIn("nextCandidatePolicy", update)
 
     def test_gradient_momentum_config_prefers_raw_ema_round_trip_state(self) -> None:
         raw_previous = 0.00000025

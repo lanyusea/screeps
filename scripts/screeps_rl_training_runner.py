@@ -2747,7 +2747,12 @@ def policy_update_lexicographic_reinforce_gradient_estimation(
                 "dominantDirectionRatio": round_policy_number(dominant_ratio),
             }
 
-        selected_tier, selected_gradient = first_nonzero_tier_gradient(tier_raw_gradients)
+        selected_tier, selected_rounded_gradient = first_nonzero_tier_gradient(tier_rounded_gradients)
+        selected_gradient = (
+            tier_raw_gradients.get(selected_tier, selected_rounded_gradient)
+            if selected_tier is not None
+            else 0
+        )
         selected_reward_tier_by_parameter[name] = selected_tier
         gradient[name] = selected_gradient
         cap_normalized_gradient[name] = round_policy_number(selected_gradient)
