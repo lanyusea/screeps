@@ -1,10 +1,69 @@
 # RL Live Dashboard Runbook
 
-Status: issue #1237 live observability surface for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation without reopening it.
+Status: issue #1474 real-Grafana contract for the #879 RL evidence loop. This supersedes the one-time #1184 local foundation and the closed #1237/#1381/#1388/#1464 chain without reopening those issues.
 
-This repository keeps the Grafana JSON dashboard in `docs/ops/grafana/`, but the owner-facing operational surface is the dependency-light local live service. The canonical roadmap surface is GitHub Pages at https://lanyusea.github.io/screeps/; the static HTML artifact is supporting evidence, not a Discord roadmap attachment. Neither path requires a Grafana SQLite plugin, external network access, or secrets.
+This runbook has two explicitly separate surfaces:
 
-## Operator Commands
+- Actual Grafana: a Grafana service on `127.0.0.1:3000`, provisioned from `docs/ops/grafana/`, using the `frser-sqlite-datasource` plugin against `runtime-artifacts/rl-metrics/rl_metrics.sqlite`. This is the #1474 selected self-actionable contract.
+- Python dashboard-equivalent: the dependency-light local live service on `127.0.0.1:8765`. It remains a fallback/supporting surface and does not satisfy actual Grafana acceptance by itself.
+
+The canonical roadmap surface is GitHub Pages at https://lanyusea.github.io/screeps/; the static HTML artifact is supporting evidence, not a Discord roadmap attachment.
+
+## Actual Grafana Operator Commands
+
+Provisioning files:
+
+```text
+docs/ops/grafana/provisioning/datasources/screeps-rl-sqlite.yaml
+docs/ops/grafana/provisioning/dashboards/screeps-rl-dashboards.yaml
+docs/ops/grafana/screeps-rl-gameplay-metrics.json
+```
+
+The Grafana SQLite datasource plugin is required:
+
+```text
+frser-sqlite-datasource
+```
+
+Print the Docker command without starting a container:
+
+```bash
+npm run rl-grafana:print-command
+```
+
+Run actual Grafana locally:
+
+```bash
+npm run rl-grafana:run
+```
+
+Default Grafana URL:
+
+```text
+http://127.0.0.1:3000/
+```
+
+Dashboard path:
+
+```text
+http://127.0.0.1:3000/d/screeps-rl-gameplay-metrics/screeps-rl-gameplay-metrics
+```
+
+Validate tracked provisioning and dashboard JSON without requiring Docker/Grafana:
+
+```bash
+npm run rl-grafana:validate:provisioning
+```
+
+Validate the live Grafana service, datasource, and dashboard reachability:
+
+```bash
+npm run rl-grafana:validate
+```
+
+When no Grafana service is listening, the full validator reports `NOT_RUNNING`; that is not a passing acceptance result. Actual Grafana acceptance requires `npm run rl-grafana:validate` to report `PASS` against a service on `127.0.0.1:3000`.
+
+## Python Dashboard-Equivalent Operator Commands
 
 Metrics database:
 
@@ -90,7 +149,7 @@ Trigger a local refresh through the running service only after starting it with 
 curl -fsS -X POST http://127.0.0.1:8765/refresh
 ```
 
-## Dashboard Coverage
+## Python Dashboard-Equivalent Coverage
 
 The live page and `/api/summary` cover:
 
@@ -134,10 +193,32 @@ runtime-artifacts/rl-dashboard.html
 
 Use this static command when refreshing local RL evidence for the GitHub Pages roadmap. Do not schedule or attach a Discord roadmap update for this artifact.
 
+## Actual Grafana Coverage And #879 Evidence
 
-## #1381 Closure Gate
+The actual Grafana dashboard is provisioned from `docs/ops/grafana/screeps-rl-gameplay-metrics.json` and is grounded in the SQLite tables created by `scripts/screeps_rl_metrics_ingestor.py`. Its starter panels cover:
 
-Issue #1381 is a false-completion repair for closed #1184/#1237/#1350. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Closure requires all of the following live evidence in #879/#1381 Project Evidence:
+| Area | SQLite table/query source |
+| --- | --- |
+| Runtime metric history and refresh proof | `metric_observations`, including `source.rl_metrics_refresh.completed`. |
+| Room economy, construction, pathing, and worker efficiency | `runtime_room_metrics`. |
+| Gameplay findings | `gameplay_behavior_findings`. |
+| Coverage gaps | `metric_coverage_gaps`. |
+| E1 dataset gates | `rl_dataset_gate_metrics`. |
+| Loop A training execution | `rl_training_execution_metrics`. |
+| Loop B policy advantage | `rl_policy_advantage_metrics`. |
+| #879 iteration decisions | `metric_iteration_decisions`. |
+
+#879 evidence is honest only when it states which surface was checked:
+
+- Python fallback evidence: `http://127.0.0.1:8765/`, `/api/summary`, `/healthz`, and `npm run rl-dashboard-live:acceptance`.
+- Actual Grafana evidence: `http://127.0.0.1:3000/`, the dashboard path, `frser-sqlite-datasource` provisioning, `runtime-artifacts/rl-metrics/rl_metrics.sqlite` datasource path, and `npm run rl-grafana:validate` `PASS`.
+
+A Python dashboard-equivalent health or acceptance PASS must not be described as actual Grafana service/panel evidence.
+
+
+## Historical #1381 Closure Gate
+
+Issue #1381 was a false-completion repair for closed #1184/#1237/#1350. Keep this as a historical guardrail only; #1474 work must not reopen #1381 or the closed predecessor chain. Do **not** close it on a code merge, a runbook update, `npm run rl-metrics-refresh`, static HTML generation, or SQLite file existence alone. Closure required all of the following live evidence in #879/#1381 Project Evidence:
 
 1. A running dashboard process/listener at the owner-facing URL (`http://127.0.0.1:8765/` by default).
 2. `npm run rl-dashboard-live:health` output showing `/healthz` with `ok=true`.
