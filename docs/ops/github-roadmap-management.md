@@ -27,6 +27,24 @@ Negated close-keyword phrases are unsafe in PR bodies and commit messages. Do no
 
 This gate applies to Hermes main-agent tasks, Codex coding tasks, delegated subagent tasks, scheduled/cron workers, and any future automated agent that touches this project.
 
+Every meaningful development task must carry a reusable completion contract before it can be reported Done. The contract applies across code behavior, bugfix, ops service, dashboard/report, docs/process, research, refactor, and cleanup tasks. A merged PR, passing tests, a useful adjacent artifact, or a refreshed doc is not enough unless the original task contract and named deliverables are proven.
+
+Use this `Universal task Done gate` in PR bodies, QA evidence, or issue completion evidence when a task is being closed:
+
+```text
+## Universal task Done gate
+
+- [x] Task type: <code behavior | bugfix | ops service | dashboard/report | docs/process | research | refactor | cleanup | other explicit type>
+- [x] Expected observable outcome / named deliverable: <the original outcome or named surface the issue requested>
+- [x] Non-goals / accepted substitutes: <excluded scope, or the owner-accepted substitute if the original deliverable changed>
+- [x] Verification evidence required before Done: <tests, checks, review, artifact, smoke, citation, runtime proof, or command evidence>
+- [x] Project Evidence / Next action / Blocked by: <current Project field state required for closure; Blocked by must be empty unless held>
+- [x] Post-merge/deploy/runtime proof: <required proof, or not applicable with reason>
+- [x] Named deliverable proof: <proof of the named surface, or owner-accepted substitute>
+```
+
+Named deliverables are literal acceptance surfaces. If the issue names Grafana, GitHub Pages, a Discord route, deployed service, public URL, specific monitor, dashboard, report, or other concrete surface, Done requires proof of that exact surface. A substrate, local script, merged PR, generated file, or runbook is only an accepted substitute when the owner explicitly accepted it and that decision is recorded in Project `Evidence`.
+
 Before an agent reports a task complete, it must update the corresponding GitHub source-of-truth item:
 
 1. **Start / claim work** — set the issue or PR item in Project `screeps` to `In progress` when actual work starts, or `In review` when the work has moved to a PR/review gate.
@@ -34,7 +52,7 @@ Before an agent reports a task complete, it must update the corresponding GitHub
 3. **Maintain next action** — keep `Next action` accurate enough that another agent can resume without reading local chat history.
 4. **Record evidence** — keep `Evidence` current with PR URL, commit, CI/check result, runtime artifact, redacted report, process note, or decision note.
 5. **Record blockers** — if progress is blocked, add the `blocked` label, fill `Blocked by`, and set `Next action` to the unblock step.
-6. **Close only after acceptance is satisfied** — when the task is actually complete, update the issue/PR Project item to `Done` or use an intentional PR-body closing keyword only after every original acceptance criterion is satisfied and no post-merge/runtime/owner-action/successor/partial-fix blocker remains. Then verify the Project item reflects the final status. Do not put closing keywords for tracked issues in commit messages.
+6. **Close only after acceptance is satisfied** — when the task is actually complete, update the issue/PR Project item to `Done` or use an intentional PR-body closing keyword only after every original acceptance criterion, the `Universal task Done gate`, and any issue-specific closure gate are satisfied with no post-merge/runtime/owner-action/successor/partial-fix blocker remaining. Then verify the Project item reflects the final status. Do not put closing keywords for tracked issues in commit messages.
 
 A task is **not done** if its code/docs/tests are complete but its GitHub issue, PR, or Project item still shows stale status, stale evidence, or stale next action. The final report for any agent task should mention the GitHub issue/PR numbers whose state was updated.
 

@@ -57,6 +57,7 @@ The QA agent verifies evidence. It does not own roadmap priority, cross-channel 
 
 QA checks must cover, when relevant:
 
+- the `Universal task Done gate`: task type, expected observable outcome / named deliverable, non-goals or accepted substitutes, verification evidence required before Done, Project `Evidence` / `Next action` / `Blocked by` state, post-merge/deploy/runtime proof, and named deliverable proof;
 - code/documentation changes match the requested deliverables;
 - verification commands, CI, smoke tests, generated artifacts, or redacted runtime reports support the completion claim;
 - PRs are pushed, reviewed, merged, or explicitly closed as superseded according to project gates;
@@ -69,6 +70,8 @@ QA output must be evidence-based and use this verdict model:
 
 - `PASS` — all common and task-specific acceptance criteria are satisfied, with evidence listed.
 - `REQUEST_CHANGES` — at least one required criterion is not satisfied, with concrete required fixes.
+
+Named deliverables are checked literally. If the original issue or task names Grafana, GitHub Pages, a Discord route, deployed service, public URL, specific monitor, dashboard, report, or another concrete surface, QA must require proof of that surface unless the owner explicitly accepted a substitute and that decision is recorded in Project `Evidence`.
 
 ### R3 — Main agent owns channel-appropriate summary fanout
 
@@ -381,5 +384,6 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 - Do not let subagents own cross-channel summary/decision routing.
 - Do not resume normal implementation work while P0 routing/monitoring is known broken.
 - Do not mark meaningful deliverables complete without a QA/acceptance-check verdict that cites evidence against both common and task-specific criteria.
+- Do not mark any development task Done because a PR merged, tests passed, or an adjacent artifact exists; the `Universal task Done gate` must prove the original task type, named deliverable/outcome, allowed substitutes, verification evidence, Project state, and required post-merge/deploy/runtime proof.
 - Do not close a research issue as Done based on a scaffold, outline, or "paper task" placeholder; the final artifact must satisfy every research acceptance criterion from the issue body, including full citations, enumerated findings with sources, downstream task creation (where applicable), and channel-visible evidence or an explicit Project note that fanout is not applicable.
 - Acceptance-first issue closure: do not use a GitHub closing keyword in a PR body or move an issue to `Done` unless every original acceptance criterion is satisfied and no post-merge/runtime/owner-action/successor/partial-fix blocker remains. Commit messages must not contain GitHub closing keywords for tracked issues. Avoid negated close-keyword phrases such as `does not close #123`; write `Related to issue 123` for non-closing linkage.
