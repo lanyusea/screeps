@@ -209,6 +209,59 @@ class RoadmapPagesContractTests(unittest.TestCase):
         self.assertIn("Agent tokens with withheld local cache evidence must not expose counted provenance ids", joined)
         self.assertIn("Agent tokens with withheld local cache evidence must use the current generatedAt provenance window", joined)
 
+    def test_project_handoff_evidence_rejects_blank_active_and_recent_done_items(self) -> None:
+        generator = kpi_checker.load_generator(REPO_ROOT)
+        data = {
+            "github": {
+                "projectItemsSource": "live",
+                "projectItems": [
+                    {
+                        "number": 1479,
+                        "type": "Issue",
+                        "status": "In progress",
+                        "priority": "P0",
+                        "title": "P0 monitor recurrence",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1483,
+                        "type": "PullRequest",
+                        "status": "Done",
+                        "priority": "P0",
+                        "title": "fix(rl): add lexicographic gradient estimator",
+                        "evidence": "",
+                    },
+                    {
+                        "number": 1200,
+                        "type": "PullRequest",
+                        "status": "Done",
+                        "priority": "P0",
+                        "title": "legacy Done item from before the evidence gate",
+                        "evidence": "",
+                    },
+                ],
+                "roadmapCards": [
+                    {
+                        "number": 1479,
+                        "type": "Issue",
+                        "status": "In progress",
+                        "priority": "P0",
+                        "title": "P0 monitor recurrence",
+                        "evidence": "",
+                    }
+                ],
+                "kanban": {"cards": [], "columns": []},
+            }
+        }
+
+        failures = generator.validate_project_handoff_evidence(data)
+        joined = "\n".join(failures)
+
+        self.assertIn("github.projectItems[0] #1479 In progress", joined)
+        self.assertIn("github.projectItems[1] #1483 Done", joined)
+        self.assertIn("github.roadmapCards[0] #1479 In progress", joined)
+        self.assertNotIn("#1200", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

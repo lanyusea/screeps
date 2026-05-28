@@ -33,6 +33,9 @@ MISSING_LOCAL_CACHE_EVIDENCE = "current refresh found no local cache evidence"
 
 def load_generator(repo_root: Path) -> ModuleType:
     generator_path = repo_root / "scripts" / "generate-roadmap-page.py"
+    scripts_dir = str(generator_path.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
     spec = importlib.util.spec_from_file_location("roadmap_page_generator", generator_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"could not load generator from {generator_path}")
@@ -290,6 +293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         committed_html, committed_cards, committed_data = committed_inputs
         validate_kpi_html("docs/index.html", committed_html, committed_cards, generator, failures)
         validate_process_metrics(committed_data, failures)
+        failures.extend(generator.validate_project_handoff_evidence(committed_data))
         compact_html = re.sub(r"\s+", "", committed_html)
         assert_check(
             failures,

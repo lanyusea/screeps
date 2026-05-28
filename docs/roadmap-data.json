@@ -374,7 +374,7 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "",
+          "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
           "kind": "ops",
           "lane": "Agent OS",
           "nextAction": "",
@@ -21380,7 +21380,7 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "",
+          "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
           "kind": "code",
           "lane": "RL flywheel",
           "nextAction": "",
@@ -26364,7 +26364,7 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "",
+                  "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
                   "kind": "ops",
                   "lane": "Agent OS",
                   "nextAction": "",
@@ -41910,7 +41910,7 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "",
+                  "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
                   "kind": "code",
                   "lane": "RL flywheel",
                   "nextAction": "",
@@ -77082,7 +77082,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -77168,7 +77168,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "2026-05-28T19:34Z: PR #1483 merged as f1ced2f7; #1482 closed completed. Exact-head checks/CodeRabbit SUCCESS, threads=0, mergeState=CLEAN. Post-merge main verification PASS: diff-check, py_compile, focused unittest, full scripts.test_screeps_rl_training_runner 129 tests.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -77300,7 +77300,7 @@
       {
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair after same-run gate: elapsed 264m, exact-head checks SUCCESS, CodeRabbit SUCCESS, unresolved threads=0, mergeState=CLEAN. Registry strict check PASS after fast-forward; #1479 remains In progress for recurrence follow-up.",
         "milestone": "P0: Agent OS / Discord visibility gate",
         "nextAction": "",
         "number": 1479,
@@ -84221,7 +84221,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/1191"
           },
           {
-            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T19:30:55Z P0: Repair P0 monitor Broken pipe recurrence after #1465 closure",
+            "description": "In progress \u00b7 Agent OS \u00b7 2026-05-28T19:30Z: PR #1480 merged as fe5906e4 for #1479 P0 monitor registry repair...",
             "domain": "Agent OS",
             "number": 1479,
             "priority": "P0",

@@ -72,6 +72,8 @@ OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
 NOT_INSTRUMENTED = "not instrumented"
 INSUFFICIENT_EVIDENCE = "insufficient evidence"
+ACTIVE_HANDOFF_EVIDENCE_STATUSES = frozenset({"In progress", "Ready"})
+RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER = 1479
 
 
 JsonObject = dict[str, Any]
@@ -840,6 +842,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         cron_output_root=cron_output_root,
     )
     data = sanitize_public_data(data)
+    evidence_failures = validate_project_handoff_evidence(data)
+    if evidence_failures:
+        detail = "\n".join(f"- {failure}" for failure in evidence_failures)
+        raise RuntimeError(f"roadmap Project evidence validation failed:\n{detail}")
 
     json_path = docs_dir / "roadmap-data.json"
     html_path = docs_dir / "index.html"
@@ -2477,6 +2483,77 @@ def build_kanban_columns(cards: Sequence[JsonObject]) -> list[JsonObject]:
         }
         for domain in PROJECT_DOMAIN_ORDER
     ]
+
+
+def validate_project_handoff_evidence(data: JsonObject) -> list[str]:
+    github = data.get("github")
+    if not isinstance(github, dict) or github.get("projectItemsSource") != "live":
+        return []
+
+    failures: list[str] = []
+    for path, item in iter_project_handoff_items(github):
+        if not project_item_requires_handoff_evidence(item):
+            continue
+        if str(item.get("evidence") or "").strip():
+            continue
+        number = project_item_number(item)
+        item_ref = f"#{number}" if number is not None else str(item.get("title") or "unknown item")
+        status = normalize_status(item.get("status"))
+        failures.append(f"docs/roadmap-data.json: {path} {item_ref} {status} must carry Project Evidence")
+    return failures
+
+
+def iter_project_handoff_items(github: JsonObject) -> Iterable[tuple[str, JsonObject]]:
+    yield from iter_project_handoff_collection("github.projectItems", github.get("projectItems"))
+    yield from iter_project_handoff_collection("github.roadmapCards", github.get("roadmapCards"))
+
+    kanban = github.get("kanban")
+    if not isinstance(kanban, dict):
+        return
+    yield from iter_project_handoff_collection("github.kanban.cards", kanban.get("cards"))
+    columns = kanban.get("columns")
+    if not isinstance(columns, list):
+        return
+    for column_index, column in enumerate(columns):
+        if not isinstance(column, dict):
+            continue
+        statuses = column.get("statuses")
+        if not isinstance(statuses, list):
+            continue
+        for status_index, status_group in enumerate(statuses):
+            if not isinstance(status_group, dict):
+                continue
+            yield from iter_project_handoff_collection(
+                f"github.kanban.columns[{column_index}].statuses[{status_index}].cards",
+                status_group.get("cards"),
+            )
+
+
+def iter_project_handoff_collection(path: str, value: Any) -> Iterable[tuple[str, JsonObject]]:
+    if not isinstance(value, list):
+        return
+    for index, item in enumerate(value):
+        if isinstance(item, dict):
+            yield f"{path}[{index}]", item
+
+
+def project_item_requires_handoff_evidence(item: Mapping[str, Any]) -> bool:
+    status = normalize_status(item.get("status"))
+    if status in ACTIVE_HANDOFF_EVIDENCE_STATUSES:
+        return True
+    number = project_item_number(item)
+    return status == "Done" and number is not None and number >= RECENT_DONE_HANDOFF_EVIDENCE_MIN_NUMBER
+
+
+def project_item_number(item: Mapping[str, Any]) -> int | None:
+    number = item.get("number")
+    if isinstance(number, bool):
+        return None
+    if isinstance(number, int):
+        return number
+    if isinstance(number, str) and number.strip().isdigit():
+        return int(number.strip())
+    return None
 
 
 def build_process_metrics(
