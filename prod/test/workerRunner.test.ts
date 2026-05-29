@@ -5195,6 +5195,64 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts retained tower transfer work for emergency spawn refill under critical CPU', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const tower = {
+      id: 'tower1',
+      structureType: 'tower',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureTower;
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'tower1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        name: 'W1N1',
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureTower) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            const structures = [spawn, tower];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      },
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 780,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'tower1' ? tower : spawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.transfer).not.toHaveBeenCalledWith(tower, 'energy');
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('reselects and executes a same-priority transfer when the current sink is full', () => {
     const fullExtension = {
       id: 'extension-full',

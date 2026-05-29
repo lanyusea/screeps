@@ -31166,18 +31166,13 @@ function runWorker(creep) {
   }
   observeCreepBehaviorTick(creep);
   const currentTask = creep.memory.task;
-  if (shouldRetainAssignedTaskUnderCriticalCpu(creep, currentTask)) {
+  const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
+  if (criticalCpuTaskRetention.retain) {
     executeAssignedTask(creep, null);
     return;
   }
-  const baseSelectedTask = selectWorkerTaskForRunner(creep);
-  const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
-  const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
-    creep,
-    currentTask,
-    energyCriticalTask != null ? energyCriticalTask : baseSelectedTask
-  );
-  const selectedTask = (_a = spawnReservationRefillTask != null ? spawnReservationRefillTask : energyCriticalTask) != null ? _a : baseSelectedTask;
+  const selectionContext = (_a = criticalCpuTaskRetention.selectionContext) != null ? _a : selectWorkerTaskContext(creep, currentTask);
+  const { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask } = selectionContext;
   let taskAssignedThisTick = false;
   if (!currentTask) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask) !== null;
@@ -31354,17 +31349,37 @@ function selectWorkerTaskForRunner(creep) {
   const selectedTask = selectWorkerTask(creep);
   return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
 }
-function shouldRetainAssignedTaskUnderCriticalCpu(creep, task) {
+function selectWorkerTaskContext(creep, currentTask) {
+  var _a;
+  const baseSelectedTask = selectWorkerTaskForRunner(creep);
+  const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
+  const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
+    creep,
+    currentTask,
+    energyCriticalTask != null ? energyCriticalTask : baseSelectedTask
+  );
+  const selectedTask = (_a = spawnReservationRefillTask != null ? spawnReservationRefillTask : energyCriticalTask) != null ? _a : baseSelectedTask;
+  return { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask };
+}
+function getCriticalCpuTaskRetentionDecision(creep, task) {
   if (!getRuntimeCpuBudget().critical || !task || !canExecuteTask(creep, task)) {
-    return false;
+    return { retain: false };
   }
   if (isEnergyAcquisitionTask2(task)) {
-    return getFreeTransferEnergyCapacity(creep) > 0 && getUsedTransferEnergy(creep) <= 0;
+    return { retain: getFreeTransferEnergyCapacity(creep) > 0 && getUsedTransferEnergy(creep) <= 0 };
   }
   if (task.type === "transfer") {
-    return getUsedTransferEnergy(creep) > 0;
+    return getCriticalCpuTransferRetentionDecision(creep, task);
   }
-  return isTerritoryControlTask2(task);
+  return { retain: isTerritoryControlTask2(task) };
+}
+function getCriticalCpuTransferRetentionDecision(creep, task) {
+  if (getUsedTransferEnergy(creep) <= 0) {
+    return { retain: false };
+  }
+  const selectionContext = selectWorkerTaskContext(creep, task);
+  const shouldPreempt = shouldPreemptForWorkerEnergyCriticalTask(task, selectionContext.energyCriticalTask) || shouldPreemptTransferTaskForControllerDowngradeGuard(creep, task, selectionContext.selectedTask) || shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectionContext.selectedTask);
+  return { retain: !shouldPreempt, selectionContext };
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
   if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
