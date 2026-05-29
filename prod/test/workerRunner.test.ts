@@ -140,6 +140,78 @@ describe('runWorker', () => {
     expect(harvest).toHaveBeenCalledWith(source);
   });
 
+  it.each(['claim', 'reserve'] as const)(
+    'drops a retained visible %s task under critical CPU when the home room fails the territory gate',
+    (action) => {
+      const controller = { id: 'controller2', my: false } as StructureController;
+      const homeRoom = {
+        name: 'W1N1',
+        controller: { id: 'controller1', my: true, level: 4, owner: { username: 'me' } },
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const targetRoom = {
+        name: 'W2N1',
+        controller,
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const claimController = jest.fn().mockReturnValue(0);
+      const reserveController = jest.fn().mockReturnValue(0);
+      const attackController = jest.fn().mockReturnValue(0);
+      const creep = {
+        name: 'Worker1',
+        owner: { username: 'me' },
+        memory: {
+          role: 'worker',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action },
+          task: { type: action, targetId: 'controller2' as Id<StructureController> }
+        },
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        },
+        room: targetRoom,
+        claimController,
+        reserveController,
+        attackController,
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { Worker1: creep },
+        rooms: { W1N1: homeRoom, W2N1: targetRoom },
+        time: 127,
+        cpu: {
+          getUsed: jest.fn().mockReturnValue(21),
+          limit: 70,
+          bucket: 43,
+          tickLimit: 500
+        } as unknown as CPU,
+        getObjectById: jest.fn((id: string) =>
+          id === 'controller2' ? controller : null
+        ) as unknown as Game['getObjectById']
+      };
+
+      runWorker(creep);
+
+      expect(creep.memory.task).toBeUndefined();
+      expect(creep.memory.territory).toBeUndefined();
+      expect(claimController).not.toHaveBeenCalled();
+      expect(reserveController).not.toHaveBeenCalled();
+      expect(attackController).not.toHaveBeenCalled();
+      expect(Memory.territory?.intents).toEqual([
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action,
+          status: 'suppressed',
+          updatedAt: 127,
+          reason: 'controllerLevel'
+        }
+      ]);
+    }
+  );
+
   it('preempts loaded critical CPU harvest for emergency spawn refill', () => {
     const source = { id: 'source1', energy: 300 } as Source;
     const spawn = {

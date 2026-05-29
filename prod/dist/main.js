@@ -31361,7 +31361,10 @@ function getCriticalCpuTaskRetentionDecision(creep, task) {
   if (task.type === "transfer") {
     return getCriticalCpuTransferRetentionDecision(creep, task);
   }
-  return { retain: isTerritoryControlTask2(task) };
+  if (isTerritoryControlTask2(task)) {
+    return getCriticalCpuTerritoryControlRetentionDecision(creep, task);
+  }
+  return { retain: false };
 }
 function getCriticalCpuTransferRetentionDecision(creep, task) {
   if (getUsedTransferEnergy(creep) <= 0) {
@@ -31370,6 +31373,10 @@ function getCriticalCpuTransferRetentionDecision(creep, task) {
   const selectionContext = selectWorkerTaskContext(creep, task);
   const shouldPreempt = shouldPreemptForWorkerEnergyCriticalTask(task, selectionContext.energyCriticalTask) || shouldPreemptTransferTaskForControllerDowngradeGuard(creep, task, selectionContext.selectedTask) || shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectionContext.selectedTask);
   return { retain: !shouldPreempt, selectionContext };
+}
+function getCriticalCpuTerritoryControlRetentionDecision(creep, task) {
+  const selectionContext = selectWorkerTaskContext(creep, task);
+  return { retain: isSameOptionalTask(task, selectionContext.selectedTask), selectionContext };
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
   if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
