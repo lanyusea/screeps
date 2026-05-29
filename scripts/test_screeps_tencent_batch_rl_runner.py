@@ -93,6 +93,7 @@ def controller_args() -> argparse.Namespace:
         training_approach="bandit",
         training_timeout_seconds=1,
         transfer_timeout_seconds=1,
+        allow_paid_failure_recurrence_validation=None,
         variant=None,
         worker_user="screeps-batch",
         workers=1,
@@ -700,6 +701,64 @@ def write_paid_failure_recurrence_skipped_summary(artifact_root: Path, run_id: s
         },
     }
     summary_path = run_dir / "controller-summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
+def write_post_fix_validation_summary(
+    artifact_root: Path,
+    run_id: str,
+    *,
+    final_status: str = "completed",
+    failure_class: str | None = None,
+) -> Path:
+    if final_status == "completed":
+        run_dir = artifact_root / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "type": "screeps-tencent-batch-rl-run",
+            "schemaVersion": 1,
+            "runId": run_id,
+            "startedAt": "2026-05-29T21:00:03Z",
+            "finishedAt": "2026-05-29T21:04:03Z",
+            "partial": False,
+            "finalStatus": "completed",
+            "execution": {
+                "command": "run-single",
+                "mode": "compute",
+                "preflightOnly": False,
+                "computeAttempted": True,
+                "scaleOutAttempted": True,
+                "remoteTrainingAttempted": True,
+                "trainingReportProduced": True,
+            },
+            "outputs": {},
+        }
+        summary_path = run_dir / "controller-summary.json"
+    else:
+        summary_path = write_tencent_failure_summary(
+            artifact_root,
+            run_id,
+            failure_class=failure_class,
+        )
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary.setdefault("outputs", {})["launchGuard"] = {
+        "status": runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS,
+        "blocked": False,
+        "activeSignature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+        "postFixValidation": {
+            "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            "status": "allowed",
+            "requested": True,
+            "knownFix": {
+                "issue": "#1501",
+                "pullRequest": "#1504",
+                "mergeCommit": "95f960b2",
+                "present": True,
+            },
+            "priorAttempt": None,
+        },
+    }
     summary_path.write_text(json.dumps(summary), encoding="utf-8")
     return summary_path
 
@@ -3651,7 +3710,19 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             ])
             artifact_dir = artifact_root / "new-run"
 
-            events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": False,
+                    "evidence": "merge commit 95f960b2 is not reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
 
         self.assertEqual(events, [])
         self.assertTrue(guard["blocked"])
@@ -3669,6 +3740,164 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(summary["execution"]["computeAttempted"])
         self.assertFalse(summary["execution"]["scaleOutAttempted"])
         self.assertFalse(summary["safety"]["scaleDownAttempted"])
+
+    def test_paid_failure_recurrence_guard_gives_post_fix_validation_action_when_fix_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_REQUIRED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "available")
+        self.assertTrue(guard["postFixValidation"]["knownFix"]["present"])
+        self.assertIn("--allow-paid-failure-recurrence-validation", guard["nextAction"])
+        self.assertIn(runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE, guard["nextAction"])
+        self.assertNotIn("ship and verify", guard["nextAction"])
+        self.assertEqual(
+            summary["outputs"]["launchGuard"]["postFixValidation"]["status"],
+            "available",
+        )
+        self.assertFalse(summary["execution"]["computeAttempted"])
+
+    def test_paid_failure_recurrence_guard_allows_explicit_post_fix_validation_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+                "--allow-paid-failure-recurrence-validation",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertIn("scale_up", events)
+        self.assertIn("remote_training", events)
+        self.assertFalse(guard["blocked"])
+        self.assertIsNone(guard["activeGuard"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "allowed")
+        self.assertTrue(guard["postFixValidation"]["requested"])
+        self.assertIn("exactly one", guard["nextAction"])
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["finalStatus"], "completed")
+        self.assertTrue(summary["execution"]["computeAttempted"])
+        self.assertEqual(
+            summary["outputs"]["launchGuard"]["postFixValidation"]["status"],
+            "allowed",
+        )
+
+    def test_paid_failure_recurrence_guard_blocks_second_post_fix_validation_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_summary(
+                artifact_root,
+                "tencent-pg-post-fix-failed",
+                final_status="failed",
+                failure_class=runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+                "--allow-paid-failure-recurrence-validation",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "consumed")
+        self.assertEqual(guard["postFixValidation"]["priorAttempt"]["runId"], "tencent-pg-post-fix-failed")
+        self.assertIn("already attempted", guard["nextAction"])
+        self.assertFalse(summary["execution"]["computeAttempted"])
 
     def test_paid_failure_recurrence_guard_scans_past_newer_skipped_guard_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3706,11 +3935,23 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "1",
             ])
 
-            guard = runner.build_paid_failure_recurrence_launch_guard(
-                args=args,
-                run_id="new-run",
-                artifact_dir=artifact_root / "new-run",
-            )
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": False,
+                    "evidence": "merge commit 95f960b2 is not reachable from HEAD",
+                },
+            ):
+                guard = runner.build_paid_failure_recurrence_launch_guard(
+                    args=args,
+                    run_id="new-run",
+                    artifact_dir=artifact_root / "new-run",
+                )
 
         self.assertTrue(guard["blocked"])
         self.assertEqual(guard["status"], "blocked")
