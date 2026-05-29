@@ -672,6 +672,38 @@ def write_tencent_failure_summary(
     return summary_path
 
 
+def write_paid_failure_recurrence_skipped_summary(artifact_root: Path, run_id: str) -> Path:
+    run_dir = artifact_root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "type": "screeps-tencent-batch-rl-run",
+        "schemaVersion": 1,
+        "runId": run_id,
+        "startedAt": "2026-05-29T20:00:03Z",
+        "finishedAt": "2026-05-29T20:00:04Z",
+        "partial": False,
+        "finalStatus": runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS,
+        "execution": {
+            "command": "run-single",
+            "mode": "compute",
+            "preflightOnly": False,
+            "computeAttempted": False,
+            "scaleOutAttempted": False,
+            "remoteTrainingAttempted": False,
+        },
+        "outputs": {
+            "launchGuard": {
+                "status": "blocked",
+                "activeGuard": "paid_failure_recurrence_guard",
+                "activeSignature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            }
+        },
+    }
+    summary_path = run_dir / "controller-summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
 def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     training_report = summary["outputs"]["trainingReport"]
@@ -3637,6 +3669,57 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(summary["execution"]["computeAttempted"])
         self.assertFalse(summary["execution"]["scaleOutAttempted"])
         self.assertFalse(summary["safety"]["scaleDownAttempted"])
+
+    def test_paid_failure_recurrence_guard_scans_past_newer_skipped_guard_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            failure_paths = [
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+                for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+            ]
+            skipped_paths = [
+                write_paid_failure_recurrence_skipped_summary(
+                    artifact_root,
+                    f"tencent-pg-skipped-guard-{index}",
+                )
+                for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT)
+            ]
+            for index, summary_path in enumerate(failure_paths):
+                timestamp = 1_700_000_000 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            for index, summary_path in enumerate(skipped_paths):
+                timestamp = 1_700_000_100 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+
+            guard = runner.build_paid_failure_recurrence_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], "blocked")
+        self.assertEqual(guard["evidence"]["activeSignature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertEqual(guard["evidence"]["count"], runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+        self.assertEqual(
+            {item["runId"] for item in guard["evidence"]["runs"]},
+            {f"tencent-pg-room-busy-{index}" for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)},
+        )
 
     def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_without_repeat_guard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

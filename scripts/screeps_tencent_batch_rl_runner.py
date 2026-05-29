@@ -2793,7 +2793,7 @@ def recent_paid_failure_recurrence_evidence(args: argparse.Namespace, artifact_d
     except OSError:
         return []
     evidence: list[dict[str, Any]] = []
-    for summary_path in summary_paths[:PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT]:
+    for summary_path in summary_paths:
         try:
             if summary_path.parent.resolve() == current_dir:
                 continue
@@ -2802,6 +2802,8 @@ def recent_paid_failure_recurrence_evidence(args: argparse.Namespace, artifact_d
         item = paid_failure_recurrence_evidence_from_summary(read_json_object(summary_path), summary_path)
         if item is not None:
             evidence.append(item)
+            if len(evidence) >= PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT:
+                break
     return evidence
 
 
