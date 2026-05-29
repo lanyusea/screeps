@@ -155,6 +155,10 @@ REMOTE_SIMULATOR_SETUP_CONTEXT_RE = re.compile(
     r"setup_failure|error pulling image|failed to (?:copy|extract|pull|fetch))",
     re.IGNORECASE,
 )
+REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE = re.compile(
+    r"(?:place-spawn room busy|place_spawn_room_busy|room-busy placement lock)",
+    re.IGNORECASE,
+)
 REMOTE_NETWORK_RE = re.compile(
     r"(?:connection refused|request canceled|too many requests|toomanyrequests|network .*timed? out|"
     r"net/http|Client\.Timeout)",
@@ -2415,6 +2419,8 @@ def classify_remote_training_failure(
     )
     if REMOTE_RESOURCE_GUARD_RE.search(diagnostic_text):
         return "simulator_resource_guard_rejected"
+    if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(diagnostic_text):
+        return "simulator_place_spawn_room_busy"
     if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
         return process_failure_class
     simulator_setup_text = "\n".join(
@@ -2460,6 +2466,11 @@ def remote_training_failure_next_action(failure_class: str) -> str | None:
         return (
             "inspect collected partial diagnostics, then rerun validation in smaller chunks "
             "or with an explicitly sized training timeout"
+        )
+    if failure_class == "simulator_place_spawn_room_busy":
+        return (
+            "inspect private-simulator reset/import room state and place-spawn diagnostics; "
+            "do not rerun paid validation unchanged until the room-busy placement lock is explained"
         )
     return None
 

@@ -85,6 +85,8 @@ RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
 RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_ATTEMPTS = 3
 RUN_RUNTIME_PARAMETER_CONSUMPTION_PROBE_RETRY_SECONDS = 1.0
+RUN_PLACE_SPAWN_MAX_ATTEMPTS = 12
+RUN_PLACE_SPAWN_RETRY_SECONDS = 1.0
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_BROKEN_PIPE_MAX_RETRIES = 1
 RUN_BROKEN_PIPE_RETRY_BACKOFF_SECONDS = 2.0
@@ -5924,6 +5926,123 @@ def _safe_redact_smoke_payload(payload: Any) -> JsonObject:
     return {"ok": True, "payload": dataset_export.redact_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))[:2000]}
 
 
+def _json_text_payload(value: Any) -> Any:
+    if not isinstance(value, str):
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _place_spawn_error_text(payload: Any) -> str:
+    if isinstance(payload, dict):
+        for key in ("error", "message"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                return value
+        nested = payload.get("payload")
+        nested_payload = _json_text_payload(nested)
+        if nested_payload is not None:
+            return _place_spawn_error_text(nested_payload)
+        if isinstance(nested, str):
+            return nested
+    if isinstance(payload, str):
+        nested_payload = _json_text_payload(payload)
+        if nested_payload is not None:
+            return _place_spawn_error_text(nested_payload)
+        return payload
+    return ""
+
+
+def _place_spawn_response_kind(result: Any) -> str:
+    payload = getattr(result, "payload", None)
+    status = _extract_int(getattr(result, "status", None))
+    error = _place_spawn_error_text(payload).lower()
+    if "already playing" in error:
+        return "already_playing"
+    if "room busy" in error:
+        return "room_busy"
+    if (status is None or status == 200) and isinstance(payload, dict) and payload.get("ok") in (1, True):
+        return "ok"
+    return "rejected"
+
+
+def _place_spawn_attempt_summary(result: Any, attempt: int, classification: str) -> JsonObject:
+    return {
+        "attempt": attempt,
+        "status": _extract_int(getattr(result, "status", None)),
+        "classification": classification,
+        "response": _safe_redact_smoke_payload(getattr(result, "payload", None)),
+    }
+
+
+def _place_spawn_with_retry(
+    smoke: Any,
+    cfg: Any,
+    token: str,
+    *,
+    worker_index: int,
+    variant_id: str,
+    max_attempts: int = RUN_PLACE_SPAWN_MAX_ATTEMPTS,
+    retry_seconds: float = RUN_PLACE_SPAWN_RETRY_SECONDS,
+) -> tuple[str, JsonObject]:
+    attempts: list[JsonObject] = []
+    for attempt in range(1, max_attempts + 1):
+        place = smoke.http_json(
+            "POST",
+            cfg.server_url,
+            "/api/game/place-spawn",
+            smoke.build_spawn_payload(cfg),
+            headers=smoke.token_headers(token),
+            timeout=RUN_PHASE_TIMEOUT_SECONDS,
+        )
+        token = smoke.update_token_from_headers(token, getattr(place, "headers", {}))
+        classification = _place_spawn_response_kind(place)
+        summary = _place_spawn_attempt_summary(place, attempt, classification)
+        attempts.append(summary)
+        if classification in {"ok", "already_playing"}:
+            if len(attempts) > 1:
+                summary["retry"] = {
+                    "attempts": attempts,
+                    "maxAttempts": max_attempts,
+                    "recovered": True,
+                }
+            return token, summary
+        if classification == "room_busy":
+            if attempt < max_attempts:
+                _debug_worker_phase(
+                    worker_index,
+                    variant_id,
+                    "place-spawn room busy; retrying",
+                    attempt=attempt,
+                    maxAttempts=max_attempts,
+                    retrySeconds=retry_seconds,
+                )
+                time.sleep(retry_seconds)
+                continue
+            detail = {
+                "phase": "place-spawn",
+                "classification": "place_spawn_room_busy",
+                "attempts": attempts,
+                "maxAttempts": max_attempts,
+                "retrySeconds": retry_seconds,
+                "nextAction": (
+                    "inspect private-simulator reset/import room state; do not rerun paid validation unchanged "
+                    "until the room-busy placement lock is explained"
+                ),
+            }
+            raise RuntimeError(
+                f"place-spawn room busy after {max_attempts} attempt(s): "
+                f"{_safe_redact_smoke_payload(detail)}"
+            )
+        raise RuntimeError(
+            "place-spawn API rejected with unexpected payload: "
+            f"{_safe_redact_smoke_payload(getattr(place, 'payload', None))}"
+        )
+    raise RuntimeError("place-spawn failed without an API attempt")
+
+
 def _fetch_room_overviews(
     cfg: Any,
     smoke: Any,
@@ -6064,6 +6183,7 @@ def _run_variant(
     compose: list[str] | None = None
     uploaded_code_text: str | None = None
     active_code_readback: JsonObject | None = None
+    place_spawn: JsonObject | None = None
     try:
         smoke = _load_private_smoke_module()
         summarize_prepared_map = _is_default_map_source_file(map_source_file)
@@ -6270,18 +6390,13 @@ def _run_variant(
             output_path=safe_run_root / "active_code_readback.json",
         )
 
-        place = smoke.http_json(
-            "POST",
-            cfg.server_url,
-            "/api/game/place-spawn",
-            smoke.build_spawn_payload(cfg),
-            headers=smoke.token_headers(token),
-            timeout=RUN_PHASE_TIMEOUT_SECONDS,
+        token, place_spawn = _place_spawn_with_retry(
+            smoke,
+            cfg,
+            token,
+            worker_index=worker_index,
+            variant_id=variant_id,
         )
-        if not isinstance(place.payload, dict) or not (place.payload.get("ok") == 1):
-            place_payload = _safe_redact_smoke_payload(place.payload)
-            if "already playing" not in str(place.payload.get("error", "")).lower():
-                raise RuntimeError(f"place-spawn API rejected with unexpected payload: {place_payload}")
 
         initial_state = smoke.http_json(
             "GET",
@@ -6430,6 +6545,7 @@ def _run_variant(
         "branch": api_branch,
         "requestedBranch": branch,
         "terrainReady": terrain_ready,
+        "placeSpawn": place_spawn,
         "mongoRoomEvidence": mongo_room_evidence,
         "scenarioFixture": build_scenario_fixture_objective_summary(fixture_room_summaries),
         "launcherRepairMod": str(repair_mod_path) if repair_mod_path is not None else None,

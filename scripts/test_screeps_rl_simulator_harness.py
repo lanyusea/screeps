@@ -6129,6 +6129,125 @@ cli:
         self.assertFalse(harness._merge_mongo_room_summary_into_tick(tick_entry, mongo_summary))
         self.assertEqual(harness._mongo_room_summary_error(mongo_summary), "could not parse mongosh summary")
 
+    def test_place_spawn_parser_recognizes_room_busy_payload_shapes(self) -> None:
+        class Result:
+            def __init__(self, payload: object) -> None:
+                self.status = 200
+                self.payload = payload
+
+        self.assertEqual(harness._place_spawn_response_kind(Result({"ok": 1})), "ok")
+        self.assertEqual(
+            harness._place_spawn_response_kind(Result({"error": "already playing"})),
+            "already_playing",
+        )
+        self.assertEqual(
+            harness._place_spawn_response_kind(Result({"error": "room busy"})),
+            "room_busy",
+        )
+        self.assertEqual(
+            harness._place_spawn_response_kind(Result({"ok": True, "payload": '{"error": "room busy"}'})),
+            "room_busy",
+        )
+
+    def test_place_spawn_retry_recovers_from_room_busy(self) -> None:
+        class Result:
+            def __init__(self, payload: object, token: str) -> None:
+                self.status = 200
+                self.payload = payload
+                self.headers = {"X-Token": token}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def build_spawn_payload(self, cfg: argparse.Namespace) -> dict[str, object]:
+                return {"room": cfg.room, "name": "Spawn1", "x": 20, "y": 20}
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return headers.get("X-Token", token)
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, base_url, path, args, kwargs
+                self.calls += 1
+                if self.calls == 1:
+                    return Result({"error": "room busy"}, "busy-token")
+                return Result({"ok": 1}, "placed-token")
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(server_url="http://127.0.0.1", room="E1S1")
+
+        with (
+            mock.patch.object(harness.time, "sleep", return_value=None) as sleep,
+            mock.patch.object(harness, "_debug_worker_phase") as debug_phase,
+        ):
+            token, summary = harness._place_spawn_with_retry(
+                smoke,
+                cfg,
+                "initial-token",
+                worker_index=0,
+                variant_id="variant-a",
+                max_attempts=3,
+                retry_seconds=0.25,
+            )
+
+        self.assertEqual(token, "placed-token")
+        self.assertEqual(smoke.calls, 2)
+        sleep.assert_called_once_with(0.25)
+        debug_phase.assert_called_once()
+        self.assertEqual(summary["classification"], "ok")
+        self.assertTrue(summary["retry"]["recovered"])
+        self.assertEqual(summary["retry"]["attempts"][0]["classification"], "room_busy")
+
+    def test_place_spawn_retry_reports_persistent_room_busy_with_no_rerun_guidance(self) -> None:
+        class Result:
+            status = 200
+            payload = {"error": "room busy"}
+            headers: dict[str, str] = {}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def build_spawn_payload(self, cfg: argparse.Namespace) -> dict[str, object]:
+                return {"room": cfg.room, "name": "Spawn1", "x": 20, "y": 20}
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                _ = headers
+                return token
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, base_url, path, args, kwargs
+                self.calls += 1
+                return Result()
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(server_url="http://127.0.0.1", room="E1S1")
+
+        with (
+            mock.patch.object(harness.time, "sleep", return_value=None) as sleep,
+            mock.patch.object(harness, "_debug_worker_phase"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "place-spawn room busy after 3 attempt") as caught:
+                harness._place_spawn_with_retry(
+                    smoke,
+                    cfg,
+                    "token",
+                    worker_index=0,
+                    variant_id="variant-a",
+                    max_attempts=3,
+                    retry_seconds=0.25,
+                )
+
+        self.assertIn("do not rerun paid validation unchanged", str(caught.exception))
+        self.assertEqual(smoke.calls, 3)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_run_one_tick_uses_stats_gametime_when_private_overview_has_no_shard_clock(self) -> None:
         class Result:
             def __init__(self, payload: object) -> None:
