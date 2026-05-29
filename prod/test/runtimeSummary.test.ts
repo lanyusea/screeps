@@ -8,7 +8,7 @@ import {
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
-import { resetRuntimeCpuTelemetryForTesting } from '../src/runtime/cpuBudget';
+import { buildRuntimeCpuBudget, resetRuntimeCpuTelemetryForTesting } from '../src/runtime/cpuBudget';
 import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
@@ -2918,7 +2918,7 @@ describe('runtime telemetry summaries', () => {
   });
 
   it('keeps E29N56 scout-only evidence out of reserve recommendations when CPU blocks conversion', () => {
-    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL, roomName: 'E29N55' });
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL * 5, roomName: 'E29N55' });
     const room = colony.room as Room & { find: jest.Mock; energyAvailable: number; energyCapacityAvailable: number };
     const controller = room.controller as StructureController & { level: number; ticksToDowngrade: number };
     const spawn = colony.spawns[0] as StructureSpawn & { my?: boolean; isActive?: jest.Mock };
@@ -3031,6 +3031,28 @@ describe('runtime telemetry summaries', () => {
         }
       ])
     ).toBe(true);
+  });
+
+  it('uses degraded cadence for low CPU bucket pressure without suppressing event summaries', () => {
+    const criticalBucketBudget = buildRuntimeCpuBudget({
+      tick: RUNTIME_SUMMARY_INTERVAL,
+      used: 21,
+      limit: 70,
+      bucket: 43,
+      tickLimit: 500
+    });
+    const spawnEvent: RuntimeTelemetryEvent = {
+      type: 'spawn',
+      roomName: 'W1N1',
+      spawnName: 'Spawn1',
+      creepName: 'worker-W1N1-1',
+      role: 'worker',
+      result: 0 as ScreepsReturnCode
+    };
+
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], criticalBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {

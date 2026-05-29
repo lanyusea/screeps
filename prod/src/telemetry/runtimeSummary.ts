@@ -805,7 +805,7 @@ export function emitRuntimeSummary(
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const includeOptionalSummary = !shouldThrottleRuntimeSummaryCadence(cpuBudget) && !cpuBudget.critical;
+  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
   const rooms = colonies.map((colony) =>
     summarizeRoom(
       colony,
@@ -940,13 +940,11 @@ function summarizeRoom(
   const tick = getGameTime();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
-  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(
-    colony,
-    colonyWorkers,
-    territoryExpansion
-  );
-  if (persistOccupationRecommendations) {
+  const territoryExpansion = includeOptionalSummary ? buildRuntimeExpansionCandidateReport(colony) : undefined;
+  const territoryRecommendation = territoryExpansion
+    ? buildRuntimeOccupationRecommendationReport(colony, colonyWorkers, territoryExpansion)
+    : emptyTerritoryRecommendationReport();
+  if (persistOccupationRecommendations && includeOptionalSummary) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
   const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
@@ -990,8 +988,8 @@ function summarizeRoom(
         )
       : emptyConstructionPrioritySummary(),
     survival: summarizeSurvival(colony, roleCounts),
-    territoryRecommendation: includeOptionalSummary ? territoryRecommendation : emptyTerritoryRecommendationReport(),
-    ...(includeOptionalSummary && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
+    territoryRecommendation,
+    ...(territoryExpansion && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...(includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {}),
     ...(includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {}),
     ...(includeOptionalSummary ? buildTerritoryScoutSummary(colony, roleCounts) : {}),
