@@ -30,8 +30,22 @@ SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllo
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
 SCENARIO_METADATA_TYPE = "screeps-rl-training-scenario"
 DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
-MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
-SCENARIO_IDS = (DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_ID)
+MULTI_TIER_SCENARIO_V0_ID = "multi-tier-territory-combat-v0"
+MULTI_TIER_SCENARIO_V1_ID = "multi-tier-territory-combat-v1"
+MULTI_TIER_SCENARIO_ID = MULTI_TIER_SCENARIO_V1_ID
+MULTI_TIER_SCENARIO_IDS = (MULTI_TIER_SCENARIO_V0_ID, MULTI_TIER_SCENARIO_V1_ID)
+SCENARIO_IDS = (DEFAULT_SCENARIO_ID, *MULTI_TIER_SCENARIO_IDS)
+MULTI_TIER_V0_COMPAT_OPTIONAL_EVIDENCE_FIELDS = frozenset(
+    (
+        "hostile_structure_count",
+        "hostile_tower_count",
+        "neutral_expansion_room_count",
+        "combat_pressure_room_count",
+        "own_anchor_spawn_count",
+        "own_anchor_creep_count",
+        "fixture_sha256",
+    )
+)
 MULTI_TIER_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 MULTI_TIER_FIXTURE_SCHEMA_VERSION = 1
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
@@ -52,8 +66,15 @@ DEFAULT_STRATEGY_VARIANTS = (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SIMULATION_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / "maps" / "map-0b6758af.json"
-MULTI_TIER_SIMULATION_MAP_SOURCE_REL = "scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json"
+MULTI_TIER_SIMULATION_MAP_SOURCE_REL_BY_ID = {
+    MULTI_TIER_SCENARIO_V0_ID: "scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json",
+    MULTI_TIER_SCENARIO_V1_ID: "scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json",
+}
+MULTI_TIER_SIMULATION_MAP_SOURCE_REL = MULTI_TIER_SIMULATION_MAP_SOURCE_REL_BY_ID[MULTI_TIER_SCENARIO_ID]
 MULTI_TIER_SIMULATION_MAP_SOURCE_FILE = REPO_ROOT / MULTI_TIER_SIMULATION_MAP_SOURCE_REL
+MULTI_TIER_SIMULATION_MAP_SOURCE_FILE_BY_ID = {
+    scenario_id: REPO_ROOT / rel for scenario_id, rel in MULTI_TIER_SIMULATION_MAP_SOURCE_REL_BY_ID.items()
+}
 DEFAULT_SIMULATION_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "rl-simulator"
 DEFAULT_EXPERIMENT_CARD_DIR = REPO_ROOT / "runtime-artifacts" / "rl-experiment-cards"
 DEFAULT_DATASET_GATE_ROOT = REPO_ROOT / "runtime-artifacts" / "rl-dataset-gates"
@@ -241,8 +262,31 @@ def text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def multi_tier_scenario_fixture_summary(path: Path) -> JsonObject:
+def is_multi_tier_scenario_id(scenario_id: str | None) -> bool:
+    return scenario_id in MULTI_TIER_SCENARIO_IDS
+
+
+def scenario_simulation_map_source_rel(scenario_id: str) -> str:
+    if scenario_id in MULTI_TIER_SIMULATION_MAP_SOURCE_REL_BY_ID:
+        return MULTI_TIER_SIMULATION_MAP_SOURCE_REL_BY_ID[scenario_id]
+    return str(DEFAULT_SIMULATION_MAP_SOURCE_FILE.relative_to(REPO_ROOT))
+
+
+def scenario_simulation_map_source_file(scenario_id: str) -> Path:
+    if scenario_id in MULTI_TIER_SIMULATION_MAP_SOURCE_FILE_BY_ID:
+        return MULTI_TIER_SIMULATION_MAP_SOURCE_FILE_BY_ID[scenario_id]
+    return DEFAULT_SIMULATION_MAP_SOURCE_FILE
+
+
+def scenario_anchor_room(scenario_id: str) -> str:
+    return MULTI_TIER_ANCHOR_ROOM if is_multi_tier_scenario_id(scenario_id) else "E1S1"
+
+
+def multi_tier_scenario_fixture_summary(path: Path, *, scenario_id: str | None = None) -> JsonObject:
     """Validate and summarize the active hostile fixture for the multi-tier scenario."""
+    expected_scenario_id = scenario_id or MULTI_TIER_SCENARIO_ID
+    if expected_scenario_id not in MULTI_TIER_SCENARIO_IDS:
+        raise CardValidationError(f"multi-tier scenario_id must be one of: {', '.join(MULTI_TIER_SCENARIO_IDS)}")
     fixture_path = path.expanduser()
     try:
         raw_bytes = fixture_path.read_bytes()
@@ -255,7 +299,7 @@ def multi_tier_scenario_fixture_summary(path: Path) -> JsonObject:
         raise CardValidationError("multi-tier scenario fixture must be a JSON object")
     if raw.get("type") != MULTI_TIER_FIXTURE_TYPE:
         raise CardValidationError("multi-tier scenario fixture type is invalid")
-    if raw.get("scenario_id") != MULTI_TIER_SCENARIO_ID:
+    if raw.get("scenario_id") != expected_scenario_id:
         raise CardValidationError("multi-tier scenario fixture scenario_id is invalid")
     if raw.get("schema_version") != MULTI_TIER_FIXTURE_SCHEMA_VERSION:
         raise CardValidationError("multi-tier scenario fixture schema_version is invalid")
@@ -280,11 +324,11 @@ def multi_tier_scenario_fixture_summary(path: Path) -> JsonObject:
     owner_id = text_or_none(owner.get("id")) or "owner"
     owner_username = text_or_none(owner.get("username")) or "rl-owner"
     anchor_objects = fixture_room_objects(rooms[anchor_room], anchor_room)
-    adjacent_objects = [
-        item
+    adjacent_room_objects = {
+        room_name: fixture_room_objects(rooms[room_name], room_name)
         for room_name in adjacent_rooms
-        for item in fixture_room_objects(rooms[room_name], room_name)
-    ]
+    }
+    adjacent_objects = [item for objects in adjacent_room_objects.values() for item in objects]
 
     anchor_own_spawns = sum(
         1
@@ -311,22 +355,50 @@ def multi_tier_scenario_fixture_summary(path: Path) -> JsonObject:
         for item in adjacent_objects
         if fixture_structure_type(item) == "spawn" and fixture_object_is_hostile(item, owner_id, owner_username)
     )
+    hostile_towers = sum(
+        1
+        for item in adjacent_objects
+        if fixture_structure_type(item) == "tower" and fixture_object_is_hostile(item, owner_id, owner_username)
+    )
+    neutral_expansion_rooms = [
+        room_name
+        for room_name in adjacent_rooms
+        if fixture_room_has_controller(adjacent_room_objects[room_name])
+        and not any(fixture_object_is_owned(item, owner_id, owner_username) for item in adjacent_room_objects[room_name])
+        and not any(fixture_object_is_hostile_creep_or_structure(item, owner_id, owner_username) for item in adjacent_room_objects[room_name])
+    ]
+    combat_pressure_rooms = [
+        room_name
+        for room_name in adjacent_rooms
+        if any(fixture_object_is_hostile_creep_or_structure(item, owner_id, owner_username) for item in adjacent_room_objects[room_name])
+    ]
 
     if hostile_creeps <= 0:
         raise CardValidationError("multi-tier scenario fixture must include hostile creep fixtures in the adjacent room")
     if hostile_spawns <= 0:
         raise CardValidationError("multi-tier scenario fixture must include a hostile spawn fixture in the adjacent room")
+    if expected_scenario_id == MULTI_TIER_SCENARIO_V1_ID:
+        if not neutral_expansion_rooms:
+            raise CardValidationError("multi-tier v1 scenario fixture must include a neutral expansion room")
+        if hostile_towers <= 0:
+            raise CardValidationError("multi-tier v1 scenario fixture must include a hostile tower fixture")
 
     return {
         "anchorRoom": anchor_room,
         "adjacentRoom": adjacent_room,
         "adjacentRooms": adjacent_rooms,
+        "neutralExpansionRooms": neutral_expansion_rooms,
+        "neutralExpansionRoomCount": len(neutral_expansion_rooms),
+        "combatPressureRoom": combat_pressure_rooms[0] if combat_pressure_rooms else None,
+        "combatPressureRooms": combat_pressure_rooms,
+        "combatPressureRoomCount": len(combat_pressure_rooms),
         "roomCount": len(rooms),
         "anchorOwnSpawnCount": anchor_own_spawns,
         "anchorOwnCreepCount": anchor_own_creeps,
         "adjacentHostileCreepCount": hostile_creeps,
         "adjacentHostileStructureCount": hostile_structures,
         "adjacentHostileSpawnCount": hostile_spawns,
+        "adjacentHostileTowerCount": hostile_towers,
         "fixtureSha256": hashlib.sha256(raw_bytes).hexdigest(),
         "mapSourceFile": str(fixture_path),
     }
@@ -397,6 +469,17 @@ def fixture_object_is_owned(item: JsonObject, owner_id: str, owner_username: str
     owner = item.get("owner")
     owner_text = text_or_none(owner.get("username")) if isinstance(owner, dict) else text_or_none(owner)
     return owner_text == owner_username
+
+
+def fixture_object_is_hostile_creep_or_structure(item: JsonObject, owner_id: str, owner_username: str) -> bool:
+    return (
+        (fixture_object_type(item) == "creep" or fixture_structure_type(item) is not None)
+        and fixture_object_is_hostile(item, owner_id, owner_username)
+    )
+
+
+def fixture_room_has_controller(objects: Sequence[JsonObject]) -> bool:
+    return any(fixture_object_type(item) == "controller" for item in objects)
 
 
 def string_list(value: Any) -> list[str]:
@@ -474,29 +557,50 @@ def scenario_metadata_block(*, scenario_id: str = DEFAULT_SCENARIO_ID) -> JsonOb
             },
             "safety": safety_block(),
         }
-    if scenario_id == MULTI_TIER_SCENARIO_ID:
-        fixture_summary = multi_tier_scenario_fixture_summary(MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
+    if scenario_id in MULTI_TIER_SCENARIO_IDS:
+        map_source_file = scenario_simulation_map_source_file(scenario_id)
+        fixture_summary = multi_tier_scenario_fixture_summary(map_source_file, scenario_id=scenario_id)
+        is_v1 = scenario_id == MULTI_TIER_SCENARIO_V1_ID
         return {
             "type": SCENARIO_METADATA_TYPE,
-            "scenario_id": MULTI_TIER_SCENARIO_ID,
-            "scenario_tier": "multi_tier_policy_comparison",
-            "label": "Guarded multi-room territory plus hostile-combat training scenario",
+            "scenario_id": scenario_id,
+            "scenario_tier": "multi_tier_policy_comparison_v1" if is_v1 else "multi_tier_policy_comparison_compat_v0",
+            "label": (
+                "Variance-target multi-room territory plus hostile tower combat training scenario"
+                if is_v1
+                else "Compatibility multi-room territory plus hostile-combat training scenario"
+            ),
             "capabilities": {
                 "multi_room_capable": True,
                 "adjacent_room_territory_signal": True,
                 "hostile_combat_signal": True,
                 "multi_tier_policy_comparison": True,
+                "neutral_room_expansion_signal": fixture_summary["neutralExpansionRoomCount"] > 0,
+                "hostile_tower_pressure_signal": fixture_summary["adjacentHostileTowerCount"] > 0,
+                "territory_control_variance_target": is_v1,
+                "combat_variance_target": is_v1,
             },
             "suitability": {
                 "multi_tier_policy_comparison": True,
                 "territory_combat_differentiation": True,
-                "classification": "suitable_for_multi_tier_policy_comparison",
-                "reasons": [],
+                "classification": (
+                    "suitable_for_policy_gradient_territory_combat_variance"
+                    if is_v1
+                    else "suitable_for_multi_tier_policy_comparison_compatibility"
+                ),
+                "reasons": []
+                if is_v1
+                else ["v0 remains selectable for compatibility but v1 is the active variance target"],
             },
             "evidence": {
                 "anchor_room": fixture_summary["anchorRoom"],
                 "adjacent_room": fixture_summary["adjacentRoom"],
                 "adjacent_rooms": fixture_summary["adjacentRooms"],
+                "neutral_expansion_rooms": fixture_summary["neutralExpansionRooms"],
+                "neutral_expansion_room_count": fixture_summary["neutralExpansionRoomCount"],
+                "combat_pressure_room": fixture_summary["combatPressureRoom"],
+                "combat_pressure_rooms": fixture_summary["combatPressureRooms"],
+                "combat_pressure_room_count": fixture_summary["combatPressureRoomCount"],
                 "room_count": fixture_summary["roomCount"],
                 "minimum_room_count": 2,
                 "requires_adjacent_room": True,
@@ -505,13 +609,41 @@ def scenario_metadata_block(*, scenario_id: str = DEFAULT_SCENARIO_ID) -> JsonOb
                 "hostile_creep_count": fixture_summary["adjacentHostileCreepCount"],
                 "hostile_structure_count": fixture_summary["adjacentHostileStructureCount"],
                 "hostile_spawn_count": fixture_summary["adjacentHostileSpawnCount"],
+                "hostile_tower_count": fixture_summary["adjacentHostileTowerCount"],
                 "own_anchor_spawn_count": fixture_summary["anchorOwnSpawnCount"],
                 "own_anchor_creep_count": fixture_summary["anchorOwnCreepCount"],
-                "map_source_file": str(MULTI_TIER_SIMULATION_MAP_SOURCE_FILE),
+                "map_source_file": str(map_source_file),
                 "fixture_sha256": fixture_summary["fixtureSha256"],
                 "implementation_status": MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
-                "territory_signal": "reachable adjacent-room fixture can change owned or observed room count",
-                "combat_signal": "reachable adjacent-room fixture contains hostile creep and hostile spawn objects",
+                "territory_signal": (
+                    "neutral adjacent-room expansion paths can change owned-room and controller-control metrics"
+                    if is_v1
+                    else "reachable adjacent-room fixture can change owned or observed room count"
+                ),
+                "combat_signal": (
+                    "reachable hostile room contains hostile creeps plus hostile spawn/tower pressure"
+                    if is_v1
+                    else "reachable adjacent-room fixture contains hostile creep and hostile spawn objects"
+                ),
+                "differentiation_signals": {
+                    "territory": [
+                        "neutral expansion controller targets",
+                        "owned-room/controller-control projection",
+                    ]
+                    if is_v1
+                    else ["adjacent-room observation"],
+                    "combat": [
+                        "hostile creep reduction",
+                        "hostile tower/spawn pressure",
+                    ]
+                    if is_v1
+                    else ["hostile creep reduction", "hostile spawn pressure"],
+                },
+                "compatibility": {
+                    "active_successor": MULTI_TIER_SCENARIO_ID,
+                    "previous_scenario": MULTI_TIER_SCENARIO_V0_ID if is_v1 else None,
+                    "selectable": True,
+                },
                 "full_simulation_executed": False,
                 "full_simulation_blocker": (
                     "deterministic offline fixture validation only; private-server Docker/Steam-key "
@@ -588,8 +720,12 @@ def validate_multi_tier_scenario_activation(
     if not paths_refer_to_same_file(evidence_map_source, simulation_map_source):
         raise error_cls("multi-tier scenario evidence.map_source_file must match simulation.map_source_file")
 
+    scenario_id = text_or_none(first_present(scenario, ("scenario_id", "scenarioId")))
     try:
-        fixture_summary = multi_tier_scenario_fixture_summary(resolve_repo_path(evidence_map_source))
+        fixture_summary = multi_tier_scenario_fixture_summary(
+            resolve_repo_path(evidence_map_source),
+            scenario_id=scenario_id,
+        )
     except CardValidationError as error:
         raise error_cls(str(error)) from error
     expected_fields = (
@@ -599,11 +735,21 @@ def validate_multi_tier_scenario_activation(
         ("hostile_creep_count", "hostileCreepCount", fixture_summary["adjacentHostileCreepCount"]),
         ("hostile_structure_count", "hostileStructureCount", fixture_summary["adjacentHostileStructureCount"]),
         ("hostile_spawn_count", "hostileSpawnCount", fixture_summary["adjacentHostileSpawnCount"]),
+        ("hostile_tower_count", "hostileTowerCount", fixture_summary["adjacentHostileTowerCount"]),
+        ("neutral_expansion_room_count", "neutralExpansionRoomCount", fixture_summary["neutralExpansionRoomCount"]),
+        ("combat_pressure_room_count", "combatPressureRoomCount", fixture_summary["combatPressureRoomCount"]),
         ("own_anchor_spawn_count", "ownAnchorSpawnCount", fixture_summary["anchorOwnSpawnCount"]),
         ("own_anchor_creep_count", "ownAnchorCreepCount", fixture_summary["anchorOwnCreepCount"]),
         ("fixture_sha256", "fixtureSha256", fixture_summary["fixtureSha256"]),
     )
     for snake_key, camel_key, expected in expected_fields:
+        if (
+            scenario_id == MULTI_TIER_SCENARIO_V0_ID
+            and snake_key in MULTI_TIER_V0_COMPAT_OPTIONAL_EVIDENCE_FIELDS
+            and snake_key not in evidence
+            and camel_key not in evidence
+        ):
+            continue
         observed = first_present(evidence, (snake_key, camel_key))
         if observed != expected:
             raise error_cls(f"multi-tier scenario evidence.{snake_key} must match the active fixture")
@@ -748,9 +894,7 @@ def build_card(
         raise CardValidationError(
             "multi-tier policy comparisons require a scenario with adjacent-room territory and hostile combat signals"
         )
-    simulation_map_source_file = (
-        MULTI_TIER_SIMULATION_MAP_SOURCE_FILE if scenario_id == MULTI_TIER_SCENARIO_ID else DEFAULT_SIMULATION_MAP_SOURCE_FILE
-    )
+    simulation_map_source_file = scenario_simulation_map_source_file(scenario_id)
 
     commit_prefix = code_commit[:12].lower()
     card_id = (
@@ -775,7 +919,7 @@ def build_card(
             ticks=ticks,
             workers=workers,
             repetitions=repetitions,
-            room=MULTI_TIER_ANCHOR_ROOM if scenario_id == MULTI_TIER_SCENARIO_ID else "E1S1",
+            room=scenario_anchor_room(scenario_id),
             map_source_file=simulation_map_source_file,
         ),
         "status": "shadow",
@@ -1307,7 +1451,7 @@ def validate_scenario_metadata(
     reasons = suitability.get("reasons")
     if not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons):
         raise error_cls("scenario.suitability.reasons must be a list of strings")
-    if scenario_id == MULTI_TIER_SCENARIO_ID:
+    if scenario_id in MULTI_TIER_SCENARIO_IDS:
         validate_multi_tier_scenario_activation(card, raw, error_cls=error_cls)
     elif not scenario_supports_multi_tier_policy_comparison(raw) and suitability.get("multi_tier_policy_comparison") is True:
         raise error_cls(
@@ -2557,7 +2701,7 @@ def resolve_cli_scenario_request(args: argparse.Namespace) -> tuple[str, bool]:
     if args.loop_a_local_fallback or args.loop_a_policy_gradient_supply:
         if scenario_id is None:
             return MULTI_TIER_SCENARIO_ID, True
-        if scenario_id != MULTI_TIER_SCENARIO_ID:
+        if scenario_id not in MULTI_TIER_SCENARIO_IDS:
             raise CardValidationError("Loop A policy-gradient proof requires the multi-tier territory/combat scenario")
         return scenario_id, True
     return scenario_id or DEFAULT_SCENARIO_ID, require_multi_tier
@@ -2627,7 +2771,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Scenario metadata to attach. Default classifies regular cards as E1S1 single-room/no-hostile; "
-            f"Loop A policy-gradient proof cards default to {MULTI_TIER_SCENARIO_ID}."
+            f"Loop A policy-gradient proof cards default to active variance scenario {MULTI_TIER_SCENARIO_ID}; "
+            f"{MULTI_TIER_SCENARIO_V0_ID} remains selectable for compatibility."
         ),
     )
     parser.add_argument(

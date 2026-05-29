@@ -197,19 +197,98 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(scenario["capabilities"]["multi_room_capable"])
         self.assertTrue(scenario["capabilities"]["adjacent_room_territory_signal"])
         self.assertTrue(scenario["capabilities"]["hostile_combat_signal"])
+        self.assertTrue(scenario["capabilities"]["neutral_room_expansion_signal"])
+        self.assertTrue(scenario["capabilities"]["hostile_tower_pressure_signal"])
+        self.assertTrue(scenario["capabilities"]["territory_control_variance_target"])
+        self.assertTrue(scenario["capabilities"]["combat_variance_target"])
         self.assertTrue(scenario["suitability"]["multi_tier_policy_comparison"])
         self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(scenario))
         self.assertEqual(scenario["evidence"]["implementation_status"], "active_fixture_validated")
         self.assertEqual(scenario["evidence"]["anchor_room"], "E1S1")
         self.assertEqual(scenario["evidence"]["adjacent_room"], "E2S1")
-        self.assertEqual(scenario["evidence"]["room_count"], 2)
-        self.assertEqual(scenario["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(scenario["evidence"]["neutral_expansion_rooms"], ["E2S1", "E1S2"])
+        self.assertEqual(scenario["evidence"]["combat_pressure_room"], "E1S0")
+        self.assertEqual(scenario["evidence"]["room_count"], 4)
+        self.assertEqual(scenario["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(scenario["evidence"]["hostile_creep_count"], 3)
         self.assertEqual(scenario["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(scenario["evidence"]["hostile_tower_count"], 1)
+        self.assertIn("owned-room/controller-control projection", scenario["evidence"]["differentiation_signals"]["territory"])
+        self.assertIn("hostile tower/spawn pressure", scenario["evidence"]["differentiation_signals"]["combat"])
         self.assertEqual(Path(card["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
         for field in ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed"):
             self.assertFalse(card[field])
             self.assertFalse(card["safety"][field])
             self.assertFalse(scenario["safety"][field])
+
+    def test_multi_tier_v0_scenario_remains_selectable_for_compatibility(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-v0",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
+            require_multi_tier_scenario=True,
+        )
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+
+        self.assertEqual(card["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_V0_ID)
+        self.assertEqual(card["scenario"]["evidence"]["room_count"], 2)
+        self.assertEqual(card["scenario"]["evidence"]["neutral_expansion_room_count"], 0)
+        self.assertEqual(Path(card["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE_BY_ID[card_helper.MULTI_TIER_SCENARIO_V0_ID])
+        self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
+
+    def test_multi_tier_v0_historical_card_can_omit_new_fixture_evidence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-v0",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
+            require_multi_tier_scenario=True,
+        )
+        evidence = card["scenario"]["evidence"]
+        for field in (
+            "hostile_structure_count",
+            "hostile_tower_count",
+            "neutral_expansion_room_count",
+            "combat_pressure_room_count",
+            "own_anchor_spawn_count",
+            "own_anchor_creep_count",
+            "fixture_sha256",
+        ):
+            evidence.pop(field, None)
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+        self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
+
+    def test_multi_tier_v1_requires_new_fixture_evidence(self) -> None:
+        base_card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+
+        for field in (
+            "hostile_structure_count",
+            "hostile_tower_count",
+            "neutral_expansion_room_count",
+            "combat_pressure_room_count",
+            "own_anchor_spawn_count",
+            "own_anchor_creep_count",
+            "fixture_sha256",
+        ):
+            with self.subTest(field=field):
+                card = json.loads(json.dumps(base_card))
+                card["scenario"]["evidence"].pop(field, None)
+                with self.assertRaisesRegex(card_helper.CardValidationError, f"evidence.{field}"):
+                    card_helper.validate_card(card)
 
     def test_multi_tier_scenario_rejects_metadata_only_guarded_evidence(self) -> None:
         card = card_helper.build_card(
@@ -236,7 +315,7 @@ class RlExperimentCardTest(unittest.TestCase):
             scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
         )
         fixture = card_helper.load_json(card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
-        hostile_room = next(room for room in fixture["rooms"] if room.get("room") == "E2S1")
+        hostile_room = next(room for room in fixture["rooms"] if room.get("room") == "E1S0")
         hostile_room["objects"] = [
             item
             for item in hostile_room["objects"]
@@ -329,6 +408,8 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(generated["scenario"]["suitability"]["multi_tier_policy_comparison"])
+        self.assertEqual(generated["scenario"]["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_tower_count"], 1)
         self.assertEqual(stderr.getvalue(), "")
 
     def test_scenario_validation_rejects_inconsistent_multi_tier_claim(self) -> None:
@@ -594,6 +675,8 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["simulation"]["repetitions"], 20)
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(generated["scenario"]["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_tower_count"], 1)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
 
     def test_cli_writes_loop_a_local_fallback_standalone_card_from_requested_gate(self) -> None:
@@ -677,8 +760,10 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(generated["scenario"]["suitability"]["multi_tier_policy_comparison"])
         self.assertEqual(generated["scenario"]["evidence"]["adjacent_room"], "E2S1")
-        self.assertEqual(generated["scenario"]["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_creep_count"], 3)
         self.assertEqual(generated["scenario"]["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_tower_count"], 1)
         self.assertEqual(Path(generated["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
 
         config = runner.simulation_config_from_card(generated)
@@ -1127,6 +1212,8 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(generated["safety"]["conservative_actions_only"])
         self.assertTrue(generated["safety"]["ood_rejection"])
         self.assertEqual(generated["scenario"]["scenario_id"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(generated["scenario"]["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(generated["scenario"]["evidence"]["hostile_tower_count"], 1)
         self.assertTrue(card_helper.is_loop_a_card_available_for_training(generated))
         self.assertEqual(selected_exit_code, 0)
         self.assertEqual(selected_card["card_path"], str(output_path))

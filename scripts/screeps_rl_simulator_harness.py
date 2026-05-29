@@ -3890,7 +3890,7 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
     )
     stored_energy = _sum_owned_stored_energy(normalized, owner_id=owner_id, owner_username=owner_username)
     energy_capacity = _sum_room_energy_capacity(normalized, owner_id=owner_id, owner_username=owner_username)
-    owned = bool(controller_summary.get("my")) or sum(own_structure_counts.values()) > 0 or own_creeps > 0
+    owned = bool(controller_summary.get("my")) or sum(own_structure_counts.values()) > 0
     resources_summary = normalized.get("resources") if isinstance(normalized.get("resources"), dict) else {}
     resources_summary = {
         **resources_summary,
@@ -4977,15 +4977,9 @@ def _room_summary_owned(summary: JsonObject) -> bool:
         return True
     if (_extract_int(summary.get("ownStructures")) or 0) > 0:
         return True
-    if (_extract_int(summary.get("ownedCreeps")) or 0) > 0:
-        return True
     structures = summary.get("ownStructureCounts")
     if isinstance(structures, dict):
         if any((_extract_int(value) or 0) > 0 for value in structures.values()):
-            return True
-    roles = summary.get("ownCreepRoles")
-    if isinstance(roles, dict):
-        if any((_extract_int(value) or 0) > 0 for value in roles.values()):
             return True
     return False
 
@@ -5241,14 +5235,14 @@ def _owned_fixture_anchor_room(fixture_room_summaries: dict[str, JsonObject]) ->
     return sorted(owned)[0] if owned else None
 
 
-def _select_multi_tier_target_room(
+def _multi_tier_target_candidates(
     fixture_room_summaries: dict[str, JsonObject],
     *,
     anchor_room: str | None = None,
-) -> tuple[str, JsonObject] | None:
+) -> list[tuple[int, str, JsonObject]]:
     resolved_anchor = anchor_room or _owned_fixture_anchor_room(fixture_room_summaries)
     if not isinstance(resolved_anchor, str) or _parse_room_xy(resolved_anchor) is None:
-        return None
+        return []
     candidates: list[tuple[int, str, JsonObject]] = []
     for room_name, summary in fixture_room_summaries.items():
         if not isinstance(room_name, str) or not isinstance(summary, dict):
@@ -5261,9 +5255,45 @@ def _select_multi_tier_target_room(
         if summary.get("owned") is True or controller.get("my") is True:
             continue
         candidates.append((_fixture_room_hostile_count(summary), room_name, summary))
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    return candidates
+
+
+def _select_multi_tier_target_room(
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> tuple[str, JsonObject] | None:
+    candidates = _multi_tier_target_candidates(fixture_room_summaries, anchor_room=anchor_room)
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (-item[0], item[1]))
+    _, room_name, summary = candidates[0]
+    return room_name, summary
+
+
+def _select_multi_tier_activation_target_room(
+    strategy_variant: JsonObject,
+    fixture_room_summaries: dict[str, JsonObject],
+    *,
+    anchor_room: str | None = None,
+) -> tuple[str, JsonObject] | None:
+    candidates = _multi_tier_target_candidates(fixture_room_summaries, anchor_room=anchor_room)
+    if not candidates:
+        return None
+    parameters = _strategy_variant_parameters(strategy_variant)
+    kill_weight = _numeric_strategy_parameter(parameters, "killSignalWeight")
+    risk_penalty = _numeric_strategy_parameter(parameters, "riskPenalty")
+    kill_val = kill_weight if kill_weight is not None else 0.0
+    risk_val = risk_penalty if risk_penalty is not None else 0.0
+    hostile_candidates = [candidate for candidate in candidates if candidate[0] > 0]
+    neutral_candidates = [candidate for candidate in candidates if candidate[0] <= 0]
+    should_take_combat_target = (kill_val >= 5.0 and risk_val <= 5.0) or not neutral_candidates
+    if hostile_candidates and should_take_combat_target:
+        _, room_name, summary = hostile_candidates[0]
+        return room_name, summary
+    if neutral_candidates:
+        _, room_name, summary = sorted(neutral_candidates, key=lambda item: (item[1]))[0]
+        return room_name, summary
     _, room_name, summary = candidates[0]
     return room_name, summary
 
@@ -5275,7 +5305,11 @@ def select_multi_tier_policy_activation(
     anchor_room: str | None = None,
 ) -> JsonObject | None:
     objective = build_scenario_fixture_objective_summary(fixture_room_summaries)
-    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
+    target = _select_multi_tier_activation_target_room(
+        strategy_variant,
+        fixture_room_summaries,
+        anchor_room=anchor_room,
+    )
     if objective is None or target is None:
         return None
     target_room, target_summary = target
@@ -5323,11 +5357,25 @@ def attach_runtime_parameter_objective_target(
     injection: JsonObject,
     fixture_room_summaries: dict[str, JsonObject],
     *,
+    strategy_variant: Mapping[str, Any] | None = None,
     anchor_room: str | None = None,
 ) -> JsonObject:
     if injection.get("candidateParameterScope") != "runtime_injected":
         return injection
-    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
+    target_strategy: Mapping[str, Any] | None = strategy_variant
+    if target_strategy is None and isinstance(injection.get("parameters"), dict):
+        target_strategy = {
+            "id": injection.get("strategyVariantId"),
+            "parameters": injection.get("parameters"),
+        }
+    if target_strategy is not None and _strategy_variant_parameters(dict(target_strategy)):
+        target = _select_multi_tier_activation_target_room(
+            dict(target_strategy),
+            fixture_room_summaries,
+            anchor_room=anchor_room,
+        )
+    else:
+        target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
     if target is None:
         return injection
     target_room, target_summary = target
@@ -5391,13 +5439,32 @@ def _multi_tier_policy_activation_projected_evidence(
     target_room: str,
     activation: JsonObject,
 ) -> JsonObject | None:
-    if activation.get("executionAction") != "engage-hostiles":
-        return None
     objective = activation.get("objective")
     if not isinstance(objective, dict) or objective.get("objectiveSignalPresent") is not True:
         return None
     target_summary = fixture_room_summaries.get(target_room)
     if not isinstance(target_summary, dict):
+        return None
+    if activation.get("executionAction") == "claim-controller":
+        if _room_summary_owned(target_summary):
+            return None
+        return {
+            "targetRoom": target_room,
+            "mode": "offline_shadow_projection",
+            "initialOwned": False,
+            "finalOwned": True,
+            "hostileCountReduced": False,
+            "projectedTerritoryDelta": 2,
+            "projectedOwnedRoomDelta": 1,
+            "projectedControllerLevelDelta": 1,
+            "controllerClaimed": True,
+            "ownPresenceIncreased": True,
+            "fixtureGeneratedRoomState": True,
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+        }
+    if activation.get("executionAction") != "engage-hostiles":
         return None
     initial_hostiles = _fixture_room_hostile_count(target_summary)
     if initial_hostiles <= 0:
@@ -5432,6 +5499,8 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     evidence_source = "observedEvidence"
     evidence = activation.get(evidence_source)
     activation_kills = 0
+    territory_delta = 0
+    controller_claimed = False
     if isinstance(evidence, dict):
         initial_hostiles = _extract_int(evidence.get("initialHostileCount"))
         final_hostiles = _extract_int(evidence.get("finalHostileCount"))
@@ -5440,36 +5509,77 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
             if initial_hostiles is not None and final_hostiles is not None
             else 0
         )
-    if activation_kills <= 0:
+        if evidence.get("controllerClaimed") is True:
+            territory_delta = max(territory_delta, 2)
+            controller_claimed = True
+        elif evidence.get("ownPresenceIncreased") is True:
+            territory_delta = max(territory_delta, 1)
+    if activation_kills <= 0 and territory_delta <= 0:
         evidence_source = "projectedEvidence"
         evidence = activation.get(evidence_source)
-        if not isinstance(evidence, dict):
-            return projected
-        activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
-    if activation_kills <= 0:
+        if isinstance(evidence, dict):
+            activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
+            territory_delta = max(territory_delta, _extract_int(evidence.get("projectedTerritoryDelta")) or 0)
+            controller_claimed = evidence.get("controllerClaimed") is True or (
+                (_extract_int(evidence.get("projectedOwnedRoomDelta")) or 0) > 0
+            )
+    if activation_kills <= 0 and territory_delta <= 0:
         return projected
 
-    combat = projected.setdefault("combat", {})
-    if not isinstance(combat, dict):
-        combat = {}
-        projected["combat"] = combat
-    existing_hostile_kills = _extract_int(projected.get("hostileKills"))
-    if existing_hostile_kills is None:
-        existing_hostile_kills = _extract_int(combat.get("hostileKills")) or 0
-    hostile_kills = max(existing_hostile_kills, activation_kills)
-    own_losses = _extract_int(projected.get("ownLosses"))
-    if own_losses is None:
-        own_losses = _extract_int(combat.get("ownLosses")) or 0
-    projected["hostileKills"] = hostile_kills
-    projected["ownLosses"] = own_losses
-    projected["combatDelta"] = hostile_kills - own_losses
-    combat["hostileKills"] = hostile_kills
-    combat["ownLosses"] = own_losses
-    combat["combatDelta"] = hostile_kills - own_losses
-
-    target_room = evidence.get("targetRoom")
+    target_room = evidence.get("targetRoom") if isinstance(evidence, dict) else None
     final_room_states = projected.get("finalRoomStates")
-    if isinstance(target_room, str) and isinstance(final_room_states, dict):
+    if territory_delta > 0:
+        existing_territory_delta = _extract_int(projected.get("territoryDelta")) or 0
+        projected["territoryDelta"] = max(existing_territory_delta, territory_delta)
+        if controller_claimed:
+            territory = projected.setdefault("territory", {})
+            if not isinstance(territory, dict):
+                territory = {}
+                projected["territory"] = territory
+            territory["ownedRoomDelta"] = max(_extract_int(territory.get("ownedRoomDelta")) or 0, 1)
+            territory["controllerLevelDelta"] = max(
+                _extract_int(territory.get("controllerLevelDelta")) or 0,
+                max(1, territory_delta - 1),
+            )
+            initial_owned = _extract_int(territory.get("initialOwnedRoomCount")) or 0
+            territory["finalOwnedRoomCount"] = max(
+                _extract_int(territory.get("finalOwnedRoomCount")) or 0,
+                initial_owned + 1,
+            )
+            if isinstance(target_room, str) and isinstance(final_room_states, dict):
+                final_summary = final_room_states.setdefault(target_room, {})
+                if isinstance(final_summary, dict):
+                    final_summary["owned"] = True
+                    controller = final_summary.setdefault("controller", {})
+                    if isinstance(controller, dict):
+                        controller["my"] = True
+                        controller["level"] = max(_extract_int(controller.get("level")) or 0, 1)
+        if isinstance(final_room_states, dict):
+            projected["finalRooms"] = _room_metric_snapshot({"rooms": final_room_states})
+
+    hostile_kills = _extract_int(projected.get("hostileKills")) or 0
+    own_losses = _extract_int(projected.get("ownLosses"))
+    if activation_kills > 0:
+        combat = projected.setdefault("combat", {})
+        if not isinstance(combat, dict):
+            combat = {}
+            projected["combat"] = combat
+        existing_hostile_kills = _extract_int(projected.get("hostileKills"))
+        if existing_hostile_kills is None:
+            existing_hostile_kills = _extract_int(combat.get("hostileKills")) or 0
+        hostile_kills = max(existing_hostile_kills, activation_kills)
+        if own_losses is None:
+            own_losses = _extract_int(combat.get("ownLosses")) or 0
+        projected["hostileKills"] = hostile_kills
+        projected["ownLosses"] = own_losses
+        projected["combatDelta"] = hostile_kills - own_losses
+        combat["hostileKills"] = hostile_kills
+        combat["ownLosses"] = own_losses
+        combat["combatDelta"] = hostile_kills - own_losses
+    elif own_losses is None:
+        own_losses = 0
+
+    if activation_kills > 0 and isinstance(target_room, str) and isinstance(final_room_states, dict):
         final_summary = final_room_states.get(target_room)
         if isinstance(final_summary, dict):
             final_combat = final_summary.setdefault("combat", {})
@@ -5488,14 +5598,22 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
         "executionAction": activation.get("executionAction"),
         "objectiveSignalSource": activation.get("objectiveSignalSource"),
         "targetRoom": activation.get("targetRoom"),
-        "hostileKills": hostile_kills,
-        "hostileKillsSource": evidence_source,
         "safety": copy.deepcopy(safety),
     }
-    if evidence_source == "projectedEvidence":
-        policy_activation["projectedHostileKills"] = activation_kills
-    else:
-        policy_activation["observedHostileKills"] = activation_kills
+    if activation_kills > 0:
+        policy_activation["hostileKills"] = hostile_kills
+        policy_activation["hostileKillsSource"] = evidence_source
+        if evidence_source == "projectedEvidence":
+            policy_activation["projectedHostileKills"] = activation_kills
+        else:
+            policy_activation["observedHostileKills"] = activation_kills
+    if territory_delta > 0:
+        policy_activation["territoryDelta"] = projected.get("territoryDelta")
+        policy_activation["territoryDeltaSource"] = evidence_source
+        if evidence_source == "projectedEvidence":
+            policy_activation["projectedTerritoryDelta"] = territory_delta
+        else:
+            policy_activation["observedTerritoryDelta"] = territory_delta
     projected["policyActivation"] = policy_activation
     return projected
 
@@ -6020,6 +6138,7 @@ def _run_variant(
         runtime_parameter_injection = attach_runtime_parameter_objective_target(
             runtime_parameter_injection,
             fixture_room_summaries,
+            strategy_variant=strategy_variant,
             anchor_room=room,
         )
         _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))
@@ -6321,7 +6440,7 @@ def _run_variant(
         result["evaluatedParametersSource"] = "runtime_parameter_consumption"
     result["ownedRoomScorecard"] = build_variant_owned_room_scorecard(result)
     if not errors and ticks_run > 0 and result["ownedRoomScorecard"]["ownedRoomCount"] < 1:
-        detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, structure, or creep found"
+        detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, or structure found"
         errors.append(f"owned-room scorecard evidence was empty after {ticks_run} tick(s): {detail}")
         result["errors"] = errors
     result["ok"] = len(errors) == 0

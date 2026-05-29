@@ -1422,6 +1422,46 @@ cli:
         self.assertFalse(attached["officialMmoWrites"])
         self.assertFalse(attached["officialMmoWritesAllowed"])
 
+    def test_runtime_parameter_injection_uses_strategy_aware_multi_tier_target(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        strategy_variant = {
+            "id": "construction-priority.pg.risk-aware-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 18,
+                "resourceSignalWeight": 5,
+                "killSignalWeight": 6,
+                "riskPenalty": 10,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(
+            strategy_variant["id"],
+            strategy_variant,
+        )
+        activation = harness.select_multi_tier_policy_activation(
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        attached = harness.attach_runtime_parameter_objective_target(
+            injection,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["targetRoom"], "E1S2")
+        self.assertEqual(activation["executionAction"], "claim-controller")
+        self.assertEqual(attached["objectiveTargetRoom"], activation["targetRoom"])
+        self.assertEqual(attached["objectiveAnchorRoom"], "E1S1")
+        self.assertEqual(attached["objectiveHostileCreepCount"], 0)
+        self.assertEqual(attached["objectiveHostileStructureCount"], 0)
+        self.assertEqual(attached["objectiveSignalSource"], "multi_tier_map_fixture")
+
     def test_multi_tier_policy_activation_projection_preserves_explicit_zero_metrics(self) -> None:
         activation = {
             "type": "screeps-rl-multi-tier-policy-activation",
@@ -1507,6 +1547,218 @@ cli:
         self.assertEqual(projected["policyActivation"]["hostileKillsSource"], "observedEvidence")
         self.assertEqual(projected["finalRoomStates"]["E2S1"]["combat"]["hostileCreeps"], 2)
 
+    def test_multi_tier_policy_activation_preserves_observed_territory_without_kills(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "claim-controller",
+            "objectiveSignalSource": "tick_log",
+            "targetRoom": "E2S1",
+            "observedEvidence": {
+                "targetRoom": "E2S1",
+                "controllerClaimed": True,
+                "ownPresenceIncreased": True,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "territoryDelta": 0,
+            "territory": {
+                "initialOwnedRoomCount": 1,
+                "finalOwnedRoomCount": 1,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combatDelta": 0,
+            "finalRooms": {"ownedRoomCount": 1},
+            "finalRoomStates": {
+                "E1S1": {
+                    "owned": True,
+                    "controller": {"level": 1, "my": True},
+                    "ownedCreeps": 2,
+                    "ownStructures": 1,
+                },
+                "E2S1": {
+                    "owned": False,
+                    "controller": {"level": 0, "my": False},
+                    "ownedCreeps": 0,
+                    "ownStructures": 0,
+                },
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["territoryDelta"], 2)
+        self.assertEqual(projected["territory"]["ownedRoomDelta"], 1)
+        self.assertEqual(projected["territory"]["controllerLevelDelta"], 1)
+        self.assertEqual(projected["territory"]["finalOwnedRoomCount"], 2)
+        self.assertEqual(projected["policyActivation"]["territoryDeltaSource"], "observedEvidence")
+        self.assertEqual(projected["policyActivation"]["observedTerritoryDelta"], 2)
+        self.assertNotIn("projectedTerritoryDelta", projected["policyActivation"])
+        final_target = projected["finalRoomStates"]["E2S1"]
+        self.assertTrue(final_target["owned"])
+        self.assertTrue(final_target["controller"]["my"])
+        self.assertEqual(final_target["controller"]["level"], 1)
+        self.assertEqual(final_target["ownedCreeps"], 0)
+        self.assertEqual(final_target["ownStructures"], 0)
+        self.assertEqual(projected["finalRooms"]["ownedRoomCount"], 2)
+        self.assertEqual(projected["finalRooms"]["controllerLevelTotal"], 2)
+        self.assertEqual(projected["finalRooms"]["ownCreeps"], 2)
+        self.assertEqual(projected["finalRooms"]["ownStructures"], 1)
+
+    def test_multi_tier_policy_activation_preserves_presence_without_claiming_room(self) -> None:
+        tick_log = [
+            {
+                "tick": 1,
+                "rooms": {
+                    "E2S1": {
+                        "owned": False,
+                        "controller": {"level": 0, "my": False},
+                        "ownedCreeps": 0,
+                        "ownStructures": 0,
+                    },
+                },
+            },
+            {
+                "tick": 2,
+                "rooms": {
+                    "E2S1": {
+                        "owned": False,
+                        "controller": {"level": 0, "my": False},
+                        "ownedCreeps": 1,
+                        "ownCreepRoles": {"worker": 1},
+                        "ownStructures": 0,
+                    },
+                },
+            },
+        ]
+        observed = harness._multi_tier_policy_activation_observed_evidence(tick_log, "E2S1")
+
+        self.assertIsNotNone(observed)
+        assert observed is not None
+        self.assertFalse(observed["controllerClaimed"])
+        self.assertTrue(observed["ownPresenceIncreased"])
+
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "claim-controller",
+            "objectiveSignalSource": "tick_log",
+            "targetRoom": "E2S1",
+            "observedEvidence": observed,
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "territoryDelta": 0,
+            "territory": {
+                "initialOwnedRoomCount": 1,
+                "finalOwnedRoomCount": 1,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "finalRooms": {"ownedRoomCount": 1},
+            "finalRoomStates": {
+                "E1S1": {
+                    "owned": True,
+                    "controller": {"level": 1, "my": True},
+                    "ownedCreeps": 1,
+                    "ownStructures": 1,
+                },
+                "E2S1": copy.deepcopy(tick_log[-1]["rooms"]["E2S1"]),
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["territoryDelta"], 1)
+        self.assertEqual(projected["territory"]["ownedRoomDelta"], 0)
+        self.assertEqual(projected["territory"]["controllerLevelDelta"], 0)
+        self.assertEqual(projected["territory"]["finalOwnedRoomCount"], 1)
+        self.assertEqual(projected["policyActivation"]["territoryDeltaSource"], "observedEvidence")
+        self.assertEqual(projected["policyActivation"]["observedTerritoryDelta"], 1)
+        final_target = projected["finalRoomStates"]["E2S1"]
+        self.assertFalse(final_target["owned"])
+        self.assertFalse(final_target["controller"]["my"])
+        self.assertEqual(projected["finalRooms"]["ownedRoomCount"], 1)
+
+        scorecard = harness.build_variant_owned_room_scorecard(
+            {"variant_id": "candidate", "variant_run_id": "presence-only", "tick_log": [tick_log[-1]]}
+        )
+        self.assertEqual(scorecard["ownedRoomCount"], 0)
+        self.assertEqual(scorecard["ownedRooms"], [])
+
+    def test_multi_tier_policy_activation_projected_claim_refreshes_final_rooms_without_phantom_assets(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "claim-controller",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "targetRoom": "E2S1",
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "projectedTerritoryDelta": 2,
+                "projectedOwnedRoomDelta": 1,
+                "projectedControllerLevelDelta": 1,
+                "controllerClaimed": True,
+                "ownPresenceIncreased": True,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "territoryDelta": 0,
+            "territory": {
+                "initialOwnedRoomCount": 1,
+                "finalOwnedRoomCount": 1,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combatDelta": 0,
+            "finalRooms": {"ownedRoomCount": 1},
+            "finalRoomStates": {
+                "E1S1": {
+                    "owned": True,
+                    "controller": {"level": 1, "my": True},
+                    "ownedCreeps": 1,
+                    "ownStructures": 1,
+                },
+                "E2S1": {
+                    "owned": False,
+                    "controller": {"level": 0, "my": False},
+                },
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        final_target = projected["finalRoomStates"]["E2S1"]
+        self.assertTrue(final_target["owned"])
+        self.assertTrue(final_target["controller"]["my"])
+        self.assertEqual(final_target["controller"]["level"], 1)
+        self.assertNotIn("ownedCreeps", final_target)
+        self.assertNotIn("ownStructures", final_target)
+        self.assertEqual(projected["finalRooms"]["ownedRoomCount"], 2)
+        self.assertEqual(projected["finalRooms"]["ownCreeps"], 1)
+        self.assertEqual(projected["finalRooms"]["ownStructures"], 1)
+        self.assertEqual(projected["policyActivation"]["territoryDeltaSource"], "projectedEvidence")
+        self.assertEqual(projected["policyActivation"]["projectedTerritoryDelta"], 2)
+
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
@@ -1536,6 +1788,120 @@ cli:
         self.assertIsNone(activation)
         self.assertNotIn("rlPolicyActivation", tick_log[-1])
         self.assertEqual(harness.build_variant_metrics(tick_log)["combat"]["hostileKills"], 0)
+
+    def test_v1_fixture_projects_distinct_territory_and_combat_activation(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+            {"tick": 2, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+        territory_seed = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        risk_aware_seed = {
+            "id": "construction-priority.pg.risk-aware-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 18,
+                "resourceSignalWeight": 5,
+                "killSignalWeight": 6,
+                "riskPenalty": 10,
+            },
+        }
+
+        combat_activation = harness.build_multi_tier_policy_activation_evidence(
+            copy.deepcopy(tick_log),
+            territory_seed,
+            fixture_summaries,
+            anchor_room="E1S1",
+            allow_offline_projection=True,
+        )
+        territory_activation = harness.build_multi_tier_policy_activation_evidence(
+            copy.deepcopy(tick_log),
+            risk_aware_seed,
+            fixture_summaries,
+            anchor_room="E1S1",
+            allow_offline_projection=True,
+        )
+        combat_metrics = harness.project_multi_tier_policy_activation_metrics(
+            harness.build_variant_metrics(tick_log),
+            combat_activation,
+        )
+        territory_metrics = harness.project_multi_tier_policy_activation_metrics(
+            harness.build_variant_metrics(tick_log),
+            territory_activation,
+        )
+
+        self.assertIsNotNone(combat_activation)
+        self.assertIsNotNone(territory_activation)
+        assert combat_activation is not None
+        assert territory_activation is not None
+        self.assertEqual(combat_activation["targetRoom"], "E1S0")
+        self.assertEqual(combat_activation["executionAction"], "engage-hostiles")
+        self.assertEqual(territory_activation["targetRoom"], "E1S2")
+        self.assertEqual(territory_activation["executionAction"], "claim-controller")
+        self.assertEqual(combat_metrics["combatDelta"], 1)
+        self.assertEqual(combat_metrics["territoryDelta"], 0)
+        self.assertEqual(territory_metrics["territoryDelta"], 2)
+        self.assertEqual(territory_metrics["combatDelta"], 0)
+        self.assertTrue(territory_metrics["finalRoomStates"]["E1S2"]["controller"]["my"])
+        self.assertEqual(territory_metrics["policyActivation"]["projectedTerritoryDelta"], 2)
+
+    def test_v1_activation_defaults_missing_or_null_combat_weights_to_zero(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+            {"tick": 2, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+
+        variants = {
+            "missing": {
+                "id": "construction-priority.pg.missing-combat-weights.v1",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 22,
+                },
+            },
+            "null": {
+                "id": "construction-priority.pg.null-combat-weights.v1",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 22,
+                    "killSignalWeight": None,
+                    "riskPenalty": None,
+                },
+            },
+        }
+
+        for label, variant in variants.items():
+            with self.subTest(label=label):
+                activation = harness.build_multi_tier_policy_activation_evidence(
+                    copy.deepcopy(tick_log),
+                    variant,
+                    fixture_summaries,
+                    anchor_room="E1S1",
+                    allow_offline_projection=True,
+                )
+
+                self.assertIsNotNone(activation)
+                assert activation is not None
+                self.assertEqual(activation["targetRoom"], "E1S2")
+                self.assertEqual(activation["executionAction"], "claim-controller")
+                self.assertEqual(activation["parameters"]["killSignalWeight"], 0.0)
+                self.assertEqual(activation["parameters"]["riskPenalty"], 0.0)
 
     def test_inline_strategy_variant_config_overrides_registry_fallback(self) -> None:
         config = harness.strategy_variant_config_by_id(

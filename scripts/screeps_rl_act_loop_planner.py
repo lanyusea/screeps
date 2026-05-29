@@ -31,7 +31,8 @@ REWARD_DECISION_TEMPLATE = "docs/ops/templates/rl-reward-decision.template.json"
 EXPERIMENT_CARD_HELPER = "scripts/screeps_rl_experiment_card.py"
 SCORECARD_HELPER = "scripts/screeps_rl_scorecard.py"
 DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
-MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v0"
+MULTI_TIER_SCENARIO_V0_ID = "multi-tier-territory-combat-v0"
+MULTI_TIER_SCENARIO_ID = "multi-tier-territory-combat-v1"
 UNPROVEN_ONLINE_STATUSES = {"MIXED", "UNPROVEN", "INCONCLUSIVE", "BLOCKED", "BLOCKED_NO_COMPUTE"}
 BLOCKING_ONLINE_EVIDENCE_STATUSES = {"BLOCKED", "BLOCKED_NO_COMPUTE"}
 ONLINE_STATUS_ALIASES = ("onlineUtilityStatus", "onlineStatus", "status", "rawStatus")
@@ -133,6 +134,11 @@ CLASSIFICATION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "multi-tier",
             "adjacent room",
             "hostile combat",
+            "tower pressure",
+            "zero variance",
+            "territory variance",
+            "combat variance",
+            "territory/combat variance",
             "private map",
             "out-of-distribution",
             "training coverage",
@@ -536,9 +542,15 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
         return explicit
     missing = infer_missing_capabilities(raw)
     statuses = online_status_keys(raw)
-    if missing or (infer_source_scenario_id(raw) == DEFAULT_SCENARIO_ID and statuses & UNPROVEN_ONLINE_STATUSES):
+    source_scenario_id = infer_source_scenario_id(raw)
+    if missing or (
+        source_scenario_id in {DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_V0_ID}
+        and statuses & UNPROVEN_ONLINE_STATUSES
+    ):
         return MULTI_TIER_SCENARIO_ID
-    return infer_source_scenario_id(raw) or DEFAULT_SCENARIO_ID
+    if source_scenario_id in {DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_V0_ID, MULTI_TIER_SCENARIO_ID}:
+        return source_scenario_id
+    return DEFAULT_SCENARIO_ID
 
 
 def explicit_policy_surface(raw: JsonObject) -> str | None:
