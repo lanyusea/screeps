@@ -92,6 +92,7 @@ interface WorkerTaskSelectionContext {
 
 interface CriticalCpuTaskRetentionDecision {
   retain: boolean;
+  retainedTask?: CreepTaskMemory;
   selectionContext?: WorkerTaskSelectionContext;
 }
 
@@ -117,7 +118,7 @@ export function runWorker(creep: Creep): void {
   const currentTask = creep.memory.task;
   const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
   if (criticalCpuTaskRetention.retain) {
-    executeAssignedTask(creep, null);
+    executeAssignedTask(creep, criticalCpuTaskRetention.retainedTask ?? null);
     return;
   }
 
@@ -417,7 +418,8 @@ function getCriticalCpuTerritoryControlRetentionDecision(
   task: Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }>
 ): CriticalCpuTaskRetentionDecision {
   const selectionContext = selectWorkerTaskContext(creep, task);
-  return { retain: isSameOptionalTask(task, selectionContext.selectedTask), selectionContext };
+  const retain = isSameOptionalTask(task, selectionContext.selectedTask);
+  return { retain, ...(retain ? { retainedTask: task } : {}), selectionContext };
 }
 
 function selectSpawnEnergyReservationRefillTask(

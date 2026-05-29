@@ -31147,7 +31147,7 @@ var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 function runWorker(creep) {
-  var _a;
+  var _a, _b;
   if (runControllerSustainMovement(creep)) {
     return;
   }
@@ -31158,10 +31158,10 @@ function runWorker(creep) {
   const currentTask = creep.memory.task;
   const criticalCpuTaskRetention = getCriticalCpuTaskRetentionDecision(creep, currentTask);
   if (criticalCpuTaskRetention.retain) {
-    executeAssignedTask(creep, null);
+    executeAssignedTask(creep, (_a = criticalCpuTaskRetention.retainedTask) != null ? _a : null);
     return;
   }
-  const selectionContext = (_a = criticalCpuTaskRetention.selectionContext) != null ? _a : selectWorkerTaskContext(creep, currentTask);
+  const selectionContext = (_b = criticalCpuTaskRetention.selectionContext) != null ? _b : selectWorkerTaskContext(creep, currentTask);
   const { baseSelectedTask, energyCriticalTask, selectedTask, spawnReservationRefillTask } = selectionContext;
   let taskAssignedThisTick = false;
   if (!currentTask) {
@@ -31376,7 +31376,8 @@ function getCriticalCpuTransferRetentionDecision(creep, task) {
 }
 function getCriticalCpuTerritoryControlRetentionDecision(creep, task) {
   const selectionContext = selectWorkerTaskContext(creep, task);
-  return { retain: isSameOptionalTask(task, selectionContext.selectedTask), selectionContext };
+  const retain = isSameOptionalTask(task, selectionContext.selectedTask);
+  return { retain, ...retain ? { retainedTask: task } : {}, selectionContext };
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
   if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {

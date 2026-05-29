@@ -199,6 +199,7 @@ describe('runWorker', () => {
       expect(claimController).not.toHaveBeenCalled();
       expect(reserveController).not.toHaveBeenCalled();
       expect(attackController).not.toHaveBeenCalled();
+      expect(creep.moveTo).not.toHaveBeenCalled();
       expect(Memory.territory?.intents).toEqual([
         {
           colony: 'W1N1',
@@ -209,6 +210,64 @@ describe('runWorker', () => {
           reason: 'controllerLevel'
         }
       ]);
+    }
+  );
+
+  it.each(['claim', 'reserve'] as const)(
+    'preserves a retained %s task under critical CPU when target lookup is temporarily unavailable',
+    (action) => {
+      const controller = { id: 'controller2', my: false } as StructureController;
+      const room = {
+        name: 'W2N1',
+        controller,
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const claimController = jest.fn();
+      const reserveController = jest.fn();
+      const attackController = jest.fn();
+      const moveTo = jest.fn();
+      const creep = {
+        name: 'Worker1',
+        owner: { username: 'me' },
+        memory: {
+          role: 'worker',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action },
+          task: { type: action, targetId: 'controller2' as Id<StructureController> }
+        },
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        },
+        room,
+        claimController,
+        reserveController,
+        attackController,
+        moveTo
+      } as unknown as Creep;
+      const getObjectById = jest.fn().mockReturnValue(null);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { Worker1: creep },
+        rooms: { W2N1: room },
+        time: 128,
+        cpu: {
+          getUsed: jest.fn().mockReturnValue(21),
+          limit: 70,
+          bucket: 43,
+          tickLimit: 500
+        } as unknown as CPU,
+        getObjectById
+      };
+
+      runWorker(creep);
+
+      expect(getObjectById).toHaveBeenCalledWith('controller2');
+      expect(creep.memory.task).toEqual({ type: action, targetId: 'controller2' });
+      expect(claimController).not.toHaveBeenCalled();
+      expect(reserveController).not.toHaveBeenCalled();
+      expect(attackController).not.toHaveBeenCalled();
+      expect(moveTo).not.toHaveBeenCalled();
     }
   );
 
