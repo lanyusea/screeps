@@ -156,7 +156,7 @@ REMOTE_SIMULATOR_SETUP_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE = re.compile(
-    r"(?:place-spawn room busy|place_spawn_room_busy|room-busy placement lock)",
+    r"(?:place-spawn room busy after \d+ attempt\(s\)|\bplace_spawn_room_busy\b|room-busy placement lock)",
     re.IGNORECASE,
 )
 REMOTE_NETWORK_RE = re.compile(
