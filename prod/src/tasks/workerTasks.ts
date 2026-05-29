@@ -6854,6 +6854,7 @@ function hasOtherLoadedWorkerAssignedToRepairTarget(creep: Creep, structure: Rep
       !isSameCreep(worker, creep) &&
       worker.memory?.role === 'worker' &&
       getUsedEnergy(worker) > 0 &&
+      getActiveWorkParts(worker) > 0 &&
       isWorkerAssignedToRepairTarget(worker, structure)
   );
 }

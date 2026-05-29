@@ -29235,7 +29235,7 @@ function hasOtherLoadedWorkerAssignedToRepairTarget(creep, structure) {
   return getRoomOwnedCreeps(creep.room).some(
     (worker) => {
       var _a;
-      return !isSameCreep(worker, creep) && ((_a = worker.memory) == null ? void 0 : _a.role) === "worker" && getUsedEnergy2(worker) > 0 && isWorkerAssignedToRepairTarget(worker, structure);
+      return !isSameCreep(worker, creep) && ((_a = worker.memory) == null ? void 0 : _a.role) === "worker" && getUsedEnergy2(worker) > 0 && getActiveWorkParts2(worker) > 0 && isWorkerAssignedToRepairTarget(worker, structure);
     }
   );
 }

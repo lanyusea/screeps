@@ -14580,6 +14580,7 @@ describe('selectWorkerTask', () => {
     });
     const repairer = {
       name: 'Repairer',
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
       memory: {
         role: 'worker',
         colony: 'E29N55',
@@ -14598,6 +14599,57 @@ describe('selectWorkerTask', () => {
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
     expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('ignores active rampart repair coverage from a loaded worker without active WORK parts', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const rampart = makeStructure(
+      'rampart-active-decay',
+      'rampart' as StructureConstant,
+      119_801,
+      300_000_000,
+      { my: true }
+    );
+    const room = makeWorkerTaskRoom({
+      name: 'E29N55',
+      controller,
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      myStructures: [busyFullSpawn as AnyOwnedStructure],
+      structures: [rampart]
+    });
+    const disabledRepairer = {
+      name: 'DisabledRepairer',
+      getActiveBodyparts: jest.fn().mockReturnValue(0),
+      memory: {
+        role: 'worker',
+        colony: 'E29N55',
+        task: { type: 'repair', targetId: 'rampart-active-decay' as Id<Structure> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'ReplacementRepairer',
+      memory: { role: 'worker', colony: 'E29N55' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ DisabledRepairer: disabledRepairer, ReplacementRepairer: creep });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
   });
 
   it.each([
