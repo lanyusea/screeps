@@ -198,6 +198,92 @@ describe('runWorker', () => {
     expect(harvest).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      taskName: 'build',
+      task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
+      target: { id: 'site1', structureType: 'road' } as ConstructionSite,
+      action: 'build'
+    },
+    {
+      taskName: 'repair',
+      task: { type: 'repair', targetId: 'road1' as Id<Structure> },
+      target: { id: 'road1', structureType: 'road', hits: 100, hitsMax: 5_000 } as StructureRoad,
+      action: 'repair'
+    },
+    {
+      taskName: 'upgrade',
+      task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> },
+      target: {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      action: 'upgradeController'
+    }
+  ])('preempts loaded critical CPU $taskName for emergency spawn refill', ({ task, target, action }) => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(101)
+      }
+    } as unknown as StructureSpawn;
+    const taskAction = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      controller: task.type === 'upgrade' ? target : undefined,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return task.type === 'build' ? [target] : [];
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer,
+      [action]: taskAction,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 126,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : target)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(taskAction).not.toHaveBeenCalled();
+  });
+
   it('moves to collect a score target at exact range without pickup', () => {
     const score = makeScoreTarget('score1');
     const pickup = jest.fn();
