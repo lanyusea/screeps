@@ -136,7 +136,9 @@ CLASSIFICATION_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "hostile combat",
             "tower pressure",
             "zero variance",
-            "variance",
+            "territory variance",
+            "combat variance",
+            "territory/combat variance",
             "private map",
             "out-of-distribution",
             "training coverage",
@@ -546,7 +548,9 @@ def infer_target_scenario_id(raw: JsonObject) -> str:
         and statuses & UNPROVEN_ONLINE_STATUSES
     ):
         return MULTI_TIER_SCENARIO_ID
-    return source_scenario_id or DEFAULT_SCENARIO_ID
+    if source_scenario_id in {DEFAULT_SCENARIO_ID, MULTI_TIER_SCENARIO_V0_ID, MULTI_TIER_SCENARIO_ID}:
+        return source_scenario_id
+    return DEFAULT_SCENARIO_ID
 
 
 def explicit_policy_surface(raw: JsonObject) -> str | None:

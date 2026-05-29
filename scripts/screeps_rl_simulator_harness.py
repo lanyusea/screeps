@@ -5500,9 +5500,11 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
             if initial_hostiles is not None and final_hostiles is not None
             else 0
         )
-        if evidence.get("controllerClaimed") is True or evidence.get("ownPresenceIncreased") is True:
+        if evidence.get("controllerClaimed") is True:
+            territory_delta = max(territory_delta, 2)
+        elif evidence.get("ownPresenceIncreased") is True:
             territory_delta = max(territory_delta, 1)
-    if activation_kills <= 0:
+    if activation_kills <= 0 and territory_delta <= 0:
         evidence_source = "projectedEvidence"
         evidence = activation.get(evidence_source)
         if isinstance(evidence, dict):
@@ -5534,12 +5536,12 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
             final_summary = final_room_states.setdefault(target_room, {})
             if isinstance(final_summary, dict):
                 final_summary["owned"] = True
-                final_summary["ownedCreeps"] = max(_extract_int(final_summary.get("ownedCreeps")) or 0, 1)
-                final_summary["ownStructures"] = max(_extract_int(final_summary.get("ownStructures")) or 0, 1)
                 controller = final_summary.setdefault("controller", {})
                 if isinstance(controller, dict):
                     controller["my"] = True
                     controller["level"] = max(_extract_int(controller.get("level")) or 0, 1)
+        if isinstance(final_room_states, dict):
+            projected["finalRooms"] = _room_metric_snapshot({"rooms": final_room_states})
 
     hostile_kills = _extract_int(projected.get("hostileKills")) or 0
     own_losses = _extract_int(projected.get("ownLosses"))

@@ -3725,6 +3725,11 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.BatchRunError, "policy_gradient Tencent proof requires"):
                 runner.validate_static_inputs(args, "run-test")
 
+            args.scenario_id = runner.MULTI_TIER_SCENARIO_IDS[0]
+            args.require_multi_tier_scenario = False
+            with self.assertRaisesRegex(runner.BatchRunError, "policy_gradient Tencent proof requires"):
+                runner.validate_static_inputs(args, "run-test")
+
             args.scenario_id = runner.MULTI_TIER_SCENARIO_ID
             args.require_multi_tier_scenario = True
             runner.validate_static_inputs(args, "run-test")
@@ -3772,6 +3777,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertTrue(args.require_multi_tier_scenario)
         self.assertEqual(args.workers, 5)
         self.assertEqual(args.repetitions, 4)
+
+    def test_policy_gradient_explicit_v0_does_not_enter_required_multi_tier_path(self) -> None:
+        args = controller_args()
+        args.training_approach = "policy_gradient"
+        args.scenario_id = runner.MULTI_TIER_SCENARIO_IDS[0]
+        args.require_multi_tier_scenario = False
+
+        runner.apply_cli_scenario_defaults(args)
+
+        self.assertEqual(args.scenario_id, runner.MULTI_TIER_SCENARIO_IDS[0])
+        self.assertFalse(args.require_multi_tier_scenario)
 
     def test_policy_gradient_validation_defaults_tolerate_unset_workers_and_repetitions(self) -> None:
         args = runner.build_parser().parse_args([

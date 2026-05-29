@@ -4561,7 +4561,7 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
         raise BatchRunError(f"scenario id must be one of: {', '.join(SCENARIO_IDS)}")
     if getattr(args, "require_multi_tier_scenario", False) and scenario_id not in MULTI_TIER_SCENARIO_IDS:
         raise BatchRunError("multi-tier policy comparisons require the multi-tier territory/combat scenario id")
-    if getattr(args, "training_approach", None) == "policy_gradient" and scenario_id not in MULTI_TIER_SCENARIO_IDS:
+    if getattr(args, "training_approach", None) == "policy_gradient" and scenario_id != MULTI_TIER_SCENARIO_ID:
         raise BatchRunError(
             f"policy_gradient Tencent proof requires --scenario-id {MULTI_TIER_SCENARIO_ID} "
             "--require-multi-tier-scenario"
@@ -4661,7 +4661,7 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
             args.require_multi_tier_scenario = True
         else:
             args.scenario_id = DEFAULT_SCENARIO_ID
-    elif is_multi_tier_scenario_id(args.scenario_id):
+    elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
         args.require_multi_tier_scenario = True
     apply_policy_gradient_validation_sample_defaults(args)
     return args

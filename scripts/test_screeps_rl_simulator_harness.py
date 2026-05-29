@@ -1507,6 +1507,133 @@ cli:
         self.assertEqual(projected["policyActivation"]["hostileKillsSource"], "observedEvidence")
         self.assertEqual(projected["finalRoomStates"]["E2S1"]["combat"]["hostileCreeps"], 2)
 
+    def test_multi_tier_policy_activation_preserves_observed_territory_without_kills(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "claim-controller",
+            "objectiveSignalSource": "tick_log",
+            "targetRoom": "E2S1",
+            "observedEvidence": {
+                "targetRoom": "E2S1",
+                "controllerClaimed": True,
+                "ownPresenceIncreased": True,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "territoryDelta": 0,
+            "territory": {
+                "initialOwnedRoomCount": 1,
+                "finalOwnedRoomCount": 1,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combatDelta": 0,
+            "finalRooms": {"ownedRoomCount": 1},
+            "finalRoomStates": {
+                "E1S1": {
+                    "owned": True,
+                    "controller": {"level": 1, "my": True},
+                    "ownedCreeps": 2,
+                    "ownStructures": 1,
+                },
+                "E2S1": {
+                    "owned": False,
+                    "controller": {"level": 0, "my": False},
+                    "ownedCreeps": 0,
+                    "ownStructures": 0,
+                },
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        self.assertEqual(projected["territoryDelta"], 2)
+        self.assertEqual(projected["territory"]["ownedRoomDelta"], 1)
+        self.assertEqual(projected["territory"]["controllerLevelDelta"], 1)
+        self.assertEqual(projected["territory"]["finalOwnedRoomCount"], 2)
+        self.assertEqual(projected["policyActivation"]["territoryDeltaSource"], "observedEvidence")
+        self.assertEqual(projected["policyActivation"]["observedTerritoryDelta"], 2)
+        self.assertNotIn("projectedTerritoryDelta", projected["policyActivation"])
+        final_target = projected["finalRoomStates"]["E2S1"]
+        self.assertTrue(final_target["owned"])
+        self.assertTrue(final_target["controller"]["my"])
+        self.assertEqual(final_target["controller"]["level"], 1)
+        self.assertEqual(final_target["ownedCreeps"], 0)
+        self.assertEqual(final_target["ownStructures"], 0)
+        self.assertEqual(projected["finalRooms"]["ownedRoomCount"], 2)
+        self.assertEqual(projected["finalRooms"]["controllerLevelTotal"], 2)
+        self.assertEqual(projected["finalRooms"]["ownCreeps"], 2)
+        self.assertEqual(projected["finalRooms"]["ownStructures"], 1)
+
+    def test_multi_tier_policy_activation_projected_claim_refreshes_final_rooms_without_phantom_assets(self) -> None:
+        activation = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "strategyVariantId": "candidate",
+            "executionAction": "claim-controller",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "targetRoom": "E2S1",
+            "projectedEvidence": {
+                "targetRoom": "E2S1",
+                "projectedTerritoryDelta": 2,
+                "projectedOwnedRoomDelta": 1,
+                "projectedControllerLevelDelta": 1,
+                "controllerClaimed": True,
+                "ownPresenceIncreased": True,
+            },
+            "safety": {
+                "liveEffect": False,
+                "officialMmoWrites": False,
+                "officialMmoWritesAllowed": False,
+            },
+        }
+        metrics = {
+            "territoryDelta": 0,
+            "territory": {
+                "initialOwnedRoomCount": 1,
+                "finalOwnedRoomCount": 1,
+                "ownedRoomDelta": 0,
+                "controllerLevelDelta": 0,
+            },
+            "hostileKills": 0,
+            "ownLosses": 0,
+            "combatDelta": 0,
+            "finalRooms": {"ownedRoomCount": 1},
+            "finalRoomStates": {
+                "E1S1": {
+                    "owned": True,
+                    "controller": {"level": 1, "my": True},
+                    "ownedCreeps": 1,
+                    "ownStructures": 1,
+                },
+                "E2S1": {
+                    "owned": False,
+                    "controller": {"level": 0, "my": False},
+                },
+            },
+        }
+
+        projected = harness.project_multi_tier_policy_activation_metrics(metrics, activation)
+
+        final_target = projected["finalRoomStates"]["E2S1"]
+        self.assertTrue(final_target["owned"])
+        self.assertTrue(final_target["controller"]["my"])
+        self.assertEqual(final_target["controller"]["level"], 1)
+        self.assertNotIn("ownedCreeps", final_target)
+        self.assertNotIn("ownStructures", final_target)
+        self.assertEqual(projected["finalRooms"]["ownedRoomCount"], 2)
+        self.assertEqual(projected["finalRooms"]["ownCreeps"], 1)
+        self.assertEqual(projected["finalRooms"]["ownStructures"], 1)
+        self.assertEqual(projected["policyActivation"]["territoryDeltaSource"], "projectedEvidence")
+        self.assertEqual(projected["policyActivation"]["projectedTerritoryDelta"], 2)
+
     def test_multi_tier_policy_activation_stays_inactive_for_low_territory_candidate(self) -> None:
         fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v0.map.json")
         fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
