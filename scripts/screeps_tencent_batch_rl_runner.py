@@ -364,6 +364,9 @@ class Controller:
     final_status: str = "unknown"
     result: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        apply_policy_gradient_scenario_defaults(self.args)
+
     @property
     def tccLI(self) -> Path:  # keep misspelling out of external API; internal property only
         return Path(self.args.tccli)
@@ -415,6 +418,7 @@ class Controller:
         report_safety = training_report if isinstance(training_report, dict) else {}
         execution = controller_execution_summary(self.args, self.steps, self.result, self.scaled_up, self.instance_id)
         batch_scale = controller_batch_scale_summary(self.args, self.steps, self.result)
+        scenario_id = scenario_id_from_args(self.args)
         payload = {
             "type": "screeps-tencent-batch-rl-run",
             "schemaVersion": 1,
@@ -455,8 +459,8 @@ class Controller:
                 "workers": self.args.workers,
                 "repetitions": self.args.repetitions,
                 "trainingApproach": self.args.training_approach,
-                "scenarioId": getattr(self.args, "scenario_id", DEFAULT_SCENARIO_ID),
-                "requireMultiTierScenario": getattr(self.args, "require_multi_tier_scenario", False),
+                "scenarioId": scenario_id,
+                "requireMultiTierScenario": require_multi_tier_scenario_from_args(self.args, scenario_id),
                 "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(self.args),
                 "plannedBatchScale": planned_batch_scale_from_args(self.args),
                 "executionTimeouts": controller_timeout_summary(self.args),
@@ -4324,7 +4328,27 @@ def minimum_successful_environments(environment_count: int) -> int:
 
 
 def scenario_id_from_args(args: argparse.Namespace) -> str:
+    if policy_gradient_default_scenario_applies(args):
+        return MULTI_TIER_SCENARIO_ID
     return getattr(args, "scenario_id", None) or DEFAULT_SCENARIO_ID
+
+
+def scenario_id_explicitly_requested(args: argparse.Namespace) -> bool:
+    return "scenario_id" in set(getattr(args, "explicit_cli_options", ()))
+
+
+def policy_gradient_default_scenario_applies(args: argparse.Namespace) -> bool:
+    return (
+        getattr(args, "training_approach", None) == "policy_gradient"
+        and not scenario_id_explicitly_requested(args)
+    )
+
+
+def apply_policy_gradient_scenario_defaults(args: argparse.Namespace) -> None:
+    if not policy_gradient_default_scenario_applies(args):
+        return
+    args.scenario_id = MULTI_TIER_SCENARIO_ID
+    args.require_multi_tier_scenario = True
 
 
 def require_multi_tier_scenario_from_args(args: argparse.Namespace, scenario_id: str | None = None) -> bool:
@@ -4403,6 +4427,7 @@ def build_scale_proof_spec(
     experiment_card: dict[str, Any],
 ) -> dict[str, Any]:
     scenario_id = scenario_id_from_args(args)
+    require_multi_tier_scenario = require_multi_tier_scenario_from_args(args, scenario_id)
     fixture_evidence = (
         multi_tier_launch_fixture_evidence(scenario_id)
         if is_multi_tier_scenario_id(scenario_id)
@@ -4447,6 +4472,7 @@ def build_scale_proof_spec(
                 "trainingRunner": "scripts/screeps_rl_training_runner.py",
                 "simulatorHarness": "scripts/screeps_rl_simulator_harness.py",
                 "cardSimulationFields": card_simulation_fields,
+                "requireMultiTierScenario": require_multi_tier_scenario,
                 "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(args),
             },
         },
@@ -4534,6 +4560,7 @@ def scale_proof_failure_summary(raw: dict[str, Any], *, minimum: int) -> str:
 
 
 def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
+    apply_policy_gradient_scenario_defaults(args)
     if not RUN_ID_RE.fullmatch(run_id):
         raise BatchRunError("run id must be lowercase and contain only letters, numbers, dot, underscore, hyphen")
     for path_label, path_text in {
@@ -4663,6 +4690,7 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
             args.scenario_id = DEFAULT_SCENARIO_ID
     elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
         args.require_multi_tier_scenario = True
+    apply_policy_gradient_scenario_defaults(args)
     apply_policy_gradient_validation_sample_defaults(args)
     return args
 
