@@ -763,6 +763,12 @@ def write_post_fix_validation_summary(
     return summary_path
 
 
+def set_summary_finished_at(summary_path: Path, finished_at: str) -> None:
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["finishedAt"] = finished_at
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+
 def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     training_report = summary["outputs"]["trainingReport"]
@@ -3898,6 +3904,110 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["postFixValidation"]["priorAttempt"]["runId"], "tencent-pg-post-fix-failed")
         self.assertIn("already attempted", guard["nextAction"])
         self.assertFalse(summary["execution"]["computeAttempted"])
+
+    def test_paid_failure_recurrence_guard_completed_validation_resets_older_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_summary(
+                artifact_root,
+                "tencent-pg-post-fix-completed",
+                final_status="completed",
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+
+            guard = runner.build_paid_failure_recurrence_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "validated")
+        recurrence_evidence = guard["postFixValidation"]["recurrenceEvidence"]
+        self.assertTrue(recurrence_evidence["resetApplies"])
+        self.assertEqual(recurrence_evidence["resetFailureCount"], runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+        self.assertEqual(recurrence_evidence["postValidationFailureCount"], 0)
+        self.assertEqual(recurrence_evidence["unknownOrderFailureCount"], 0)
+        self.assertIn("older room-busy recurrence evidence is reset", guard["nextAction"])
+
+    def test_paid_failure_recurrence_guard_reblocks_after_completed_validation_recurrence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-old-room-busy-{index}")
+            write_post_fix_validation_summary(
+                artifact_root,
+                "tencent-pg-post-fix-completed",
+                final_status="completed",
+            )
+            new_run_ids = {
+                f"tencent-pg-new-room-busy-{index}"
+                for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+            }
+            for index, run_id in enumerate(sorted(new_run_ids)):
+                summary_path = write_tencent_failure_summary(artifact_root, run_id)
+                set_summary_finished_at(summary_path, f"2026-05-29T22:{index:02d}:03Z")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "superseded")
+        recurrence_evidence = guard["postFixValidation"]["recurrenceEvidence"]
+        self.assertFalse(recurrence_evidence["resetApplies"])
+        self.assertEqual(
+            recurrence_evidence["postValidationFailureCount"],
+            runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
+        )
+        self.assertEqual(recurrence_evidence["resetFailureCount"], runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+        self.assertEqual(
+            {item["runId"] for item in recurrence_evidence["postValidationRuns"]},
+            new_run_ids,
+        )
+        self.assertIn("newer matching failures", guard["nextAction"])
+        self.assertEqual(summary["finalStatus"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        summary_validation = summary["outputs"]["launchGuard"]["postFixValidation"]
+        self.assertEqual(summary_validation["status"], "superseded")
+        self.assertEqual(
+            summary_validation["recurrenceEvidence"]["postValidationFailureCount"],
+            runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
+        )
 
     def test_paid_failure_recurrence_guard_scans_past_newer_skipped_guard_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -101,6 +101,7 @@ PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE = "simulator_place_spawn_room_busy"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS = "post_fix_validation_allowed"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_REQUIRED_STATUS = "blocked_post_fix_validation_required"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS = "blocked_post_fix_validation_consumed"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS = "blocked_post_fix_validation_superseded"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS = "clear_post_fix_validated"
 PAID_FAILURE_RECURRENCE_KNOWN_FIXES = {
     PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE: {
@@ -2751,8 +2752,15 @@ def build_paid_failure_recurrence_launch_guard(
             signature=blocked_signature,
         )
         if validation.get("status") == "validated":
-            blocked = False
-            status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS
+            validation = paid_failure_post_fix_validation_state_with_recurrence_evidence(
+                validation,
+                signature_runs,
+            )
+            if validation.get("status") == "validated":
+                blocked = False
+                status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS
+            else:
+                status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS
         elif validation.get("status") == "allowed":
             blocked = False
             status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS
@@ -2767,6 +2775,8 @@ def build_paid_failure_recurrence_launch_guard(
         )
         if validation.get("status") == "validated":
             reason += "; a later post-fix validation completed, so older recurrence evidence is reset"
+        elif validation.get("status") == "superseded":
+            reason += "; a completed post-fix validation is superseded by newer matching failures"
         elif validation.get("status") == "allowed":
             reason += "; allowing one explicit post-fix validation attempt"
         elif validation.get("status") == "consumed":
@@ -2901,6 +2911,77 @@ def paid_failure_post_fix_validation_state(
     if signature in requested_signatures:
         state["status"] = "unverified"
     return state
+
+
+def paid_failure_post_fix_validation_state_with_recurrence_evidence(
+    validation: dict[str, Any],
+    signature_runs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    state = copy.deepcopy(validation)
+    prior_attempt = dict_value(state.get("priorAttempt"))
+    validation_epoch = paid_failure_summary_item_epoch(prior_attempt)
+    post_validation_runs: list[dict[str, Any]] = []
+    reset_runs: list[dict[str, Any]] = []
+    unknown_order_runs: list[dict[str, Any]] = []
+    for item in signature_runs:
+        item_epoch = paid_failure_summary_item_epoch(item)
+        if validation_epoch is None or item_epoch is None:
+            unknown_order_runs.append(item)
+        elif item_epoch > validation_epoch:
+            post_validation_runs.append(item)
+        else:
+            reset_runs.append(item)
+    post_validation_count = len(post_validation_runs)
+    unknown_order_count = len(unknown_order_runs)
+    reset_applies = (
+        validation_epoch is not None
+        and unknown_order_count == 0
+        and post_validation_count < PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD
+    )
+    state["recurrenceEvidence"] = {
+        "threshold": PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
+        "thresholdEvidenceCount": len(signature_runs),
+        "validationFinishedAt": text_value(prior_attempt.get("finishedAt")) if prior_attempt else None,
+        "validationSummaryPath": text_value(prior_attempt.get("summaryPath")) if prior_attempt else None,
+        "postValidationFailureCount": post_validation_count,
+        "resetFailureCount": len(reset_runs),
+        "unknownOrderFailureCount": unknown_order_count,
+        "resetApplies": reset_applies,
+        "postValidationRuns": paid_failure_recurrence_evidence_refs(post_validation_runs),
+        "unknownOrderRuns": paid_failure_recurrence_evidence_refs(unknown_order_runs),
+    }
+    if not reset_applies:
+        state["status"] = "superseded"
+    return state
+
+
+def paid_failure_summary_item_epoch(item: dict[str, Any] | None) -> float | None:
+    if item is None:
+        return None
+    epoch = parse_iso_epoch(item.get("finishedAt"))
+    if epoch is not None:
+        return epoch
+    summary_path = text_value(item.get("summaryPath"))
+    if summary_path is None:
+        return None
+    try:
+        return Path(summary_path).stat().st_mtime
+    except OSError:
+        return None
+
+
+def paid_failure_recurrence_evidence_refs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in items:
+        refs.append(
+            {
+                "runId": text_value(item.get("runId")),
+                "finishedAt": text_value(item.get("finishedAt")),
+                "summaryPath": text_value(item.get("summaryPath")),
+                "finalStatus": text_value(item.get("finalStatus")),
+            }
+        )
+    return refs
 
 
 def paid_failure_recurrence_known_fix_status(signature: str) -> dict[str, Any]:
@@ -3061,6 +3142,22 @@ def paid_failure_recurrence_next_action(
         return (
             f"{base}; post-fix validation was already attempted in {run_id} without a completed report, "
             "so inspect that run before any further paid rerun"
+        )
+    if status == "superseded":
+        prior = dict_value(validation.get("priorAttempt")) or {}
+        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        evidence = dict_value(validation.get("recurrenceEvidence")) or {}
+        count = evidence.get("postValidationFailureCount")
+        threshold = evidence.get("threshold") or PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD
+        unknown_count = evidence.get("unknownOrderFailureCount")
+        if not isinstance(count, int) or count < PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD:
+            return (
+                f"{base}; post-fix validation {run_id} completed, but {unknown_count} matching failures "
+                "could not be ordered relative to it, so keep paid compute paused and inspect those runs"
+            )
+        return (
+            f"{base}; post-fix validation {run_id} completed, but {count}/{threshold} newer matching "
+            "failures reached the recurrence threshold, so keep paid compute paused and inspect those runs"
         )
     if status == "unverified":
         evidence = text_value(known_fix.get("evidence")) or f"could not verify {issue} / {pr}"
