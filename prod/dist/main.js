@@ -31370,7 +31370,7 @@ function getCriticalCpuTaskRetentionDecision(creep, task) {
   return { retain: false };
 }
 function shouldRetainCriticalCpuRepairTask(creep) {
-  return getUsedTransferEnergy(creep) > 0 && !assessWorkerEnergyCriticalState(creep).active && !isControllerDowngradeGuardActive2(creep.room);
+  return getUsedTransferEnergy(creep) > 0 && !assessWorkerEnergyCriticalState(creep).active && !isControllerDowngradeGuardActive2(creep.room) && !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
 }
 function getCriticalCpuTransferRetentionDecision(creep, task) {
   if (getUsedTransferEnergy(creep) <= 0) {

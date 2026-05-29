@@ -406,7 +406,8 @@ function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
   return (
     getUsedTransferEnergy(creep) > 0 &&
     !assessWorkerEnergyCriticalState(creep).active &&
-    !isControllerDowngradeGuardActive(creep.room)
+    !isControllerDowngradeGuardActive(creep.room) &&
+    !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)
   );
 }
 

@@ -184,9 +184,63 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(room.find).not.toHaveBeenCalled();
+    expect((room.find as jest.Mock).mock.calls.some(([type]) => type === FIND_CONSTRUCTION_SITES)).toBe(false);
     expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road1' });
     expect(repair).toHaveBeenCalledWith(road);
+  });
+
+  it('pauses retained critical CPU repair when this worker must reserve energy for near-term spawn refill', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: {
+        my: true,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+      } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_MY_STRUCTURES ? [busyFullSpawn] : []))
+    } as unknown as Room;
+    const repair = jest.fn().mockReturnValue(0);
+    const getObjectById = jest.fn().mockReturnValue(road);
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      time: 125,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(repair).not.toHaveBeenCalled();
   });
 
   it('does not retain critical CPU repair work when the controller downgrade guard is active', () => {
