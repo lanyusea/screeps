@@ -140,6 +140,64 @@ describe('runWorker', () => {
     expect(harvest).toHaveBeenCalledWith(source);
   });
 
+  it('preempts loaded critical CPU harvest for emergency spawn refill', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === FIND_SOURCES ? [source] : [];
+        }
+      )
+    } as unknown as Room;
+    const harvest = jest.fn();
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(20)
+      },
+      room,
+      harvest,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 124,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : source)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(harvest).not.toHaveBeenCalled();
+  });
+
   it('moves to collect a score target at exact range without pickup', () => {
     const score = makeScoreTarget('score1');
     const pickup = jest.fn();

@@ -24805,8 +24805,19 @@ var cpuTelemetryState = {
   bucketEmptyTicks: 0,
   overLimitTicks: 0
 };
-function getRuntimeCpuBudget(game = getRuntimeGame()) {
-  return buildRuntimeCpuBudget(readRuntimeCpuSample(game));
+var runtimeCpuBudgetCache = null;
+function getRuntimeCpuBudget(game) {
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  const tick = normalizeTick(runtimeGame == null ? void 0 : runtimeGame.time);
+  const shouldUseCache = game === void 0 && runtimeGame !== void 0 && tick > 0;
+  if (shouldUseCache && (runtimeCpuBudgetCache == null ? void 0 : runtimeCpuBudgetCache.game) === runtimeGame && runtimeCpuBudgetCache.tick === tick) {
+    return runtimeCpuBudgetCache.budget;
+  }
+  const budget = buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
+  if (shouldUseCache) {
+    runtimeCpuBudgetCache = { game: runtimeGame, tick: budget.tick, budget };
+  }
+  return budget;
 }
 function buildRuntimeCpuBudget(sample) {
   const reasons = [];
@@ -31348,7 +31359,7 @@ function shouldRetainAssignedTaskUnderCriticalCpu(creep, task) {
     return false;
   }
   if (isEnergyAcquisitionTask2(task)) {
-    return getFreeTransferEnergyCapacity(creep) > 0;
+    return getFreeTransferEnergyCapacity(creep) > 0 && getUsedTransferEnergy(creep) <= 0;
   }
   if (task.type === "transfer" || isEnergySpendingTask(task)) {
     return getUsedTransferEnergy(creep) > 0;

@@ -358,7 +358,7 @@ function shouldRetainAssignedTaskUnderCriticalCpu(
   }
 
   if (isEnergyAcquisitionTask(task)) {
-    return getFreeTransferEnergyCapacity(creep) > 0;
+    return getFreeTransferEnergyCapacity(creep) > 0 && getUsedTransferEnergy(creep) <= 0;
   }
 
   if (task.type === 'transfer' || isEnergySpendingTask(task)) {

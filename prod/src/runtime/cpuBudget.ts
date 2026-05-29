@@ -53,6 +53,12 @@ interface RuntimeCpuTelemetryState {
   overLimitTicks: number;
 }
 
+interface RuntimeCpuBudgetCache {
+  game: RuntimeGameLike;
+  tick: number;
+  budget: RuntimeCpuBudget;
+}
+
 export const LOW_CPU_ACCOUNT_LIMIT = 20;
 export const LOW_CPU_BUCKET_THRESHOLD = 1_000;
 export const CRITICAL_CPU_BUCKET_THRESHOLD = 100;
@@ -66,9 +72,25 @@ let cpuTelemetryState: RuntimeCpuTelemetryState = {
   bucketEmptyTicks: 0,
   overLimitTicks: 0
 };
+let runtimeCpuBudgetCache: RuntimeCpuBudgetCache | null = null;
 
-export function getRuntimeCpuBudget(game: RuntimeGameLike | undefined = getRuntimeGame()): RuntimeCpuBudget {
-  return buildRuntimeCpuBudget(readRuntimeCpuSample(game));
+export function getRuntimeCpuBudget(game?: RuntimeGameLike): RuntimeCpuBudget {
+  const runtimeGame = game ?? getRuntimeGame();
+  const tick = normalizeTick(runtimeGame?.time);
+  const shouldUseCache = game === undefined && runtimeGame !== undefined && tick > 0;
+  if (
+    shouldUseCache &&
+    runtimeCpuBudgetCache?.game === runtimeGame &&
+    runtimeCpuBudgetCache.tick === tick
+  ) {
+    return runtimeCpuBudgetCache.budget;
+  }
+
+  const budget = buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
+  if (shouldUseCache) {
+    runtimeCpuBudgetCache = { game: runtimeGame, tick: budget.tick, budget };
+  }
+  return budget;
 }
 
 export function buildRuntimeCpuBudget(sample: RuntimeCpuSample): RuntimeCpuBudget {
@@ -194,6 +216,7 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
     bucketEmptyTicks: 0,
     overLimitTicks: 0
   };
+  runtimeCpuBudgetCache = null;
 }
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {
