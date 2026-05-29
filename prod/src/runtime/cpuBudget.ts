@@ -67,8 +67,9 @@ let cpuTelemetryState: RuntimeCpuTelemetryState = {
   overLimitTicks: 0
 };
 
-export function getRuntimeCpuBudget(game: RuntimeGameLike | undefined = getRuntimeGame()): RuntimeCpuBudget {
-  return buildRuntimeCpuBudget(readRuntimeCpuSample(game));
+export function getRuntimeCpuBudget(game?: RuntimeGameLike): RuntimeCpuBudget {
+  const runtimeGame = game ?? getRuntimeGame();
+  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
 }
 
 export function buildRuntimeCpuBudget(sample: RuntimeCpuSample): RuntimeCpuBudget {
@@ -185,7 +186,7 @@ export function shouldRunOptionalCpuRoomWork(
 }
 
 export function shouldThrottleRuntimeSummaryCadence(budget: RuntimeCpuBudget): boolean {
-  return budget.lowCpuLimit;
+  return budget.degraded;
 }
 
 export function resetRuntimeCpuTelemetryForTesting(): void {

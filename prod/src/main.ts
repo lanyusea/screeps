@@ -45,7 +45,6 @@ const recentKpiWindows: KpiWindowHistory = {};
 const baselineKpiWindows: KpiWindowHistory = {};
 
 export function loop(): void {
-  const cpuBudget = getRuntimeCpuBudget();
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
   const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled =
@@ -74,7 +73,7 @@ export function loop(): void {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  if (!cpuBudget.degraded) {
+  if (!getRuntimeCpuBudget().degraded) {
     strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
   }
 }

@@ -100,6 +100,321 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('keeps an executable assigned harvest under critical CPU bucket without full task reselection', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([{ id: 'source2' }])
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(room.find).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+  });
+
+  it.each(['claim', 'reserve'] as const)(
+    'drops a retained visible %s task under critical CPU when the home room fails the territory gate',
+    (action) => {
+      const controller = { id: 'controller2', my: false } as StructureController;
+      const homeRoom = {
+        name: 'W1N1',
+        controller: { id: 'controller1', my: true, level: 4, owner: { username: 'me' } },
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const targetRoom = {
+        name: 'W2N1',
+        controller,
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const claimController = jest.fn().mockReturnValue(0);
+      const reserveController = jest.fn().mockReturnValue(0);
+      const attackController = jest.fn().mockReturnValue(0);
+      const creep = {
+        name: 'Worker1',
+        owner: { username: 'me' },
+        memory: {
+          role: 'worker',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action },
+          task: { type: action, targetId: 'controller2' as Id<StructureController> }
+        },
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        },
+        room: targetRoom,
+        claimController,
+        reserveController,
+        attackController,
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { Worker1: creep },
+        rooms: { W1N1: homeRoom, W2N1: targetRoom },
+        time: 127,
+        cpu: {
+          getUsed: jest.fn().mockReturnValue(21),
+          limit: 70,
+          bucket: 43,
+          tickLimit: 500
+        } as unknown as CPU,
+        getObjectById: jest.fn((id: string) =>
+          id === 'controller2' ? controller : null
+        ) as unknown as Game['getObjectById']
+      };
+
+      runWorker(creep);
+
+      expect(creep.memory.task).toBeUndefined();
+      expect(creep.memory.territory).toBeUndefined();
+      expect(claimController).not.toHaveBeenCalled();
+      expect(reserveController).not.toHaveBeenCalled();
+      expect(attackController).not.toHaveBeenCalled();
+      expect(creep.moveTo).not.toHaveBeenCalled();
+      expect(Memory.territory?.intents).toEqual([
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action,
+          status: 'suppressed',
+          updatedAt: 127,
+          reason: 'controllerLevel'
+        }
+      ]);
+    }
+  );
+
+  it.each(['claim', 'reserve'] as const)(
+    'preserves a retained %s task under critical CPU when target lookup is temporarily unavailable',
+    (action) => {
+      const controller = { id: 'controller2', my: false } as StructureController;
+      const room = {
+        name: 'W2N1',
+        controller,
+        find: jest.fn().mockReturnValue([])
+      } as unknown as Room;
+      const claimController = jest.fn();
+      const reserveController = jest.fn();
+      const attackController = jest.fn();
+      const moveTo = jest.fn();
+      const creep = {
+        name: 'Worker1',
+        owner: { username: 'me' },
+        memory: {
+          role: 'worker',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action },
+          task: { type: action, targetId: 'controller2' as Id<StructureController> }
+        },
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(0)
+        },
+        room,
+        claimController,
+        reserveController,
+        attackController,
+        moveTo
+      } as unknown as Creep;
+      const getObjectById = jest.fn().mockReturnValue(null);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        creeps: { Worker1: creep },
+        rooms: { W2N1: room },
+        time: 128,
+        cpu: {
+          getUsed: jest.fn().mockReturnValue(21),
+          limit: 70,
+          bucket: 43,
+          tickLimit: 500
+        } as unknown as CPU,
+        getObjectById
+      };
+
+      runWorker(creep);
+
+      expect(getObjectById).toHaveBeenCalledWith('controller2');
+      expect(creep.memory.task).toEqual({ type: action, targetId: 'controller2' });
+      expect(claimController).not.toHaveBeenCalled();
+      expect(reserveController).not.toHaveBeenCalled();
+      expect(attackController).not.toHaveBeenCalled();
+      expect(moveTo).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preempts loaded critical CPU harvest for emergency spawn refill', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === FIND_SOURCES ? [source] : [];
+        }
+      )
+    } as unknown as Room;
+    const harvest = jest.fn();
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(20)
+      },
+      room,
+      harvest,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 124,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : source)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(harvest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      taskName: 'build',
+      task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
+      target: { id: 'site1', structureType: 'road' } as ConstructionSite,
+      action: 'build'
+    },
+    {
+      taskName: 'repair',
+      task: { type: 'repair', targetId: 'road1' as Id<Structure> },
+      target: { id: 'road1', structureType: 'road', hits: 100, hitsMax: 5_000 } as StructureRoad,
+      action: 'repair'
+    },
+    {
+      taskName: 'upgrade',
+      task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> },
+      target: {
+        id: 'controller1',
+        my: true,
+        level: 2,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      action: 'upgradeController'
+    }
+  ])('preempts loaded critical CPU $taskName for emergency spawn refill', ({ task, target, action }) => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(101)
+      }
+    } as unknown as StructureSpawn;
+    const taskAction = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      controller: task.type === 'upgrade' ? target : undefined,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return task.type === 'build' ? [target] : [];
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer,
+      [action]: taskAction,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 126,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : target)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(taskAction).not.toHaveBeenCalled();
+  });
+
   it('moves to collect a score target at exact range without pickup', () => {
     const score = makeScoreTarget('score1');
     const pickup = jest.fn();
@@ -585,6 +900,67 @@ describe('runWorker', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.signController).not.toHaveBeenCalled();
+  });
+
+  it('preempts an assigned controller sign for recovery under critical CPU bucket', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(190), getFreeCapacity: jest.fn().mockReturnValue(110) }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      sign: { username: 'enemy', text: 'not ours', time: 10, datetime: '2026-05-08T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const room = {
+      name: 'E29N55',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 550,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'E29N55', task: { type: 'signController', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 125,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
       getObjectById: jest.fn((id: string) => (id === 'source1' ? source : controller))
     };
 
@@ -4947,6 +5323,64 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension1' });
     expect(creep.transfer).toHaveBeenCalledWith(extension, 'energy');
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('preempts retained tower transfer work for emergency spawn refill under critical CPU', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const tower = {
+      id: 'tower1',
+      structureType: 'tower',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureTower;
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'tower1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        name: 'W1N1',
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureTower) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            const structures = [spawn, tower];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      },
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      time: 780,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'tower1' ? tower : spawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.transfer).not.toHaveBeenCalledWith(tower, 'energy');
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
