@@ -5289,9 +5289,11 @@ def _select_multi_tier_activation_target_room(
     parameters = _strategy_variant_parameters(strategy_variant)
     kill_weight = _numeric_strategy_parameter(parameters, "killSignalWeight")
     risk_penalty = _numeric_strategy_parameter(parameters, "riskPenalty")
+    kill_val = kill_weight if kill_weight is not None else 0.0
+    risk_val = risk_penalty if risk_penalty is not None else 0.0
     hostile_candidates = [candidate for candidate in candidates if candidate[0] > 0]
     neutral_candidates = [candidate for candidate in candidates if candidate[0] <= 0]
-    should_take_combat_target = (kill_weight >= 5.0 and risk_penalty <= 5.0) or not neutral_candidates
+    should_take_combat_target = (kill_val >= 5.0 and risk_val <= 5.0) or not neutral_candidates
     if hostile_candidates and should_take_combat_target:
         _, room_name, summary = hostile_candidates[0]
         return room_name, summary

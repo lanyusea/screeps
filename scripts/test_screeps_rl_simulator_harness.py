@@ -1605,6 +1605,52 @@ cli:
         self.assertTrue(territory_metrics["finalRoomStates"]["E1S2"]["controller"]["my"])
         self.assertEqual(territory_metrics["policyActivation"]["projectedTerritoryDelta"], 2)
 
+    def test_v1_activation_defaults_missing_or_null_combat_weights_to_zero(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+            {"tick": 2, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+
+        variants = {
+            "missing": {
+                "id": "construction-priority.pg.missing-combat-weights.v1",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 22,
+                },
+            },
+            "null": {
+                "id": "construction-priority.pg.null-combat-weights.v1",
+                "parameters": {
+                    "baseScoreWeight": 1,
+                    "territorySignalWeight": 22,
+                    "killSignalWeight": None,
+                    "riskPenalty": None,
+                },
+            },
+        }
+
+        for label, variant in variants.items():
+            with self.subTest(label=label):
+                activation = harness.build_multi_tier_policy_activation_evidence(
+                    copy.deepcopy(tick_log),
+                    variant,
+                    fixture_summaries,
+                    anchor_room="E1S1",
+                    allow_offline_projection=True,
+                )
+
+                self.assertIsNotNone(activation)
+                assert activation is not None
+                self.assertEqual(activation["targetRoom"], "E1S2")
+                self.assertEqual(activation["executionAction"], "claim-controller")
+                self.assertEqual(activation["parameters"]["killSignalWeight"], 0.0)
+                self.assertEqual(activation["parameters"]["riskPenalty"], 0.0)
+
     def test_inline_strategy_variant_config_overrides_registry_fallback(self) -> None:
         config = harness.strategy_variant_config_by_id(
             "construction-priority.pg.territory-seed.v1",
