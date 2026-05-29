@@ -6211,11 +6211,16 @@ cli:
         serializable_summary = {"placeSpawn": summary}
         encoded = json.dumps(serializable_summary, sort_keys=True)
         self.assertIn('"recovered": true', encoded)
-        harness.assert_no_secret_leak(serializable_summary, [])
+        self.assertNotIn("busy-token", encoded)
+        self.assertNotIn("placed-token", encoded)
+        harness.assert_no_secret_leak(serializable_summary, ["busy-token", "placed-token"])
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "summary.json"
             harness.write_json_atomic(output_path, serializable_summary)
             written = read_json(output_path)
+        written_text = json.dumps(written, sort_keys=True)
+        self.assertNotIn("busy-token", written_text)
+        self.assertNotIn("placed-token", written_text)
         self.assertEqual(written["placeSpawn"]["retry"]["attempts"][1]["classification"], "ok")
 
     def test_place_spawn_retry_reports_persistent_room_busy_with_no_rerun_guidance(self) -> None:
@@ -6700,6 +6705,13 @@ cli:
         self.assertEqual(result["placeSpawn"]["maxAttempts"], harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS)
         self.assertEqual(len(result["placeSpawn"]["attempts"]), harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS)
         self.assertIn("do not rerun paid validation unchanged", result["placeSpawn"]["nextAction"])
+        busy_tokens = [f"busy-{attempt}" for attempt in range(1, harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS + 1)]
+        result_text = json.dumps(result, sort_keys=True)
+        place_spawn_text = json.dumps(result["placeSpawn"], sort_keys=True)
+        for token in busy_tokens:
+            self.assertNotIn(token, result_text)
+            self.assertNotIn(token, place_spawn_text)
+        harness.assert_no_secret_leak(result["placeSpawn"], busy_tokens)
 
     def test_compose_setup_retry_recovers_transient_image_pull_failure(self) -> None:
         class FakeSmoke:
