@@ -5357,11 +5357,25 @@ def attach_runtime_parameter_objective_target(
     injection: JsonObject,
     fixture_room_summaries: dict[str, JsonObject],
     *,
+    strategy_variant: Mapping[str, Any] | None = None,
     anchor_room: str | None = None,
 ) -> JsonObject:
     if injection.get("candidateParameterScope") != "runtime_injected":
         return injection
-    target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
+    target_strategy: Mapping[str, Any] | None = strategy_variant
+    if target_strategy is None and isinstance(injection.get("parameters"), dict):
+        target_strategy = {
+            "id": injection.get("strategyVariantId"),
+            "parameters": injection.get("parameters"),
+        }
+    if target_strategy is not None and _strategy_variant_parameters(dict(target_strategy)):
+        target = _select_multi_tier_activation_target_room(
+            dict(target_strategy),
+            fixture_room_summaries,
+            anchor_room=anchor_room,
+        )
+    else:
+        target = _select_multi_tier_target_room(fixture_room_summaries, anchor_room=anchor_room)
     if target is None:
         return injection
     target_room, target_summary = target
@@ -6124,6 +6138,7 @@ def _run_variant(
         runtime_parameter_injection = attach_runtime_parameter_objective_target(
             runtime_parameter_injection,
             fixture_room_summaries,
+            strategy_variant=strategy_variant,
             anchor_room=room,
         )
         _debug_worker_phase(worker_index, variant_id, "after prepare_map", map_path=str(scenario_map_source_file))

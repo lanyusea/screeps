@@ -1422,6 +1422,46 @@ cli:
         self.assertFalse(attached["officialMmoWrites"])
         self.assertFalse(attached["officialMmoWritesAllowed"])
 
+    def test_runtime_parameter_injection_uses_strategy_aware_multi_tier_target(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        strategy_variant = {
+            "id": "construction-priority.pg.risk-aware-seed.v1",
+            "family": "construction-priority",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 18,
+                "resourceSignalWeight": 5,
+                "killSignalWeight": 6,
+                "riskPenalty": 10,
+            },
+        }
+        injection = harness.runtime_parameter_injection_for_variant(
+            strategy_variant["id"],
+            strategy_variant,
+        )
+        activation = harness.select_multi_tier_policy_activation(
+            strategy_variant,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        attached = harness.attach_runtime_parameter_objective_target(
+            injection,
+            fixture_summaries,
+            anchor_room="E1S1",
+        )
+
+        self.assertIsNotNone(activation)
+        assert activation is not None
+        self.assertEqual(activation["targetRoom"], "E1S2")
+        self.assertEqual(activation["executionAction"], "claim-controller")
+        self.assertEqual(attached["objectiveTargetRoom"], activation["targetRoom"])
+        self.assertEqual(attached["objectiveAnchorRoom"], "E1S1")
+        self.assertEqual(attached["objectiveHostileCreepCount"], 0)
+        self.assertEqual(attached["objectiveHostileStructureCount"], 0)
+        self.assertEqual(attached["objectiveSignalSource"], "multi_tier_map_fixture")
+
     def test_multi_tier_policy_activation_projection_preserves_explicit_zero_metrics(self) -> None:
         activation = {
             "type": "screeps-rl-multi-tier-policy-activation",
