@@ -757,6 +757,188 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(trigger["metadata"]["metric"], "cpu.bucket")
         self.assertEqual(trigger["metadata"]["thresholds"], {"P0": 100, "P1": 1000})
 
+    def test_compact_cpu_summary_alerts_health_gate_and_tactical_response(self) -> None:
+        old_room_payload = {
+            "type": "runtime-summary",
+            "tick": 1190,
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 1, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                }
+            ],
+        }
+        compact_cpu_payload = {
+            "used": 30.14,
+            "limit": 70,
+            "bucket": 0,
+            "pressure": "critical",
+            "alerts": ["lowBucket"],
+            "reasons": ["criticalBucket"],
+            "lowBucketTicks": 4,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260529T001000Z.log").write_text(
+                "#runtime-summary " + json.dumps(old_room_payload) + "\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "runtime-summary-console-20260529T001418Z.log").write_text(
+                "#cpu-summary " + json.dumps(compact_cpu_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E26S49")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E26S49"]
+        self.assertEqual(runtime_room["room"], "shardX/E26S49")
+        self.assertEqual(runtime_room["cpuBucket"], 0)
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["pressure"], "critical")
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["reasons"], ["criticalBucket"])
+
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_CRITICAL_KIND])
+        self.assertEqual(emitted[0]["priority"], "P0")
+        self.assertEqual(emitted[0]["severity"], "critical")
+        self.assertEqual(emitted[0]["cpuBucket"], 0)
+
+        alert_payload = {
+            "ok": True,
+            "mode": "alert",
+            "alert": True,
+            "reasons": emitted,
+            "rooms": ["shardX/E26S49"],
+        }
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                    }
+                ],
+            },
+            alert_payload,
+        )
+
+        self.assertFalse(health["ok"])
+        active_alert = next(reason for reason in health["reasons"] if reason["kind"] == "postdeploy_active_alert")
+        self.assertEqual(active_alert["source"]["kind"], monitor.CPU_BUCKET_CRITICAL_KIND)
+
+        report = monitor.build_tactical_response_report(alert_payload)
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertEqual(report["categories"], [monitor.CPU_BUCKET_CRITICAL_KIND])
+
+    def test_compact_cpu_summary_healthy_malformed_or_missing_stays_silent(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        cases = (
+            ("healthy", "#cpu-summary " + json.dumps({"used": 6.5, "bucket": 9000, "pressure": "normal"}) + "\n"),
+            ("malformed", "#cpu-summary {bad json\n"),
+            ("missing", ""),
+        )
+
+        for name, content in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    runtime_dir = Path(temp_dir)
+                    if content:
+                        (runtime_dir / "runtime-summary-console-20260529T001418Z.log").write_text(
+                            content,
+                            encoding="utf-8",
+                        )
+                    warnings: list[str] = []
+                    runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                        runtime_dir,
+                        [monitor.RoomRef(shard="shardX", room="E26S49")],
+                        warnings,
+                    )
+
+                self.assertEqual(warnings, [])
+                runtime_room = runtime_rooms.get("shardX/E26S49")
+                if name == "healthy":
+                    self.assertIsNotNone(runtime_room)
+                    assert runtime_room is not None
+                    self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["bucket"], 9000)
+                else:
+                    self.assertIsNone(runtime_room)
+
+                emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+                    snapshot,
+                    {"baseline_established": True, "owner": "owner"},
+                    now=100,
+                    debounce_seconds=300,
+                    runtime_room_summary=runtime_room,
+                )
+
+                self.assertEqual(suppressed, [])
+                self.assertNotIn(monitor.CPU_BUCKET_CRITICAL_KIND, [reason["kind"] for reason in emitted])
+                self.assertNotIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in emitted])
+
     def test_cpu_bucket_low_runtime_summary_alerts_as_p1(self) -> None:
         snapshot = make_snapshot(
             {

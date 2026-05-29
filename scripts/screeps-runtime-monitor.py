@@ -49,6 +49,7 @@ RAMPART_SAFE_DECAY_HITS_FLOOR = 10_000
 RAMPART_CRITICAL_DAMAGE_DELTA = 5_000
 RAMPART_CRITICAL_DAMAGE_HITS_CEILING = 121_000
 RUNTIME_SUMMARY_PREFIX = "#runtime-summary "
+RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary "
 WORKER_IDLE_COLLAPSE_KIND = "worker_idle_collapse"
 WORKER_IDLE_COLLAPSE_TICK_THRESHOLD = 20
 WORKER_IDLE_COLLAPSE_REQUIRED_CONSECUTIVE = 2
@@ -3722,6 +3723,23 @@ def parse_runtime_summary_line(line: str) -> dict[str, Any] | None:
     return None
 
 
+def parse_runtime_cpu_summary_line(line: str) -> dict[str, Any] | None:
+    stripped = line.strip()
+    if not stripped.startswith(RUNTIME_CPU_SUMMARY_PREFIX):
+        return None
+    try:
+        cpu = json.loads(html.unescape(stripped[len(RUNTIME_CPU_SUMMARY_PREFIX) :]))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(cpu, dict):
+        return None
+
+    payload = {"type": "runtime-cpu-summary", "cpu": cpu}
+    if not runtime_summary_payload_has_cpu_fields(payload):
+        return None
+    return payload
+
+
 def payload_runtime_rooms(payload: dict[str, Any]) -> list[dict[str, Any]]:
     rooms = payload.get("rooms")
     if not isinstance(rooms, list):
@@ -3753,6 +3771,19 @@ def runtime_summary_log_paths(runtime_summary_dir: Path) -> list[Path]:
 
 def runtime_summary_payload_tick(payload: dict[str, Any]) -> int | None:
     return tick_number(payload.get("tick"))
+
+
+def runtime_summary_freshness_key(payload: dict[str, Any], path: Path, line_index: int) -> tuple[bool, float, int, bool, int, str]:
+    tick = runtime_summary_payload_tick(payload)
+    timestamp = runtime_summary_artifact_timestamp(path)
+    return (
+        timestamp is not None,
+        timestamp if timestamp is not None else -1.0,
+        line_index,
+        tick is not None,
+        tick if tick is not None else -1,
+        str(path),
+    )
 
 
 def runtime_summary_candidate_key(
@@ -3794,6 +3825,17 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
     return result
 
 
+def runtime_cpu_summary_room(ref: RoomRef, cpu: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {"room": ref.key, "roomName": ref.room, "shard": ref.shard}
+    used = number_value(cpu.get("used"))
+    if used is not None:
+        result["cpuUsed"] = used
+    bucket = number_value(cpu.get("bucket"))
+    if bucket is not None:
+        result["cpuBucket"] = bucket
+    return result
+
+
 def load_latest_runtime_room_summaries(
     runtime_summary_dir: Path,
     refs: list[RoomRef],
@@ -3812,6 +3854,8 @@ def load_latest_runtime_room_summaries(
     ambiguous_room_names = ambiguous_runtime_room_names([*refs, *(disambiguation_refs or [])])
     result: dict[str, dict[str, Any]] = {}
     result_keys: dict[str, tuple[bool, int, bool, float, int, int, str]] = {}
+    result_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
+    compact_cpu_result_keys: set[str] = set()
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -3820,6 +3864,20 @@ def load_latest_runtime_room_summaries(
             continue
 
         for line_index, line in reversed(list(enumerate(lines))):
+            cpu_payload = parse_runtime_cpu_summary_line(line)
+            if cpu_payload is not None:
+                cpu = as_dict(cpu_payload.get("cpu"))
+                candidate_freshness_key = runtime_summary_freshness_key(cpu_payload, path, line_index)
+                for ref in refs:
+                    if candidate_freshness_key <= result_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
+                        continue
+                    room = runtime_cpu_summary_room(ref, cpu)
+                    result[ref.key] = runtime_summary_room_with_metadata(cpu_payload, path, room)
+                    result_keys[ref.key] = runtime_summary_candidate_key(cpu_payload, path, line_index, room)
+                    result_freshness_keys[ref.key] = candidate_freshness_key
+                    compact_cpu_result_keys.add(ref.key)
+                continue
+
             payload = parse_runtime_summary_line(line)
             if payload is None:
                 continue
@@ -3837,10 +3895,16 @@ def load_latest_runtime_room_summaries(
                     ):
                         continue
                     candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
-                    if candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
+                    candidate_freshness_key = runtime_summary_freshness_key(payload, path, line_index)
+                    if ref.key in compact_cpu_result_keys:
+                        if candidate_freshness_key <= result_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
+                            continue
+                    elif candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
                         continue
                     result[ref.key] = runtime_summary_room_with_metadata(payload, path, room)
                     result_keys[ref.key] = candidate_key
+                    result_freshness_keys[ref.key] = candidate_freshness_key
+                    compact_cpu_result_keys.discard(ref.key)
                     break
 
     return result
