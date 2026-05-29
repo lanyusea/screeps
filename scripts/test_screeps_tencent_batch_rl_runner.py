@@ -589,6 +589,121 @@ def write_tencent_guard_summary(
     return summary_path
 
 
+def write_tencent_failure_summary(
+    artifact_root: Path,
+    run_id: str,
+    *,
+    failure_text: str | None = None,
+    failure_class: str | None = runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+) -> Path:
+    run_dir = artifact_root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    stderr_tail = failure_text or (
+        "pre-scale private-simulator trainability smoke gate failed: "
+        "place-spawn room busy after 12 attempt(s): "
+        '{"classification": "place_spawn_room_busy"}'
+    )
+    remote_failure: dict[str, object] = {
+        "status": "failed_exit",
+        "retryable": False,
+        "returncode": 2,
+        "artifactDir": str(run_dir / "remote"),
+        "diagnostics": {
+            "training-stderr.log": {
+                "path": str(run_dir / "remote" / "training-stderr.log"),
+                "bytes": len(stderr_tail),
+                "tail": stderr_tail,
+            }
+        },
+    }
+    if failure_class is not None:
+        remote_failure["failureClass"] = failure_class
+    summary = {
+        "type": "screeps-tencent-batch-rl-run",
+        "schemaVersion": 1,
+        "runId": run_id,
+        "startedAt": "2026-05-29T19:45:03Z",
+        "finishedAt": "2026-05-29T19:47:03Z",
+        "partial": False,
+        "finalStatus": "failed",
+        "execution": {
+            "command": "run-single",
+            "mode": "compute",
+            "preflightOnly": False,
+            "computeAttempted": True,
+            "scaleOutAttempted": True,
+            "remoteTrainingAttempted": True,
+            "trainingReportProduced": False,
+            "environmentsRun": 0,
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "billingGuardBeforeScale": True,
+            "scaleDownAttempted": True,
+            "secretsPrinted": False,
+        },
+        "outputs": {
+            "error": f"BatchRunError: remote_training failed with exit 2: training-stderr.log: {stderr_tail}",
+            "remoteTrainingFailure": remote_failure,
+        },
+        "steps": [
+            {
+                "name": "remote_training",
+                "ok": False,
+                "returncode": 2,
+                "stdout_tail": "",
+                "stderr_tail": stderr_tail,
+                "detail": {"argv": ["ssh", "worker"]},
+            },
+            {
+                "name": "scale_down",
+                "ok": True,
+                "returncode": 0,
+                "stdout_tail": "{}",
+                "stderr_tail": "",
+                "detail": {"desiredCapacity": 0},
+            },
+        ],
+    }
+    summary_path = run_dir / "controller-summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
+def write_paid_failure_recurrence_skipped_summary(artifact_root: Path, run_id: str) -> Path:
+    run_dir = artifact_root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "type": "screeps-tencent-batch-rl-run",
+        "schemaVersion": 1,
+        "runId": run_id,
+        "startedAt": "2026-05-29T20:00:03Z",
+        "finishedAt": "2026-05-29T20:00:04Z",
+        "partial": False,
+        "finalStatus": runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS,
+        "execution": {
+            "command": "run-single",
+            "mode": "compute",
+            "preflightOnly": False,
+            "computeAttempted": False,
+            "scaleOutAttempted": False,
+            "remoteTrainingAttempted": False,
+        },
+        "outputs": {
+            "launchGuard": {
+                "status": "blocked",
+                "activeGuard": "paid_failure_recurrence_guard",
+                "activeSignature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            }
+        },
+    }
+    summary_path = run_dir / "controller-summary.json"
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
 def strip_tencent_guard_location_evidence(summary_path: Path) -> None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     training_report = summary["outputs"]["trainingReport"]
@@ -640,6 +755,83 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             def scale_up_and_wait(self) -> None:
                 events.append("scale_up")
+
+        controller = FakeController(args=args, run_id=args.run_id, artifact_dir=artifact_dir)
+        with mock.patch.object(runner, "validate_static_inputs", return_value=None):
+            controller.run()
+        guard = json.loads((artifact_dir / "launch_guard.json").read_text(encoding="utf-8"))
+        summary = json.loads((artifact_dir / "controller-summary.json").read_text(encoding="utf-8"))
+        return events, controller, guard, summary
+
+    def run_stubbed_compute(
+        self,
+        args: argparse.Namespace,
+        artifact_dir: Path,
+    ) -> tuple[list[str], runner.Controller, dict[str, object], dict[str, object]]:
+        events: list[str] = []
+
+        class FakeController(runner.Controller):
+            def ensure_map_present(self) -> None:
+                events.append("map")
+
+            def ensure_dist_present(self) -> None:
+                events.append("dist")
+
+            def run_billing_guard(self) -> None:
+                events.append("billing")
+
+            def verify_security_group(self) -> None:
+                events.append("security_group")
+
+            def generate_experiment_card(self) -> None:
+                events.append("experiment_card")
+
+            def scale_up_and_wait(self) -> None:
+                events.append("scale_up")
+                self.scaled_up = True
+                self.instance_id = "ins-test"
+                self.public_ip = "203.0.113.10"
+                self.record_step("scale_up", 100.0, True, desiredCapacity=1)
+
+            def verify_worker_security(self) -> None:
+                events.append("worker_security")
+
+            def bootstrap_worker(self) -> None:
+                events.append("bootstrap")
+
+            def transfer_repo_bundle(self) -> None:
+                events.append("repo_bundle")
+
+            def transfer_secret_env(self) -> None:
+                events.append("secret_env")
+
+            def run_remote_training(self) -> None:
+                events.append("remote_training")
+                self.record_step("remote_training", 101.0, True, reportId=self.run_id)
+
+            def collect_remote_artifacts(self) -> None:
+                events.append("collect_artifacts")
+
+            def verify_remote_training_report(self) -> None:
+                events.append("verify_training_report")
+                self.result["trainingReport"] = {
+                    "path": str(self.artifact_dir / "remote" / "runtime-artifacts" / "rl-training" / f"{self.run_id}.json"),
+                    "reportId": self.run_id,
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "artifactCount": 5,
+                    "scaleValidation": {
+                        "ok": True,
+                        "totalEnvironments": 5,
+                        "successfulEnvironments": 5,
+                        "minimumSuccessfulEnvironments": 4,
+                    },
+                }
+
+            def scale_down(self) -> None:
+                events.append("scale_down")
+                self.record_step("scale_down", 102.0, True, desiredCapacity=0)
 
         controller = FakeController(args=args, run_id=args.run_id, artifact_dir=artifact_dir)
         with mock.patch.object(runner, "validate_static_inputs", return_value=None):
@@ -3379,6 +3571,156 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileTowerCount"], 1)
         self.assertEqual(guard["evidence"]["count"], 0)
 
+    def test_paid_failure_recurrence_guard_extracts_room_busy_signature_from_summary_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            summary_path = write_tencent_failure_summary(
+                artifact_root,
+                "tencent-pg-room-busy",
+                failure_class=None,
+                failure_text=(
+                    "pre-scale private-simulator trainability smoke gate failed: "
+                    "place-spawn room busy after 12 attempt(s): "
+                    '{"classification": "place_spawn_room_busy"}'
+                ),
+            )
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+            evidence = runner.paid_failure_recurrence_evidence_from_summary(summary, summary_path)
+
+        assert evidence is not None
+        self.assertEqual(evidence["signature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertEqual(evidence["reason"], "place-spawn room busy")
+        self.assertEqual(evidence["matchedBy"], "controller-summary diagnostic text")
+        self.assertIn("place-spawn room busy after 12 attempt", evidence["diagnosticExcerpt"])
+
+    def test_paid_failure_recurrence_guard_allows_dispatch_below_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD - 1):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertFalse(guard["blocked"])
+        self.assertEqual(guard["checks"]["paidFailureRecurrence"]["status"], "clear")
+        self.assertEqual(
+            guard["checks"]["paidFailureRecurrence"]["evidence"]["count"],
+            runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD - 1,
+        )
+        self.assertEqual(controller.final_status, "completed")
+        self.assertEqual(summary["finalStatus"], "completed")
+        self.assertIn("scale_up", events)
+        self.assertTrue(summary["execution"]["scaleOutAttempted"])
+
+    def test_paid_failure_recurrence_guard_blocks_room_busy_threshold_before_compute(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["activeGuard"], "paid_failure_recurrence_guard")
+        self.assertEqual(guard["status"], "blocked")
+        self.assertEqual(guard["evidence"]["activeSignature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertEqual(guard["evidence"]["count"], runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+        self.assertIn("#1506", guard["nextAction"])
+        self.assertIn("#1501", guard["nextAction"])
+        self.assertIn("#1504", guard["nextAction"])
+        self.assertIn("simulator_place_spawn_room_busy", guard["reason"])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertEqual(summary["finalStatus"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertEqual(summary["outputs"]["launchGuard"]["activeSignature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertFalse(summary["execution"]["computeAttempted"])
+        self.assertFalse(summary["execution"]["scaleOutAttempted"])
+        self.assertFalse(summary["safety"]["scaleDownAttempted"])
+
+    def test_paid_failure_recurrence_guard_scans_past_newer_skipped_guard_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            failure_paths = [
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+                for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+            ]
+            skipped_paths = [
+                write_paid_failure_recurrence_skipped_summary(
+                    artifact_root,
+                    f"tencent-pg-skipped-guard-{index}",
+                )
+                for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT)
+            ]
+            for index, summary_path in enumerate(failure_paths):
+                timestamp = 1_700_000_000 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            for index, summary_path in enumerate(skipped_paths):
+                timestamp = 1_700_000_100 + index
+                os.utime(summary_path, (timestamp, timestamp))
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+            ])
+
+            guard = runner.build_paid_failure_recurrence_launch_guard(
+                args=args,
+                run_id="new-run",
+                artifact_dir=artifact_root / "new-run",
+            )
+
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], "blocked")
+        self.assertEqual(guard["evidence"]["activeSignature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertEqual(guard["evidence"]["count"], runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)
+        self.assertEqual(
+            {item["runId"] for item in guard["evidence"]["runs"]},
+            {f"tencent-pg-room-busy-{index}" for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD)},
+        )
+
     def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_without_repeat_guard(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
@@ -5755,6 +6097,35 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         payload = json.loads(stderr.getvalue())
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "completed_scale_down_failed")
+
+    def test_main_exits_nonzero_when_paid_failure_recurrence_guard_blocks(self) -> None:
+        class FakeController:
+            def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:
+                self.args = args
+                self.run_id = run_id
+                self.artifact_dir = artifact_dir
+                self.final_status = "unknown"
+                self.result = {"launchGuard": {"status": "blocked", "activeGuard": "paid_failure_recurrence_guard"}}
+
+            def run(self) -> None:
+                self.final_status = runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(runner, "Controller", FakeController),
+            mock.patch.object(runner.sys, "stdout", stdout),
+            mock.patch.object(runner.sys, "stderr", stderr),
+        ):
+            exit_code = runner.main(["run-single", "--run-id", "run-test", "--artifact-root", temp_dir])
+
+        self.assertEqual(exit_code, 4)
+        self.assertEqual(stdout.getvalue(), "")
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertEqual(payload["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
 
     def test_bootstrap_worker_uses_configured_worker_user(self) -> None:
         args = controller_args()
