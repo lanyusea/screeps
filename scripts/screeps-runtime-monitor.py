@@ -3830,9 +3830,42 @@ def runtime_cpu_summary_room(ref: RoomRef, cpu: dict[str, Any]) -> dict[str, Any
     used = number_value(cpu.get("used"))
     if used is not None:
         result["cpuUsed"] = used
+    limit = number_value(cpu.get("limit"))
+    if limit is not None:
+        result["cpuLimit"] = limit
     bucket = number_value(cpu.get("bucket"))
     if bucket is not None:
         result["cpuBucket"] = bucket
+    low_bucket_ticks = number_value(cpu.get("lowBucketTicks"))
+    if low_bucket_ticks is not None:
+        result["lowBucketTicks"] = low_bucket_ticks
+    return result
+
+
+def runtime_summary_room_with_cpu_fields(base: dict[str, Any], cpu_room: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for field in ("room", "roomName", "shard"):
+        if field not in result and field in cpu_room:
+            result[field] = cpu_room[field]
+    cpu_metadata = as_dict(cpu_room.get(RUNTIME_SUMMARY_CPU_METADATA_KEY))
+    if cpu_metadata:
+        result[RUNTIME_SUMMARY_CPU_METADATA_KEY] = dict(cpu_metadata)
+    nested_cpu = as_dict(cpu_room.get("cpu"))
+    if nested_cpu:
+        result["cpu"] = dict(nested_cpu)
+    for field in (
+        "cpuBucket",
+        "cpuUsed",
+        "cpuLimit",
+        "lowBucketTicks",
+        "bucketEmptyTicks",
+        "bucket",
+        "pressure",
+        "alerts",
+        "reasons",
+    ):
+        if field in cpu_room:
+            result[field] = cpu_room[field]
     return result
 
 
@@ -3852,10 +3885,11 @@ def load_latest_runtime_room_summaries(
         return {}
 
     ambiguous_room_names = ambiguous_runtime_room_names([*refs, *(disambiguation_refs or [])])
-    result: dict[str, dict[str, Any]] = {}
-    result_keys: dict[str, tuple[bool, int, bool, float, int, int, str]] = {}
-    result_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
-    compact_cpu_result_keys: set[str] = set()
+    runtime_result: dict[str, dict[str, Any]] = {}
+    runtime_result_keys: dict[str, tuple[bool, int, bool, float, int, int, str]] = {}
+    runtime_cpu_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
+    cpu_result: dict[str, dict[str, Any]] = {}
+    cpu_freshness_keys: dict[str, tuple[bool, float, int, bool, int, str]] = {}
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -3864,18 +3898,20 @@ def load_latest_runtime_room_summaries(
             continue
 
         for line_index, line in reversed(list(enumerate(lines))):
+            is_cpu_summary_line = line.strip().startswith(RUNTIME_CPU_SUMMARY_PREFIX)
             cpu_payload = parse_runtime_cpu_summary_line(line)
+            if is_cpu_summary_line and cpu_payload is None:
+                warnings.append(f"runtime-summary artifact ignored malformed #cpu-summary {path.name}:{line_index + 1}")
+                continue
             if cpu_payload is not None:
                 cpu = as_dict(cpu_payload.get("cpu"))
                 candidate_freshness_key = runtime_summary_freshness_key(cpu_payload, path, line_index)
                 for ref in refs:
-                    if candidate_freshness_key <= result_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
+                    if candidate_freshness_key <= cpu_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
                         continue
                     room = runtime_cpu_summary_room(ref, cpu)
-                    result[ref.key] = runtime_summary_room_with_metadata(cpu_payload, path, room)
-                    result_keys[ref.key] = runtime_summary_candidate_key(cpu_payload, path, line_index, room)
-                    result_freshness_keys[ref.key] = candidate_freshness_key
-                    compact_cpu_result_keys.add(ref.key)
+                    cpu_result[ref.key] = runtime_summary_room_with_metadata(cpu_payload, path, room)
+                    cpu_freshness_keys[ref.key] = candidate_freshness_key
                 continue
 
             payload = parse_runtime_summary_line(line)
@@ -3883,6 +3919,7 @@ def load_latest_runtime_room_summaries(
                 continue
             rooms = payload_runtime_rooms(payload)
             payload_explicit_shards_by_room = runtime_summary_explicit_shards_by_room(rooms)
+            candidate_freshness_key = runtime_summary_freshness_key(payload, path, line_index)
             for room in rooms:
                 if not runtime_summary_room_has_monitor_alert_fields(room, payload):
                     continue
@@ -3895,18 +3932,37 @@ def load_latest_runtime_room_summaries(
                     ):
                         continue
                     candidate_key = runtime_summary_candidate_key(payload, path, line_index, room)
-                    candidate_freshness_key = runtime_summary_freshness_key(payload, path, line_index)
-                    if ref.key in compact_cpu_result_keys:
-                        if candidate_freshness_key <= result_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
-                            continue
-                    elif candidate_key <= result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
+                    candidate_room = runtime_summary_room_with_metadata(payload, path, room)
+                    if runtime_summary_room_has_cpu_fields(room) or runtime_summary_payload_has_cpu_fields(payload):
+                        if candidate_freshness_key > cpu_freshness_keys.get(ref.key, (False, -1.0, -1, False, -1, "")):
+                            cpu_result[ref.key] = candidate_room
+                            cpu_freshness_keys[ref.key] = candidate_freshness_key
+                    if candidate_key <= runtime_result_keys.get(ref.key, (False, -1, False, -1.0, -1, -1, "")):
                         continue
-                    result[ref.key] = runtime_summary_room_with_metadata(payload, path, room)
-                    result_keys[ref.key] = candidate_key
-                    result_freshness_keys[ref.key] = candidate_freshness_key
-                    compact_cpu_result_keys.discard(ref.key)
+                    runtime_result[ref.key] = candidate_room
+                    runtime_result_keys[ref.key] = candidate_key
+                    if runtime_summary_room_has_cpu_fields(room) or runtime_summary_payload_has_cpu_fields(payload):
+                        runtime_cpu_freshness_keys[ref.key] = candidate_freshness_key
                     break
 
+    result: dict[str, dict[str, Any]] = {}
+    for ref in refs:
+        runtime_room = runtime_result.get(ref.key)
+        cpu_room = cpu_result.get(ref.key)
+        if runtime_room is None and cpu_room is None:
+            continue
+        if runtime_room is None:
+            result[ref.key] = dict(cpu_room) if cpu_room is not None else {}
+            continue
+        if cpu_room is None:
+            result[ref.key] = dict(runtime_room)
+            continue
+        cpu_key = cpu_freshness_keys.get(ref.key)
+        runtime_cpu_key = runtime_cpu_freshness_keys.get(ref.key)
+        if cpu_key is not None and (runtime_cpu_key is None or cpu_key > runtime_cpu_key):
+            result[ref.key] = runtime_summary_room_with_cpu_fields(runtime_room, cpu_room)
+        else:
+            result[ref.key] = dict(runtime_room)
     return result
 
 
@@ -4781,10 +4837,11 @@ def load_runtime_summary_artifact_rooms(artifact_path: str) -> dict[str, dict[st
         if payload is None:
             continue
         for room in payload_runtime_rooms(payload):
-            if not runtime_summary_room_has_worker_idle_fields(room):
+            if not runtime_summary_room_has_monitor_alert_fields(room, payload):
                 continue
+            runtime_room = runtime_summary_room_with_metadata(payload, Path(artifact_path), room)
             for key in runtime_summary_lookup_keys(room):
-                result.setdefault(key, room)
+                result.setdefault(key, runtime_room)
         if result:
             return result
 
@@ -4815,6 +4872,8 @@ def enrich_room_summaries_from_runtime_artifact(room_summaries: list[Any], artif
             buffer_health = as_dict(runtime_room.get("energyBufferHealth"))
             if buffer_health:
                 room["energyBufferHealth"] = buffer_health
+        if runtime_summary_room_has_cpu_fields(runtime_room) or as_dict(runtime_room.get(RUNTIME_SUMMARY_CPU_METADATA_KEY)):
+            room.update(runtime_summary_room_with_cpu_fields(room, runtime_room))
 
 
 def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:

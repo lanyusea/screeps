@@ -757,6 +757,48 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(trigger["metadata"]["metric"], "cpu.bucket")
         self.assertEqual(trigger["metadata"]["thresholds"], {"P0": 100, "P1": 1000})
 
+    def test_postdeploy_health_gate_enriches_cpu_fields_from_runtime_summary_artifact(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1200,
+            "cpu": {
+                "used": 30.14,
+                "limit": 70,
+                "bucket": 4,
+                "pressure": "critical",
+                "reasons": ["criticalBucket"],
+            },
+            "rooms": [{"roomName": "E26S49", "shard": "shardX", "workerCount": 1}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = Path(temp_dir) / "runtime-summary-monitor-20260529T001418Z.log"
+            artifact.write_text("#runtime-summary " + json.dumps(payload) + "\n", encoding="utf-8")
+
+            health = monitor.evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardX/E26S49",
+                            "owned_creeps": 1,
+                            "owned_spawns": 1,
+                            "creeps": 1,
+                            "spawns": 1,
+                            "owner": "owner",
+                        }
+                    ],
+                    "runtime_summary_artifact": str(artifact),
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": [], "rooms": ["shardX/E26S49"]},
+            )
+
+        self.assertFalse(health["ok"])
+        cpu_reason = next(reason for reason in health["reasons"] if reason["kind"] == monitor.CPU_BUCKET_CRITICAL_KIND)
+        self.assertEqual(cpu_reason["cpuBucket"], 4)
+        self.assertEqual(cpu_reason["pressure"], "critical")
+
     def test_compact_cpu_summary_alerts_health_gate_and_tactical_response(self) -> None:
         old_room_payload = {
             "type": "runtime-summary",
@@ -800,7 +842,10 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(warnings, [])
         runtime_room = runtime_rooms["shardX/E26S49"]
         self.assertEqual(runtime_room["room"], "shardX/E26S49")
+        self.assertEqual(runtime_room["workerCount"], 3)
+        self.assertEqual(runtime_room["taskCounts"]["harvest"], 2)
         self.assertEqual(runtime_room["cpuBucket"], 0)
+        self.assertEqual(runtime_room["cpuLimit"], 70)
         self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["pressure"], "critical")
         self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["reasons"], ["criticalBucket"])
 
@@ -874,6 +919,51 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["priority"], "P0")
         self.assertEqual(report["categories"], [monitor.CPU_BUCKET_CRITICAL_KIND])
 
+    def test_fresh_runtime_summary_cpu_fields_override_stale_compact_cpu_summary(self) -> None:
+        compact_cpu_payload = {
+            "used": 30.14,
+            "limit": 70,
+            "bucket": 0,
+            "pressure": "critical",
+            "reasons": ["criticalBucket"],
+        }
+        runtime_payload = {
+            "type": "runtime-summary",
+            "tick": 1200,
+            "cpu": {"used": 6.5, "limit": 70, "bucket": 9000, "pressure": "normal"},
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 1, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260529T001000Z.log").write_text(
+                "#cpu-summary " + json.dumps(compact_cpu_payload) + "\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "runtime-summary-console-20260529T001418Z.log").write_text(
+                "#runtime-summary " + json.dumps(runtime_payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E26S49")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E26S49"]
+        self.assertEqual(runtime_room["workerCount"], 3)
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["bucket"], 9000)
+        self.assertIsNone(monitor.detect_cpu_bucket_reason(monitor.RoomRef(shard="shardX", room="E26S49"), runtime_room))
+
     def test_compact_cpu_summary_healthy_malformed_or_missing_stays_silent(self) -> None:
         snapshot = make_snapshot(
             {
@@ -897,12 +987,16 @@ class TacticalResponseBridgeTest(unittest.TestCase):
             }
         )
         cases = (
-            ("healthy", "#cpu-summary " + json.dumps({"used": 6.5, "bucket": 9000, "pressure": "normal"}) + "\n"),
-            ("malformed", "#cpu-summary {bad json\n"),
-            ("missing", ""),
+            (
+                "healthy",
+                "#cpu-summary " + json.dumps({"used": 6.5, "bucket": 9000, "pressure": "normal"}) + "\n",
+                False,
+            ),
+            ("malformed", "#cpu-summary {bad json\n", True),
+            ("missing", "", False),
         )
 
-        for name, content in cases:
+        for name, content, expects_warning in cases:
             with self.subTest(name=name):
                 with tempfile.TemporaryDirectory() as temp_dir:
                     runtime_dir = Path(temp_dir)
@@ -918,7 +1012,10 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                         warnings,
                     )
 
-                self.assertEqual(warnings, [])
+                if expects_warning:
+                    self.assertTrue(any("#cpu-summary" in warning for warning in warnings), warnings)
+                else:
+                    self.assertEqual(warnings, [])
                 runtime_room = runtime_rooms.get("shardX/E26S49")
                 if name == "healthy":
                     self.assertIsNotNone(runtime_room)
