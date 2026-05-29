@@ -6149,6 +6149,133 @@ cli:
             "room_busy",
         )
 
+    def test_private_fixture_owner_identity_detects_imported_owned_anchor(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        identity = harness._private_map_fixture_owner_identity(fixture_path, "E1S1")
+
+        self.assertEqual(identity, {"id": "owner", "username": "rl-owner"})
+        self.assertIsNone(harness._private_map_fixture_owner_identity(fixture_path, "E2S1"))
+
+    def test_fixture_room_busy_self_healer_adopts_fixture_owner_to_smoke_user(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {
+                    "status": 200,
+                    "elapsed_seconds": 0.02,
+                    "response_excerpt": '{"ok":true,"adoptedObjects":5,"activeUser":true}',
+                }
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(username="rl-sim-fixture")
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+
+        with mock.patch.object(harness, "_debug_worker_phase") as debug_phase:
+            summary = harness._self_heal_fixture_place_spawn_room_busy(
+                smoke,
+                ["compose"],
+                cfg,
+                map_source_file=fixture_path,
+                room="E1S1",
+                worker_index=0,
+                variant_id="variant-a",
+            )
+
+        self.assertEqual(summary["classification"], "fixture_owner_adopted")
+        self.assertEqual(summary["fixtureOwnerId"], "owner")
+        self.assertEqual(summary["fixtureOwnerUsername"], "rl-owner")
+        self.assertEqual(summary["targetUsername"], "rl-sim-fixture")
+        self.assertEqual(summary["result"]["status"], 200)
+        self.assertEqual(len(smoke.expressions), 1)
+        self.assertIn("storage.db.users.findOne", smoke.expressions[0])
+        self.assertIn('"owner"', smoke.expressions[0])
+        self.assertIn('"rl-sim-fixture"', smoke.expressions[0])
+        self.assertIn("ACTIVE_ROOMS", smoke.expressions[0])
+        debug_phase.assert_called_once()
+
+    def test_place_spawn_retry_runs_room_busy_self_healing_before_retry(self) -> None:
+        class Result:
+            def __init__(self, payload: object, token: str) -> None:
+                self.status = 200
+                self.payload = payload
+                self.headers = {"X-Token": token}
+
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def build_spawn_payload(self, cfg: argparse.Namespace) -> dict[str, object]:
+                return {"room": cfg.room, "name": "Spawn1", "x": 20, "y": 20}
+
+            def token_headers(self, token: str) -> dict[str, str]:
+                return {"X-Token": token}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return headers.get("X-Token", token)
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, base_url, path, args, kwargs
+                self.calls += 1
+                if self.calls == 1:
+                    return Result({"error": "room busy"}, "busy-token")
+                return Result({"error": "already playing"}, "adopted-token")
+
+        healing_calls: list[tuple[int, dict[str, object]]] = []
+
+        def heal(attempt: int, summary: dict[str, object]) -> dict[str, object]:
+            healing_calls.append((attempt, copy.deepcopy(summary)))
+            return {
+                "phase": "place-spawn-room-busy-self-heal",
+                "classification": "fixture_owner_adopted",
+                "room": "E1S1",
+            }
+
+        smoke = FakeSmoke()
+        cfg = argparse.Namespace(server_url="http://127.0.0.1", room="E1S1")
+
+        with (
+            mock.patch.object(harness.time, "sleep", return_value=None) as sleep,
+            mock.patch.object(harness, "_debug_worker_phase"),
+        ):
+            token, summary = harness._place_spawn_with_retry(
+                smoke,
+                cfg,
+                "initial-token",
+                worker_index=0,
+                variant_id="variant-a",
+                max_attempts=3,
+                retry_seconds=0.25,
+                room_busy_self_healer=heal,
+            )
+
+        self.assertEqual(token, "adopted-token")
+        self.assertEqual(smoke.calls, 2)
+        self.assertEqual(len(healing_calls), 1)
+        self.assertEqual(healing_calls[0][0], 1)
+        self.assertEqual(healing_calls[0][1]["classification"], "room_busy")
+        sleep.assert_called_once_with(0.25)
+        self.assertEqual(summary["classification"], "already_playing")
+        self.assertTrue(summary["retry"]["recovered"])
+        self.assertTrue(summary["retry"]["selfHealing"]["recovered"])
+        self.assertEqual(
+            summary["retry"]["selfHealing"]["attempts"][0]["classification"],
+            "fixture_owner_adopted",
+        )
+        self.assertEqual(
+            summary["retry"]["attempts"][0]["selfHealing"]["classification"],
+            "fixture_owner_adopted",
+        )
+
     def test_place_spawn_retry_recovers_from_room_busy(self) -> None:
         class Result:
             def __init__(self, payload: object, token: str) -> None:
