@@ -5072,7 +5072,213 @@ def _fixture_room_objects(room_payload: JsonObject, room_name: str) -> list[Json
                 normalized.setdefault("type", normalized.get("structureType"))
             normalized.setdefault("room", room_name)
             objects.append(normalized)
+    controller = room_payload.get("controller")
+    if isinstance(controller, dict):
+        normalized = dict(controller)
+        normalized.setdefault("type", "controller")
+        normalized.setdefault("room", room_name)
+        objects.append(normalized)
     return objects
+
+
+def _fixture_owner_reference_matches(
+    value: Any,
+    owner_id: str | None,
+    owner_username: str | None,
+) -> bool:
+    if isinstance(value, str):
+        observed = value
+    elif isinstance(value, (int, float)):
+        observed = str(value)
+    else:
+        return False
+    if not observed:
+        return False
+    return bool((owner_id and observed == owner_id) or (owner_username and observed == owner_username))
+
+
+def _fixture_room_object_matches_owner(
+    item: JsonObject,
+    owner_id: str | None,
+    owner_username: str | None,
+) -> bool:
+    if _object_is_owned(item, owner_id, owner_username):
+        return True
+    if _object_type(item) != "controller":
+        return False
+    if _fixture_owner_reference_matches(item.get("bindUser"), owner_id, owner_username):
+        return True
+    reservation = item.get("reservation")
+    if isinstance(reservation, dict):
+        return _fixture_owner_reference_matches(reservation.get("user"), owner_id, owner_username)
+    return False
+
+
+def _private_map_fixture_owner_identity(map_source_file: Path, room_name: str) -> JsonObject | None:
+    """Return the private-fixture placeholder owner for a room that imports owned state."""
+    rooms = _private_map_fixture_rooms(map_source_file)
+    room_payload = rooms.get(room_name)
+    if not isinstance(room_payload, dict):
+        return None
+    try:
+        raw = json.loads(map_source_file.expanduser().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    owner = raw.get("owner") if isinstance(raw, dict) and isinstance(raw.get("owner"), dict) else {}
+    owner_id = text_or_none(owner.get("id")) if isinstance(owner, dict) else None
+    owner_username = text_or_none(owner.get("username")) if isinstance(owner, dict) else None
+    if owner_id is None:
+        return None
+    objects = _fixture_room_objects(room_payload, room_name)
+    if not any(_fixture_room_object_matches_owner(item, owner_id, owner_username) for item in objects):
+        return None
+    identity: JsonObject = {"id": owner_id}
+    if owner_username is not None:
+        identity["username"] = owner_username
+    return identity
+
+
+def _fixture_owner_adoption_expression(
+    room_name: str,
+    fixture_owner_id: str,
+    fixture_owner_username: str | None,
+    target_username: str,
+) -> str:
+    """Build a launcher CLI expression that maps imported fixture owner ids to the smoke user."""
+    return f"""\
+(() => {{
+  const roomName = {json.dumps(room_name)};
+  const fixtureOwnerId = {json.dumps(fixture_owner_id)};
+  const fixtureOwnerUsername = {json.dumps(fixture_owner_username)};
+  const fixtureOwnerRefs = new Set([fixtureOwnerId, fixtureOwnerUsername].filter(value => value).map(String));
+  const targetUsername = {json.dumps(target_username)};
+  const objectsCollection = storage.db['rooms.objects'];
+  return storage.db.users.findOne({{username: targetUsername}}).then(user => {{
+    if (!user || !user._id) {{
+      throw new Error(`smoke user not found: ${{targetUsername}}`);
+    }}
+    const targetUserId = String(user._id);
+    return objectsCollection.find({{room: roomName}}).then(objects => {{
+      const updates = [];
+      let adoptedObjects = 0;
+      let reboundControllers = 0;
+      let reservationUpdates = 0;
+      for (const object of objects || []) {{
+        const patch = {{}};
+        if (object.user != null && fixtureOwnerRefs.has(String(object.user))) {{
+          patch.user = targetUserId;
+          adoptedObjects += 1;
+        }}
+        if (object.bindUser != null && fixtureOwnerRefs.has(String(object.bindUser))) {{
+          patch.bindUser = targetUserId;
+          reboundControllers += 1;
+        }}
+        if (
+          object.reservation
+          && object.reservation.user != null
+          && fixtureOwnerRefs.has(String(object.reservation.user))
+        ) {{
+          patch.reservation = Object.assign({{}}, object.reservation, {{user: targetUserId}});
+          reservationUpdates += 1;
+        }}
+        if (Object.keys(patch).length > 0 && object._id != null) {{
+          updates.push(objectsCollection.update({{_id: object._id}}, {{$set: patch}}));
+        }}
+      }}
+      updates.push(storage.db.users.update({{_id: user._id}}, {{$set: {{active: 10000}}}}));
+      updates.push(storage.db.rooms.update({{_id: roomName}}, {{$set: {{invaderGoal: 1000000}}}}));
+      if (storage.env && storage.env.keys && storage.env.keys.ACTIVE_ROOMS && storage.env.sadd) {{
+        updates.push(storage.env.sadd(storage.env.keys.ACTIVE_ROOMS, roomName));
+      }}
+      return Promise.all(updates).then(() => JSON.stringify({{
+        ok: true,
+        room: roomName,
+        fixtureOwnerId,
+        fixtureOwnerUsername,
+        targetUsername,
+        adoptedObjects,
+        reboundControllers,
+        reservationUpdates,
+        activeUser: true,
+        roomActivated: true
+      }}));
+    }});
+  }});
+}})()
+"""
+
+
+def _launcher_cli_result_summary(result: JsonObject) -> JsonObject:
+    summary: JsonObject = {
+        "status": _extract_int(result.get("status")),
+    }
+    elapsed_seconds = result.get("elapsed_seconds")
+    if isinstance(elapsed_seconds, (int, float)):
+        summary["elapsedSeconds"] = elapsed_seconds
+    response_excerpt = result.get("response_excerpt")
+    if isinstance(response_excerpt, str):
+        summary["responseExcerpt"] = _safe_text(response_excerpt, 500)
+    return summary
+
+
+def _self_heal_fixture_place_spawn_room_busy(
+    smoke: Any,
+    compose: list[str],
+    cfg: Any,
+    *,
+    map_source_file: Path,
+    room: str,
+    worker_index: int,
+    variant_id: str,
+) -> JsonObject:
+    identity = _private_map_fixture_owner_identity(map_source_file, room)
+    if identity is None:
+        return {
+            "phase": "place-spawn-room-busy-self-heal",
+            "classification": "skipped",
+            "reason": "target room is not an owned private-map fixture room",
+        }
+    fixture_owner_id = str(identity["id"])
+    fixture_owner_username = text_or_none(identity.get("username"))
+    target_username = _non_empty_text(getattr(cfg, "username", None))
+    if target_username is None:
+        summary: JsonObject = {
+            "phase": "place-spawn-room-busy-self-heal",
+            "classification": "skipped",
+            "reason": "cfg.username is not set; cannot adopt fixture owner",
+            "room": room,
+            "fixtureOwnerId": fixture_owner_id,
+        }
+        if fixture_owner_username is not None:
+            summary["fixtureOwnerUsername"] = fixture_owner_username
+        return summary
+    expression = _fixture_owner_adoption_expression(room, fixture_owner_id, fixture_owner_username, target_username)
+    _debug_worker_phase(
+        worker_index,
+        variant_id,
+        "place-spawn room busy; adopting private fixture owner",
+        room=room,
+        fixtureOwnerId=fixture_owner_id,
+        targetUsername=target_username,
+    )
+    result = _require_launcher_cli_success(
+        smoke,
+        compose,
+        cfg,
+        expression,
+        "adopt private fixture owner",
+    )
+    summary: JsonObject = {
+        "phase": "place-spawn-room-busy-self-heal",
+        "classification": "fixture_owner_adopted",
+        "room": room,
+        "fixtureOwnerId": fixture_owner_id,
+        "targetUsername": target_username,
+        "result": _launcher_cli_result_summary(result),
+    }
+    if fixture_owner_username is not None:
+        summary["fixtureOwnerUsername"] = fixture_owner_username
+    return summary
 
 
 def _private_map_fixture_room_summaries(map_source_file: Path) -> dict[str, JsonObject]:
@@ -5991,6 +6197,15 @@ def _place_spawn_retry_attempt_summaries(attempts: Sequence[JsonObject]) -> list
     return [copy.deepcopy(attempt) for attempt in attempts]
 
 
+def _place_spawn_self_healing_summaries(attempts: Sequence[JsonObject]) -> list[JsonObject]:
+    summaries: list[JsonObject] = []
+    for attempt in attempts:
+        self_healing = attempt.get("selfHealing")
+        if isinstance(self_healing, dict):
+            summaries.append(copy.deepcopy(self_healing))
+    return summaries
+
+
 def _place_spawn_with_retry(
     smoke: Any,
     cfg: Any,
@@ -6000,8 +6215,10 @@ def _place_spawn_with_retry(
     variant_id: str,
     max_attempts: int = RUN_PLACE_SPAWN_MAX_ATTEMPTS,
     retry_seconds: float = RUN_PLACE_SPAWN_RETRY_SECONDS,
+    room_busy_self_healer: Any | None = None,
 ) -> tuple[str, JsonObject]:
     attempts: list[JsonObject] = []
+    room_busy_self_heal_attempted = False
     for attempt in range(1, max_attempts + 1):
         place = smoke.http_json(
             "POST",
@@ -6022,8 +6239,26 @@ def _place_spawn_with_retry(
                     "maxAttempts": max_attempts,
                     "recovered": True,
                 }
+                self_healing = _place_spawn_self_healing_summaries(attempts)
+                if self_healing:
+                    summary["retry"]["selfHealing"] = {
+                        "attempts": self_healing,
+                        "recovered": True,
+                    }
             return token, summary
         if classification == "room_busy":
+            if room_busy_self_healer is not None and not room_busy_self_heal_attempted:
+                room_busy_self_heal_attempted = True
+                try:
+                    healing = room_busy_self_healer(attempt, summary)
+                except Exception as exc:  # noqa: BLE001 - preserve room-busy classification if recovery itself fails.
+                    healing = {
+                        "phase": "place-spawn-room-busy-self-heal",
+                        "classification": "self_heal_failed",
+                        "error": _safe_text(exc, 360),
+                    }
+                if isinstance(healing, dict):
+                    summary["selfHealing"] = copy.deepcopy(healing)
             if attempt < max_attempts:
                 _debug_worker_phase(
                     worker_index,
@@ -6046,6 +6281,12 @@ def _place_spawn_with_retry(
                     "until the room-busy placement lock is explained"
                 ),
             }
+            self_healing = _place_spawn_self_healing_summaries(attempts)
+            if self_healing:
+                detail["selfHealing"] = {
+                    "attempts": self_healing,
+                    "recovered": False,
+                }
             raise PlaceSpawnRoomBusyError(detail)
         raise RuntimeError(
             "place-spawn API rejected with unexpected payload: "
@@ -6407,6 +6648,15 @@ def _run_variant(
             token,
             worker_index=worker_index,
             variant_id=variant_id,
+            room_busy_self_healer=lambda attempt, summary: _self_heal_fixture_place_spawn_room_busy(
+                smoke,
+                compose,
+                cfg,
+                map_source_file=scenario_map_source_file,
+                room=room,
+                worker_index=worker_index,
+                variant_id=variant_id,
+            ),
         )
 
         initial_state = smoke.http_json(
