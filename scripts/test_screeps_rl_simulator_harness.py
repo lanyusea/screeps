@@ -6200,6 +6200,18 @@ cli:
         self.assertEqual(summary["classification"], "ok")
         self.assertTrue(summary["retry"]["recovered"])
         self.assertEqual(summary["retry"]["attempts"][0]["classification"], "room_busy")
+        self.assertEqual(summary["retry"]["attempts"][1]["classification"], "ok")
+        self.assertNotIn("retry", summary["retry"]["attempts"][1])
+
+        serializable_summary = {"placeSpawn": summary}
+        encoded = json.dumps(serializable_summary, sort_keys=True)
+        self.assertIn('"recovered": true', encoded)
+        harness.assert_no_secret_leak(serializable_summary, [])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "summary.json"
+            harness.write_json_atomic(output_path, serializable_summary)
+            written = read_json(output_path)
+        self.assertEqual(written["placeSpawn"]["retry"]["attempts"][1]["classification"], "ok")
 
     def test_place_spawn_retry_reports_persistent_room_busy_with_no_rerun_guidance(self) -> None:
         class Result:

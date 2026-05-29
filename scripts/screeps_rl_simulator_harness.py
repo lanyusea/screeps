@@ -5977,6 +5977,10 @@ def _place_spawn_attempt_summary(result: Any, attempt: int, classification: str)
     }
 
 
+def _place_spawn_retry_attempt_summaries(attempts: Sequence[JsonObject]) -> list[JsonObject]:
+    return [copy.deepcopy(attempt) for attempt in attempts]
+
+
 def _place_spawn_with_retry(
     smoke: Any,
     cfg: Any,
@@ -6004,7 +6008,7 @@ def _place_spawn_with_retry(
         if classification in {"ok", "already_playing"}:
             if len(attempts) > 1:
                 summary["retry"] = {
-                    "attempts": attempts,
+                    "attempts": _place_spawn_retry_attempt_summaries(attempts),
                     "maxAttempts": max_attempts,
                     "recovered": True,
                 }
