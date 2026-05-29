@@ -3684,6 +3684,9 @@ def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
 def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
     return (
         runtime_cpu_bucket(payload) is not None
+        or runtime_cpu_used(payload) is not None
+        or runtime_cpu_limit(payload) is not None
+        or runtime_low_bucket_ticks(payload) is not None
         or runtime_cpu_pressure(payload) is not None
         or bool(runtime_cpu_signal_values(payload, "alerts"))
         or bool(runtime_cpu_signal_values(payload, "reasons"))
@@ -3693,6 +3696,9 @@ def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
 def runtime_summary_room_has_cpu_fields(room: dict[str, Any]) -> bool:
     return (
         runtime_cpu_bucket(room) is not None
+        or runtime_cpu_used(room) is not None
+        or runtime_cpu_limit(room) is not None
+        or runtime_low_bucket_ticks(room) is not None
         or runtime_cpu_pressure(room) is not None
         or bool(runtime_cpu_signal_values(room, "alerts"))
         or bool(runtime_cpu_signal_values(room, "reasons"))

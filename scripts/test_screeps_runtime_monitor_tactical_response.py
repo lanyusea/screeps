@@ -1147,6 +1147,53 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 self.assertNotIn(monitor.CPU_BUCKET_CRITICAL_KIND, [reason["kind"] for reason in emitted])
                 self.assertNotIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in emitted])
 
+    def test_compact_cpu_summary_usage_only_and_low_bucket_ticks_are_preserved(self) -> None:
+        cases = (
+            (
+                "used and limit only",
+                {"used": 6.5, "limit": 70},
+                {"cpuUsed": 6.5, "cpuLimit": 70},
+                {"used": 6.5, "limit": 70},
+            ),
+            (
+                "low bucket ticks only",
+                {"lowBucketTicks": 4},
+                {"lowBucketTicks": 4},
+                {"lowBucketTicks": 4},
+            ),
+        )
+
+        for name, compact_cpu_payload, expected_room_fields, expected_cpu_fields in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    runtime_dir = Path(temp_dir)
+                    (runtime_dir / "runtime-summary-console-20260529T001418Z.log").write_text(
+                        "#cpu-summary " + json.dumps(compact_cpu_payload) + "\n",
+                        encoding="utf-8",
+                    )
+                    warnings: list[str] = []
+                    runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                        runtime_dir,
+                        [monitor.RoomRef(shard="shardX", room="E26S49")],
+                        warnings,
+                    )
+
+                self.assertEqual(warnings, [])
+                runtime_room = runtime_rooms.get("shardX/E26S49")
+                self.assertIsNotNone(runtime_room)
+                assert runtime_room is not None
+                for field, expected in expected_room_fields.items():
+                    self.assertEqual(runtime_room[field], expected)
+                cpu_metadata = runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]
+                for field, expected in expected_cpu_fields.items():
+                    self.assertEqual(cpu_metadata[field], expected)
+                self.assertIsNone(
+                    monitor.detect_cpu_bucket_reason(
+                        monitor.RoomRef(shard="shardX", room="E26S49"),
+                        runtime_room,
+                    )
+                )
+
     def test_cpu_bucket_low_runtime_summary_alerts_as_p1(self) -> None:
         snapshot = make_snapshot(
             {
