@@ -93,6 +93,33 @@ E1S1_REPEAT_GUARD_NEXT_ACTION = (
     f"use --scenario-id {MULTI_TIER_SCENARIO_ID} --require-multi-tier-scenario after PR #1204; "
     "do not launch another E1S1-only Tencent batch"
 )
+PAID_FAILURE_RECURRENCE_GUARD_TYPE = "screeps-tencent-batch-rl-paid-failure-recurrence-guard"
+PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS = "skipped_paid_failure_recurrence_launch_guard"
+PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD = 10
+PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT = 100
+PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE = "simulator_place_spawn_room_busy"
+PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS = {
+    PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE: (
+        "auto-pause Tencent RL paid compute for repeated place-spawn room busy failures (#1506); "
+        "ship and verify the room-busy root fix tracked by #1501 / PR #1504 before launching another paid rerun"
+    ),
+}
+PAID_FAILURE_SIGNATURE_TEXT_KEYS = frozenset(
+    {
+        "classification",
+        "collectionError",
+        "error",
+        "failureClass",
+        "message",
+        "nextAction",
+        "reason",
+        "stderr_tail",
+        "stderrTail",
+        "stdout_tail",
+        "stdoutTail",
+        "tail",
+    }
+)
 DEFAULT_SIMULATION_MAP_SOURCE_REL = "maps/map-0b6758af.json"
 DEFAULT_SIMULATION_ROOM = "E1S1"
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,80}$")
@@ -1054,7 +1081,7 @@ class Controller:
 
     def check_pre_launch_guard(self) -> bool:
         started = time.time()
-        guard = build_e1s1_repeat_launch_guard(
+        guard = build_tencent_batch_launch_guard(
             args=self.args,
             run_id=self.run_id,
             artifact_dir=self.artifact_dir,
@@ -1067,8 +1094,10 @@ class Controller:
             "path": str(guard_path),
             "status": guard["status"],
             "blocked": guard["blocked"],
+            "activeGuard": guard.get("activeGuard"),
             "reason": guard.get("reason"),
             "nextAction": guard.get("nextAction"),
+            "activeSignature": evidence.get("activeSignature"),
             "evidenceCount": evidence["count"],
             "evidenceThreshold": evidence["threshold"],
         }
@@ -1079,12 +1108,18 @@ class Controller:
             path=str(guard_path),
             status=guard["status"],
             blocked=guard["blocked"],
+            activeGuard=guard.get("activeGuard"),
+            activeSignature=evidence.get("activeSignature"),
             evidenceCount=evidence["count"],
             evidenceThreshold=evidence["threshold"],
         )
         if not guard["blocked"]:
             return False
-        self.final_status = E1S1_REPEAT_GUARD_FINAL_STATUS
+        self.final_status = (
+            PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
+            if guard.get("activeGuard") == "paid_failure_recurrence_guard"
+            else E1S1_REPEAT_GUARD_FINAL_STATUS
+        )
         self.finished_at = utc_now_iso()
         self.write_summary()
         return True
@@ -2561,6 +2596,44 @@ def remote_training_failure_message(
     return "no remote diagnostics collected"
 
 
+def build_tencent_batch_launch_guard(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    artifact_dir: Path,
+) -> dict[str, Any]:
+    e1s1_guard = build_e1s1_repeat_launch_guard(
+        args=args,
+        run_id=run_id,
+        artifact_dir=artifact_dir,
+    )
+    recurrence_guard = build_paid_failure_recurrence_launch_guard(
+        args=args,
+        run_id=run_id,
+        artifact_dir=artifact_dir,
+    )
+    guard = copy.deepcopy(e1s1_guard)
+    guard["checks"] = {
+        "e1s1Repeat": e1s1_guard,
+        "paidFailureRecurrence": recurrence_guard,
+    }
+    if recurrence_guard["blocked"]:
+        guard.update(
+            {
+                "status": recurrence_guard["status"],
+                "blocked": True,
+                "reason": recurrence_guard.get("reason"),
+                "nextAction": recurrence_guard.get("nextAction"),
+                "evidence": recurrence_guard["evidence"],
+                "safety": recurrence_guard["safety"],
+                "activeGuard": "paid_failure_recurrence_guard",
+            }
+        )
+        return guard
+    guard["activeGuard"] = "e1s1_repeat_launch_guard" if e1s1_guard["blocked"] else None
+    return guard
+
+
 def build_e1s1_repeat_launch_guard(
     *,
     args: argparse.Namespace,
@@ -2607,6 +2680,83 @@ def build_e1s1_repeat_launch_guard(
     }
 
 
+def build_paid_failure_recurrence_launch_guard(
+    *,
+    args: argparse.Namespace,
+    run_id: str,
+    artifact_dir: Path,
+) -> dict[str, Any]:
+    evidence_runs = recent_paid_failure_recurrence_evidence(args, artifact_dir)
+    signature_counts: dict[str, int] = {}
+    for item in evidence_runs:
+        signature = text_value(item.get("signature"))
+        if signature is None:
+            continue
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
+    blocked_signature = next(
+        (
+            signature
+            for signature, count in sorted(signature_counts.items())
+            if count >= PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD
+        ),
+        None,
+    )
+    signature_runs = [
+        item for item in evidence_runs if blocked_signature is not None and item.get("signature") == blocked_signature
+    ]
+    active_count = (
+        len(signature_runs)
+        if blocked_signature is not None
+        else max(signature_counts.values(), default=0)
+    )
+    blocked = blocked_signature is not None
+    reason = None
+    if blocked:
+        reason = (
+            f"recent Tencent RL paid-run failures reached {active_count}/"
+            f"{PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD} identical known failure signature "
+            f"{blocked_signature!r}"
+        )
+    return {
+        "type": PAID_FAILURE_RECURRENCE_GUARD_TYPE,
+        "schemaVersion": 1,
+        "runId": run_id,
+        "checkedAt": utc_now_iso(),
+        "status": "blocked" if blocked else "clear",
+        "blocked": blocked,
+        "reason": reason,
+        "nextAction": (
+            PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS.get(blocked_signature)
+            if blocked_signature is not None
+            else None
+        ),
+        "currentLaunch": {
+            "command": getattr(args, "command", None),
+            "preflightOnly": bool(getattr(args, "preflight_only", False)),
+            "trainingApproach": getattr(args, "training_approach", None),
+            "scenarioId": scenario_id_from_args(args),
+            "workers": getattr(args, "workers", None),
+            "repetitions": getattr(args, "repetitions", None),
+        },
+        "evidence": {
+            "threshold": PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
+            "count": active_count,
+            "recentSummaryLimit": PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT,
+            "activeSignature": blocked_signature,
+            "signatureCounts": signature_counts,
+            "runs": signature_runs if blocked else evidence_runs,
+        },
+        "safety": {
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "secretsPrinted": False,
+            "remoteExecutionAttempted": False,
+            "scaleOutAttempted": False,
+        },
+    }
+
+
 def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]:
     scenario_id = scenario_id_from_args(args)
     current_launch = {
@@ -2627,6 +2777,34 @@ def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]
     if is_multi_tier_scenario_id(scenario_id):
         current_launch["fixtureEvidence"] = multi_tier_launch_fixture_evidence(scenario_id)
     return current_launch
+
+
+def recent_paid_failure_recurrence_evidence(args: argparse.Namespace, artifact_dir: Path) -> list[dict[str, Any]]:
+    artifact_root = resolved_artifact_root(args)
+    if not artifact_root.is_dir():
+        return []
+    current_dir = artifact_dir.resolve()
+    try:
+        summary_paths = sorted(
+            artifact_root.glob("*/controller-summary.json"),
+            key=lambda path: (path.stat().st_mtime, path.as_posix()),
+            reverse=True,
+        )
+    except OSError:
+        return []
+    evidence: list[dict[str, Any]] = []
+    for summary_path in summary_paths:
+        try:
+            if summary_path.parent.resolve() == current_dir:
+                continue
+        except OSError:
+            continue
+        item = paid_failure_recurrence_evidence_from_summary(read_json_object(summary_path), summary_path)
+        if item is not None:
+            evidence.append(item)
+            if len(evidence) >= PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT:
+                break
+    return evidence
 
 
 def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path) -> list[dict[str, Any]]:
@@ -2703,6 +2881,98 @@ def e1s1_dead_tier_evidence_from_summary(
         "kills": metric["kills"],
         "metricPairCount": metric["metricPairCount"],
     }
+
+
+def paid_failure_recurrence_evidence_from_summary(
+    summary: dict[str, Any] | None,
+    summary_path: Path,
+) -> dict[str, Any] | None:
+    if not paid_failure_recurrence_summary_candidate(summary):
+        return None
+    assert summary is not None
+    signature = paid_failure_signature_from_summary(summary)
+    if signature is None:
+        return None
+    run_id = text_value(summary.get("runId")) or summary_path.parent.name
+    return {
+        "runId": run_id,
+        "summaryPath": str(summary_path),
+        "finishedAt": text_value(summary.get("finishedAt")),
+        "finalStatus": text_value(summary.get("finalStatus")),
+        "signature": signature["signature"],
+        "reason": signature["reason"],
+        "matchedBy": signature["matchedBy"],
+        "diagnosticExcerpt": signature["diagnosticExcerpt"],
+    }
+
+
+def paid_failure_recurrence_summary_candidate(summary: dict[str, Any] | None) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    final_status = text_value(summary.get("finalStatus"))
+    if final_status is None:
+        return False
+    if final_status.startswith(("completed", "preflight", "skipped_")):
+        return False
+    remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
+    if final_status != "failed" and remote_failure is None:
+        return False
+    execution = dict_value(summary.get("execution"))
+    if execution is None:
+        return remote_failure is not None or final_status == "failed"
+    if execution.get("preflightOnly") is True:
+        return False
+    return bool(
+        remote_failure is not None
+        or execution.get("computeAttempted") is True
+        or execution.get("scaleOutAttempted") is True
+        or execution.get("remoteTrainingAttempted") is True
+    )
+
+
+def paid_failure_signature_from_summary(summary: dict[str, Any]) -> dict[str, str] | None:
+    failure_class = text_value(path_value(summary, "outputs", "remoteTrainingFailure", "failureClass"))
+    if failure_class == PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE:
+        return {
+            "signature": PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            "reason": "place-spawn room busy",
+            "matchedBy": "outputs.remoteTrainingFailure.failureClass",
+            "diagnosticExcerpt": failure_class,
+        }
+    for text in iter_failure_signature_texts(summary):
+        if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(text):
+            return {
+                "signature": PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                "reason": "place-spawn room busy",
+                "matchedBy": "controller-summary diagnostic text",
+                "diagnosticExcerpt": diagnostic_tail(text, 600),
+            }
+    return None
+
+
+def iter_failure_signature_texts(raw: Any, *, parent_key: str | None = None, depth: int = 0) -> list[str]:
+    if depth > 10:
+        return []
+    if isinstance(raw, dict):
+        texts: list[str] = []
+        for key, value in raw.items():
+            key_text = str(key)
+            if isinstance(value, str) and key_text in PAID_FAILURE_SIGNATURE_TEXT_KEYS:
+                texts.append(value)
+            elif isinstance(value, str) and key_text.lower().endswith(("tail", "_tail")):
+                texts.append(value)
+            elif isinstance(value, (dict, list)):
+                texts.extend(iter_failure_signature_texts(value, parent_key=key_text, depth=depth + 1))
+        return texts
+    if isinstance(raw, list):
+        texts = []
+        for value in raw:
+            if isinstance(value, (dict, list)):
+                texts.extend(iter_failure_signature_texts(value, parent_key=parent_key, depth=depth + 1))
+            elif isinstance(value, str) and parent_key in PAID_FAILURE_SIGNATURE_TEXT_KEYS:
+                texts.append(value)
+        return texts
+    return []
 
 
 def load_collected_training_report(
@@ -4876,7 +5146,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 3
-    if controller.final_status == E1S1_REPEAT_GUARD_FINAL_STATUS:
+    if controller.final_status in {E1S1_REPEAT_GUARD_FINAL_STATUS, PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS}:
         print(
             json.dumps(
                 {
