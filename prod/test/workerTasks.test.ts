@@ -276,6 +276,36 @@ function makeSource(id: string, x: number, y: number, energyOrRoomName: number |
   } as unknown as Source;
 }
 
+function makeScoreItem(id: string, x: number, y: number, roomName = 'W1N1'): RoomObject & { id: string; score: number; scoreType: string } {
+  return {
+    id,
+    pos: makeRoomPosition(x, y, roomName),
+    score: 100,
+    scoreType: 'score'
+  } as unknown as RoomObject & { id: string; score: number; scoreType: string };
+}
+
+function withVisibleScoreItems(room: Room, scoreItems: Array<RoomObject & { id: string }>): Room {
+  const baseFind = room.find as jest.Mock;
+  (room as unknown as { find: jest.Mock }).find = jest.fn((type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
+    const findScore = (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+    if (typeof findScore === 'number' && type === findScore) {
+      return scoreItems;
+    }
+
+    return baseFind(type, options);
+  });
+  return room;
+}
+
+function setRuntimeShard(name: string): void {
+  const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+  globalScope.Game = {
+    ...(globalScope.Game ?? {}),
+    shard: { name } as Game['shard']
+  };
+}
+
 function makePreHarvestSource(
   id: string,
   x: number,
@@ -512,6 +542,11 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { FIND_TOMBSTONES: number }).FIND_TOMBSTONES = 8;
     (globalThis as unknown as { FIND_RUINS: number }).FIND_RUINS = 9;
+    delete (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+    delete (globalThis as unknown as { FIND_SCORE_ITEMS?: number }).FIND_SCORE_ITEMS;
+    delete (globalThis as unknown as { FIND_SCORE_OBJECTS?: number }).FIND_SCORE_OBJECTS;
+    delete (globalThis as unknown as { FIND_SEASON_SCORE?: number }).FIND_SEASON_SCORE;
+    delete (globalThis as unknown as { FIND_SEASON_SCORE_ITEMS?: number }).FIND_SEASON_SCORE_ITEMS;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -544,6 +579,81 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('selects visible season score collection on Seasonal World when recovery work is absent', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const room = withVisibleScoreItems(makeWorkerTaskRoom(), [score]);
+    const creep = {
+      name: 'ScoreWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 2 : 99)) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ ScoreWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'collectScore', targetId: 'score1' });
+  });
+
+  it('ignores visible score globals on persistent worlds and continues normal work', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const source = makeSource('source1', 11, 10);
+    const score = makeScoreItem('score1', 12, 10);
+    const room = withVisibleScoreItems(makeWorkerTaskRoom({ sources: [source] }), [score]);
+    const creep = {
+      name: 'PersistentWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ PersistentWorker: creep });
+    setRuntimeShard('shard3');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('keeps emergency spawn refill ahead of visible season score collection', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreItem('score1', 12, 10);
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const room = withVisibleScoreItems(
+      makeWorkerTaskRoom({
+        controller: {
+          id: 'controller1',
+          my: true,
+          level: 3,
+          ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+        } as StructureController,
+        energyAvailable: 0,
+        energyCapacityAvailable: 300,
+        myStructures: [spawn as AnyOwnedStructure]
+      }),
+      [score]
+    );
+    const creep = {
+      name: 'RefillWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RefillWorker: creep });
+    setRuntimeShard('shardSeason');
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('prefers a source that can fill the worker over a closer low-energy source', () => {

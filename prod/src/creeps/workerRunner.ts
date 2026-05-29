@@ -82,6 +82,16 @@ interface TaskExecutionResult {
   sourceContainerWithdrawal?: boolean;
 }
 
+type ScoreTaskTarget = RoomObject & _HasId;
+type WorkerTaskTarget =
+  | Source
+  | Resource<ResourceConstant>
+  | AnyStoreStructure
+  | ConstructionSite
+  | StructureController
+  | Structure
+  | ScoreTaskTarget;
+
 export function runWorker(creep: Creep): void {
   if (runControllerSustainMovement(creep)) {
     return;
@@ -121,6 +131,10 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnReservationRefill(currentTask, spawnReservationRefillTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForSeasonScore(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptSeasonScoreTask(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTaskForUpgraderBoost(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -807,7 +821,7 @@ function executeAssignedTask(
     return;
   }
 
-  let target = Game.getObjectById(task.targetId);
+  let target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
   if (!target) {
     if (selectedTask && isSameTask(task, selectedTask)) {
       recordCreepBehaviorIdle(creep);
@@ -820,7 +834,7 @@ function executeAssignedTask(
       return;
     }
 
-    target = Game.getObjectById(task.targetId);
+    target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
     if (!target) {
       recordCreepBehaviorIdle(creep);
       return;
@@ -834,7 +848,7 @@ function executeAssignedTask(
       return;
     }
 
-    target = Game.getObjectById(task.targetId);
+    target = Game.getObjectById(task.targetId) as WorkerTaskTarget | null;
     if (!target || shouldReplaceTarget(creep, task, target)) {
       recordCreepBehaviorIdle(creep);
       return;
@@ -912,6 +926,8 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
       return typeof creep.signController === 'function';
     case 'upgrade':
       return typeof creep.upgradeController === 'function';
+    case 'collectScore':
+      return typeof creep.moveTo === 'function';
   }
 }
 
@@ -927,6 +943,10 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   }
 
   if (task.type === 'signController') {
+    return false;
+  }
+
+  if (task.type === 'collectScore') {
     return false;
   }
 
@@ -1085,6 +1105,20 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
   }
 
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptEnergyAcquisitionTaskForSeasonScore(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return isEnergyAcquisitionTask(task) && selectedTask?.type === 'collectScore' && !isSameTask(task, selectedTask);
+}
+
+function shouldPreemptSeasonScoreTask(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return task.type === 'collectScore' && selectedTask !== null && !isSameTask(task, selectedTask);
 }
 
 function shouldPreemptLowLoadEnergyAcquisitionForReturn(
@@ -1546,7 +1580,7 @@ function matchesCapacityConstructionStructureType(
 function shouldReplaceTarget(
   creep: Creep,
   task: CreepTaskMemory,
-  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
+  target: WorkerTaskTarget
 ): boolean {
   if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
     return !(isSourceContainerAssignedHarvestTask(task) && findVisibleHarvestSourceContainer(creep, target));
@@ -1579,7 +1613,7 @@ function isDepletedHarvestSource(target: unknown): target is Source {
 function executeTask(
   creep: Creep,
   task: CreepTaskMemory,
-  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
+  target: WorkerTaskTarget
 ): TaskExecutionResult {
   switch (task.type) {
     case 'harvest':
@@ -1639,7 +1673,17 @@ function executeTask(
       );
     case 'upgrade':
       return toTaskExecutionResult(runUpgrader(creep, target as StructureController), 'work');
+    case 'collectScore':
+      return executeCollectScoreTask(creep, target as RoomObject);
   }
+}
+
+function executeCollectScoreTask(creep: Creep, target: RoomObject): TaskExecutionResult {
+  if (!isInRangeToRoomObject(creep, target, EXACT_POSITION_MOVE_RANGE)) {
+    return { result: ERR_NOT_IN_RANGE_CODE };
+  }
+
+  return { result: OK_CODE };
 }
 
 function getSafeWithdrawEnergyAmount(
@@ -1897,6 +1941,8 @@ function getAssignedTaskMoveRange(task: CreepTaskMemory): number {
     case 'reserve':
     case 'signController':
       return ADJACENT_ACTION_MOVE_RANGE;
+    case 'collectScore':
+      return EXACT_POSITION_MOVE_RANGE;
   }
 }
 

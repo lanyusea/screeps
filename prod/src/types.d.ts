@@ -1341,5 +1341,6 @@ declare global {
     | { type: 'claim'; targetId: Id<StructureController> }
     | { type: 'reserve'; targetId: Id<StructureController> }
     | { type: 'signController'; targetId: Id<StructureController> }
-    | { type: 'upgrade'; targetId: Id<StructureController> };
+    | { type: 'upgrade'; targetId: Id<StructureController> }
+    | { type: 'collectScore'; targetId: Id<_HasId> };
 }
