@@ -79,6 +79,7 @@ import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
+import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -488,6 +489,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       }
     }
 
+    const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+    if (seasonScoreCollectionTask) {
+      return seasonScoreCollectionTask;
+    }
+
     const source = selectHarvestSource(creep);
     if (source) {
       return createHarvestTaskForSource(creep, source);
@@ -887,6 +893,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const interRoomEnergyHaulTask = selectInterRoomEnergyHaulingTask(creep, carriedEnergy);
   if (interRoomEnergyHaulTask) {
     return interRoomEnergyHaulTask;
+  }
+
+  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+  if (seasonScoreCollectionTask) {
+    return seasonScoreCollectionTask;
   }
 
   if (controller?.my && canUpgradeController(controller)) {

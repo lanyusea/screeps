@@ -1654,12 +1654,12 @@ function isHostileNearProtectedStructure(hostile, structures) {
 }
 function compareRange(origin, left, right) {
   var _a;
-  const getRangeTo2 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo2 !== "function") {
+  const getRangeTo3 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo3 !== "function") {
     return 0;
   }
-  const leftRange = left.pos ? getRangeTo2.call(origin.pos, left.pos) : Infinity;
-  const rightRange = right.pos ? getRangeTo2.call(origin.pos, right.pos) : Infinity;
+  const leftRange = left.pos ? getRangeTo3.call(origin.pos, left.pos) : Infinity;
+  const rightRange = right.pos ? getRangeTo3.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
 }
 function getRangeBetweenPositions(left, right) {
@@ -2226,12 +2226,12 @@ function isTargetInTowerRoom(origin, target) {
 }
 function compareRange2(origin, left, right) {
   var _a;
-  const getRangeTo2 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo2 !== "function") {
+  const getRangeTo3 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo3 !== "function") {
     return 0;
   }
-  const leftRange = left.pos ? getRangeTo2.call(origin.pos, left.pos) : Infinity;
-  const rightRange = right.pos ? getRangeTo2.call(origin.pos, right.pos) : Infinity;
+  const leftRange = left.pos ? getRangeTo3.call(origin.pos, left.pos) : Infinity;
+  const rightRange = right.pos ? getRangeTo3.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
 }
 function isWoundedCreep(creep) {
@@ -24378,11 +24378,11 @@ function isNearRoomObject4(left, right, range) {
 }
 function compareRangeToCreep(creep, left, right) {
   var _a;
-  const getRangeTo2 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo2 !== "function") {
+  const getRangeTo3 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo3 !== "function") {
     return 0;
   }
-  return normalizeRange(getRangeTo2.call(creep.pos, left)) - normalizeRange(getRangeTo2.call(creep.pos, right));
+  return normalizeRange(getRangeTo3.call(creep.pos, left)) - normalizeRange(getRangeTo3.call(creep.pos, right));
 }
 function normalizeRange(range) {
   return typeof range === "number" && Number.isFinite(range) ? range : Number.POSITIVE_INFINITY;
@@ -24963,6 +24963,146 @@ function getRuntimeGame() {
   return globalThis.Game;
 }
 
+// src/runtime/featureGates.ts
+function getRuntimeFeatureGates(game = getRuntimeGame2()) {
+  var _a, _b;
+  const shardName = normalizeString((_a = game == null ? void 0 : game.shard) == null ? void 0 : _a.name);
+  const shardType = normalizeString((_b = game == null ? void 0 : game.shard) == null ? void 0 : _b.type);
+  const isSeasonal = shardName === "shardSeason" || /season/i.test(shardType != null ? shardType : "");
+  const enabledInPersistent = !isSeasonal;
+  return {
+    cpu: buildCpuMetadata(game == null ? void 0 : game.cpu),
+    isSeasonal,
+    ...shardName ? { shardName } : {},
+    ...shardType ? { shardType } : {},
+    world: isSeasonal ? "seasonal" : "persistent",
+    marketTrading: enabledInPersistent,
+    terminalEnergyTransfers: enabledInPersistent,
+    labManagement: enabledInPersistent
+  };
+}
+function getRuntimeGame2() {
+  return globalThis.Game;
+}
+function buildCpuMetadata(cpu) {
+  return {
+    ...optionalFiniteNumber2("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber2("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber2("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+  };
+}
+function optionalFiniteNumber2(key, value) {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+function normalizeString(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+
+// src/season/scoreCollection.ts
+var SCORE_FIND_CONSTANT_GLOBALS = [
+  "FIND_SCORE",
+  "FIND_SCORE_ITEMS",
+  "FIND_SCORE_OBJECTS",
+  "FIND_SEASON_SCORE",
+  "FIND_SEASON_SCORE_ITEMS"
+];
+var SCORE_FALLBACK_ROOM_KEYS = [
+  "score",
+  "scores",
+  "scoreItems",
+  "scoreObjects",
+  "seasonScore",
+  "seasonScoreItems"
+];
+function selectSeasonScoreCollectionTask(creep) {
+  var _a;
+  if (!getRuntimeFeatureGates().isSeasonal || ((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
+    return null;
+  }
+  const scoreItem = selectBestVisibleScoreItem(creep);
+  return scoreItem ? { type: "collectScore", targetId: scoreItem.id } : null;
+}
+function selectBestVisibleScoreItem(creep) {
+  var _a;
+  const room = creep.room;
+  if (!room) {
+    return null;
+  }
+  return (_a = findVisibleScoreItems(room).sort((left, right) => compareScoreItems(creep, left, right))[0]) != null ? _a : null;
+}
+function findVisibleScoreItems(room) {
+  const candidates = [
+    ...findScoreItemsByFindConstants(room),
+    ...findScoreItemsByFallbackRoomKeys(room)
+  ];
+  const unique = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    unique.set(String(candidate.id), candidate);
+  }
+  return [...unique.values()];
+}
+function findScoreItemsByFindConstants(room) {
+  const roomFind = room.find;
+  if (typeof roomFind !== "function") {
+    return [];
+  }
+  return getScoreFindConstants().flatMap((findConstant) => safeRoomFind(room, roomFind, findConstant)).filter(isVisibleScoreItem);
+}
+function getScoreFindConstants() {
+  const globals = globalThis;
+  const constants = SCORE_FIND_CONSTANT_GLOBALS.map((name) => globals[name]).filter((value) => typeof value === "number" && Number.isFinite(value));
+  return [...new Set(constants)];
+}
+function safeRoomFind(room, roomFind, findConstant) {
+  try {
+    const result = roomFind.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function findScoreItemsByFallbackRoomKeys(room) {
+  const roomRecord = room;
+  return SCORE_FALLBACK_ROOM_KEYS.flatMap((key) => toScoreItemCandidates(roomRecord[key])).filter(isVisibleScoreItem);
+}
+function toScoreItemCandidates(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value);
+  }
+  return [];
+}
+function isVisibleScoreItem(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value;
+  return typeof candidate.id === "string" && candidate.id.length > 0 && isRoomPositionLike(candidate.pos) && (hasScoreMarker(candidate) || !hasKnownNonScoreRoomObjectMarker(candidate));
+}
+function isRoomPositionLike(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const position = value;
+  return typeof position.x === "number" && typeof position.y === "number" && typeof position.roomName === "string";
+}
+function hasScoreMarker(candidate) {
+  return candidate.type === "score" || candidate.type === "scoreItem" || candidate.objectType === "score" || candidate.objectType === "scoreItem" || candidate.scoreType === "score" || candidate.scoreType === "scoreItem" || typeof candidate.score === "number" || typeof candidate.points === "number";
+}
+function hasKnownNonScoreRoomObjectMarker(candidate) {
+  return typeof candidate.resourceType === "string" || typeof candidate.structureType === "string" || Array.isArray(candidate.body) || typeof candidate.energyCapacity === "number" || typeof candidate.mineralType === "string" || typeof candidate.progressTotal === "number";
+}
+function compareScoreItems(creep, left, right) {
+  return getRangeTo(creep, left) - getRangeTo(creep, right) || String(left.id).localeCompare(String(right.id));
+}
+function getRangeTo(creep, target) {
+  var _a, _b;
+  const range = (_b = (_a = creep.pos) == null ? void 0 : _a.getRangeTo) == null ? void 0 : _b.call(_a, target);
+  return typeof range === "number" && Number.isFinite(range) ? range : Number.MAX_SAFE_INTEGER;
+}
+
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
@@ -25183,6 +25323,10 @@ function selectHeuristicWorkerTask(creep) {
       if (linkEnergyAcquisitionTask) {
         return linkEnergyAcquisitionTask;
       }
+    }
+    const seasonScoreCollectionTask2 = selectSeasonScoreCollectionTask(creep);
+    if (seasonScoreCollectionTask2) {
+      return seasonScoreCollectionTask2;
     }
     const source = selectHarvestSource(creep);
     if (source) {
@@ -25506,6 +25650,10 @@ function selectHeuristicWorkerTask(creep) {
   const interRoomEnergyHaulTask = selectInterRoomEnergyHaulingTask(creep, carriedEnergy);
   if (interRoomEnergyHaulTask) {
     return interRoomEnergyHaulTask;
+  }
+  const seasonScoreCollectionTask = selectSeasonScoreCollectionTask(creep);
+  if (seasonScoreCollectionTask) {
+    return seasonScoreCollectionTask;
   }
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
@@ -31035,6 +31183,10 @@ function runWorker(creep) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptEnergyAcquisitionTaskForSeasonScore(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptSeasonScoreTask(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTaskForUpgraderBoost(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
@@ -31581,6 +31733,8 @@ function canExecuteTask(creep, task) {
       return typeof creep.signController === "function";
     case "upgrade":
       return typeof creep.upgradeController === "function";
+    case "collectScore":
+      return typeof creep.moveTo === "function";
   }
 }
 function assignNextTask(creep) {
@@ -31595,6 +31749,9 @@ function shouldReplaceTask(creep, task) {
     return false;
   }
   if (task.type === "signController") {
+    return false;
+  }
+  if (task.type === "collectScore") {
     return false;
   }
   if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity) || !((_b = creep.store) == null ? void 0 : _b.getFreeCapacity)) {
@@ -31679,6 +31836,12 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
     return shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask);
   }
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+function shouldPreemptEnergyAcquisitionTaskForSeasonScore(task, selectedTask) {
+  return isEnergyAcquisitionTask2(task) && (selectedTask == null ? void 0 : selectedTask.type) === "collectScore" && !isSameTask2(task, selectedTask);
+}
+function shouldPreemptSeasonScoreTask(task, selectedTask) {
+  return task.type === "collectScore" && selectedTask !== null && !isSameTask2(task, selectedTask);
 }
 function shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask) {
   var _a;
@@ -32048,7 +32211,15 @@ function executeTask(creep, task, target) {
       );
     case "upgrade":
       return toTaskExecutionResult(runUpgrader(creep, target), "work");
+    case "collectScore":
+      return executeCollectScoreTask(creep, target);
   }
+}
+function executeCollectScoreTask(creep, target) {
+  if (!isInRangeToRoomObject(creep, target, EXACT_POSITION_MOVE_RANGE)) {
+    return { result: ERR_NOT_IN_RANGE_CODE6 };
+  }
+  return { result: OK_CODE11 };
 }
 function getSafeWithdrawEnergyAmount(creep, target, requestedAmount, task) {
   if (!task.constructionSiteId || !isSpawnEnergySource(target)) {
@@ -32225,6 +32396,8 @@ function getAssignedTaskMoveRange(task) {
     case "reserve":
     case "signController":
       return ADJACENT_ACTION_MOVE_RANGE;
+    case "collectScore":
+      return EXACT_POSITION_MOVE_RANGE;
   }
 }
 function isContainerStructure3(target) {
@@ -39015,41 +39188,6 @@ function getGameTime32() {
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.time) != null ? _b : 0;
 }
 
-// src/runtime/featureGates.ts
-function getRuntimeFeatureGates(game = getRuntimeGame2()) {
-  var _a, _b;
-  const shardName = normalizeString((_a = game == null ? void 0 : game.shard) == null ? void 0 : _a.name);
-  const shardType = normalizeString((_b = game == null ? void 0 : game.shard) == null ? void 0 : _b.type);
-  const isSeasonal = shardName === "shardSeason" || /season/i.test(shardType != null ? shardType : "");
-  const enabledInPersistent = !isSeasonal;
-  return {
-    cpu: buildCpuMetadata(game == null ? void 0 : game.cpu),
-    isSeasonal,
-    ...shardName ? { shardName } : {},
-    ...shardType ? { shardType } : {},
-    world: isSeasonal ? "seasonal" : "persistent",
-    marketTrading: enabledInPersistent,
-    terminalEnergyTransfers: enabledInPersistent,
-    labManagement: enabledInPersistent
-  };
-}
-function getRuntimeGame2() {
-  return globalThis.Game;
-}
-function buildCpuMetadata(cpu) {
-  return {
-    ...optionalFiniteNumber2("limit", cpu == null ? void 0 : cpu.limit),
-    ...optionalFiniteNumber2("bucket", cpu == null ? void 0 : cpu.bucket),
-    ...optionalFiniteNumber2("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
-  };
-}
-function optionalFiniteNumber2(key, value) {
-  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
-}
-function normalizeString(value) {
-  return typeof value === "string" && value.length > 0 ? value : void 0;
-}
-
 // src/economy/sourceWorkload.ts
 var HARVEST_ENERGY_PER_WORK_PART3 = 2;
 var DEFAULT_SOURCE_ENERGY_CAPACITY3 = 3e3;
@@ -39470,12 +39608,12 @@ function compareDemandTargets(left, right) {
 }
 function compareOptionalRange(worker, left, right) {
   var _a;
-  const getRangeTo2 = (_a = worker.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo2 !== "function") {
+  const getRangeTo3 = (_a = worker.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo3 !== "function") {
     return 0;
   }
-  const leftRange = getRangeTo2.call(worker.pos, left);
-  const rightRange = getRangeTo2.call(worker.pos, right);
+  const leftRange = getRangeTo3.call(worker.pos, left);
+  const rightRange = getRangeTo3.call(worker.pos, right);
   return normalizeRange2(leftRange) - normalizeRange2(rightRange);
 }
 function normalizeRange2(range) {
@@ -40106,7 +40244,7 @@ function executeBoostPlan(plan, options) {
       ...plan.lab ? { labId: getObjectId16(plan.lab) } : {}
     };
   }
-  const range = getRangeTo(plan.creep, plan.lab);
+  const range = getRangeTo2(plan.creep, plan.lab);
   if (range !== null && range > 1) {
     markCreepBoostState(plan.creep, "moving", plan);
     if (!options.dryRun && typeof plan.creep.moveTo === "function") {
@@ -40469,13 +40607,13 @@ function getBoostPlanStatusRank(plan) {
   }
   return plan.reason === "resourceUnavailable" ? 1 : 2;
 }
-function getRangeTo(creep, target) {
+function getRangeTo2(creep, target) {
   var _a;
-  const getRangeTo2 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo2 !== "function") {
+  const getRangeTo3 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo3 !== "function") {
     return null;
   }
-  const range = getRangeTo2.call(creep.pos, target);
+  const range = getRangeTo3.call(creep.pos, target);
   return typeof range === "number" && Number.isFinite(range) ? range : null;
 }
 function findRoomObjects30(room, globalConstantName) {
