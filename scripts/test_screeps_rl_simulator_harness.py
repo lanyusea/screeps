@@ -6159,6 +6159,7 @@ cli:
         class FakeSmoke:
             def __init__(self) -> None:
                 self.calls = 0
+                self.seen_headers: list[dict[str, str]] = []
 
             def build_spawn_payload(self, cfg: argparse.Namespace) -> dict[str, object]:
                 return {"room": cfg.room, "name": "Spawn1", "x": 20, "y": 20}
@@ -6170,7 +6171,9 @@ cli:
                 return headers.get("X-Token", token)
 
             def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
-                _ = method, base_url, path, args, kwargs
+                _ = method, base_url, path, args
+                headers = kwargs.get("headers")
+                self.seen_headers.append(dict(headers) if isinstance(headers, dict) else {})
                 self.calls += 1
                 if self.calls == 1:
                     return Result({"error": "room busy"}, "busy-token")
@@ -6195,6 +6198,8 @@ cli:
 
         self.assertEqual(token, "placed-token")
         self.assertEqual(smoke.calls, 2)
+        self.assertEqual(smoke.seen_headers[0].get("X-Token"), "initial-token")
+        self.assertEqual(smoke.seen_headers[1].get("X-Token"), "busy-token")
         sleep.assert_called_once_with(0.25)
         debug_phase.assert_called_once()
         self.assertEqual(summary["classification"], "ok")
@@ -6257,6 +6262,12 @@ cli:
                 )
 
         self.assertIn("do not rerun paid validation unchanged", str(caught.exception))
+        self.assertIsInstance(caught.exception, harness.PlaceSpawnRoomBusyError)
+        self.assertEqual(caught.exception.detail["classification"], "place_spawn_room_busy")
+        self.assertEqual(caught.exception.detail["maxAttempts"], 3)
+        self.assertEqual(len(caught.exception.detail["attempts"]), 3)
+        self.assertEqual(caught.exception.detail["attempts"][0]["classification"], "room_busy")
+        self.assertIn("do not rerun paid validation unchanged", caught.exception.detail["nextAction"])
         self.assertEqual(smoke.calls, 3)
         self.assertEqual(sleep.call_count, 2)
 
@@ -6540,6 +6551,155 @@ cli:
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "stop before side effects")
         self.assertIsNone(result["launcherRepairMod"])
+
+    def test_run_variant_records_persistent_place_spawn_room_busy_detail(self) -> None:
+        class FakeSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+            @property
+            def config_path(self) -> Path:
+                return self.work_dir / "config.yml"
+
+            @property
+            def map_path(self) -> Path:
+                return self.work_dir / "maps" / "map-0b6758af.json"
+
+        class Result:
+            def __init__(self, status: int, payload: object, headers: dict[str, str] | None = None) -> None:
+                self.status = status
+                self.payload = payload
+                self.headers = headers or {}
+
+        class FakeSmoke:
+            SmokeConfig = FakeSmokeConfig
+            DEFAULT_MAP_URL = ""
+
+            def __init__(self) -> None:
+                self.place_spawn_calls = 0
+
+            def required_env_errors(self, cfg: FakeSmokeConfig) -> list[str]:
+                _ = cfg
+                return []
+
+            def assert_safe_work_dir(self, work_dir: Path) -> None:
+                _ = work_dir
+
+            def preflight_host_ports(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                _ = cfg
+                return {"checks": [{"available": True}]}
+
+            def find_compose_command(self) -> list[str]:
+                return ["compose"]
+
+            def prepare_work_dir(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+
+            def build_launcher_config(self, cfg: FakeSmokeConfig) -> str:
+                _ = cfg
+                return "serverConfig:\n  shardName: shardX\n  mapFile: /screeps/maps/map-0b6758af.json\n"
+
+            def write_generated_text(self, work_dir: Path, path: Path, text: str) -> None:
+                _ = work_dir, path, text
+
+            def prepare_map(self, cfg: FakeSmokeConfig) -> None:
+                _ = cfg
+
+            def run_command(
+                self,
+                command: list[str],
+                cfg: FakeSmokeConfig,
+                *,
+                timeout: int,
+                output_limit: int | None = None,
+            ) -> dict[str, object]:
+                _ = command, cfg, timeout, output_limit
+                return {"returncode": 0, "elapsed_seconds": 0.0, "output_excerpt": ""}
+
+            def run_launcher_cli(self, compose: list[str], cfg: FakeSmokeConfig, expression: str) -> dict[str, object]:
+                _ = compose, cfg, expression
+                return {"status": 200, "response_excerpt": "undefined\n"}
+
+            def wait_for_http(self, cfg: FakeSmokeConfig, timeout: int) -> dict[str, object]:
+                _ = cfg, timeout
+                return {"ok": True}
+
+            def token_headers(self, token: str | None) -> dict[str, str]:
+                return {"X-Token": token or ""}
+
+            def update_token_from_headers(self, token: str, headers: dict[str, str]) -> str:
+                return headers.get("X-Token", token)
+
+            def build_register_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"username": cfg.username, "email": cfg.email, "password": cfg.password}
+
+            def build_signin_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"email": cfg.email, "password": cfg.password}
+
+            def build_code_payload(self, cfg: FakeSmokeConfig, code: str) -> dict[str, object]:
+                return {"branch": cfg.branch, "modules": {"main": code}}
+
+            def build_spawn_payload(self, cfg: FakeSmokeConfig) -> dict[str, object]:
+                return {"room": cfg.room, "name": cfg.spawn_name, "x": cfg.spawn_x, "y": cfg.spawn_y}
+
+            def api_dict_succeeded(self, result: Result) -> bool:
+                return isinstance(result.payload, dict) and result.payload.get("ok") in (1, True)
+
+            def upload_code_succeeded(self, result: Result) -> bool:
+                return self.api_dict_succeeded(result)
+
+            def http_json(self, method: str, base_url: str, path: str, *args: object, **kwargs: object) -> Result:
+                _ = method, base_url, args, kwargs
+                if path == "/api/register/submit":
+                    return Result(200, {"ok": 1})
+                if path == "/api/auth/signin":
+                    return Result(200, {"ok": 1, "token": "signin-token"})
+                if path == "/api/user/code":
+                    return Result(200, {"ok": 1})
+                if path == "/api/game/place-spawn":
+                    self.place_spawn_calls += 1
+                    return Result(200, {"error": "room busy"}, {"X-Token": f"busy-{self.place_spawn_calls}"})
+                raise AssertionError(path)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            fake_smoke = FakeSmoke()
+
+            with (
+                mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=fake_smoke),
+                mock.patch("screeps_rl_simulator_harness._wait_for_terrain_ready", return_value={"ok": True}),
+                mock.patch(
+                    "screeps_rl_simulator_harness._poll_private_simulator_active_code_readback",
+                    return_value=("readback-token", {"status": "matched"}),
+                ),
+                mock.patch("screeps_rl_simulator_harness._private_map_fixture_room_summaries", return_value={}),
+                mock.patch.object(harness.time, "sleep", return_value=None),
+            ):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="place-spawn-busy-detail",
+                    ticks=1,
+                    room="E1S1",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("place-spawn room busy after", result["error"])
+        self.assertEqual(fake_smoke.place_spawn_calls, harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS)
+        self.assertEqual(result["placeSpawn"]["classification"], "place_spawn_room_busy")
+        self.assertEqual(result["placeSpawn"]["maxAttempts"], harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS)
+        self.assertEqual(len(result["placeSpawn"]["attempts"]), harness.RUN_PLACE_SPAWN_MAX_ATTEMPTS)
+        self.assertIn("do not rerun paid validation unchanged", result["placeSpawn"]["nextAction"])
 
     def test_compose_setup_retry_recovers_transient_image_pull_failure(self) -> None:
         class FakeSmoke:

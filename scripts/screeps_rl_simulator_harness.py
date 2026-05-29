@@ -5926,6 +5926,16 @@ def _safe_redact_smoke_payload(payload: Any) -> JsonObject:
     return {"ok": True, "payload": dataset_export.redact_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))[:2000]}
 
 
+class PlaceSpawnRoomBusyError(RuntimeError):
+    def __init__(self, detail: JsonObject) -> None:
+        self.detail = copy.deepcopy(detail)
+        max_attempts = detail.get("maxAttempts")
+        super().__init__(
+            f"place-spawn room busy after {max_attempts} attempt(s): "
+            f"{_safe_redact_smoke_payload(self.detail)}"
+        )
+
+
 def _json_text_payload(value: Any) -> Any:
     if not isinstance(value, str):
         return None
@@ -6028,7 +6038,7 @@ def _place_spawn_with_retry(
             detail = {
                 "phase": "place-spawn",
                 "classification": "place_spawn_room_busy",
-                "attempts": attempts,
+                "attempts": _place_spawn_retry_attempt_summaries(attempts),
                 "maxAttempts": max_attempts,
                 "retrySeconds": retry_seconds,
                 "nextAction": (
@@ -6036,10 +6046,7 @@ def _place_spawn_with_retry(
                     "until the room-busy placement lock is explained"
                 ),
             }
-            raise RuntimeError(
-                f"place-spawn room busy after {max_attempts} attempt(s): "
-                f"{_safe_redact_smoke_payload(detail)}"
-            )
+            raise PlaceSpawnRoomBusyError(detail)
         raise RuntimeError(
             "place-spawn API rejected with unexpected payload: "
             f"{_safe_redact_smoke_payload(getattr(place, 'payload', None))}"
@@ -6486,6 +6493,8 @@ def _run_variant(
             if smoke_gate_error is not None:
                 errors.append(smoke_gate_error)
     except Exception as exc:  # noqa: BLE001 - collect the failure into a safe result
+        if isinstance(exc, PlaceSpawnRoomBusyError):
+            place_spawn = copy.deepcopy(exc.detail)
         errors.append(_safe_text(exc, 480))
         runtime_parameter_injection = mark_runtime_parameter_injection_failed(runtime_parameter_injection, exc)
     finally:
