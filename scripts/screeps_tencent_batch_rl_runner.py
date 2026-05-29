@@ -3044,14 +3044,12 @@ def latest_paid_failure_post_fix_validation_attempt(
         )
     except OSError:
         return None
-    scanned = 0
     for summary_path in summary_paths:
         try:
             if summary_path.parent.resolve() == current_dir:
                 continue
         except OSError:
             continue
-        scanned += 1
         item = paid_failure_post_fix_validation_attempt_from_summary(
             read_json_object(summary_path),
             summary_path,
@@ -3059,8 +3057,6 @@ def latest_paid_failure_post_fix_validation_attempt(
         )
         if item is not None:
             return item
-        if scanned >= PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT:
-            break
     return None
 
 
