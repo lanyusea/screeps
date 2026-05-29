@@ -24,6 +24,15 @@ function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Reco
   };
 }
 
+function makeScoreTarget(id: string): RoomObject & { id: string; score: number; scoreType: string } {
+  return {
+    id,
+    pos: { x: 12, y: 10, roomName: 'W1N1' } as RoomPosition,
+    score: 100,
+    scoreType: 'score'
+  } as unknown as RoomObject & { id: string; score: number; scoreType: string };
+}
+
 function makeControllerSigningMemory(
   roomName: string,
   controllerId: Id<StructureController>,
@@ -61,6 +70,7 @@ describe('runWorker', () => {
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    delete (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
@@ -88,6 +98,119 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('moves to collect a score target at exact range without pickup', () => {
+    const score = makeScoreTarget('score1');
+    const pickup = jest.fn();
+    const moveTo = jest.fn();
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const creep = {
+      name: 'ScoreWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'collectScore', targetId: 'score1' } as unknown as CreepTaskMemory
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'score1' ? 1 : 99)) },
+      room,
+      moveTo,
+      pickup
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ScoreWorker: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) => (id === 'score1' ? score : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(moveTo).toHaveBeenCalledWith(score, { range: 0 });
+    expect(pickup).not.toHaveBeenCalled();
+  });
+
+  it('preempts assigned score collection for emergency spawn refill', () => {
+    (globalThis as unknown as { FIND_SCORE: number }).FIND_SCORE = 42;
+    const score = makeScoreTarget('score1');
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(300)
+      }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 300,
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure | Creep) => boolean }) => {
+        const findScore = (globalThis as unknown as { FIND_SCORE?: number }).FIND_SCORE;
+        if (typeof findScore === 'number' && type === findScore) {
+          return [score];
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as unknown as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return [];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const transfer = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn();
+    const creep = {
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'collectScore', targetId: 'score1' } as unknown as CreepTaskMemory
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) =>
+          target.id === 'score1' ? 5 : target.id === 'spawn1' ? 1 : 99
+        )
+      },
+      room,
+      transfer,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RefillWorker: creep },
+      shard: { name: 'shardSeason' } as Game['shard'],
+      getObjectById: jest.fn((id: string) =>
+        id === 'score1' ? score : id === 'spawn1' ? spawn : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+    expect(moveTo).not.toHaveBeenCalledWith(score, { range: 0 });
   });
 
   it('withdraws construction-buffer spawn energy for an idle builder', () => {
