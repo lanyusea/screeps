@@ -28,6 +28,10 @@ describe('upgrader runner', () => {
     });
   });
 
+  afterEach(() => {
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+  });
+
   it('prioritizes near-level controller progress only when spawn energy is ready', () => {
     const controller = makeController({ progress: 900, progressTotal: 1_000 });
 
@@ -190,6 +194,66 @@ describe('upgrader runner', () => {
     runUpgraderCreep(creep);
 
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+  });
+
+  it('returns carried upgrader energy instead of upgrading under critical CPU bucket pressure', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 25
+      } as unknown as CPU
+    };
+    const controller = makeController();
+    const spawn = makeEnergyStructure('spawn1', 'spawn', 0, 300);
+    const room = makeRoom({ controller, ownedStructures: [spawn] });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
+  it('keeps downgrade guard upgrading under critical CPU bucket pressure', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 25
+      } as unknown as CPU
+    };
+    const controller = makeController({ ticksToDowngrade: 1_000 });
+    const room = makeRoom({ controller });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.transfer).not.toHaveBeenCalled();
+  });
+
+  it('does not acquire upgrader energy under critical CPU bucket pressure without downgrade guard', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 25
+      } as unknown as CPU
+    };
+    const container = makeEnergyStructure('container1', 'container', 500, 0);
+    const controller = makeController();
+    const room = makeRoom({ controller, structures: [container] });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 0, freeEnergy: 50 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.withdraw).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.upgradeController).not.toHaveBeenCalled();
   });
 
   it('moves dedicated upgraders only to controller upgrade range', () => {

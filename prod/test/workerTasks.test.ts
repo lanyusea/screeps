@@ -11887,6 +11887,53 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
+  it('acquires energy for missing spawn construction under critical CPU bucket pressure', () => {
+    const spawnSite = {
+      id: 'spawn-site1',
+      structureType: 'spawn',
+      progress: 0,
+      progressTotal: 15_000
+    } as ConstructionSite;
+    const source = makeSource('source1', 12, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [spawnSite],
+      controller,
+      energyAvailable: 0,
+      energyCapacityAvailable: 650,
+      myStructures: [],
+      sources: [source]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    const globalScope = globalThis as unknown as { Game: Partial<Game> };
+    setGameCreeps({ RecoveryWorker: creep });
+    globalScope.Game = {
+      ...globalScope.Game,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 25
+      } as unknown as CPU
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('uses the survival buffer multiplier before selecting construction spending', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;

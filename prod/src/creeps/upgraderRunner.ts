@@ -5,6 +5,7 @@ import {
 import { getStorageEnergyAvailableForWithdrawal } from '../economy/energyBuffer';
 import { isControllerStagingContainer } from '../economy/stagingContainers';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from './roleCounts';
+import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
 
 export type ControllerUpgradePriority =
   | 'none'
@@ -243,6 +244,10 @@ function getAssignedController(creep: Creep): StructureController | null {
 function shouldSpendUpgraderEnergy(creep: Creep, controller: StructureController): boolean {
   if (shouldGuardControllerDowngrade(controller) || creep.memory.controllerUpgrade?.priority === 'downgradeGuard') {
     return true;
+  }
+
+  if (getRuntimeCpuBudget().critical) {
+    return false;
   }
 
   return (

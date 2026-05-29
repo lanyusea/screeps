@@ -150,6 +150,8 @@ export function runWorker(creep: Creep): void {
     )
   ) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForControllerSigning(creep, currentTask, selectedTask)) {
@@ -466,6 +468,30 @@ function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
   );
 }
 
+function shouldPauseOptionalTaskForCriticalCpu(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!getRuntimeCpuBudget().critical || isSameOptionalTask(task, selectedTask)) {
+    return false;
+  }
+
+  if (isEnergyAcquisitionTask(task)) {
+    return getUsedTransferEnergy(creep) > 0;
+  }
+
+  if (task.type === 'upgrade') {
+    return !isDowngradeGuardUpgradeTask(creep, task);
+  }
+
+  if (task.type === 'build') {
+    return !isSpawnConstructionTaskTarget(getTaskTarget(task));
+  }
+
+  return task.type === 'signController' || task.type === 'collectScore';
+}
+
 function selectCriticalCpuRepairPreemptionTarget(creep: Creep): Structure | null {
   const visibleStructures = findVisibleStructuresForCriticalCpuRepairPreemption(creep.room);
   const criticalSpawnRepairTarget = visibleStructures
@@ -692,6 +718,10 @@ function fallbackToEnergyOnNullSelectionLoop(
   if (selectedTask) {
     delete creep.memory.workerTaskSelectionNullLoop;
     return selectedTask;
+  }
+
+  if (getRuntimeCpuBudget().critical) {
+    return null;
   }
 
   const gameTime = (globalThis as unknown as { Game?: Partial<Game> }).Game?.time;
@@ -1700,6 +1730,15 @@ function isCapacityEnablingConstructionSite(target: unknown): target is Construc
     matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
     matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
   );
+}
+
+function isSpawnConstructionTaskTarget(target: unknown): target is ConstructionSite {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  if (typeof structureType !== 'string') {
+    return false;
+  }
+
+  return matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn');
 }
 
 function getFreeTransferEnergyCapacity(target: unknown): number {
