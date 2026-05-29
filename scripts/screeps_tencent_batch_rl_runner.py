@@ -103,6 +103,8 @@ SSH_CONNECT_OPTIONS = (
 KNOWN_HOSTS_CLEANUP_TIMEOUT_SECONDS = 30
 KNOWN_HOSTS_KEYSCAN_TIMEOUT_SECONDS = 15
 KNOWN_HOSTS_KEYSCAN_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+PROCESS_TIMEOUT_RETURN_CODE = 124
+CONTROLLER_TIMEOUT_ATTR = "_screeps_controller_timed_out"
 SSH_HOST_KEY_TYPES = ("ed25519", "ecdsa", "rsa")
 HOST_KEY_ALGORITHM_RE = (
     r"(?:ssh-rsa(?:-cert-v01@openssh\.com)?|"
@@ -474,18 +476,26 @@ class Controller:
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         started = time.time()
-        cp = subprocess.run(
-            list(cmd),
-            text=True,
-            input=input_text,
-            capture_output=True,
-            cwd=str(cwd or REPO_ROOT),
-            timeout=timeout,
-            env=env,
-            check=False,
-        )
+        try:
+            cp = subprocess.run(
+                list(cmd),
+                text=True,
+                input=input_text,
+                capture_output=True,
+                cwd=str(cwd or REPO_ROOT),
+                timeout=timeout,
+                env=env,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            cp = timeout_completed_process(cmd, error)
+        except OSError as error:
+            cp = subprocess.CompletedProcess(list(cmd), 127, "", f"{type(error).__name__}: {error}")
         ok = cp.returncode == 0
-        self.record_step(name, started, ok, cp, argv=redacted_argv(cmd))
+        detail: dict[str, Any] = {"argv": redacted_argv(cmd)}
+        if completed_process_controller_timed_out(cp):
+            detail["controllerTimedOut"] = True
+        self.record_step(name, started, ok, cp, **detail)
         if check and not ok:
             raise BatchRunError(f"{name} failed with exit {cp.returncode}: {tail_text(cp.stderr or cp.stdout)}")
         return cp
@@ -1636,6 +1646,7 @@ PY
             cp.returncode,
             run_id=self.run_id,
             process_failure_class=classify_ssh_process_failure(cp),
+            controller_timed_out=completed_process_controller_timed_out(cp),
             collection_error=collection_error,
         )
         self.result["remoteTrainingFailure"] = diagnostics
@@ -1915,6 +1926,36 @@ def decode_subprocess_text(raw: str | bytes | None) -> str:
     if not raw:
         return ""
     return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
+
+def timeout_completed_process(
+    cmd: Sequence[str],
+    error: subprocess.TimeoutExpired,
+) -> subprocess.CompletedProcess[str]:
+    stdout_raw = getattr(error, "stdout", None)
+    if stdout_raw is None:
+        stdout_raw = getattr(error, "output", None)
+    stderr_raw = getattr(error, "stderr", None)
+    timeout_value = getattr(error, "timeout", None)
+    timeout_text = f"{timeout_value:g}" if isinstance(timeout_value, (int, float)) else str(timeout_value or "")
+    message = (
+        f"TimeoutExpired: command timed out after {timeout_text} seconds"
+        if timeout_text
+        else "TimeoutExpired: command timed out"
+    )
+    stderr = "\n".join(part for part in (message, decode_subprocess_text(stderr_raw)) if part)
+    cp = subprocess.CompletedProcess(
+        list(cmd),
+        PROCESS_TIMEOUT_RETURN_CODE,
+        decode_subprocess_text(stdout_raw),
+        stderr,
+    )
+    setattr(cp, CONTROLLER_TIMEOUT_ATTR, True)
+    return cp
+
+
+def completed_process_controller_timed_out(cp: subprocess.CompletedProcess[str]) -> bool:
+    return getattr(cp, CONTROLLER_TIMEOUT_ATTR, False) is True
 
 
 def sanitize_known_hosts_cleanup_text(raw: str | bytes | None) -> str:
@@ -2308,6 +2349,7 @@ def remote_training_failure_diagnostics(
     *,
     run_id: str | None = None,
     process_failure_class: str | None = None,
+    controller_timed_out: bool = False,
     collection_error: str | None = None,
 ) -> dict[str, Any]:
     remote_dir = artifact_dir / "remote"
@@ -2328,6 +2370,7 @@ def remote_training_failure_diagnostics(
         files,
         returncode=returncode,
         process_failure_class=process_failure_class,
+        controller_timed_out=controller_timed_out,
     )
     payload: dict[str, Any] = {
         "status": "failed_exit",
@@ -2337,6 +2380,8 @@ def remote_training_failure_diagnostics(
         "artifactDir": str(remote_dir),
         "diagnostics": files,
     }
+    if controller_timed_out:
+        payload["controllerTimedOut"] = True
     next_action = remote_training_failure_next_action(failure_class)
     if next_action is not None:
         payload["nextAction"] = next_action
@@ -2353,6 +2398,7 @@ def classify_remote_training_failure(
     *,
     returncode: int,
     process_failure_class: str | None = None,
+    controller_timed_out: bool = False,
 ) -> str:
     diagnostic_text = "\n".join(
         tail for entry in files.values() for tail in [entry.get("tail")] if isinstance(tail, str)
@@ -2383,6 +2429,8 @@ def classify_remote_training_failure(
         )
     ):
         return "simulator_setup_retryable"
+    if controller_timed_out:
+        return "remote_training_timeout"
     if returncode == 255 and REMOTE_NETWORK_RE.search(diagnostic_text):
         return "network_unreachable"
     if returncode == 255:
@@ -2398,6 +2446,11 @@ def remote_training_failure_next_action(failure_class: str) -> str | None:
         )
     if failure_class == "network_unreachable":
         return "rerun after the worker SSH/network path is reachable"
+    if failure_class == "remote_training_timeout":
+        return (
+            "inspect collected partial diagnostics, then rerun validation in smaller chunks "
+            "or with an explicitly sized training timeout"
+        )
     return None
 
 
