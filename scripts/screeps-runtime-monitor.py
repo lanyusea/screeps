@@ -3682,24 +3682,21 @@ def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
 
 
 def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
-    cpu = payload.get("cpu")
-    if not isinstance(cpu, dict):
-        return False
-    return any(
-        key in cpu
-        for key in (
-            "bucket",
-            "pressure",
-            "alerts",
-            "reasons",
-            "lowBucketTicks",
-            "bucketEmptyTicks",
-        )
+    return (
+        runtime_cpu_bucket(payload) is not None
+        or runtime_cpu_pressure(payload) is not None
+        or bool(runtime_cpu_signal_values(payload, "alerts"))
+        or bool(runtime_cpu_signal_values(payload, "reasons"))
     )
 
 
 def runtime_summary_room_has_cpu_fields(room: dict[str, Any]) -> bool:
-    return any(key in room for key in ("cpuBucket", "cpu", "bucket", "pressure", "alerts", "reasons"))
+    return (
+        runtime_cpu_bucket(room) is not None
+        or runtime_cpu_pressure(room) is not None
+        or bool(runtime_cpu_signal_values(room, "alerts"))
+        or bool(runtime_cpu_signal_values(room, "reasons"))
+    )
 
 
 def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload: dict[str, Any]) -> bool:
@@ -3820,7 +3817,7 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
     elif path.name.startswith("runtime-summary-monitor-"):
         result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = MONITOR_RUNTIME_SUMMARY_SOURCE
     cpu = payload.get("cpu")
-    if isinstance(cpu, dict):
+    if isinstance(cpu, dict) and runtime_summary_payload_has_cpu_fields(payload):
         result[RUNTIME_SUMMARY_CPU_METADATA_KEY] = dict(cpu)
     return result
 

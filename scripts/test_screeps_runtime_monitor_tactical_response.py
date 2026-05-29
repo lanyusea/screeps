@@ -964,6 +964,117 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["bucket"], 9000)
         self.assertIsNone(monitor.detect_cpu_bucket_reason(monitor.RoomRef(shard="shardX", room="E26S49"), runtime_room))
 
+    def test_newer_null_monitor_cpu_does_not_mask_persisted_cpu_alerts(self) -> None:
+        cases = (
+            (
+                "top-level runtime-summary cpu",
+                "#runtime-summary "
+                + json.dumps(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 1200,
+                        "cpu": {
+                            "used": 29.42,
+                            "limit": 70,
+                            "bucket": 15,
+                            "pressure": "critical",
+                            "alerts": ["lowBucket"],
+                            "reasons": ["criticalBucket"],
+                            "lowBucketTicks": 1,
+                        },
+                        "rooms": [{"roomName": "E26S49", "shard": "shardX", "workerCount": 1}],
+                    }
+                )
+                + "\n",
+            ),
+            (
+                "room-level runtime-summary cpu",
+                "#runtime-summary "
+                + json.dumps(
+                    {
+                        "type": "runtime-summary",
+                        "tick": 1200,
+                        "rooms": [
+                            {
+                                "roomName": "E26S49",
+                                "shard": "shardX",
+                                "workerCount": 1,
+                                "cpuUsed": 29.42,
+                                "cpuBucket": 15,
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+            ),
+            (
+                "compact cpu-summary",
+                "#cpu-summary "
+                + json.dumps(
+                    {
+                        "used": 29.42,
+                        "limit": 70,
+                        "bucket": 15,
+                        "pressure": "critical",
+                        "alerts": ["lowBucket"],
+                        "reasons": ["criticalBucket"],
+                        "lowBucketTicks": 1,
+                    }
+                )
+                + "\n",
+            ),
+        )
+        null_monitor_payload = {
+            "type": "runtime-summary",
+            "source": monitor.MONITOR_RUNTIME_SUMMARY_SOURCE,
+            "tick": 1205,
+            "cpu": {"used": None, "bucket": None},
+            "rooms": [
+                {
+                    "roomName": "E26S49",
+                    "shard": "shardX",
+                    "workerCount": 3,
+                    "taskCounts": {"harvest": 2, "transfer": 1, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
+                    "cpuUsed": None,
+                    "cpuBucket": None,
+                }
+            ],
+        }
+
+        for name, persisted_cpu_line in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    runtime_dir = Path(temp_dir)
+                    (runtime_dir / "runtime-summary-console-20260529T043738Z.log").write_text(
+                        persisted_cpu_line,
+                        encoding="utf-8",
+                    )
+                    (runtime_dir / "runtime-summary-monitor-20260529T045325Z.log").write_text(
+                        "#runtime-summary " + json.dumps(null_monitor_payload) + "\n",
+                        encoding="utf-8",
+                    )
+                    warnings: list[str] = []
+                    runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                        runtime_dir,
+                        [monitor.RoomRef(shard="shardX", room="E26S49")],
+                        warnings,
+                    )
+
+                self.assertEqual(warnings, [])
+                runtime_room = runtime_rooms["shardX/E26S49"]
+                self.assertEqual(runtime_room["workerCount"], 3)
+                self.assertEqual(runtime_room["taskCounts"]["harvest"], 2)
+
+                reason = monitor.detect_cpu_bucket_reason(
+                    monitor.RoomRef(shard="shardX", room="E26S49"),
+                    runtime_room,
+                )
+
+                self.assertIsNotNone(reason)
+                assert reason is not None
+                self.assertEqual(reason["kind"], monitor.CPU_BUCKET_CRITICAL_KIND)
+                self.assertEqual(reason["cpuBucket"], 15)
+
     def test_compact_cpu_summary_healthy_malformed_or_missing_stays_silent(self) -> None:
         snapshot = make_snapshot(
             {
