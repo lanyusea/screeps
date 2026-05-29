@@ -100,6 +100,46 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('keeps an executable assigned harvest under critical CPU bucket without full task reselection', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([{ id: 'source2' }])
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 43,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(room.find).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+  });
+
   it('moves to collect a score target at exact range without pickup', () => {
     const score = makeScoreTarget('score1');
     const pickup = jest.fn();

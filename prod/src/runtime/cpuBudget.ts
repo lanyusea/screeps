@@ -185,7 +185,7 @@ export function shouldRunOptionalCpuRoomWork(
 }
 
 export function shouldThrottleRuntimeSummaryCadence(budget: RuntimeCpuBudget): boolean {
-  return budget.lowCpuLimit;
+  return budget.degraded;
 }
 
 export function resetRuntimeCpuTelemetryForTesting(): void {

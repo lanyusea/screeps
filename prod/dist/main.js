@@ -24887,7 +24887,7 @@ function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM
   return isCadenceTick(budget.tick, roomName, interval);
 }
 function shouldThrottleRuntimeSummaryCadence(budget) {
-  return budget.lowCpuLimit;
+  return budget.degraded;
 }
 function updateRuntimeCpuTelemetryState(sample) {
   resetRuntimeCpuTelemetryStateForTick(sample.tick);
@@ -31155,6 +31155,10 @@ function runWorker(creep) {
   }
   observeCreepBehaviorTick(creep);
   const currentTask = creep.memory.task;
+  if (shouldRetainAssignedTaskUnderCriticalCpu(creep, currentTask)) {
+    executeAssignedTask(creep, null);
+    return;
+  }
   const baseSelectedTask = selectWorkerTaskForRunner(creep);
   const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
   const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
@@ -31338,6 +31342,18 @@ function getGameTick4() {
 function selectWorkerTaskForRunner(creep) {
   const selectedTask = selectWorkerTask(creep);
   return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
+}
+function shouldRetainAssignedTaskUnderCriticalCpu(creep, task) {
+  if (!getRuntimeCpuBudget().critical || !task || !canExecuteTask(creep, task)) {
+    return false;
+  }
+  if (isEnergyAcquisitionTask2(task)) {
+    return getFreeTransferEnergyCapacity(creep) > 0;
+  }
+  if (task.type === "transfer" || isEnergySpendingTask(task)) {
+    return getUsedTransferEnergy(creep) > 0;
+  }
+  return task.type === "signController" || isTerritoryControlTask2(task);
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
   if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
@@ -37239,7 +37255,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   }
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const includeOptionalSummary = !shouldThrottleRuntimeSummaryCadence(cpuBudget) && !cpuBudget.critical;
+  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
   const rooms = colonies.map(
     (colony) => {
       var _a, _b;
@@ -37335,13 +37351,9 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const tick = getGameTime32();
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
-  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(
-    colony,
-    colonyWorkers,
-    territoryExpansion
-  );
-  if (persistOccupationRecommendations) {
+  const territoryExpansion = includeOptionalSummary ? buildRuntimeExpansionCandidateReport(colony) : void 0;
+  const territoryRecommendation = territoryExpansion ? buildRuntimeOccupationRecommendationReport(colony, colonyWorkers, territoryExpansion) : emptyTerritoryRecommendationReport();
+  if (persistOccupationRecommendations && includeOptionalSummary) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, tick);
   }
   const resources = summarizeResources(colony, colonyWorkers, colonyCreeps, eventMetrics.resources);
@@ -37382,8 +37394,8 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
       onStrategyRegistryRuntimeUse
     ) : emptyConstructionPrioritySummary(),
     survival: summarizeSurvival(colony, roleCounts),
-    territoryRecommendation: includeOptionalSummary ? territoryRecommendation : emptyTerritoryRecommendationReport(),
-    ...includeOptionalSummary && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
+    territoryRecommendation,
+    ...territoryExpansion && territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
     ...includeOptionalSummary ? buildTerritoryIntentSummary(colony.room.name, roleCounts) : {},
     ...includeOptionalSummary ? buildTerritoryExecutionHintSummary(colony.room.name) : {},
     ...includeOptionalSummary ? buildTerritoryScoutSummary(colony, roleCounts) : {},

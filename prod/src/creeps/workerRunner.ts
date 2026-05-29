@@ -45,6 +45,7 @@ import {
   recordCreepBehaviorWork,
   type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
+import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
 
 type TransferSinkStructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
@@ -102,6 +103,11 @@ export function runWorker(creep: Creep): void {
   observeCreepBehaviorTick(creep);
 
   const currentTask = creep.memory.task;
+  if (shouldRetainAssignedTaskUnderCriticalCpu(creep, currentTask)) {
+    executeAssignedTask(creep, null);
+    return;
+  }
+
   const baseSelectedTask = selectWorkerTaskForRunner(creep);
   const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
   const spawnReservationRefillTask = selectSpawnEnergyReservationRefillTask(
@@ -341,6 +347,25 @@ function getGameTick(): number {
 function selectWorkerTaskForRunner(creep: Creep): CreepTaskMemory | null {
   const selectedTask = selectWorkerTask(creep);
   return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
+}
+
+function shouldRetainAssignedTaskUnderCriticalCpu(
+  creep: Creep,
+  task: CreepTaskMemory | null | undefined
+): task is CreepTaskMemory {
+  if (!getRuntimeCpuBudget().critical || !task || !canExecuteTask(creep, task)) {
+    return false;
+  }
+
+  if (isEnergyAcquisitionTask(task)) {
+    return getFreeTransferEnergyCapacity(creep) > 0;
+  }
+
+  if (task.type === 'transfer' || isEnergySpendingTask(task)) {
+    return getUsedTransferEnergy(creep) > 0;
+  }
+
+  return task.type === 'signController' || isTerritoryControlTask(task);
 }
 
 function selectSpawnEnergyReservationRefillTask(
