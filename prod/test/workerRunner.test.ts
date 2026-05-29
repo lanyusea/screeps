@@ -189,6 +189,69 @@ describe('runWorker', () => {
     expect(repair).toHaveBeenCalledWith(road);
   });
 
+  it('preempts retained critical CPU routine repair when an emergency rampart repair appears', () => {
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const rampart = {
+      id: 'rampart1',
+      structureType: 'rampart',
+      my: true,
+      hits: 1_000,
+      hitsMax: 100_000
+    } as StructureRampart;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      energyCapacityAvailable: 550,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_STRUCTURES) {
+          return [road, rampart];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const repair = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      time: 126,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) =>
+        id === 'rampart1' ? rampart : id === 'road1' ? road : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'rampart1' });
+    expect(repair).toHaveBeenCalledWith(rampart);
+    expect(repair).not.toHaveBeenCalledWith(road);
+  });
+
   it('pauses retained critical CPU repair when this worker must reserve energy for near-term spawn refill', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',

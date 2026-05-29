@@ -1,6 +1,8 @@
 import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+  CRITICAL_SPAWN_REPAIR_HITS_RATIO,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  EMERGENCY_RAMPART_REPAIR_HITS_CEILING,
   MINIMUM_USEFUL_LOAD_RATIO,
   selectWorkerPreHarvestTask,
   isUpgraderBoostActive,
@@ -47,6 +49,7 @@ import {
   type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
 import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
+import { isColonyRoomThreatened } from '../defense/colonyThreats';
 
 type TransferSinkStructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
@@ -93,6 +96,7 @@ interface WorkerTaskSelectionContext {
 
 interface CriticalCpuTaskRetentionDecision {
   retain: boolean;
+  repairPreemptionTask?: Extract<CreepTaskMemory, { type: 'repair' }>;
   retainedTask?: CreepTaskMemory;
   selectionContext?: WorkerTaskSelectionContext;
 }
@@ -138,6 +142,13 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (
+    shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
+      currentTask,
+      criticalCpuTaskRetention.repairPreemptionTask
+    )
+  ) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -396,10 +407,43 @@ function getCriticalCpuTaskRetentionDecision(
   }
 
   if (task.type === 'repair') {
-    return { retain: shouldRetainCriticalCpuRepairTask(creep) };
+    return getCriticalCpuRepairRetentionDecision(creep, task);
   }
 
   return { retain: false };
+}
+
+function getCriticalCpuRepairRetentionDecision(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'repair' }>
+): CriticalCpuTaskRetentionDecision {
+  if (!shouldRetainCriticalCpuRepairTask(creep)) {
+    return { retain: false };
+  }
+
+  const preemptionTarget = selectCriticalCpuRepairPreemptionTarget(creep);
+  if (preemptionTarget !== null && String(preemptionTarget.id) !== String(task.targetId)) {
+    const repairPreemptionTask: Extract<CreepTaskMemory, { type: 'repair' }> = {
+      type: 'repair',
+      targetId: preemptionTarget.id as Id<Structure>
+    };
+    return {
+      retain: false,
+      repairPreemptionTask,
+      selectionContext: createSingleTaskSelectionContext(repairPreemptionTask)
+    };
+  }
+
+  return { retain: true };
+}
+
+function createSingleTaskSelectionContext(task: CreepTaskMemory): WorkerTaskSelectionContext {
+  return {
+    baseSelectedTask: task,
+    energyCriticalTask: null,
+    selectedTask: task,
+    spawnReservationRefillTask: null
+  };
 }
 
 function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
@@ -409,6 +453,114 @@ function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
     !isControllerDowngradeGuardActive(creep.room) &&
     !shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)
   );
+}
+
+function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
+  task: CreepTaskMemory,
+  repairPreemptionTask: Extract<CreepTaskMemory, { type: 'repair' }> | undefined
+): boolean {
+  return (
+    task.type === 'repair' &&
+    repairPreemptionTask !== undefined &&
+    !isSameTask(task, repairPreemptionTask)
+  );
+}
+
+function selectCriticalCpuRepairPreemptionTarget(creep: Creep): Structure | null {
+  const visibleStructures = findVisibleStructuresForCriticalCpuRepairPreemption(creep.room);
+  const criticalSpawnRepairTarget = visibleStructures
+    .filter(isCriticalCpuOwnedSpawnRepairTarget)
+    .sort(compareCriticalCpuRepairPreemptionTargets)[0];
+  if (criticalSpawnRepairTarget) {
+    return criticalSpawnRepairTarget;
+  }
+
+  const emergencyRampartRepairTarget = visibleStructures
+    .filter(isCriticalCpuEmergencyOwnedRampartRepairTarget)
+    .sort(compareCriticalCpuRepairPreemptionTargets)[0];
+  if (emergencyRampartRepairTarget) {
+    return emergencyRampartRepairTarget;
+  }
+
+  if (creep.room.controller?.my !== true || !isColonyRoomThreatened(creep.room.name)) {
+    return null;
+  }
+
+  return (
+    visibleStructures
+      .filter(isCriticalCpuThreatenedBarrierRepairTarget)
+      .sort(compareCriticalCpuRepairPreemptionTargets)[0] ?? null
+  );
+}
+
+function findVisibleStructuresForCriticalCpuRepairPreemption(room: Room): AnyStructure[] {
+  const findStructures = (globalThis as unknown as { FIND_STRUCTURES?: number }).FIND_STRUCTURES;
+  if (typeof findStructures !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  const structures = (room as Room & { find: (type: number) => unknown[] }).find(findStructures);
+  return Array.isArray(structures) ? (structures as AnyStructure[]) : [];
+}
+
+function isCriticalCpuOwnedSpawnRepairTarget(structure: AnyStructure): structure is StructureSpawn {
+  return (
+    isCriticalCpuRepairStructureType(structure, 'STRUCTURE_SPAWN', 'spawn') &&
+    (structure as Partial<StructureSpawn>).my === true &&
+    !isWorkerRepairTargetComplete(structure) &&
+    getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO
+  );
+}
+
+function isCriticalCpuEmergencyOwnedRampartRepairTarget(structure: AnyStructure): structure is StructureRampart {
+  return (
+    isCriticalCpuOwnedRampart(structure) &&
+    !isWorkerRepairTargetComplete(structure) &&
+    structure.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING
+  );
+}
+
+function isCriticalCpuThreatenedBarrierRepairTarget(
+  structure: AnyStructure
+): structure is StructureRampart | StructureWall {
+  return isCriticalCpuBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
+}
+
+function isCriticalCpuBarrierRepairTarget(structure: AnyStructure): structure is StructureRampart | StructureWall {
+  return (
+    isCriticalCpuOwnedRampart(structure) ||
+    isCriticalCpuRepairStructureType(structure, 'STRUCTURE_WALL', 'constructedWall')
+  );
+}
+
+function isCriticalCpuOwnedRampart(structure: AnyStructure): structure is StructureRampart {
+  return (
+    isCriticalCpuRepairStructureType(structure, 'STRUCTURE_RAMPART', 'rampart') &&
+    (structure as Partial<StructureRampart>).my === true
+  );
+}
+
+function compareCriticalCpuRepairPreemptionTargets(left: Structure, right: Structure): number {
+  return (
+    getCriticalCpuRepairHitsRatio(left) - getCriticalCpuRepairHitsRatio(right) ||
+    left.hits - right.hits ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function getCriticalCpuRepairHitsRatio(structure: Structure): number {
+  return structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
+}
+
+function isCriticalCpuRepairStructureType(
+  structure: AnyStructure,
+  globalConstantName: 'STRUCTURE_RAMPART' | 'STRUCTURE_SPAWN' | 'STRUCTURE_WALL',
+  fallback: StructureConstant
+): boolean {
+  const globalConstant = (globalThis as unknown as Record<string, StructureConstant | undefined>)[
+    globalConstantName
+  ];
+  return structure.structureType === (globalConstant ?? fallback);
 }
 
 function getCriticalCpuTransferRetentionDecision(
