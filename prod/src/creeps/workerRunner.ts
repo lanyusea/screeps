@@ -365,7 +365,7 @@ function shouldRetainAssignedTaskUnderCriticalCpu(
     return getUsedTransferEnergy(creep) > 0;
   }
 
-  return task.type === 'signController' || isTerritoryControlTask(task);
+  return isTerritoryControlTask(task);
 }
 
 function selectSpawnEnergyReservationRefillTask(

@@ -31364,7 +31364,7 @@ function shouldRetainAssignedTaskUnderCriticalCpu(creep, task) {
   if (task.type === "transfer" || isEnergySpendingTask(task)) {
     return getUsedTransferEnergy(creep) > 0;
   }
-  return task.type === "signController" || isTerritoryControlTask2(task);
+  return isTerritoryControlTask2(task);
 }
 function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask) {
   if (shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)) {
