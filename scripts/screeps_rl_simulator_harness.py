@@ -3890,7 +3890,7 @@ def _summarize_room_state(payload: dict[str, Any], room: str) -> JsonObject:
     )
     stored_energy = _sum_owned_stored_energy(normalized, owner_id=owner_id, owner_username=owner_username)
     energy_capacity = _sum_room_energy_capacity(normalized, owner_id=owner_id, owner_username=owner_username)
-    owned = bool(controller_summary.get("my")) or sum(own_structure_counts.values()) > 0 or own_creeps > 0
+    owned = bool(controller_summary.get("my")) or sum(own_structure_counts.values()) > 0
     resources_summary = normalized.get("resources") if isinstance(normalized.get("resources"), dict) else {}
     resources_summary = {
         **resources_summary,
@@ -4977,15 +4977,9 @@ def _room_summary_owned(summary: JsonObject) -> bool:
         return True
     if (_extract_int(summary.get("ownStructures")) or 0) > 0:
         return True
-    if (_extract_int(summary.get("ownedCreeps")) or 0) > 0:
-        return True
     structures = summary.get("ownStructureCounts")
     if isinstance(structures, dict):
         if any((_extract_int(value) or 0) > 0 for value in structures.values()):
-            return True
-    roles = summary.get("ownCreepRoles")
-    if isinstance(roles, dict):
-        if any((_extract_int(value) or 0) > 0 for value in roles.values()):
             return True
     return False
 
@@ -5492,6 +5486,7 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     evidence = activation.get(evidence_source)
     activation_kills = 0
     territory_delta = 0
+    controller_claimed = False
     if isinstance(evidence, dict):
         initial_hostiles = _extract_int(evidence.get("initialHostileCount"))
         final_hostiles = _extract_int(evidence.get("finalHostileCount"))
@@ -5502,6 +5497,7 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
         )
         if evidence.get("controllerClaimed") is True:
             territory_delta = max(territory_delta, 2)
+            controller_claimed = True
         elif evidence.get("ownPresenceIncreased") is True:
             territory_delta = max(territory_delta, 1)
     if activation_kills <= 0 and territory_delta <= 0:
@@ -5510,6 +5506,9 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
         if isinstance(evidence, dict):
             activation_kills = _extract_int(evidence.get("projectedHostileKills")) or 0
             territory_delta = max(territory_delta, _extract_int(evidence.get("projectedTerritoryDelta")) or 0)
+            controller_claimed = evidence.get("controllerClaimed") is True or (
+                (_extract_int(evidence.get("projectedOwnedRoomDelta")) or 0) > 0
+            )
     if activation_kills <= 0 and territory_delta <= 0:
         return projected
 
@@ -5518,28 +5517,29 @@ def project_multi_tier_policy_activation_metrics(metrics: JsonObject, activation
     if territory_delta > 0:
         existing_territory_delta = _extract_int(projected.get("territoryDelta")) or 0
         projected["territoryDelta"] = max(existing_territory_delta, territory_delta)
-        territory = projected.setdefault("territory", {})
-        if not isinstance(territory, dict):
-            territory = {}
-            projected["territory"] = territory
-        territory["ownedRoomDelta"] = max(_extract_int(territory.get("ownedRoomDelta")) or 0, 1)
-        territory["controllerLevelDelta"] = max(
-            _extract_int(territory.get("controllerLevelDelta")) or 0,
-            max(1, territory_delta - 1),
-        )
-        initial_owned = _extract_int(territory.get("initialOwnedRoomCount")) or 0
-        territory["finalOwnedRoomCount"] = max(
-            _extract_int(territory.get("finalOwnedRoomCount")) or 0,
-            initial_owned + 1,
-        )
-        if isinstance(target_room, str) and isinstance(final_room_states, dict):
-            final_summary = final_room_states.setdefault(target_room, {})
-            if isinstance(final_summary, dict):
-                final_summary["owned"] = True
-                controller = final_summary.setdefault("controller", {})
-                if isinstance(controller, dict):
-                    controller["my"] = True
-                    controller["level"] = max(_extract_int(controller.get("level")) or 0, 1)
+        if controller_claimed:
+            territory = projected.setdefault("territory", {})
+            if not isinstance(territory, dict):
+                territory = {}
+                projected["territory"] = territory
+            territory["ownedRoomDelta"] = max(_extract_int(territory.get("ownedRoomDelta")) or 0, 1)
+            territory["controllerLevelDelta"] = max(
+                _extract_int(territory.get("controllerLevelDelta")) or 0,
+                max(1, territory_delta - 1),
+            )
+            initial_owned = _extract_int(territory.get("initialOwnedRoomCount")) or 0
+            territory["finalOwnedRoomCount"] = max(
+                _extract_int(territory.get("finalOwnedRoomCount")) or 0,
+                initial_owned + 1,
+            )
+            if isinstance(target_room, str) and isinstance(final_room_states, dict):
+                final_summary = final_room_states.setdefault(target_room, {})
+                if isinstance(final_summary, dict):
+                    final_summary["owned"] = True
+                    controller = final_summary.setdefault("controller", {})
+                    if isinstance(controller, dict):
+                        controller["my"] = True
+                        controller["level"] = max(_extract_int(controller.get("level")) or 0, 1)
         if isinstance(final_room_states, dict):
             projected["finalRooms"] = _room_metric_snapshot({"rooms": final_room_states})
 
@@ -6425,7 +6425,7 @@ def _run_variant(
         result["evaluatedParametersSource"] = "runtime_parameter_consumption"
     result["ownedRoomScorecard"] = build_variant_owned_room_scorecard(result)
     if not errors and ticks_run > 0 and result["ownedRoomScorecard"]["ownedRoomCount"] < 1:
-        detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, structure, or creep found"
+        detail = "; ".join(evidence_errors) if evidence_errors else "no owned controller, spawn, or structure found"
         errors.append(f"owned-room scorecard evidence was empty after {ticks_run} tick(s): {detail}")
         result["errors"] = errors
     result["ok"] = len(errors) == 0
