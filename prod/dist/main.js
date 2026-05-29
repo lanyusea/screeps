@@ -25288,6 +25288,9 @@ function selectCriticalCpuEnergyAcquisitionTask(creep) {
       return { type: "harvest", targetId: spawnRecoveryHarvestCandidate.source.id };
     }
   }
+  if (selectMissingSpawnRecoveryConstructionSite(creep)) {
+    return selectWorkerEnergyCriticalAcquisitionTask(creep);
+  }
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller) && canUpgradeController(controller)) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);

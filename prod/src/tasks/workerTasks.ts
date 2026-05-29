@@ -438,6 +438,10 @@ function selectCriticalCpuEnergyAcquisitionTask(
     }
   }
 
+  if (selectMissingSpawnRecoveryConstructionSite(creep)) {
+    return selectWorkerEnergyCriticalAcquisitionTask(creep);
+  }
+
   const controller = creep.room.controller;
   if (
     controller &&
