@@ -6157,6 +6157,51 @@ cli:
         self.assertEqual(identity, {"id": "owner", "username": "rl-owner"})
         self.assertIsNone(harness._private_map_fixture_owner_identity(fixture_path, "E2S1"))
 
+    def test_private_fixture_owner_identity_detects_controller_binding_and_reservation(self) -> None:
+        fixture = {
+            "type": harness.PRIVATE_MAP_FIXTURE_TYPE,
+            "owner": {"id": "owner", "username": "rl-owner"},
+            "rooms": [
+                {
+                    "room": "E1S1",
+                    "objects": [
+                        {
+                            "_id": "controller-bind",
+                            "type": "controller",
+                            "bindUser": "rl-owner",
+                        }
+                    ],
+                },
+                {
+                    "room": "E2S1",
+                    "objects": [
+                        {
+                            "_id": "controller-reserved",
+                            "type": "controller",
+                            "reservation": {"user": "owner"},
+                        }
+                    ],
+                },
+                {
+                    "room": "E3S1",
+                    "objects": [{"_id": "controller-neutral", "type": "controller"}],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_path = Path(temp_dir) / "map.json"
+            fixture_path.write_text(json.dumps(fixture, sort_keys=True), encoding="utf-8")
+
+            self.assertEqual(
+                harness._private_map_fixture_owner_identity(fixture_path, "E1S1"),
+                {"id": "owner", "username": "rl-owner"},
+            )
+            self.assertEqual(
+                harness._private_map_fixture_owner_identity(fixture_path, "E2S1"),
+                {"id": "owner", "username": "rl-owner"},
+            )
+            self.assertIsNone(harness._private_map_fixture_owner_identity(fixture_path, "E3S1"))
+
     def test_fixture_room_busy_self_healer_adopts_fixture_owner_to_smoke_user(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:
@@ -6199,9 +6244,48 @@ cli:
         self.assertEqual(len(smoke.expressions), 1)
         self.assertIn("storage.db.users.findOne", smoke.expressions[0])
         self.assertIn('"owner"', smoke.expressions[0])
+        self.assertIn('"rl-owner"', smoke.expressions[0])
         self.assertIn('"rl-sim-fixture"', smoke.expressions[0])
+        self.assertIn("fixtureOwnerRefs.has", smoke.expressions[0])
         self.assertIn("ACTIVE_ROOMS", smoke.expressions[0])
         debug_phase.assert_called_once()
+
+    def test_fixture_room_busy_self_healer_skips_without_target_username(self) -> None:
+        class FakeSmoke:
+            def __init__(self) -> None:
+                self.expressions: list[str] = []
+
+            def run_launcher_cli(
+                self,
+                compose: list[str],
+                cfg: argparse.Namespace,
+                expression: str,
+            ) -> dict[str, object]:
+                _ = compose, cfg
+                self.expressions.append(expression)
+                return {"status": 200}
+
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        for cfg in (argparse.Namespace(username=""), argparse.Namespace()):
+            with self.subTest(cfg=cfg):
+                smoke = FakeSmoke()
+                with mock.patch.object(harness, "_debug_worker_phase") as debug_phase:
+                    summary = harness._self_heal_fixture_place_spawn_room_busy(
+                        smoke,
+                        ["compose"],
+                        cfg,
+                        map_source_file=fixture_path,
+                        room="E1S1",
+                        worker_index=0,
+                        variant_id="variant-a",
+                    )
+
+                self.assertEqual(summary["classification"], "skipped")
+                self.assertEqual(summary["reason"], "cfg.username is not set; cannot adopt fixture owner")
+                self.assertEqual(summary["fixtureOwnerId"], "owner")
+                self.assertEqual(summary["fixtureOwnerUsername"], "rl-owner")
+                self.assertEqual(smoke.expressions, [])
+                debug_phase.assert_not_called()
 
     def test_place_spawn_retry_runs_room_busy_self_healing_before_retry(self) -> None:
         class Result:

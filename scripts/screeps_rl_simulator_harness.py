@@ -5075,6 +5075,39 @@ def _fixture_room_objects(room_payload: JsonObject, room_name: str) -> list[Json
     return objects
 
 
+def _fixture_owner_reference_matches(
+    value: Any,
+    owner_id: str | None,
+    owner_username: str | None,
+) -> bool:
+    if isinstance(value, str):
+        observed = value
+    elif isinstance(value, (int, float)):
+        observed = str(value)
+    else:
+        return False
+    if not observed:
+        return False
+    return bool((owner_id and observed == owner_id) or (owner_username and observed == owner_username))
+
+
+def _fixture_room_object_matches_owner(
+    item: JsonObject,
+    owner_id: str | None,
+    owner_username: str | None,
+) -> bool:
+    if _object_is_owned(item, owner_id, owner_username):
+        return True
+    if _object_type(item) != "controller":
+        return False
+    if _fixture_owner_reference_matches(item.get("bindUser"), owner_id, owner_username):
+        return True
+    reservation = item.get("reservation")
+    if isinstance(reservation, dict):
+        return _fixture_owner_reference_matches(reservation.get("user"), owner_id, owner_username)
+    return False
+
+
 def _private_map_fixture_owner_identity(map_source_file: Path, room_name: str) -> JsonObject | None:
     """Return the private-fixture placeholder owner for a room that imports owned state."""
     rooms = _private_map_fixture_rooms(map_source_file)
@@ -5091,7 +5124,7 @@ def _private_map_fixture_owner_identity(map_source_file: Path, room_name: str) -
     if owner_id is None:
         return None
     objects = _fixture_room_objects(room_payload, room_name)
-    if not any(_object_is_owned(item, owner_id, owner_username) for item in objects):
+    if not any(_fixture_room_object_matches_owner(item, owner_id, owner_username) for item in objects):
         return None
     identity: JsonObject = {"id": owner_id}
     if owner_username is not None:
@@ -5099,12 +5132,19 @@ def _private_map_fixture_owner_identity(map_source_file: Path, room_name: str) -
     return identity
 
 
-def _fixture_owner_adoption_expression(room_name: str, fixture_owner_id: str, target_username: str) -> str:
+def _fixture_owner_adoption_expression(
+    room_name: str,
+    fixture_owner_id: str,
+    fixture_owner_username: str | None,
+    target_username: str,
+) -> str:
     """Build a launcher CLI expression that maps imported fixture owner ids to the smoke user."""
     return f"""\
 (() => {{
   const roomName = {json.dumps(room_name)};
   const fixtureOwnerId = {json.dumps(fixture_owner_id)};
+  const fixtureOwnerUsername = {json.dumps(fixture_owner_username)};
+  const fixtureOwnerRefs = new Set([fixtureOwnerId, fixtureOwnerUsername].filter(value => value).map(String));
   const targetUsername = {json.dumps(target_username)};
   const objectsCollection = storage.db['rooms.objects'];
   return storage.db.users.findOne({{username: targetUsername}}).then(user => {{
@@ -5119,18 +5159,18 @@ def _fixture_owner_adoption_expression(room_name: str, fixture_owner_id: str, ta
       let reservationUpdates = 0;
       for (const object of objects || []) {{
         const patch = {{}};
-        if (object.user != null && String(object.user) === fixtureOwnerId) {{
+        if (object.user != null && fixtureOwnerRefs.has(String(object.user))) {{
           patch.user = targetUserId;
           adoptedObjects += 1;
         }}
-        if (object.bindUser != null && String(object.bindUser) === fixtureOwnerId) {{
+        if (object.bindUser != null && fixtureOwnerRefs.has(String(object.bindUser))) {{
           patch.bindUser = targetUserId;
           reboundControllers += 1;
         }}
         if (
           object.reservation
           && object.reservation.user != null
-          && String(object.reservation.user) === fixtureOwnerId
+          && fixtureOwnerRefs.has(String(object.reservation.user))
         ) {{
           patch.reservation = Object.assign({{}}, object.reservation, {{user: targetUserId}});
           reservationUpdates += 1;
@@ -5148,6 +5188,7 @@ def _fixture_owner_adoption_expression(room_name: str, fixture_owner_id: str, ta
         ok: true,
         room: roomName,
         fixtureOwnerId,
+        fixtureOwnerUsername,
         targetUsername,
         adoptedObjects,
         reboundControllers,
@@ -5192,8 +5233,20 @@ def _self_heal_fixture_place_spawn_room_busy(
             "reason": "target room is not an owned private-map fixture room",
         }
     fixture_owner_id = str(identity["id"])
-    target_username = str(getattr(cfg, "username", ""))
-    expression = _fixture_owner_adoption_expression(room, fixture_owner_id, target_username)
+    fixture_owner_username = text_or_none(identity.get("username"))
+    target_username = _non_empty_text(getattr(cfg, "username", None))
+    if target_username is None:
+        summary: JsonObject = {
+            "phase": "place-spawn-room-busy-self-heal",
+            "classification": "skipped",
+            "reason": "cfg.username is not set; cannot adopt fixture owner",
+            "room": room,
+            "fixtureOwnerId": fixture_owner_id,
+        }
+        if fixture_owner_username is not None:
+            summary["fixtureOwnerUsername"] = fixture_owner_username
+        return summary
+    expression = _fixture_owner_adoption_expression(room, fixture_owner_id, fixture_owner_username, target_username)
     _debug_worker_phase(
         worker_index,
         variant_id,
@@ -5217,7 +5270,6 @@ def _self_heal_fixture_place_spawn_room_busy(
         "targetUsername": target_username,
         "result": _launcher_cli_result_summary(result),
     }
-    fixture_owner_username = text_or_none(identity.get("username"))
     if fixture_owner_username is not None:
         summary["fixtureOwnerUsername"] = fixture_owner_username
     return summary
