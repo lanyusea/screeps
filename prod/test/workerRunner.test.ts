@@ -140,6 +140,103 @@ describe('runWorker', () => {
     expect(harvest).toHaveBeenCalledWith(source);
   });
 
+  it('keeps an executable assigned repair under critical CPU bucket without full task reselection', () => {
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      controller: {
+        my: true,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+      } as StructureController,
+      find: jest.fn().mockReturnValue([{ id: 'extension-site1' }])
+    } as unknown as Room;
+    const repair = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'road1' ? road : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(room.find).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road1' });
+    expect(repair).toHaveBeenCalledWith(road);
+  });
+
+  it('does not retain critical CPU repair work when the controller downgrade guard is active', () => {
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      controller,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const repair = jest.fn();
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) =>
+        id === 'controller1' ? controller : id === 'road1' ? road : null
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(upgradeController).toHaveBeenCalledWith(controller);
+    expect(repair).not.toHaveBeenCalled();
+  });
+
   it.each(['claim', 'reserve'] as const)(
     'drops a retained visible %s task under critical CPU when the home room fails the territory gate',
     (action) => {

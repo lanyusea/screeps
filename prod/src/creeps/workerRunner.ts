@@ -394,7 +394,19 @@ function getCriticalCpuTaskRetentionDecision(
     return getCriticalCpuTerritoryControlRetentionDecision(creep, task);
   }
 
+  if (task.type === 'repair') {
+    return { retain: shouldRetainCriticalCpuRepairTask(creep) };
+  }
+
   return { retain: false };
+}
+
+function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
+  return (
+    getUsedTransferEnergy(creep) > 0 &&
+    !isSpawnEnergyCritical(creep.room) &&
+    !isControllerDowngradeGuardActive(creep.room)
+  );
 }
 
 function getCriticalCpuTransferRetentionDecision(
@@ -461,6 +473,20 @@ function shouldDeferSpawnReservationRefillForProductiveWork(
 function hasHealthyRoomEnergyBuffer(room: Room): boolean {
   const energyAvailable = getRoomEnergyAvailable(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+
+function isSpawnEnergyCritical(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable !== null && energyAvailable < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
+function isControllerDowngradeGuardActive(room: Room): boolean {
+  const controller = room.controller;
+  return (
+    controller?.my === true &&
+    typeof controller.ticksToDowngrade === 'number' &&
+    controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS
+  );
 }
 
 function hasActiveSpawningSpawn(room: Room): boolean {

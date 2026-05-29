@@ -31364,7 +31364,13 @@ function getCriticalCpuTaskRetentionDecision(creep, task) {
   if (isTerritoryControlTask2(task)) {
     return getCriticalCpuTerritoryControlRetentionDecision(creep, task);
   }
+  if (task.type === "repair") {
+    return { retain: shouldRetainCriticalCpuRepairTask(creep) };
+  }
   return { retain: false };
+}
+function shouldRetainCriticalCpuRepairTask(creep) {
+  return getUsedTransferEnergy(creep) > 0 && !isSpawnEnergyCritical(creep.room) && !isControllerDowngradeGuardActive2(creep.room);
 }
 function getCriticalCpuTransferRetentionDecision(creep, task) {
   if (getUsedTransferEnergy(creep) <= 0) {
@@ -31399,6 +31405,14 @@ function shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)
 function hasHealthyRoomEnergyBuffer2(room) {
   const energyAvailable = getRoomEnergyAvailable12(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
+}
+function isSpawnEnergyCritical(room) {
+  const energyAvailable = getRoomEnergyAvailable12(room);
+  return energyAvailable !== null && energyAvailable < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+function isControllerDowngradeGuardActive2(room) {
+  const controller = room.controller;
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function hasActiveSpawningSpawn2(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
