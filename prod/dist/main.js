@@ -20999,6 +20999,178 @@ function isRecord19(value) {
   return typeof value === "object" && value !== null;
 }
 
+// src/runtime/cpuBudget.ts
+var LOW_CPU_ACCOUNT_LIMIT = 20;
+var LOW_CPU_BUCKET_THRESHOLD = 1e3;
+var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
+var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
+var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+var REPEATED_BUCKET_EMPTY_TICKS = 2;
+var SUSTAINED_OVER_LIMIT_TICKS = 2;
+var cpuTelemetryState = {
+  lowBucketTicks: 0,
+  bucketEmptyTicks: 0,
+  overLimitTicks: 0
+};
+function getRuntimeCpuBudget(game) {
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
+}
+function buildRuntimeCpuBudget(sample) {
+  const reasons = [];
+  const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
+  if (lowCpuLimit) {
+    reasons.push("lowCpuLimit");
+  }
+  const criticalBucket = sample.bucket !== void 0 && sample.bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+  if (criticalBucket) {
+    reasons.push("criticalBucket");
+  } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    reasons.push("lowBucket");
+  }
+  if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
+    reasons.push("usedOverLimit");
+  }
+  const critical = criticalBucket;
+  const degraded = critical || reasons.length > 0;
+  return {
+    tick: sample.tick,
+    sample,
+    pressure: critical ? "critical" : degraded ? "degraded" : "normal",
+    degraded,
+    critical,
+    lowCpuLimit,
+    reasons
+  };
+}
+function readRuntimeCpuSample(game = getRuntimeGame()) {
+  const cpu = game == null ? void 0 : game.cpu;
+  return {
+    tick: normalizeTick(game == null ? void 0 : game.time),
+    ...optionalFiniteNumber("used", readCpuUsed(cpu)),
+    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+  };
+}
+function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
+  if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
+    resetRuntimeCpuTelemetryStateForTick(sample.tick);
+    clearRuntimeCpuTelemetryCounters();
+    return null;
+  }
+  const budget = buildRuntimeCpuBudget(sample);
+  const state = updateRuntimeCpuTelemetryState(sample);
+  const alerts = buildRuntimeCpuAlerts(sample, state);
+  return {
+    tick: sample.tick,
+    ...sample.used !== void 0 ? { used: sample.used } : {},
+    ...sample.limit !== void 0 ? { limit: sample.limit } : {},
+    ...sample.tickLimit !== void 0 ? { tickLimit: sample.tickLimit } : {},
+    ...sample.bucket !== void 0 ? { bucket: sample.bucket } : {},
+    pressure: budget.pressure,
+    ...budget.reasons.length > 0 ? { reasons: budget.reasons } : {},
+    ...alerts.length > 0 ? { alerts } : {},
+    ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
+    ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
+    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
+  };
+}
+function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, key, interval);
+}
+function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, roomName, interval);
+}
+function shouldThrottleRuntimeSummaryCadence(budget) {
+  return budget.degraded;
+}
+function updateRuntimeCpuTelemetryState(sample) {
+  resetRuntimeCpuTelemetryStateForTick(sample.tick);
+  const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
+  const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
+  const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
+  cpuTelemetryState.lowBucketTicks = lowBucket ? cpuTelemetryState.lowBucketTicks + 1 : 0;
+  cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
+  cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
+  return cpuTelemetryState;
+}
+function resetRuntimeCpuTelemetryStateForTick(tick) {
+  const lastTick = cpuTelemetryState.lastTick;
+  if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  cpuTelemetryState.lastTick = tick;
+}
+function clearRuntimeCpuTelemetryCounters() {
+  cpuTelemetryState.lowBucketTicks = 0;
+  cpuTelemetryState.bucketEmptyTicks = 0;
+  cpuTelemetryState.overLimitTicks = 0;
+}
+function buildRuntimeCpuAlerts(sample, state) {
+  const alerts = [];
+  if (state.bucketEmptyTicks >= REPEATED_BUCKET_EMPTY_TICKS) {
+    alerts.push("bucketEmptyRepeated");
+  }
+  if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    alerts.push("lowBucket");
+  }
+  if (state.overLimitTicks >= SUSTAINED_OVER_LIMIT_TICKS) {
+    alerts.push("sustainedUsedOverLimit");
+  }
+  return alerts;
+}
+function isCadenceTick(tick, key, interval) {
+  const normalizedInterval = Math.max(1, Math.floor(interval));
+  if (tick <= 0) {
+    return false;
+  }
+  return (tick + stableHash(key)) % normalizedInterval === 0;
+}
+function stableHash(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = hash * 31 + value.charCodeAt(index) >>> 0;
+  }
+  return hash;
+}
+function readCpuUsed(cpu) {
+  const getUsed = cpu == null ? void 0 : cpu.getUsed;
+  if (typeof getUsed !== "function") {
+    return void 0;
+  }
+  try {
+    const used = getUsed.call(cpu);
+    return typeof used === "number" && Number.isFinite(used) ? used : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function optionalFiniteNumber(key, value) {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+function normalizeTick(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function getRuntimeGame() {
+  return globalThis.Game;
+}
+
 // src/creeps/upgraderRunner.ts
 var UPGRADER_ROLE = "upgrader";
 var CONTROLLER_UPGRADE_PROGRESS_PRESSURE_RATIO = 0.85;
@@ -21157,6 +21329,9 @@ function shouldSpendUpgraderEnergy(creep, controller) {
   var _a;
   if (shouldGuardControllerDowngrade(controller) || ((_a = creep.memory.controllerUpgrade) == null ? void 0 : _a.priority) === "downgradeGuard") {
     return true;
+  }
+  if (getRuntimeCpuBudget().critical) {
+    return false;
   }
   return canLevelUpController(controller) && !hasVisibleHostileCreeps(creep.room);
 }
@@ -24792,178 +24967,6 @@ function getGameTick2() {
   return typeof tick === "number" && Number.isFinite(tick) ? tick : 0;
 }
 
-// src/runtime/cpuBudget.ts
-var LOW_CPU_ACCOUNT_LIMIT = 20;
-var LOW_CPU_BUCKET_THRESHOLD = 1e3;
-var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
-var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
-var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
-var REPEATED_BUCKET_EMPTY_TICKS = 2;
-var SUSTAINED_OVER_LIMIT_TICKS = 2;
-var cpuTelemetryState = {
-  lowBucketTicks: 0,
-  bucketEmptyTicks: 0,
-  overLimitTicks: 0
-};
-function getRuntimeCpuBudget(game) {
-  const runtimeGame = game != null ? game : getRuntimeGame();
-  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
-}
-function buildRuntimeCpuBudget(sample) {
-  const reasons = [];
-  const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
-  if (lowCpuLimit) {
-    reasons.push("lowCpuLimit");
-  }
-  const criticalBucket = sample.bucket !== void 0 && sample.bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
-  if (criticalBucket) {
-    reasons.push("criticalBucket");
-  } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
-    reasons.push("lowBucket");
-  }
-  if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
-    reasons.push("usedOverLimit");
-  }
-  const critical = criticalBucket;
-  const degraded = critical || reasons.length > 0;
-  return {
-    tick: sample.tick,
-    sample,
-    pressure: critical ? "critical" : degraded ? "degraded" : "normal",
-    degraded,
-    critical,
-    lowCpuLimit,
-    reasons
-  };
-}
-function readRuntimeCpuSample(game = getRuntimeGame()) {
-  const cpu = game == null ? void 0 : game.cpu;
-  return {
-    tick: normalizeTick(game == null ? void 0 : game.time),
-    ...optionalFiniteNumber("used", readCpuUsed(cpu)),
-    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
-    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
-    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
-  };
-}
-function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
-  if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
-    resetRuntimeCpuTelemetryStateForTick(sample.tick);
-    clearRuntimeCpuTelemetryCounters();
-    return null;
-  }
-  const budget = buildRuntimeCpuBudget(sample);
-  const state = updateRuntimeCpuTelemetryState(sample);
-  const alerts = buildRuntimeCpuAlerts(sample, state);
-  return {
-    tick: sample.tick,
-    ...sample.used !== void 0 ? { used: sample.used } : {},
-    ...sample.limit !== void 0 ? { limit: sample.limit } : {},
-    ...sample.tickLimit !== void 0 ? { tickLimit: sample.tickLimit } : {},
-    ...sample.bucket !== void 0 ? { bucket: sample.bucket } : {},
-    pressure: budget.pressure,
-    ...budget.reasons.length > 0 ? { reasons: budget.reasons } : {},
-    ...alerts.length > 0 ? { alerts } : {},
-    ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
-    ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
-    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
-  };
-}
-function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
-  if (!budget.degraded) {
-    return true;
-  }
-  if (budget.critical) {
-    return false;
-  }
-  return isCadenceTick(budget.tick, key, interval);
-}
-function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL) {
-  if (!budget.degraded) {
-    return true;
-  }
-  if (budget.critical) {
-    return false;
-  }
-  return isCadenceTick(budget.tick, roomName, interval);
-}
-function shouldThrottleRuntimeSummaryCadence(budget) {
-  return budget.degraded;
-}
-function updateRuntimeCpuTelemetryState(sample) {
-  resetRuntimeCpuTelemetryStateForTick(sample.tick);
-  const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
-  const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
-  const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
-  cpuTelemetryState.lowBucketTicks = lowBucket ? cpuTelemetryState.lowBucketTicks + 1 : 0;
-  cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
-  cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
-  return cpuTelemetryState;
-}
-function resetRuntimeCpuTelemetryStateForTick(tick) {
-  const lastTick = cpuTelemetryState.lastTick;
-  if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
-    clearRuntimeCpuTelemetryCounters();
-  }
-  if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
-    clearRuntimeCpuTelemetryCounters();
-  }
-  cpuTelemetryState.lastTick = tick;
-}
-function clearRuntimeCpuTelemetryCounters() {
-  cpuTelemetryState.lowBucketTicks = 0;
-  cpuTelemetryState.bucketEmptyTicks = 0;
-  cpuTelemetryState.overLimitTicks = 0;
-}
-function buildRuntimeCpuAlerts(sample, state) {
-  const alerts = [];
-  if (state.bucketEmptyTicks >= REPEATED_BUCKET_EMPTY_TICKS) {
-    alerts.push("bucketEmptyRepeated");
-  }
-  if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
-    alerts.push("lowBucket");
-  }
-  if (state.overLimitTicks >= SUSTAINED_OVER_LIMIT_TICKS) {
-    alerts.push("sustainedUsedOverLimit");
-  }
-  return alerts;
-}
-function isCadenceTick(tick, key, interval) {
-  const normalizedInterval = Math.max(1, Math.floor(interval));
-  if (tick <= 0) {
-    return false;
-  }
-  return (tick + stableHash(key)) % normalizedInterval === 0;
-}
-function stableHash(value) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = hash * 31 + value.charCodeAt(index) >>> 0;
-  }
-  return hash;
-}
-function readCpuUsed(cpu) {
-  const getUsed = cpu == null ? void 0 : cpu.getUsed;
-  if (typeof getUsed !== "function") {
-    return void 0;
-  }
-  try {
-    const used = getUsed.call(cpu);
-    return typeof used === "number" && Number.isFinite(used) ? used : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function optionalFiniteNumber(key, value) {
-  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
-}
-function normalizeTick(value) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-}
-function getRuntimeGame() {
-  return globalThis.Game;
-}
-
 // src/runtime/featureGates.ts
 function getRuntimeFeatureGates(game = getRuntimeGame2()) {
   var _a, _b;
@@ -25181,7 +25184,13 @@ var routineBarrierMaintenanceRepairTargetCache = null;
 var workerTaskSelectionTelemetrySuppressionDepth = 0;
 function selectWorkerTask(creep) {
   clearWorkerTaskSelectionTelemetry(creep);
-  const degraded = getRuntimeCpuBudget().degraded;
+  const cpuBudget = getRuntimeCpuBudget();
+  if (cpuBudget.critical && !hasActiveTerritoryControlAssignment(creep)) {
+    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    clearWorkerTaskShadowTelemetry(creep);
+    return criticalTask;
+  }
+  const degraded = cpuBudget.degraded;
   const heuristicTask = withWorkerTaskSelectionTelemetrySuppressed(degraded, () => selectHeuristicWorkerTask(creep));
   if (degraded) {
     clearWorkerTaskShadowTelemetry(creep);
@@ -25189,6 +25198,123 @@ function selectWorkerTask(creep) {
   }
   recordWorkerTaskBehaviorTrace(creep, heuristicTask);
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
+}
+function hasActiveTerritoryControlAssignment(creep) {
+  var _a, _b;
+  const task = (_a = creep.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve" || ((_b = creep.memory) == null ? void 0 : _b.territory) !== void 0;
+}
+function selectCriticalCpuWorkerTask(creep) {
+  const carriedEnergy = getUsedEnergy2(creep);
+  if (carriedEnergy <= 0) {
+    return selectCriticalCpuEnergyAcquisitionTask(creep);
+  }
+  const controller = creep.room.controller;
+  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller) && canUpgradeController(controller)) {
+    return { type: "upgrade", targetId: controller.id };
+  }
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
+  if (criticalSpawnRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: criticalSpawnRepairTarget.id
+    });
+  }
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
+    creep,
+    spawnOrExtensionEnergySink
+  );
+  if (emergencySpawnOrExtensionRefillTask) {
+    return emergencySpawnOrExtensionRefillTask;
+  }
+  const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
+  if (emergencyRampartRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: emergencyRampartRepairTarget.id
+    });
+  }
+  const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+  if (threatenedBarrierRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: threatenedBarrierRepairTarget.id
+    });
+  }
+  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
+  if (missingSpawnConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: missingSpawnConstructionSite.id });
+  }
+  if (spawnOrExtensionEnergySink) {
+    return {
+      type: "transfer",
+      targetId: spawnOrExtensionEnergySink.id
+    };
+  }
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "transfer",
+      targetId: priorityTowerEnergySink.id
+    });
+  }
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: criticalRepairTarget.id
+    });
+  }
+  return null;
+}
+function selectCriticalCpuEnergyAcquisitionTask(creep) {
+  var _a;
+  if (getFreeEnergyCapacity8(creep) <= 0) {
+    return null;
+  }
+  const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
+  if (spawnRecoveryEnergySink) {
+    const spawnRecoveryHarvestCandidate = selectSpawnRecoveryHarvestCandidate(creep, spawnRecoveryEnergySink);
+    const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(
+      creep,
+      spawnRecoveryEnergySink,
+      (_a = spawnRecoveryHarvestCandidate == null ? void 0 : spawnRecoveryHarvestCandidate.deliveryEta) != null ? _a : null
+    );
+    if (spawnRecoveryTask) {
+      return spawnRecoveryTask;
+    }
+    if (spawnRecoveryHarvestCandidate) {
+      return { type: "harvest", targetId: spawnRecoveryHarvestCandidate.source.id };
+    }
+  }
+  const controller = creep.room.controller;
+  if (controller && shouldGuardControllerDowngradeForWorkerLoad(creep, controller) && canUpgradeController(controller)) {
+    return selectWorkerEnergyCriticalAcquisitionTask(creep);
+  }
+  return hasCriticalCpuRepairDemand(creep) ? selectWorkerEnergyCriticalAcquisitionTask(creep) : null;
+}
+function hasCriticalCpuRepairDemand(creep) {
+  return selectCriticalOwnedSpawnRepairTarget(creep) !== null || selectEmergencyOwnedRampartRepairTarget(creep) !== null || selectThreatenedBarrierRepairTarget(creep) !== null || selectCriticalInfrastructureRepairTarget(creep) !== null;
+}
+function selectMissingSpawnRecoveryConstructionSite(creep) {
+  var _a;
+  if (getOwnedSpawnCount(creep.room) !== 0) {
+    return null;
+  }
+  const constructionSites = findConstructionSites(creep.room);
+  return (_a = constructionSites.filter((site) => isMissingSpawnRecoveryConstructionSite(creep.room, site))[0]) != null ? _a : null;
+}
+function findConstructionSites(room) {
+  if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const sites = room.find(FIND_CONSTRUCTION_SITES);
+    return Array.isArray(sites) ? sites : [];
+  } catch {
+    return [];
+  }
 }
 function clearWorkerTaskShadowTelemetry(creep) {
   const memory = creep.memory;
@@ -31178,6 +31304,8 @@ function runWorker(creep) {
     criticalCpuTaskRetention.repairPreemptionTask
   )) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptForControllerSigning(creep, currentTask, selectedTask)) {
@@ -31406,6 +31534,21 @@ function shouldRetainCriticalCpuRepairTask(creep) {
 function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(task, repairPreemptionTask) {
   return task.type === "repair" && repairPreemptionTask !== void 0 && !isSameTask2(task, repairPreemptionTask);
 }
+function shouldPauseOptionalTaskForCriticalCpu(creep, task, selectedTask) {
+  if (!getRuntimeCpuBudget().critical || isSameOptionalTask(task, selectedTask)) {
+    return false;
+  }
+  if (isEnergyAcquisitionTask2(task)) {
+    return getUsedTransferEnergy(creep) > 0;
+  }
+  if (task.type === "upgrade") {
+    return !isDowngradeGuardUpgradeTask(creep, task);
+  }
+  if (task.type === "build") {
+    return !isSpawnConstructionTaskTarget(getTaskTarget(task));
+  }
+  return task.type === "signController" || task.type === "collectScore";
+}
 function selectCriticalCpuRepairPreemptionTarget(creep) {
   var _a, _b;
   const visibleStructures = findVisibleStructuresForCriticalCpuRepairPreemption(creep.room);
@@ -31529,6 +31672,9 @@ function fallbackToEnergyOnNullSelectionLoop(creep, selectedTask) {
   if (selectedTask) {
     delete creep.memory.workerTaskSelectionNullLoop;
     return selectedTask;
+  }
+  if (getRuntimeCpuBudget().critical) {
+    return null;
   }
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   if (typeof gameTime !== "number") {
@@ -32179,6 +32325,13 @@ function isCapacityEnablingConstructionSite2(target) {
     return false;
   }
   return matchesCapacityConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesCapacityConstructionStructureType(structureType, "STRUCTURE_EXTENSION", "extension");
+}
+function isSpawnConstructionTaskTarget(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  if (typeof structureType !== "string") {
+    return false;
+  }
+  return matchesCapacityConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function getFreeTransferEnergyCapacity(target) {
   var _a;

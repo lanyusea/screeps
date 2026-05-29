@@ -312,7 +312,14 @@ let workerTaskSelectionTelemetrySuppressionDepth = 0;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerTaskSelectionTelemetry(creep);
-  const degraded = getRuntimeCpuBudget().degraded;
+  const cpuBudget = getRuntimeCpuBudget();
+  if (cpuBudget.critical && !hasActiveTerritoryControlAssignment(creep)) {
+    const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
+    clearWorkerTaskShadowTelemetry(creep);
+    return criticalTask;
+  }
+
+  const degraded = cpuBudget.degraded;
   const heuristicTask = withWorkerTaskSelectionTelemetrySuppressed(degraded, () => selectHeuristicWorkerTask(creep));
   if (degraded) {
     clearWorkerTaskShadowTelemetry(creep);
@@ -321,6 +328,157 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   recordWorkerTaskBehaviorTrace(creep, heuristicTask);
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
+}
+
+function hasActiveTerritoryControlAssignment(creep: Creep): boolean {
+  const task = creep.memory?.task;
+  return task?.type === 'claim' || task?.type === 'reserve' || creep.memory?.territory !== undefined;
+}
+
+function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
+  const carriedEnergy = getUsedEnergy(creep);
+  if (carriedEnergy <= 0) {
+    return selectCriticalCpuEnergyAcquisitionTask(creep);
+  }
+
+  const controller = creep.room.controller;
+  if (
+    controller &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    canUpgradeController(controller)
+  ) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
+  if (criticalSpawnRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalSpawnRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  const emergencySpawnOrExtensionRefillTask = selectEmergencySpawnExtensionRefillTask(
+    creep,
+    spawnOrExtensionEnergySink
+  );
+  if (emergencySpawnOrExtensionRefillTask) {
+    return emergencySpawnOrExtensionRefillTask;
+  }
+
+  const emergencyRampartRepairTarget = selectEmergencyOwnedRampartRepairTarget(creep);
+  if (emergencyRampartRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: emergencyRampartRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+  if (threatenedBarrierRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: threatenedBarrierRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const missingSpawnConstructionSite = selectMissingSpawnRecoveryConstructionSite(creep);
+  if (missingSpawnConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: missingSpawnConstructionSite.id });
+  }
+
+  if (spawnOrExtensionEnergySink) {
+    return {
+      type: 'transfer',
+      targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>
+    };
+  }
+
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'transfer',
+      targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure>
+    });
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalRepairTarget.id as Id<Structure>
+    });
+  }
+
+  return null;
+}
+
+function selectCriticalCpuEnergyAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
+  if (getFreeEnergyCapacity(creep) <= 0) {
+    return null;
+  }
+
+  const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
+  if (spawnRecoveryEnergySink) {
+    const spawnRecoveryHarvestCandidate = selectSpawnRecoveryHarvestCandidate(creep, spawnRecoveryEnergySink);
+    const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(
+      creep,
+      spawnRecoveryEnergySink,
+      spawnRecoveryHarvestCandidate?.deliveryEta ?? null
+    );
+    if (spawnRecoveryTask) {
+      return spawnRecoveryTask;
+    }
+
+    if (spawnRecoveryHarvestCandidate) {
+      return { type: 'harvest', targetId: spawnRecoveryHarvestCandidate.source.id };
+    }
+  }
+
+  const controller = creep.room.controller;
+  if (
+    controller &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    canUpgradeController(controller)
+  ) {
+    return selectWorkerEnergyCriticalAcquisitionTask(creep);
+  }
+
+  return hasCriticalCpuRepairDemand(creep) ? selectWorkerEnergyCriticalAcquisitionTask(creep) : null;
+}
+
+function hasCriticalCpuRepairDemand(creep: Creep): boolean {
+  return (
+    selectCriticalOwnedSpawnRepairTarget(creep) !== null ||
+    selectEmergencyOwnedRampartRepairTarget(creep) !== null ||
+    selectThreatenedBarrierRepairTarget(creep) !== null ||
+    selectCriticalInfrastructureRepairTarget(creep) !== null
+  );
+}
+
+function selectMissingSpawnRecoveryConstructionSite(creep: Creep): ConstructionSite | null {
+  if (getOwnedSpawnCount(creep.room) !== 0) {
+    return null;
+  }
+
+  const constructionSites = findConstructionSites(creep.room);
+  return constructionSites.filter((site) => isMissingSpawnRecoveryConstructionSite(creep.room, site))[0] ?? null;
+}
+
+function findConstructionSites(room: Room): ConstructionSite[] {
+  if (typeof FIND_CONSTRUCTION_SITES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const sites = room.find(FIND_CONSTRUCTION_SITES);
+    return Array.isArray(sites) ? (sites as ConstructionSite[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function clearWorkerTaskShadowTelemetry(creep: Creep): void {
