@@ -14599,6 +14599,7 @@ describe('selectWorkerTask', () => {
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
     expect(selectWorkerTask(creep)).toBeNull();
+    expect(repairer.getActiveBodyparts).toHaveBeenCalledWith('work');
   });
 
   it('ignores active rampart repair coverage from a loaded worker without active WORK parts', () => {
@@ -14650,6 +14651,7 @@ describe('selectWorkerTask', () => {
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(550);
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-active-decay' });
+    expect(disabledRepairer.getActiveBodyparts).toHaveBeenCalledWith('work');
   });
 
   it.each([
