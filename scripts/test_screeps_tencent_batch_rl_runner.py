@@ -4405,6 +4405,41 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(failure["retryable"])
         self.assertNotIn("nextAction", failure)
 
+    def test_place_spawn_room_busy_smoke_failure_gets_specific_non_retryable_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "pre-scale private-simulator trainability smoke gate failed: "
+                "place-spawn room busy after 12 attempt(s): "
+                '{"classification": "place_spawn_room_busy"}\n',
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 2, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "simulator_place_spawn_room_busy")
+        self.assertFalse(failure["retryable"])
+        self.assertIn("do not rerun paid validation unchanged", failure["nextAction"])
+
+    def test_recovered_place_spawn_room_busy_retry_log_does_not_override_later_retryable_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            remote = root / "remote"
+            remote.mkdir()
+            (remote / "training-stderr.log").write_text(
+                "place-spawn room busy; retrying attempt=1 maxAttempts=12 retrySeconds=30\n"
+                "Client.Timeout exceeded while polling batch status\n",
+                encoding="utf-8",
+            )
+
+            failure = runner.remote_training_failure_diagnostics(root, 255, run_id="run-test")
+
+        self.assertEqual(failure["failureClass"], "network_unreachable")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("worker SSH/network", failure["nextAction"])
+
     def test_diagnostic_redaction_covers_common_secret_formats(self) -> None:
         raw = (
             "STEAM_KEY=steam-secret\n"
