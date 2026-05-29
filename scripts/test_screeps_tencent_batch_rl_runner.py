@@ -31,6 +31,17 @@ READY_RUNTIME_SCORECARD_PATH = (
 )
 
 
+def legacy_multi_tier_scenario_id() -> str:
+    legacy_ids = tuple(
+        scenario_id
+        for scenario_id in runner.MULTI_TIER_SCENARIO_IDS
+        if scenario_id != runner.MULTI_TIER_SCENARIO_ID
+    )
+    if len(legacy_ids) != 1:
+        raise AssertionError("expected exactly one legacy multi-tier scenario ID")
+    return legacy_ids[0]
+
+
 def ready_runtime_pair_scorecard_path(scorecard_id: str, candidate_id: str, baseline_id: str) -> str:
     return (
         "runtime-artifacts/rl-training/candidate-scorecards/run-test/"
@@ -672,7 +683,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             args = controller_args()
             args.training_approach = "policy_gradient"
-            args.scenario_id = runner.MULTI_TIER_SCENARIO_IDS[0]
+            args.scenario_id = legacy_multi_tier_scenario_id()
             controller = runner.Controller(
                 args=args,
                 run_id="tencent-pg-20260529t093003z",
@@ -3753,7 +3764,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.BatchRunError, "policy_gradient Tencent proof requires"):
                 runner.validate_static_inputs(args, "run-test")
 
-            args.scenario_id = runner.MULTI_TIER_SCENARIO_IDS[0]
+            args.scenario_id = legacy_multi_tier_scenario_id()
             args.require_multi_tier_scenario = False
             with self.assertRaisesRegex(runner.BatchRunError, "policy_gradient Tencent proof requires"):
                 runner.validate_static_inputs(args, "run-test")
@@ -3809,7 +3820,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
     def test_policy_gradient_legacy_v0_default_resolves_to_active_multi_tier_scenario(self) -> None:
         args = controller_args()
         args.training_approach = "policy_gradient"
-        args.scenario_id = runner.MULTI_TIER_SCENARIO_IDS[0]
+        args.scenario_id = legacy_multi_tier_scenario_id()
         args.require_multi_tier_scenario = False
 
         runner.apply_cli_scenario_defaults(args)
@@ -3826,7 +3837,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                 "--training-approach",
                 "policy_gradient",
                 "--scenario-id",
-                runner.MULTI_TIER_SCENARIO_IDS[0],
+                legacy_multi_tier_scenario_id(),
             ])
             args.tccli = str(root / "tccli")
             args.billing_guard = str(root / "billing-guard.py")
