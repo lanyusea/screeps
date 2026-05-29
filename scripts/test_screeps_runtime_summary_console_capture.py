@@ -55,13 +55,18 @@ class FakeWebsocketsModule:
 
 
 class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
-    def test_filters_only_exact_runtime_summary_lines(self) -> None:
+    def test_filters_only_exact_runtime_telemetry_lines(self) -> None:
         lines = [
             "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n",
+            "#cpu-summary {\"used\":6.5,\"bucket\":9000,\"pressure\":\"normal\"}\n",
             "noise #runtime-summary {\"type\":\"runtime-summary\",\"tick\":2}\n",
+            "noise #cpu-summary {\"bucket\":0}\n",
             "\"#runtime-summary {\\\"type\\\":\\\"runtime-summary\\\",\\\"tick\\\":3}\"\n",
+            "\"#cpu-summary {\\\"bucket\\\":0}\"\n",
             " #runtime-summary {\"type\":\"runtime-summary\",\"tick\":4}\n",
+            " #cpu-summary {\"bucket\":0}\n",
             "#runtime-summary {bad json}\n",
+            "#cpu-summary {bad json}\n",
             "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":5}",
         ]
 
@@ -71,10 +76,45 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             accepted,
             [
                 "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n",
+                "#cpu-summary {\"used\":6.5,\"bucket\":9000,\"pressure\":\"normal\"}\n",
                 "#runtime-summary {bad json}\n",
+                "#cpu-summary {bad json}\n",
                 "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":5}\n",
             ],
         )
+
+    def test_persists_compact_cpu_summary_lines_to_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "console.log"
+            out_dir = root / "runtime-artifacts" / "runtime-summary-console"
+            input_path.write_text(
+                "noise before\n"
+                "#cpu-summary {\"used\":30.14,\"limit\":70,\"bucket\":0,\"pressure\":\"critical\"}\n"
+                "noise #cpu-summary {\"bucket\":9999}\n"
+                "#cpu-summary {bad json}\n"
+                " #cpu-summary {\"bucket\":10}\n",
+                encoding="utf-8",
+            )
+
+            result = capture.persist_runtime_summary_artifact(
+                input_paths=[str(input_path)],
+                out_dir=out_dir,
+                artifact_name="capture.log",
+            )
+
+            self.assertEqual(result.input_paths, [str(input_path)])
+            self.assertEqual(result.input_line_count, 5)
+            self.assertEqual(result.persisted_line_count, 2)
+            self.assertEqual(result.skipped_line_count, 3)
+            self.assertEqual(result.output_path, out_dir / "capture.log")
+            self.assertEqual(
+                result.output_path.read_text(encoding="utf-8").splitlines(),
+                [
+                    "#cpu-summary {\"used\":30.14,\"limit\":70,\"bucket\":0,\"pressure\":\"critical\"}",
+                    "#cpu-summary {bad json}",
+                ],
+            )
 
     def test_persists_matching_console_lines_to_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -288,6 +328,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
                             "messages": {
                                 "log": [
                                     "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":101}",
+                                    "#cpu-summary {\"used\":30.14,\"limit\":70,\"bucket\":0,\"pressure\":\"critical\"}",
                                     "noise #runtime-summary {\"type\":\"runtime-summary\",\"tick\":999}",
                                 ],
                                 "results": [
@@ -331,14 +372,15 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             )
 
             self.assertEqual(result.input_paths, ["live-official-console"])
-            self.assertEqual(result.input_line_count, 5)
-            self.assertEqual(result.persisted_line_count, 3)
+            self.assertEqual(result.input_line_count, 6)
+            self.assertEqual(result.persisted_line_count, 4)
             self.assertEqual(result.skipped_line_count, 2)
             self.assertEqual(result.output_path, out_dir / "live.log")
             self.assertEqual(
                 result.output_path.read_text(encoding="utf-8").splitlines(),
                 [
                     "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":101}",
+                    "#cpu-summary {\"used\":30.14,\"limit\":70,\"bucket\":0,\"pressure\":\"critical\"}",
                     "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":102}",
                     "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":103}",
                 ],

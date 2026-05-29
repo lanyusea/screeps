@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persist Screeps #runtime-summary console lines into local artifacts."""
+"""Persist Screeps runtime telemetry console lines into local artifacts."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ import screeps_world_profiles as world_profiles
 
 
 DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
+RUNTIME_CPU_SUMMARY_PREFIX = "#cpu-summary "
+RUNTIME_TELEMETRY_PREFIXES = (reducer.RUNTIME_SUMMARY_PREFIX, RUNTIME_CPU_SUMMARY_PREFIX)
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_CONSOLE_CHANNELS = ("console",)
 DEFAULT_LIVE_TIMEOUT_SECONDS = 20.0
@@ -107,10 +109,14 @@ def iter_runtime_summary_lines(lines: Iterable[str]) -> Iterable[str]:
             yield normalized
 
 
+def is_runtime_telemetry_line(line: str) -> bool:
+    return any(line.startswith(prefix) for prefix in RUNTIME_TELEMETRY_PREFIXES)
+
+
 def normalize_runtime_summary_line(line: str) -> str | None:
-    if not line.startswith(reducer.RUNTIME_SUMMARY_PREFIX):
+    if not is_runtime_telemetry_line(line):
         line = html.unescape(line)
-    if not line.startswith(reducer.RUNTIME_SUMMARY_PREFIX):
+    if not is_runtime_telemetry_line(line):
         return None
     return line.rstrip("\r\n") + "\n"
 
@@ -488,8 +494,8 @@ class WorldProfileArgumentParser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = WorldProfileArgumentParser(
         description=(
-            "Persist only exact-prefix Screeps #runtime-summary console lines into a local artifact "
-            "that the KPI artifact bridge can scan."
+            "Persist only exact-prefix Screeps #runtime-summary and #cpu-summary console lines "
+            "into a local artifact that monitor and KPI tooling can scan."
         ),
     )
     world_profiles.add_world_profile_argument(parser)
