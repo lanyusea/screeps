@@ -600,7 +600,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:21:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
@@ -640,7 +640,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:22:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         proof = runner.build_multi_tier_activation_proof(
@@ -682,7 +682,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:23:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         proof = runner.build_multi_tier_activation_proof(
@@ -728,7 +728,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:24:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         variant = runner.StrategyVariant(id="candidate", family="test-family", parameters={})
@@ -780,7 +780,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:24:30Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         proof = runner.build_multi_tier_activation_proof(
@@ -845,7 +845,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:25:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         proof = runner.build_multi_tier_activation_proof(
@@ -873,7 +873,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:22:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         variant_ids = [variant["id"] for variant in card["strategy_variants"]]
@@ -914,7 +914,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:22:30Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         proof = runner.build_multi_tier_activation_proof(
@@ -958,7 +958,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:25:30Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         simulator_results: dict[str, JsonObject] = {}
@@ -1013,7 +1013,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:26:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         simulator_results: dict[str, JsonObject] = {}
@@ -1041,7 +1041,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertTrue(proof["ok"])
         self.assertIn("construction-priority.pg.territory-seed.v1", proof["passingVariants"])
         self.assertEqual(proof["audit"]["codeCommit"], card["code_commit"])
-        self.assertEqual(proof["audit"]["scenarioId"], card_helper.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(proof["audit"]["scenarioId"], card["scenario"]["scenario_id"])
         self.assertEqual(proof["audit"]["activationImplementation"], runner.MULTI_TIER_ACTIVATION_IMPLEMENTATION)
         comparison_key = proof["audit"]["comparisonKey"]
         self.assertIsInstance(comparison_key, str)
@@ -1076,7 +1076,7 @@ class RlTrainingRunnerTest(unittest.TestCase):
             code_commit="b" * 40,
             training_approach="policy_gradient",
             created_at="2026-05-18T10:27:00Z",
-            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
             require_multi_tier_scenario=True,
         )
         simulator_results: dict[str, JsonObject] = {}

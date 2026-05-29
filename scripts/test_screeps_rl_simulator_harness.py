@@ -1537,6 +1537,74 @@ cli:
         self.assertNotIn("rlPolicyActivation", tick_log[-1])
         self.assertEqual(harness.build_variant_metrics(tick_log)["combat"]["hostileKills"], 0)
 
+    def test_v1_fixture_projects_distinct_territory_and_combat_activation(self) -> None:
+        fixture_path = Path("scripts/fixtures/rl/multi-tier-territory-combat-v1.map.json")
+        fixture_summaries = harness._private_map_fixture_room_summaries(fixture_path)
+        tick_log = [
+            {"tick": 1, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+            {"tick": 2, "rooms": {"E1S1": copy.deepcopy(fixture_summaries["E1S1"])}},
+        ]
+        for tick_entry in tick_log:
+            harness._merge_fixture_room_summaries_into_tick(tick_entry, fixture_summaries)
+        territory_seed = {
+            "id": "construction-priority.pg.territory-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 22,
+                "resourceSignalWeight": 3,
+                "killSignalWeight": 5,
+                "riskPenalty": 4,
+            },
+        }
+        risk_aware_seed = {
+            "id": "construction-priority.pg.risk-aware-seed.v1",
+            "parameters": {
+                "baseScoreWeight": 1,
+                "territorySignalWeight": 18,
+                "resourceSignalWeight": 5,
+                "killSignalWeight": 6,
+                "riskPenalty": 10,
+            },
+        }
+
+        combat_activation = harness.build_multi_tier_policy_activation_evidence(
+            copy.deepcopy(tick_log),
+            territory_seed,
+            fixture_summaries,
+            anchor_room="E1S1",
+            allow_offline_projection=True,
+        )
+        territory_activation = harness.build_multi_tier_policy_activation_evidence(
+            copy.deepcopy(tick_log),
+            risk_aware_seed,
+            fixture_summaries,
+            anchor_room="E1S1",
+            allow_offline_projection=True,
+        )
+        combat_metrics = harness.project_multi_tier_policy_activation_metrics(
+            harness.build_variant_metrics(tick_log),
+            combat_activation,
+        )
+        territory_metrics = harness.project_multi_tier_policy_activation_metrics(
+            harness.build_variant_metrics(tick_log),
+            territory_activation,
+        )
+
+        self.assertIsNotNone(combat_activation)
+        self.assertIsNotNone(territory_activation)
+        assert combat_activation is not None
+        assert territory_activation is not None
+        self.assertEqual(combat_activation["targetRoom"], "E1S0")
+        self.assertEqual(combat_activation["executionAction"], "engage-hostiles")
+        self.assertEqual(territory_activation["targetRoom"], "E1S2")
+        self.assertEqual(territory_activation["executionAction"], "claim-controller")
+        self.assertEqual(combat_metrics["combatDelta"], 1)
+        self.assertEqual(combat_metrics["territoryDelta"], 0)
+        self.assertEqual(territory_metrics["territoryDelta"], 2)
+        self.assertEqual(territory_metrics["combatDelta"], 0)
+        self.assertTrue(territory_metrics["finalRoomStates"]["E1S2"]["controller"]["my"])
+        self.assertEqual(territory_metrics["policyActivation"]["projectedTerritoryDelta"], 2)
+
     def test_inline_strategy_variant_config_overrides_registry_fallback(self) -> None:
         config = harness.strategy_variant_config_by_id(
             "construction-priority.pg.territory-seed.v1",

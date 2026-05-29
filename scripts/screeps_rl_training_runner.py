@@ -4796,7 +4796,16 @@ def multi_tier_activation_sample_trace(
             "reason": policy_activation.get("reason"),
         }
         activation_metrics = projected_activation if projected_activation is not None else policy_activation
-        for field in ("hostileKills", "hostileKillsSource", "projectedHostileKills", "observedHostileKills"):
+        for field in (
+            "hostileKills",
+            "hostileKillsSource",
+            "projectedHostileKills",
+            "observedHostileKills",
+            "territoryDelta",
+            "territoryDeltaSource",
+            "projectedTerritoryDelta",
+            "observedTerritoryDelta",
+        ):
             if field in activation_metrics:
                 trace_policy_activation[field] = activation_metrics.get(field)
         trace["policyActivation"] = trace_policy_activation
@@ -4807,6 +4816,8 @@ def multi_tier_activation_sample_trace(
             "initialHostileCount": projected_evidence.get("initialHostileCount"),
             "finalHostileCount": projected_evidence.get("finalHostileCount"),
             "projectedHostileKills": projected_evidence.get("projectedHostileKills"),
+            "projectedTerritoryDelta": projected_evidence.get("projectedTerritoryDelta"),
+            "controllerClaimed": projected_evidence.get("controllerClaimed"),
             "fixtureGeneratedRoomState": projected_evidence.get("fixtureGeneratedRoomState"),
         }
     if observed_evidence is not None:

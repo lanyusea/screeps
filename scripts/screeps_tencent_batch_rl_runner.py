@@ -37,10 +37,13 @@ from screeps_rl_experiment_card import (
     DEFAULT_SCENARIO_ID,
     MULTI_TIER_ACTIVE_IMPLEMENTATION_STATUS,
     MULTI_TIER_SCENARIO_ID,
+    MULTI_TIER_SCENARIO_IDS,
     MULTI_TIER_SIMULATION_MAP_SOURCE_REL,
     POLICY_GRADIENT_MIN_SIMULATION_TICKS,
     SCENARIO_IDS,
+    is_multi_tier_scenario_id,
     multi_tier_scenario_fixture_summary,
+    scenario_simulation_map_source_rel,
     scenario_supports_multi_tier_policy_comparison,
 )
 import screeps_rl_scale_gates as scale_gates
@@ -1089,8 +1092,8 @@ class Controller:
     def ensure_map_present(self) -> None:
         scenario_id = scenario_id_from_args(self.args)
         target = scenario_map_source_path(scenario_id)
-        if scenario_id == MULTI_TIER_SCENARIO_ID:
-            evidence = multi_tier_launch_fixture_evidence()
+        if is_multi_tier_scenario_id(scenario_id):
+            evidence = multi_tier_launch_fixture_evidence(scenario_id)
             self.record_step(
                 "map_preflight",
                 time.time(),
@@ -1099,8 +1102,11 @@ class Controller:
                 scenarioId=scenario_id,
                 roomCount=evidence["roomCount"],
                 adjacentRoom=evidence["adjacentRoom"],
+                neutralExpansionRoomCount=evidence["neutralExpansionRoomCount"],
+                combatPressureRoom=evidence["combatPressureRoom"],
                 hostileCreepCount=evidence["hostileCreepCount"],
                 hostileSpawnCount=evidence["hostileSpawnCount"],
+                hostileTowerCount=evidence["hostileTowerCount"],
             )
             return
         if target.is_file():
@@ -2603,8 +2609,8 @@ def e1s1_repeat_guard_current_launch(args: argparse.Namespace) -> dict[str, Any]
         "mapSourceFile": scenario_map_source_file(scenario_id),
         "room": scenario_anchor_room(scenario_id),
     }
-    if scenario_id == MULTI_TIER_SCENARIO_ID:
-        current_launch["fixtureEvidence"] = multi_tier_launch_fixture_evidence()
+    if is_multi_tier_scenario_id(scenario_id):
+        current_launch["fixtureEvidence"] = multi_tier_launch_fixture_evidence(scenario_id)
     return current_launch
 
 
@@ -4323,11 +4329,13 @@ def scenario_id_from_args(args: argparse.Namespace) -> str:
 
 def require_multi_tier_scenario_from_args(args: argparse.Namespace, scenario_id: str | None = None) -> bool:
     resolved_scenario_id = scenario_id or scenario_id_from_args(args)
-    return bool(getattr(args, "require_multi_tier_scenario", False)) or resolved_scenario_id == MULTI_TIER_SCENARIO_ID
+    return bool(getattr(args, "require_multi_tier_scenario", False)) or is_multi_tier_scenario_id(resolved_scenario_id)
 
 
 def scenario_map_source_file(scenario_id: str) -> str:
-    return MULTI_TIER_SIMULATION_MAP_SOURCE_REL if scenario_id == MULTI_TIER_SCENARIO_ID else DEFAULT_SIMULATION_MAP_SOURCE_REL
+    if is_multi_tier_scenario_id(scenario_id):
+        return scenario_simulation_map_source_rel(scenario_id)
+    return DEFAULT_SIMULATION_MAP_SOURCE_REL
 
 
 def scenario_anchor_room(scenario_id: str) -> str:
@@ -4338,10 +4346,10 @@ def scenario_map_source_path(scenario_id: str) -> Path:
     return REPO_ROOT / scenario_map_source_file(scenario_id)
 
 
-def multi_tier_launch_fixture_evidence() -> dict[str, Any]:
-    fixture_path = scenario_map_source_path(MULTI_TIER_SCENARIO_ID)
+def multi_tier_launch_fixture_evidence(scenario_id: str = MULTI_TIER_SCENARIO_ID) -> dict[str, Any]:
+    fixture_path = scenario_map_source_path(scenario_id)
     try:
-        summary = multi_tier_scenario_fixture_summary(fixture_path)
+        summary = multi_tier_scenario_fixture_summary(fixture_path, scenario_id=scenario_id)
     except CardValidationError as error:
         raise BatchRunError(str(error)) from error
     return {
@@ -4349,15 +4357,21 @@ def multi_tier_launch_fixture_evidence() -> dict[str, Any]:
         "anchorRoom": summary["anchorRoom"],
         "adjacentRoom": summary["adjacentRoom"],
         "adjacentRooms": summary["adjacentRooms"],
+        "neutralExpansionRooms": summary["neutralExpansionRooms"],
+        "neutralExpansionRoomCount": summary["neutralExpansionRoomCount"],
+        "combatPressureRoom": summary["combatPressureRoom"],
+        "combatPressureRooms": summary["combatPressureRooms"],
+        "combatPressureRoomCount": summary["combatPressureRoomCount"],
         "roomCount": summary["roomCount"],
         "hostileFixture": "adjacent_room_hostile_spawn_and_creeps",
         "hostileCreepCount": summary["adjacentHostileCreepCount"],
         "hostileStructureCount": summary["adjacentHostileStructureCount"],
         "hostileSpawnCount": summary["adjacentHostileSpawnCount"],
+        "hostileTowerCount": summary["adjacentHostileTowerCount"],
         "ownAnchorSpawnCount": summary["anchorOwnSpawnCount"],
         "ownAnchorCreepCount": summary["anchorOwnCreepCount"],
         "fixtureSha256": summary["fixtureSha256"],
-        "mapSourceFile": scenario_map_source_file(MULTI_TIER_SCENARIO_ID),
+        "mapSourceFile": scenario_map_source_file(scenario_id),
     }
 
 
@@ -4390,8 +4404,8 @@ def build_scale_proof_spec(
 ) -> dict[str, Any]:
     scenario_id = scenario_id_from_args(args)
     fixture_evidence = (
-        multi_tier_launch_fixture_evidence()
-        if scenario_id == MULTI_TIER_SCENARIO_ID
+        multi_tier_launch_fixture_evidence(scenario_id)
+        if is_multi_tier_scenario_id(scenario_id)
         else None
     )
     card_simulation_fields: dict[str, Any] = {
@@ -4545,15 +4559,15 @@ def validate_static_inputs(args: argparse.Namespace, run_id: str) -> None:
     scenario_id = scenario_id_from_args(args)
     if scenario_id not in SCENARIO_IDS:
         raise BatchRunError(f"scenario id must be one of: {', '.join(SCENARIO_IDS)}")
-    if getattr(args, "require_multi_tier_scenario", False) and scenario_id != MULTI_TIER_SCENARIO_ID:
+    if getattr(args, "require_multi_tier_scenario", False) and scenario_id not in MULTI_TIER_SCENARIO_IDS:
         raise BatchRunError("multi-tier policy comparisons require the multi-tier territory/combat scenario id")
-    if getattr(args, "training_approach", None) == "policy_gradient" and scenario_id != MULTI_TIER_SCENARIO_ID:
+    if getattr(args, "training_approach", None) == "policy_gradient" and scenario_id not in MULTI_TIER_SCENARIO_IDS:
         raise BatchRunError(
             f"policy_gradient Tencent proof requires --scenario-id {MULTI_TIER_SCENARIO_ID} "
             "--require-multi-tier-scenario"
         )
-    if scenario_id == MULTI_TIER_SCENARIO_ID:
-        multi_tier_launch_fixture_evidence()
+    if is_multi_tier_scenario_id(scenario_id):
+        multi_tier_launch_fixture_evidence(scenario_id)
     if not args.controller_ip.endswith("/32"):
         raise BatchRunError("controller IP must be a /32 CIDR")
 
@@ -4647,7 +4661,7 @@ def apply_cli_scenario_defaults(args: argparse.Namespace) -> argparse.Namespace:
             args.require_multi_tier_scenario = True
         else:
             args.scenario_id = DEFAULT_SCENARIO_ID
-    elif args.scenario_id == MULTI_TIER_SCENARIO_ID:
+    elif is_multi_tier_scenario_id(args.scenario_id):
         args.require_multi_tier_scenario = True
     apply_policy_gradient_validation_sample_defaults(args)
     return args

@@ -63,6 +63,22 @@ class ScreepsRlActLoopPlannerTest(unittest.TestCase):
         self.assertEqual(feedback["scorecard"]["state"], "linked")
         self.assertEqual(feedback["scorecard"]["id"], "scorecard-loop-b-sample-000001")
 
+    def test_unproven_v0_variance_gap_routes_to_v1_scenario_delta(self) -> None:
+        plan = planner.build_plan(
+            {
+                "title": "Policy gradient has zero territory and combat variance on v0",
+                "scenarioId": planner.MULTI_TIER_SCENARIO_V0_ID,
+                "onlineUtilityStatus": "UNPROVEN",
+                "hypothesis": "The current v0 fixture lacks neutral-room expansion and hostile tower pressure variance.",
+                "parameterSurface": "construction-priority",
+            }
+        )
+
+        self.assertEqual(plan["finding"]["classification"], "scenario_gap")
+        self.assertEqual(plan["nextScenarioDelta"]["sourceScenarioId"], planner.MULTI_TIER_SCENARIO_V0_ID)
+        self.assertEqual(plan["nextScenarioDelta"]["targetScenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+        self.assertEqual(plan["nextExperimentCardDelta"]["scenarioId"], planner.MULTI_TIER_SCENARIO_ID)
+
     def test_reward_gap_routes_through_reward_decision_record_before_card_use(self) -> None:
         raw = {
             "title": "Construction backlog has no reward pressure",

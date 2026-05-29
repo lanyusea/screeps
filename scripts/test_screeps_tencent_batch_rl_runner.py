@@ -3336,8 +3336,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertTrue(guard["currentLaunch"]["requireMultiTierScenario"])
         self.assertEqual(guard["currentLaunch"]["mapSourceFile"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["adjacentRoom"], "E2S1")
-        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["neutralExpansionRoomCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 3)
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileTowerCount"], 1)
         self.assertEqual(guard["evidence"]["count"], 0)
 
     def test_no_arg_preflight_defaults_to_multi_tier_policy_gradient_without_repeat_guard(self) -> None:
@@ -3508,8 +3510,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(guard["currentLaunch"]["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
         self.assertTrue(guard["currentLaunch"]["requireMultiTierScenario"])
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["adjacentRoom"], "E2S1")
-        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["neutralExpansionRoomCount"], 2)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileCreepCount"], 3)
         self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileSpawnCount"], 1)
+        self.assertEqual(guard["currentLaunch"]["fixtureEvidence"]["hostileTowerCount"], 1)
         self.assertIn("experiment_card", events)
         self.assertNotIn("scale_up", events)
         self.assertNotIn("bootstrap", events)
@@ -4451,8 +4455,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(card["policy_gradient"]["policy_update"]["learning_rate"], 1)
         self.assertTrue(card["scenario"]["capabilities"]["hostile_combat_signal"])
         self.assertEqual(card["scenario"]["evidence"]["adjacent_room"], "E2S1")
-        self.assertEqual(card["scenario"]["evidence"]["hostile_creep_count"], 2)
+        self.assertEqual(card["scenario"]["evidence"]["neutral_expansion_room_count"], 2)
+        self.assertEqual(card["scenario"]["evidence"]["hostile_creep_count"], 3)
         self.assertEqual(card["scenario"]["evidence"]["hostile_spawn_count"], 1)
+        self.assertEqual(card["scenario"]["evidence"]["hostile_tower_count"], 1)
         self.assertEqual(card["simulation"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
         self.assertEqual(card["scenario"]["evidence"]["map_source_file"], runner.MULTI_TIER_SIMULATION_MAP_SOURCE_REL)
         self.assertEqual(spec["experimentCard"]["scenario"]["scenario_id"], runner.MULTI_TIER_SCENARIO_ID)
@@ -4463,6 +4469,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(
             spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["fixtureEvidence"]["hostileSpawnCount"],
             1,
+        )
+        self.assertEqual(
+            spec["scaleProof"]["remoteRunnerContract"]["cardSimulationFields"]["fixtureEvidence"]["neutralExpansionRoomCount"],
+            2,
         )
         self.assertFalse(card["safety"]["officialMmoWritesAllowed"])
 
@@ -5752,7 +5762,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             self.assertEqual(controller.steps[0].detail["path"], str(fixture_path))
             self.assertEqual(controller.steps[0].detail["scenarioId"], runner.MULTI_TIER_SCENARIO_ID)
             self.assertEqual(controller.steps[0].detail["adjacentRoom"], "E2S1")
-            self.assertEqual(controller.steps[0].detail["hostileCreepCount"], 2)
+            self.assertEqual(controller.steps[0].detail["neutralExpansionRoomCount"], 2)
+            self.assertEqual(controller.steps[0].detail["combatPressureRoom"], "E1S0")
+            self.assertEqual(controller.steps[0].detail["hostileCreepCount"], 3)
+            self.assertEqual(controller.steps[0].detail["hostileTowerCount"], 1)
             self.assertFalse((root / "maps" / "map-0b6758af.json").exists())
 
     def test_latest_scale_out_failure_ignores_failures_before_run_start(self) -> None:
