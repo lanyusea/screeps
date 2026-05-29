@@ -31370,7 +31370,7 @@ function getCriticalCpuTaskRetentionDecision(creep, task) {
   return { retain: false };
 }
 function shouldRetainCriticalCpuRepairTask(creep) {
-  return getUsedTransferEnergy(creep) > 0 && !isSpawnEnergyCritical(creep.room) && !isControllerDowngradeGuardActive2(creep.room);
+  return getUsedTransferEnergy(creep) > 0 && !assessWorkerEnergyCriticalState(creep).active && !isControllerDowngradeGuardActive2(creep.room);
 }
 function getCriticalCpuTransferRetentionDecision(creep, task) {
   if (getUsedTransferEnergy(creep) <= 0) {
@@ -31405,10 +31405,6 @@ function shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask)
 function hasHealthyRoomEnergyBuffer2(room) {
   const energyAvailable = getRoomEnergyAvailable12(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
-}
-function isSpawnEnergyCritical(room) {
-  const energyAvailable = getRoomEnergyAvailable12(room);
-  return energyAvailable !== null && energyAvailable < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 function isControllerDowngradeGuardActive2(room) {
   const controller = room.controller;

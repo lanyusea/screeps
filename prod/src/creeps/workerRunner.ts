@@ -11,6 +11,7 @@ import {
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
 import {
+  assessWorkerEnergyCriticalState,
   selectWorkerEnergyCriticalTask,
   shouldPreemptForWorkerEnergyCriticalTask
 } from './workerTaskPolicy';
@@ -404,7 +405,7 @@ function getCriticalCpuTaskRetentionDecision(
 function shouldRetainCriticalCpuRepairTask(creep: Creep): boolean {
   return (
     getUsedTransferEnergy(creep) > 0 &&
-    !isSpawnEnergyCritical(creep.room) &&
+    !assessWorkerEnergyCriticalState(creep).active &&
     !isControllerDowngradeGuardActive(creep.room)
   );
 }
@@ -473,11 +474,6 @@ function shouldDeferSpawnReservationRefillForProductiveWork(
 function hasHealthyRoomEnergyBuffer(room: Room): boolean {
   const energyAvailable = getRoomEnergyAvailable(room);
   return energyAvailable !== null && energyAvailable >= getEffectiveRoomEnergyBufferThreshold(room);
-}
-
-function isSpawnEnergyCritical(room: Room): boolean {
-  const energyAvailable = getRoomEnergyAvailable(room);
-  return energyAvailable !== null && energyAvailable < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 
 function isControllerDowngradeGuardActive(room: Room): boolean {

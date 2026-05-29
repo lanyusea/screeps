@@ -1,5 +1,9 @@
 import { runWorker } from '../src/creeps/workerRunner';
 import {
+  WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+  WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+} from '../src/creeps/workerTaskPolicy';
+import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
@@ -234,6 +238,143 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
     expect(upgradeController).toHaveBeenCalledWith(controller);
+    expect(repair).not.toHaveBeenCalled();
+  });
+
+  it('preempts retained critical CPU repair while spawn-critical hysteresis is active', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD - 1,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(0);
+    const repair = jest.fn();
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> },
+        workerEnergyCriticalPolicy: {
+          type: 'workerEnergyCriticalPolicy',
+          schemaVersion: 1,
+          active: true,
+          reason: 'spawn',
+          enteredAt: 700,
+          updatedAt: 700,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          spawnEnterThreshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+          spawnExitThreshold: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      },
+      room,
+      harvest,
+      repair,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      time: 701,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : road)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'spawn',
+      spawnEnergy: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD - 1
+    });
+    expect(harvest).toHaveBeenCalledWith(source);
+    expect(repair).not.toHaveBeenCalled();
+  });
+
+  it('preempts retained critical CPU repair while storage-critical hysteresis is active', () => {
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(1_000)
+      }
+    } as unknown as StructureStorage;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 100
+      } as StructureController,
+      storage,
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [storage] : []))
+    } as unknown as Room;
+    const repair = jest.fn();
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      name: 'RepairWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road1' as Id<Structure> },
+        workerEnergyCriticalPolicy: {
+          type: 'workerEnergyCriticalPolicy',
+          schemaVersion: 1,
+          active: true,
+          reason: 'storage',
+          enteredAt: 700,
+          updatedAt: 700,
+          storageEnergy: 499,
+          storageEnterThreshold: 500,
+          storageExitThreshold: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      repair,
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RepairWorker: creep },
+      time: 701,
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 62,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) =>
+        id === 'storage1' ? storage : road
+      ) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'storage',
+      storageEnergy: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN - 1
+    });
+    expect(transfer).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
     expect(repair).not.toHaveBeenCalled();
   });
 
