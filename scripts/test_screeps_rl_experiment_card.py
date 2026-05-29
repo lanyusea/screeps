@@ -240,6 +240,56 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertEqual(Path(card["simulation"]["map_source_file"]), card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE_BY_ID[card_helper.MULTI_TIER_SCENARIO_V0_ID])
         self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
 
+    def test_multi_tier_v0_historical_card_can_omit_new_fixture_evidence(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier-v0",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
+            require_multi_tier_scenario=True,
+        )
+        evidence = card["scenario"]["evidence"]
+        for field in (
+            "hostile_structure_count",
+            "hostile_tower_count",
+            "neutral_expansion_room_count",
+            "combat_pressure_room_count",
+            "own_anchor_spawn_count",
+            "own_anchor_creep_count",
+            "fixture_sha256",
+        ):
+            evidence.pop(field, None)
+
+        card_helper.validate_card(card)
+        runner.validate_experiment_card(card)
+        self.assertTrue(card_helper.scenario_supports_multi_tier_policy_comparison(card["scenario"]))
+
+    def test_multi_tier_v1_requires_new_fixture_evidence(self) -> None:
+        base_card = card_helper.build_card(
+            dataset_run_id="rl-policy-gradient-multitier",
+            code_commit="c" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:15:00Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_ID,
+            require_multi_tier_scenario=True,
+        )
+
+        for field in (
+            "hostile_structure_count",
+            "hostile_tower_count",
+            "neutral_expansion_room_count",
+            "combat_pressure_room_count",
+            "own_anchor_spawn_count",
+            "own_anchor_creep_count",
+            "fixture_sha256",
+        ):
+            with self.subTest(field=field):
+                card = json.loads(json.dumps(base_card))
+                card["scenario"]["evidence"].pop(field, None)
+                with self.assertRaisesRegex(card_helper.CardValidationError, f"evidence.{field}"):
+                    card_helper.validate_card(card)
+
     def test_multi_tier_scenario_rejects_metadata_only_guarded_evidence(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-multitier-stale",

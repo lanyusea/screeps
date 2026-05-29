@@ -35,6 +35,17 @@ MULTI_TIER_SCENARIO_V1_ID = "multi-tier-territory-combat-v1"
 MULTI_TIER_SCENARIO_ID = MULTI_TIER_SCENARIO_V1_ID
 MULTI_TIER_SCENARIO_IDS = (MULTI_TIER_SCENARIO_V0_ID, MULTI_TIER_SCENARIO_V1_ID)
 SCENARIO_IDS = (DEFAULT_SCENARIO_ID, *MULTI_TIER_SCENARIO_IDS)
+MULTI_TIER_V0_COMPAT_OPTIONAL_EVIDENCE_FIELDS = frozenset(
+    (
+        "hostile_structure_count",
+        "hostile_tower_count",
+        "neutral_expansion_room_count",
+        "combat_pressure_room_count",
+        "own_anchor_spawn_count",
+        "own_anchor_creep_count",
+        "fixture_sha256",
+    )
+)
 MULTI_TIER_FIXTURE_TYPE = "screeps-rl-private-map-fixture"
 MULTI_TIER_FIXTURE_SCHEMA_VERSION = 1
 LOOP_A_CARD_SUPPLY_TYPE = "screeps-rl-loop-a-card-supply"
@@ -732,6 +743,13 @@ def validate_multi_tier_scenario_activation(
         ("fixture_sha256", "fixtureSha256", fixture_summary["fixtureSha256"]),
     )
     for snake_key, camel_key, expected in expected_fields:
+        if (
+            scenario_id == MULTI_TIER_SCENARIO_V0_ID
+            and snake_key in MULTI_TIER_V0_COMPAT_OPTIONAL_EVIDENCE_FIELDS
+            and snake_key not in evidence
+            and camel_key not in evidence
+        ):
+            continue
         observed = first_present(evidence, (snake_key, camel_key))
         if observed != expected:
             raise error_cls(f"multi-tier scenario evidence.{snake_key} must match the active fixture")
