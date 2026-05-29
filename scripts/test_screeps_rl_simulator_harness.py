@@ -6202,6 +6202,45 @@ cli:
             )
             self.assertIsNone(harness._private_map_fixture_owner_identity(fixture_path, "E3S1"))
 
+    def test_private_fixture_owner_identity_detects_top_level_controller_ownership(self) -> None:
+        fixture = {
+            "type": harness.PRIVATE_MAP_FIXTURE_TYPE,
+            "owner": {"id": "owner", "username": "rl-owner"},
+            "rooms": {
+                "E1S1": {
+                    "controller": {
+                        "_id": "controller-bind",
+                        "bindUser": "rl-owner",
+                    },
+                },
+                "E2S1": {
+                    "controller": {
+                        "_id": "controller-reserved",
+                        "reservation": {"user": "owner"},
+                    },
+                },
+                "E3S1": {
+                    "controller": {
+                        "_id": "controller-neutral",
+                        "level": 1,
+                    },
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture_path = Path(temp_dir) / "map.json"
+            fixture_path.write_text(json.dumps(fixture, sort_keys=True), encoding="utf-8")
+
+            self.assertEqual(
+                harness._private_map_fixture_owner_identity(fixture_path, "E1S1"),
+                {"id": "owner", "username": "rl-owner"},
+            )
+            self.assertEqual(
+                harness._private_map_fixture_owner_identity(fixture_path, "E2S1"),
+                {"id": "owner", "username": "rl-owner"},
+            )
+            self.assertIsNone(harness._private_map_fixture_owner_identity(fixture_path, "E3S1"))
+
     def test_fixture_room_busy_self_healer_adopts_fixture_owner_to_smoke_user(self) -> None:
         class FakeSmoke:
             def __init__(self) -> None:

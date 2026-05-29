@@ -5072,6 +5072,12 @@ def _fixture_room_objects(room_payload: JsonObject, room_name: str) -> list[Json
                 normalized.setdefault("type", normalized.get("structureType"))
             normalized.setdefault("room", room_name)
             objects.append(normalized)
+    controller = room_payload.get("controller")
+    if isinstance(controller, dict):
+        normalized = dict(controller)
+        normalized.setdefault("type", "controller")
+        normalized.setdefault("room", room_name)
+        objects.append(normalized)
     return objects
 
 
