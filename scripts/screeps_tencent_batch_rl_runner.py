@@ -5144,7 +5144,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 3
-    if controller.final_status == E1S1_REPEAT_GUARD_FINAL_STATUS:
+    if controller.final_status in {E1S1_REPEAT_GUARD_FINAL_STATUS, PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS}:
         print(
             json.dumps(
                 {

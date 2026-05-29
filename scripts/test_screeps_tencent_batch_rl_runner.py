@@ -6015,6 +6015,35 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["status"], "completed_scale_down_failed")
 
+    def test_main_exits_nonzero_when_paid_failure_recurrence_guard_blocks(self) -> None:
+        class FakeController:
+            def __init__(self, args: argparse.Namespace, run_id: str, artifact_dir: Path) -> None:
+                self.args = args
+                self.run_id = run_id
+                self.artifact_dir = artifact_dir
+                self.final_status = "unknown"
+                self.result = {"launchGuard": {"status": "blocked", "activeGuard": "paid_failure_recurrence_guard"}}
+
+            def run(self) -> None:
+                self.final_status = runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(runner, "Controller", FakeController),
+            mock.patch.object(runner.sys, "stdout", stdout),
+            mock.patch.object(runner.sys, "stderr", stderr),
+        ):
+            exit_code = runner.main(["run-single", "--run-id", "run-test", "--artifact-root", temp_dir])
+
+        self.assertEqual(exit_code, 4)
+        self.assertEqual(stdout.getvalue(), "")
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["status"], runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertEqual(payload["launchGuard"]["activeGuard"], "paid_failure_recurrence_guard")
+
     def test_bootstrap_worker_uses_configured_worker_user(self) -> None:
         args = controller_args()
         args.worker_user = "custom-worker"
