@@ -84,14 +84,14 @@ describe('runtime CPU budget policy', () => {
     expect(shouldThrottleRuntimeSummaryCadence(budget)).toBe(true);
   });
 
-  it('reuses the runtime CPU budget sample during the same game tick', () => {
-    const getUsed = jest.fn().mockReturnValue(21);
+  it('refreshes CPU used samples during the same game tick', () => {
+    const getUsed = jest.fn().mockReturnValueOnce(21).mockReturnValueOnce(71);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 123,
       cpu: {
         getUsed,
         limit: 70,
-        bucket: 43,
+        bucket: 9_000,
         tickLimit: 500
       } as unknown as CPU
     };
@@ -99,13 +99,18 @@ describe('runtime CPU budget policy', () => {
     const first = getRuntimeCpuBudget();
     const second = getRuntimeCpuBudget();
 
-    expect(second).toBe(first);
-    expect(getUsed).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({
+      tick: 123,
+      pressure: 'normal',
+      reasons: []
+    });
     expect(second).toMatchObject({
       tick: 123,
-      pressure: 'critical',
-      reasons: ['criticalBucket']
+      pressure: 'degraded',
+      reasons: ['usedOverLimit'],
+      sample: expect.objectContaining({ used: 71 })
     });
+    expect(getUsed).toHaveBeenCalledTimes(2);
   });
 
   it('alerts on repeated empty bucket and sustained used-over-limit samples', () => {

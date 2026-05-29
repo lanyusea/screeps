@@ -20,6 +20,7 @@ describe('main runtime policy parameter consumption', () => {
     logSpy.mockRestore();
     jest.resetModules();
     jest.dontMock('../src/kernel/Kernel');
+    jest.dontMock('../src/rl/kpiRolloutMonitor');
     jest.dontMock('../src/strategy/runtimePolicyParameters');
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETERS_GLOBAL];
     delete (globalThis as Record<string, unknown>)[RUNTIME_POLICY_PARAMETER_CONSUMPTION_GLOBAL];
@@ -265,6 +266,47 @@ describe('main runtime policy parameter consumption', () => {
         consumedParametersSha256: 'flagless-runtime-use-sha'
       })
     );
+  });
+
+  it('uses a post-kernel CPU sample for the rollout monitoring gate', () => {
+    installScreepsGlobals();
+    const getUsed = jest.fn().mockReturnValueOnce(1).mockReturnValue(71);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.cpu = {
+      getUsed,
+      limit: 70,
+      bucket: 9_000,
+      tickLimit: 500
+    } as unknown as CPU;
+    const run = jest.fn((_options: KernelRunOptions = {}) => {
+      getUsed();
+      return makeRuntimeSummary();
+    });
+    const checkKpiRegression = jest.fn(() => ({
+      regression: false,
+      regressedFamilies: [],
+      details: '',
+      metrics: {}
+    }));
+    jest.doMock('../src/rl/kpiRolloutMonitor', () => {
+      const actual = jest.requireActual<typeof import('../src/rl/kpiRolloutMonitor')>(
+        '../src/rl/kpiRolloutMonitor'
+      );
+      return {
+        ...actual,
+        checkKpiRegression
+      };
+    });
+    mockKernel(run);
+    let main: typeof import('../src/main') | undefined;
+    jest.isolateModules(() => {
+      main = jest.requireActual<typeof import('../src/main')>('../src/main');
+    });
+
+    main?.loop();
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(getUsed).toHaveBeenCalledTimes(2);
+    expect(checkKpiRegression).not.toHaveBeenCalled();
   });
 });
 

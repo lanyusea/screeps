@@ -161,6 +161,8 @@ export function runEconomy(
   options: EconomyRuntimeOptions = {}
 ): RuntimeSummary | undefined {
   const featureGates = getRuntimeFeatureGates();
+  const shouldRunOptionalGlobalWork = (): boolean =>
+    shouldRunOptionalCpuWork(getRuntimeCpuBudget(), 'economy-global-optional');
   const cpuBudget = getRuntimeCpuBudget();
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, 'economy-global-optional');
   const creeps = Object.values(Game.creeps);
@@ -195,7 +197,8 @@ export function runEconomy(
   const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
-    const runOptionalRoomWork = shouldRunOptionalCpuRoomWork(cpuBudget, colony.room.name);
+    let roomCpuBudget = getRuntimeCpuBudget();
+    let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
@@ -222,7 +225,7 @@ export function runEconomy(
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
-    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+    if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
       refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
     const constructionOptions = {
@@ -232,7 +235,7 @@ export function runEconomy(
       runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
       onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
     };
-    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+    if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
       if (postClaimBootstrapRefresh.deferred === true) {
         planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
       } else {
@@ -241,13 +244,13 @@ export function runEconomy(
         });
       }
     }
-    if (survivalAssessment.mode === 'TERRITORY_READY' && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (survivalAssessment.mode === 'TERRITORY_READY' && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
-    if (shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     }
-    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshClaimExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
       refreshReserveExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
     }
@@ -330,6 +333,8 @@ export function runEconomy(
     }
 
     transferLinkEnergy(colony.room);
+    roomCpuBudget = getRuntimeCpuBudget();
+    runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     if (runOptionalRoomWork) {
       manageStorage(colony.room);
       refreshRoomEnergySurplusState(colony.room);
@@ -343,11 +348,11 @@ export function runEconomy(
     }
   }
 
-  if (runOptionalGlobalWork) {
+  if (shouldRunOptionalGlobalWork()) {
     ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   }
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  if (runOptionalGlobalWork) {
+  if (shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
   refreshSpawnEnergyReservationStates(colonies);

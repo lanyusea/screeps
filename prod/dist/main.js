@@ -24805,19 +24805,9 @@ var cpuTelemetryState = {
   bucketEmptyTicks: 0,
   overLimitTicks: 0
 };
-var runtimeCpuBudgetCache = null;
 function getRuntimeCpuBudget(game) {
   const runtimeGame = game != null ? game : getRuntimeGame();
-  const tick = normalizeTick(runtimeGame == null ? void 0 : runtimeGame.time);
-  const shouldUseCache = game === void 0 && runtimeGame !== void 0 && tick > 0;
-  if (shouldUseCache && (runtimeCpuBudgetCache == null ? void 0 : runtimeCpuBudgetCache.game) === runtimeGame && runtimeCpuBudgetCache.tick === tick) {
-    return runtimeCpuBudgetCache.budget;
-  }
-  const budget = buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
-  if (shouldUseCache) {
-    runtimeCpuBudgetCache = { game: runtimeGame, tick: budget.tick, budget };
-  }
-  return budget;
+  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
 }
 function buildRuntimeCpuBudget(sample) {
   const reasons = [];
@@ -46794,6 +46784,7 @@ var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 function runEconomy(preludeTelemetryEvents = [], options = {}) {
   var _a, _b, _c, _d;
   const featureGates = getRuntimeFeatureGates();
+  const shouldRunOptionalGlobalWork = () => shouldRunOptionalCpuWork(getRuntimeCpuBudget(), "economy-global-optional");
   const cpuBudget = getRuntimeCpuBudget();
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, "economy-global-optional");
   const creeps = Object.values(Game.creeps);
@@ -46822,7 +46813,8 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
   const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms2(colonies);
   for (const colony of colonies) {
-    const runOptionalRoomWork = shouldRunOptionalCpuRoomWork(cpuBudget, colony.room.name);
+    let roomCpuBudget = getRuntimeCpuBudget();
+    let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
@@ -46846,7 +46838,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       telemetryEvents,
       { focusRoomName: postClaimBootstrapFocusRoomName }
     );
-    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+    if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
       refreshPostClaimDefenseConstruction(colony, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
     const constructionOptions = {
@@ -46856,7 +46848,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       runtimeStrategyConstructionEnabled: options.runtimeStrategyConstructionEnabled,
       onStrategyRegistryRuntimeUse: options.onStrategyRegistryRuntimeUse
     };
-    if (shouldRunConstructionPlanning(cpuBudget, runOptionalRoomWork, survivalAssessment)) {
+    if (shouldRunConstructionPlanning(roomCpuBudget, runOptionalRoomWork, survivalAssessment)) {
       if (postClaimBootstrapRefresh.deferred === true) {
         planDeferredClaimedRoomCapacityConstruction(colony, constructionOptions);
       } else {
@@ -46865,13 +46857,13 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
         });
       }
     }
-    if (survivalAssessment.mode === "TERRITORY_READY" && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (survivalAssessment.mode === "TERRITORY_READY" && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
-    if (shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     }
-    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(cpuBudget, runOptionalRoomWork)) {
+    if (survivalAssessment.territoryReady && shouldRunTerritoryPlanning(roomCpuBudget, runOptionalRoomWork)) {
       refreshClaimExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
       refreshReserveExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
     }
@@ -46944,6 +46936,8 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       }
     }
     transferEnergy(colony.room);
+    roomCpuBudget = getRuntimeCpuBudget();
+    runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     if (runOptionalRoomWork) {
       manageStorage(colony.room);
       refreshRoomEnergySurplusState(colony.room);
@@ -46956,11 +46950,11 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
     }
   }
-  if (runOptionalGlobalWork) {
+  if (shouldRunOptionalGlobalWork()) {
     ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   }
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  if (runOptionalGlobalWork) {
+  if (shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
   refreshSpawnEnergyReservationStates(colonies);
@@ -48479,7 +48473,6 @@ var strategyRegistryState = {
 var recentKpiWindows = {};
 var baselineKpiWindows = {};
 function loop() {
-  const cpuBudget = getRuntimeCpuBudget();
   const runtimePolicyParameters = applyRuntimePolicyParametersToRegistry(strategyRegistryState.entries);
   const hasPatchedRuntimeStrategies = runtimePolicyParameters.evidence.appliedStrategyIds.length > 0;
   const runtimePolicyParameterPlanningEnabled = runtimePolicyParameters.evidence.runtimeParameterInjection === true && hasPatchedRuntimeStrategies;
@@ -48503,7 +48496,7 @@ function loop() {
   } finally {
     persistRuntimePolicyParameterConsumptionEvidence(runtimePolicyParameterConsumption.buildEvidence());
   }
-  if (!cpuBudget.degraded) {
+  if (!getRuntimeCpuBudget().degraded) {
     strategyRegistryState.entries = runStrategyRolloutMonitoring(summary, strategyRegistryState.entries);
   }
 }
