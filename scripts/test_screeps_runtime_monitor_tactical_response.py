@@ -647,6 +647,301 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(trigger["metadata"]["metric"], "constructionDeadlockTicks")
         self.assertEqual(trigger["metadata"]["thresholds"], {"P0": 500, "P1": 100})
 
+    def test_cpu_bucket_critical_runtime_summary_alerts_health_gate_and_tactical_response(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1200,
+            "cpu": {
+                "used": 30.14,
+                "limit": 70,
+                "bucket": 4,
+                "pressure": "critical",
+                "alerts": ["lowBucket"],
+                "reasons": ["criticalBucket"],
+                "lowBucketTicks": 4,
+            },
+            "rooms": [{"roomName": "E26S49", "shard": "shardX"}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_dir = Path(temp_dir)
+            (runtime_dir / "runtime-summary-console-20260529T001418Z.log").write_text(
+                "#runtime-summary " + json.dumps(payload) + "\n",
+                encoding="utf-8",
+            )
+            warnings: list[str] = []
+            runtime_rooms = monitor.load_latest_runtime_room_summaries(
+                runtime_dir,
+                [monitor.RoomRef(shard="shardX", room="E26S49")],
+                warnings,
+            )
+
+        self.assertEqual(warnings, [])
+        runtime_room = runtime_rooms["shardX/E26S49"]
+        self.assertEqual(runtime_room[monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY]["pressure"], "critical")
+
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_CRITICAL_KIND])
+        cpu_reason = emitted[0]
+        self.assertEqual(cpu_reason["priority"], "P0")
+        self.assertEqual(cpu_reason["severity"], "critical")
+        self.assertEqual(cpu_reason["cpuBucket"], 4)
+        self.assertEqual(cpu_reason["pressure"], "critical")
+        self.assertEqual(cpu_reason["alerts"], ["lowBucket"])
+
+        alert_payload = {
+            "ok": True,
+            "mode": "alert",
+            "alert": True,
+            "reasons": emitted,
+            "rooms": ["shardX/E26S49"],
+        }
+        health = monitor.evaluate_postdeploy_health_gate(
+            {
+                "ok": True,
+                "mode": "summary",
+                "room_summaries": [
+                    {
+                        "room": "shardX/E26S49",
+                        "owned_creeps": 1,
+                        "owned_spawns": 1,
+                        "creeps": 1,
+                        "spawns": 1,
+                        "owner": "owner",
+                        "cpuBucket": 4,
+                    }
+                ],
+            },
+            alert_payload,
+        )
+        self.assertFalse(health["ok"])
+        self.assertIn(monitor.CPU_BUCKET_CRITICAL_KIND, [reason["kind"] for reason in health["reasons"]])
+
+        report = monitor.build_tactical_response_report(alert_payload)
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertEqual(report["categories"], [monitor.CPU_BUCKET_CRITICAL_KIND])
+        self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
+        trigger = report["triggers"][0]
+        self.assertEqual(trigger["priority"], "P0")
+        self.assertEqual(trigger["metadata"]["metric"], "cpu.bucket")
+        self.assertEqual(trigger["metadata"]["thresholds"], {"P0": 100, "P1": 1000})
+
+    def test_cpu_bucket_low_runtime_summary_alerts_as_p1(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        runtime_room = {
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "bucket": 499,
+                "pressure": "degraded",
+                "alerts": ["lowBucket"],
+                "reasons": ["lowBucket"],
+            },
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            {"baseline_established": True, "owner": "owner"},
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual([reason["kind"] for reason in emitted], [monitor.CPU_BUCKET_LOW_KIND])
+        self.assertEqual(emitted[0]["priority"], "P1")
+        report = monitor.build_tactical_response_report(
+            {"ok": True, "mode": "alert", "alert": True, "reasons": emitted, "rooms": ["shardX/E26S49"]}
+        )
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "high")
+        self.assertEqual(report["priority"], "P1")
+        self.assertEqual(report["categories"], [monitor.CPU_BUCKET_LOW_KIND])
+
+    def test_cpu_bucket_healthy_or_missing_summary_stays_silent(self) -> None:
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+            }
+        )
+        cases = (
+            {"roomName": "E26S49", monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {"bucket": 9000, "pressure": "normal"}},
+            {"roomName": "E26S49"},
+        )
+
+        for runtime_room in cases:
+            with self.subTest(runtime_room=runtime_room):
+                emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+                    snapshot,
+                    {"baseline_established": True, "owner": "owner"},
+                    now=100,
+                    debounce_seconds=300,
+                    runtime_room_summary=runtime_room,
+                )
+                self.assertEqual(suppressed, [])
+                self.assertNotIn(monitor.CPU_BUCKET_CRITICAL_KIND, [reason["kind"] for reason in emitted])
+                self.assertNotIn(monitor.CPU_BUCKET_LOW_KIND, [reason["kind"] for reason in emitted])
+
+        for room_summary in (
+            {
+                "room": "shardX/E26S49",
+                "owned_creeps": 1,
+                "owned_spawns": 1,
+                "creeps": 1,
+                "spawns": 1,
+                "owner": "owner",
+                "cpuBucket": 9000,
+            },
+            {
+                "room": "shardX/E26S49",
+                "owned_creeps": 1,
+                "owned_spawns": 1,
+                "creeps": 1,
+                "spawns": 1,
+                "owner": "owner",
+            },
+        ):
+            with self.subTest(room_summary=room_summary):
+                health = monitor.evaluate_postdeploy_health_gate(
+                    {"ok": True, "mode": "summary", "room_summaries": [room_summary]},
+                    {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+                )
+                self.assertTrue(health["ok"])
+
+    def test_cpu_bucket_alert_does_not_mask_hostile_or_damage_alerts(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "owner": "owner",
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                }
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 4900,
+                    "hitsMax": 5000,
+                },
+                "worker-1": {
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "name": "worker-1",
+                    "x": 23,
+                    "y": 25,
+                },
+                "hostile-1": {
+                    "type": "creep",
+                    "owner": {"username": "Invader"},
+                    "x": 20,
+                    "y": 21,
+                },
+            }
+        )
+        runtime_room = {
+            "roomName": "E26S49",
+            monitor.RUNTIME_SUMMARY_CPU_METADATA_KEY: {
+                "bucket": 4,
+                "pressure": "critical",
+                "alerts": ["lowBucket"],
+                "reasons": ["criticalBucket"],
+            },
+        }
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+            runtime_room_summary=runtime_room,
+        )
+
+        self.assertEqual(suppressed, [])
+        self.assertEqual(
+            {reason["kind"] for reason in emitted},
+            {"hostile_creep", "structure_damage", monitor.CPU_BUCKET_CRITICAL_KIND},
+        )
+
     def test_clean_no_alert_expansion_bootstrap_without_spawn_stays_silent(self) -> None:
         report = monitor.build_tactical_response_report(EXPANSION_BOOTSTRAP_NO_ALERT_FIXTURE)
 

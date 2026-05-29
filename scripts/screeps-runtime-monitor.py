@@ -60,6 +60,7 @@ WORKER_ASSIGNMENT_GAP_RECOVERY_TICK_TOLERANCE = 0
 RUNTIME_SUMMARY_TICK_METADATA_KEY = "__runtimeSummaryTick"
 RUNTIME_SUMMARY_ARTIFACT_TIMESTAMP_METADATA_KEY = "__runtimeSummaryArtifactTimestamp"
 RUNTIME_SUMMARY_SOURCE_METADATA_KEY = "__runtimeSummarySource"
+RUNTIME_SUMMARY_CPU_METADATA_KEY = "__runtimeSummaryCpu"
 MONITOR_RUNTIME_SUMMARY_SOURCE = "screeps-runtime-monitor"
 ASSIGNED_WORKER_TASK_NAMES = ("harvest", "transfer", "build", "repair", "upgrade")
 BUILD_BLOCKED_REASON_PATHS = (
@@ -110,6 +111,15 @@ ENERGY_BUFFER_UNHEALTHY_REQUIRED_CONSECUTIVE = 2
 ENERGY_BUFFER_UNHEALTHY_ROUTES = [
     {"issue": "#906", "topic": "metric_taxonomy"},
     {"issue": "#907", "topic": "reward_decisions"},
+]
+CPU_BUCKET_LOW_KIND = "cpu_bucket_low"
+CPU_BUCKET_CRITICAL_KIND = "cpu_bucket_critical"
+CPU_BUCKET_LOW_THRESHOLD = 1_000
+CPU_BUCKET_CRITICAL_THRESHOLD = 100
+CPU_BUCKET_ROUTES = [
+    {"issue": "#1490", "topic": "runtime_alert"},
+    {"issue": "#906", "topic": "metric_taxonomy"},
+    {"issue": "#924", "topic": "scorecard_gate"},
 ]
 CONSTRUCTION_DEADLOCK_KIND = "construction_deadlock_ticks"
 CONSTRUCTION_DEADLOCK_P1_TICKS = 100
@@ -276,6 +286,28 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "decision": "owner_action_or_codex_hotfix",
         "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
     },
+    CPU_BUCKET_CRITICAL_KIND: {
+        "severity": "critical",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "cpu.bucket",
+            "related_issues": ["#1490", "#906", "#924"],
+            "thresholds": {"P1": CPU_BUCKET_LOW_THRESHOLD, "P0": CPU_BUCKET_CRITICAL_THRESHOLD},
+            "routes_to": CPU_BUCKET_ROUTES,
+        },
+    },
+    CPU_BUCKET_LOW_KIND: {
+        "severity": "high",
+        "decision": "codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "start_hotfix_gate"],
+        "metadata": {
+            "metric": "cpu.bucket",
+            "related_issues": ["#1490", "#906", "#924"],
+            "thresholds": {"P1": CPU_BUCKET_LOW_THRESHOLD, "P0": CPU_BUCKET_CRITICAL_THRESHOLD},
+            "routes_to": CPU_BUCKET_ROUTES,
+        },
+    },
     "energy_buffer_unhealthy": {
         "severity": "high",
         "decision": "metric_taxonomy_and_reward_decision_followup",
@@ -341,6 +373,8 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "runtime_exception": ["runtime_exception"],
     "runtime_deadlock": ["runtime_deadlock"],
     "resource_crisis": ["resource_crisis"],
+    CPU_BUCKET_CRITICAL_KIND: [CPU_BUCKET_CRITICAL_KIND],
+    CPU_BUCKET_LOW_KIND: [CPU_BUCKET_LOW_KIND],
     "energy_buffer_unhealthy": ["energy_buffer_unhealthy"],
     CONSTRUCTION_DEADLOCK_KIND: [CONSTRUCTION_DEADLOCK_KIND],
     "worker_idle_collapse": ["worker_idle_collapse"],
@@ -1217,6 +1251,156 @@ def format_energy_value(value: int | float | None) -> str:
     return str(value)
 
 
+def cpu_bucket_metadata() -> dict[str, Any]:
+    return {
+        "metric": "cpu.bucket",
+        "related_issues": [str(route["issue"]) for route in CPU_BUCKET_ROUTES],
+        "thresholds": {"P1": CPU_BUCKET_LOW_THRESHOLD, "P0": CPU_BUCKET_CRITICAL_THRESHOLD},
+        "routes_to": [dict(route) for route in CPU_BUCKET_ROUTES],
+    }
+
+
+def string_list_values(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def runtime_cpu_signal_values(room: dict[str, Any], field: str) -> list[str]:
+    values: list[str] = []
+    for candidate in (
+        nested_value(room, RUNTIME_SUMMARY_CPU_METADATA_KEY, field),
+        nested_value(room, "cpu", field),
+        room.get(field),
+    ):
+        for item in string_list_values(candidate):
+            if item not in values:
+                values.append(item)
+    return values
+
+
+def runtime_cpu_pressure(room: dict[str, Any]) -> str | None:
+    for candidate in (
+        nested_value(room, RUNTIME_SUMMARY_CPU_METADATA_KEY, "pressure"),
+        nested_value(room, "cpu", "pressure"),
+        room.get("pressure"),
+    ):
+        if isinstance(candidate, str) and candidate in {"normal", "degraded", "critical"}:
+            return candidate
+    return None
+
+
+def runtime_cpu_bucket(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("cpuBucket",),
+        ("cpu", "bucket"),
+        (RUNTIME_SUMMARY_CPU_METADATA_KEY, "bucket"),
+        ("bucket",),
+    )
+
+
+def runtime_cpu_used(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("cpuUsed",),
+        ("cpu", "used"),
+        (RUNTIME_SUMMARY_CPU_METADATA_KEY, "used"),
+    )
+
+
+def runtime_cpu_limit(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("cpuLimit",),
+        ("cpu", "limit"),
+        (RUNTIME_SUMMARY_CPU_METADATA_KEY, "limit"),
+    )
+
+
+def runtime_low_bucket_ticks(room: dict[str, Any]) -> int | float | None:
+    return first_number_value(
+        room,
+        ("lowBucketTicks",),
+        ("cpu", "lowBucketTicks"),
+        (RUNTIME_SUMMARY_CPU_METADATA_KEY, "lowBucketTicks"),
+    )
+
+
+def detect_cpu_bucket_kind(runtime_room: dict[str, Any] | None) -> str | None:
+    if not isinstance(runtime_room, dict):
+        return None
+
+    bucket = runtime_cpu_bucket(runtime_room)
+    pressure = runtime_cpu_pressure(runtime_room)
+    alerts = set(runtime_cpu_signal_values(runtime_room, "alerts"))
+    reasons = set(runtime_cpu_signal_values(runtime_room, "reasons"))
+
+    critical_bucket = (
+        pressure == "critical"
+        or "criticalBucket" in reasons
+        or (bucket is not None and bucket <= CPU_BUCKET_CRITICAL_THRESHOLD)
+    )
+    if critical_bucket:
+        return CPU_BUCKET_CRITICAL_KIND
+
+    low_bucket = (
+        "lowBucket" in alerts
+        or "lowBucket" in reasons
+        or (bucket is not None and bucket < CPU_BUCKET_LOW_THRESHOLD)
+    )
+    if low_bucket:
+        return CPU_BUCKET_LOW_KIND
+    return None
+
+
+def build_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any], kind: str) -> dict[str, Any]:
+    bucket = runtime_cpu_bucket(runtime_room)
+    used = runtime_cpu_used(runtime_room)
+    limit = runtime_cpu_limit(runtime_room)
+    pressure = runtime_cpu_pressure(runtime_room)
+    alerts = runtime_cpu_signal_values(runtime_room, "alerts")
+    reasons = runtime_cpu_signal_values(runtime_room, "reasons")
+    low_bucket_ticks = runtime_low_bucket_ticks(runtime_room)
+    critical = kind == CPU_BUCKET_CRITICAL_KIND
+    threshold = CPU_BUCKET_CRITICAL_THRESHOLD if critical else CPU_BUCKET_LOW_THRESHOLD
+    severity = "critical" if critical else "high"
+    priority = "P0" if critical else "P1"
+    return {
+        "kind": kind,
+        "room": ref.key,
+        "room_name": ref.room,
+        "severity": severity,
+        "priority": priority,
+        "cpuBucket": bucket,
+        "cpu_bucket": bucket,
+        "bucket": bucket,
+        "cpuUsed": used,
+        "cpuLimit": limit,
+        "pressure": pressure,
+        "alerts": alerts,
+        "reasons": reasons,
+        "lowBucketTicks": low_bucket_ticks,
+        "threshold": threshold,
+        "low_bucket_threshold": CPU_BUCKET_LOW_THRESHOLD,
+        "critical_bucket_threshold": CPU_BUCKET_CRITICAL_THRESHOLD,
+        "metadata": cpu_bucket_metadata(),
+        "message": (
+            f"{kind} in {ref.key}: cpu bucket {format_energy_value(bucket)} below "
+            f"{threshold} threshold; pressure={pressure or 'unknown'}, alerts={alerts or []}, "
+            f"reasons={reasons or []}."
+        ),
+        "signature": f"{kind}:{ref.key}",
+    }
+
+
+def detect_cpu_bucket_reason(ref: RoomRef, runtime_room: dict[str, Any] | None) -> dict[str, Any] | None:
+    kind = detect_cpu_bucket_kind(runtime_room)
+    if kind is None or not isinstance(runtime_room, dict):
+        return None
+    return build_cpu_bucket_reason(ref, runtime_room, kind)
+
+
 def build_energy_buffer_unhealthy_reason(
     ref: RoomRef,
     room: dict[str, Any],
@@ -2067,6 +2251,10 @@ def evaluate_room_alert(
     )
     if construction_deadlock_candidate is not None:
         detected.append(construction_deadlock_candidate)
+
+    cpu_bucket_candidate = detect_cpu_bucket_reason(snapshot.ref, runtime_room_summary)
+    if cpu_bucket_candidate is not None:
+        detected.append(cpu_bucket_candidate)
 
     previous_energy_buffer_unhealthy_count = number_value(rule_counts.get(ENERGY_BUFFER_UNHEALTHY_KIND)) or 0
     energy_buffer_unhealthy_candidate = detect_energy_buffer_unhealthy_reason(
@@ -3492,6 +3680,35 @@ def runtime_summary_room_has_worker_idle_fields(room: dict[str, Any]) -> bool:
     )
 
 
+def runtime_summary_payload_has_cpu_fields(payload: dict[str, Any]) -> bool:
+    cpu = payload.get("cpu")
+    if not isinstance(cpu, dict):
+        return False
+    return any(
+        key in cpu
+        for key in (
+            "bucket",
+            "pressure",
+            "alerts",
+            "reasons",
+            "lowBucketTicks",
+            "bucketEmptyTicks",
+        )
+    )
+
+
+def runtime_summary_room_has_cpu_fields(room: dict[str, Any]) -> bool:
+    return any(key in room for key in ("cpuBucket", "cpu", "bucket", "pressure", "alerts", "reasons"))
+
+
+def runtime_summary_room_has_monitor_alert_fields(room: dict[str, Any], payload: dict[str, Any]) -> bool:
+    return (
+        runtime_summary_room_has_worker_idle_fields(room)
+        or runtime_summary_room_has_cpu_fields(room)
+        or runtime_summary_payload_has_cpu_fields(payload)
+    )
+
+
 def parse_runtime_summary_line(line: str) -> dict[str, Any] | None:
     stripped = line.strip()
     if not stripped.startswith(RUNTIME_SUMMARY_PREFIX):
@@ -3571,6 +3788,9 @@ def runtime_summary_room_with_metadata(payload: dict[str, Any], path: Path, room
         result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = source
     elif path.name.startswith("runtime-summary-monitor-"):
         result[RUNTIME_SUMMARY_SOURCE_METADATA_KEY] = MONITOR_RUNTIME_SUMMARY_SOURCE
+    cpu = payload.get("cpu")
+    if isinstance(cpu, dict):
+        result[RUNTIME_SUMMARY_CPU_METADATA_KEY] = dict(cpu)
     return result
 
 
@@ -3606,7 +3826,7 @@ def load_latest_runtime_room_summaries(
             rooms = payload_runtime_rooms(payload)
             payload_explicit_shards_by_room = runtime_summary_explicit_shards_by_room(rooms)
             for room in rooms:
-                if not runtime_summary_room_has_worker_idle_fields(room):
+                if not runtime_summary_room_has_monitor_alert_fields(room, payload):
                     continue
                 for ref in refs:
                     if not runtime_summary_room_matches(
@@ -4457,6 +4677,18 @@ def threshold_exceeds_capacity_reason(room: dict[str, Any]) -> dict[str, Any] | 
     }
 
 
+def runtime_summary_room_ref(room: dict[str, Any]) -> RoomRef:
+    room_ref = room.get("room")
+    if isinstance(room_ref, str) and "/" in room_ref:
+        shard, room_name = room_ref.split("/", 1)
+        if shard and room_name:
+            return RoomRef(shard=shard, room=room_name)
+
+    room_name = runtime_summary_room_name(room)
+    shard = runtime_summary_room_shard(room)
+    return RoomRef(shard=shard or "unknown", room=room_name or str(room_ref or "unknown"))
+
+
 def runtime_summary_lookup_keys(room: dict[str, Any]) -> list[str]:
     keys: list[str] = []
     room_ref = room.get("room")
@@ -4551,6 +4783,9 @@ def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_paylo
             threshold_reason = threshold_exceeds_capacity_reason(room)
             if threshold_reason is not None:
                 reasons.append(threshold_reason)
+            cpu_reason = detect_cpu_bucket_reason(runtime_summary_room_ref(room), room)
+            if cpu_reason is not None:
+                reasons.append(cpu_reason)
             if owner_missing:
                 creeps = 0
                 spawns = 0
