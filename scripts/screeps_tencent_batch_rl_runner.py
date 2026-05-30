@@ -104,6 +104,13 @@ PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_REQUIRED_STATUS = "blocked_post_fix_
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS = "blocked_post_fix_validation_consumed"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS = "blocked_post_fix_validation_superseded"
 PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS = "clear_post_fix_validated"
+PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS = (
+    "computeAttempted",
+    "scaleOutAttempted",
+    "remoteTrainingAttempted",
+    "trainingReportProduced",
+    "environmentsRun",
+)
 PAID_FAILURE_RECURRENCE_KNOWN_FIXES = {
     PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE: {
         "issue": "#1501",
@@ -3176,7 +3183,7 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         if failure is not None:
             failure_signature = failure["signature"]
     execution_context = dict_value(summary.get("execution"))
-    execution_context_present = execution_context is not None
+    execution_context_present = paid_failure_post_fix_execution_context_complete(execution_context)
     execution = execution_context or {}
     environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
@@ -3203,6 +3210,22 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "environmentsRun": environments_run,
         "remoteTrainingFailureClass": remote_failure_class,
     }
+
+
+def paid_failure_post_fix_execution_context_complete(
+    execution_context: dict[str, Any] | None,
+) -> bool:
+    if execution_context is None:
+        return False
+    if not all(
+        field in execution_context
+        for field in PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS
+    ):
+        return False
+    bool_fields = PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS[:-1]
+    if not all(isinstance(execution_context.get(field), bool) for field in bool_fields):
+        return False
+    return scale_gates.non_negative_int(execution_context.get("environmentsRun")) is not None
 
 
 def paid_failure_post_fix_attempt_reached_compute_or_training(attempt: dict[str, Any]) -> bool:
