@@ -104,6 +104,7 @@ describe('runtime telemetry summaries', () => {
             healthy: true
           },
           workerCount: 2,
+          workerCarriedEnergy: 60,
           workerAssignmentEvidenceAvailable: true,
           workerAssignmentEvidence: {
             source: 'runtime-summary',
@@ -1584,6 +1585,7 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerCarriedEnergy).toBe(45);
     expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(45);
   });
 
@@ -1602,6 +1604,7 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerCarriedEnergy).toBe(40);
     expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(40);
   });
 
@@ -1696,6 +1699,7 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerCarriedEnergy).toBe(0);
     expect(room.resources).toMatchObject({
       storedEnergy: 0,
       workerCarriedEnergy: 0,

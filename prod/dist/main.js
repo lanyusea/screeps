@@ -37732,6 +37732,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     energyCapacity: colony.energyCapacityAvailable,
     energyBufferHealth: getRoomEnergyBufferHealth(colony.room),
     workerCount: colonyWorkers.length,
+    workerCarriedEnergy: resources.workerCarriedEnergy,
     workerAssignmentEvidenceAvailable: true,
     workerAssignmentEvidence,
     ...summarizeWorkerAssignmentBlockedRoomFields(resources.productiveEnergy),
