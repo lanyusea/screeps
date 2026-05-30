@@ -8,7 +8,10 @@ export const EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_RCL = 3;
 export const EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_ENERGY = 1;
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_NOT_OWNER_CODE = -1 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const ERR_INVALID_ARGS_CODE = -10 as ScreepsReturnCode;
 const ERR_RCL_NOT_ENOUGH_CODE = -14 as ScreepsReturnCode;
 const FALLBACK_EXTENSION_LIMITS_BY_RCL = [0, 0, 5, 10, 20, 30, 40, 50, 60];
 const FALLBACK_TOWER_LIMITS_BY_RCL = [0, 0, 0, 1, 1, 2, 2, 3, 6];
@@ -24,7 +27,12 @@ type StructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_TOWER';
-type ReturnCodeGlobal = 'ERR_FULL' | 'ERR_RCL_NOT_ENOUGH';
+type ReturnCodeGlobal =
+  | 'ERR_NOT_OWNER'
+  | 'ERR_FULL'
+  | 'ERR_INVALID_TARGET'
+  | 'ERR_INVALID_ARGS'
+  | 'ERR_RCL_NOT_ENOUGH';
 const DEFAULT_BARRIER_STAGE_ORDER: readonly ExpansionDefenseBarrierPlacementStage[] = [
   'towerRampart',
   'coreRampart',
@@ -385,7 +393,10 @@ function getGlobalReturnCode(name: ReturnCodeGlobal, fallback: ScreepsReturnCode
 
 function isFatalConstructionSiteResult(result: ScreepsReturnCode): boolean {
   return (
+    result === getGlobalReturnCode('ERR_NOT_OWNER', ERR_NOT_OWNER_CODE) ||
     result === getGlobalReturnCode('ERR_FULL', ERR_FULL_CODE) ||
+    result === getGlobalReturnCode('ERR_INVALID_TARGET', ERR_INVALID_TARGET_CODE) ||
+    result === getGlobalReturnCode('ERR_INVALID_ARGS', ERR_INVALID_ARGS_CODE) ||
     result === getGlobalReturnCode('ERR_RCL_NOT_ENOUGH', ERR_RCL_NOT_ENOUGH_CODE)
   );
 }

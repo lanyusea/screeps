@@ -6381,7 +6381,10 @@ function isContainerConstructionSite(site) {
 var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_RCL = 3;
 var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_ENERGY = 1;
 var OK_CODE4 = 0;
+var ERR_NOT_OWNER_CODE = -1;
 var ERR_FULL_CODE = -8;
+var ERR_INVALID_TARGET_CODE = -7;
+var ERR_INVALID_ARGS_CODE = -10;
 var ERR_RCL_NOT_ENOUGH_CODE = -14;
 var FALLBACK_EXTENSION_LIMITS_BY_RCL2 = [0, 0, 5, 10, 20, 30, 40, 50, 60];
 var FALLBACK_TOWER_LIMITS_BY_RCL = [0, 0, 0, 1, 1, 2, 2, 3, 6];
@@ -6612,7 +6615,7 @@ function getGlobalReturnCode(name, fallback) {
   return typeof value === "number" ? value : fallback;
 }
 function isFatalConstructionSiteResult(result) {
-  return result === getGlobalReturnCode("ERR_FULL", ERR_FULL_CODE) || result === getGlobalReturnCode("ERR_RCL_NOT_ENOUGH", ERR_RCL_NOT_ENOUGH_CODE);
+  return result === getGlobalReturnCode("ERR_NOT_OWNER", ERR_NOT_OWNER_CODE) || result === getGlobalReturnCode("ERR_FULL", ERR_FULL_CODE) || result === getGlobalReturnCode("ERR_INVALID_TARGET", ERR_INVALID_TARGET_CODE) || result === getGlobalReturnCode("ERR_INVALID_ARGS", ERR_INVALID_ARGS_CODE) || result === getGlobalReturnCode("ERR_RCL_NOT_ENOUGH", ERR_RCL_NOT_ENOUGH_CODE);
 }
 function resolveNonNegativeInteger2(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
@@ -6768,7 +6771,7 @@ function isRecord10(value) {
 // src/territory/postClaimBootstrap.ts
 var POST_CLAIM_BOOTSTRAP_WORKER_TARGET = 2;
 var OK_CODE6 = 0;
-var ERR_INVALID_TARGET_CODE = -7;
+var ERR_INVALID_TARGET_CODE2 = -7;
 var ROOM_EDGE_MIN2 = 2;
 var ROOM_EDGE_MAX2 = 47;
 var DEFAULT_TERRAIN_WALL_MASK5 = 1;
@@ -7478,7 +7481,7 @@ function recordSpawnSitePlacedTelemetry(record, spawnSite, result, telemetryEven
 }
 function planInitialSpawnConstructionSite(room) {
   if (typeof room.createConstructionSite !== "function") {
-    return { result: ERR_INVALID_TARGET_CODE };
+    return { result: ERR_INVALID_TARGET_CODE2 };
   }
   const plannerResult = planInitialSpawnConstructionSiteWithPlanner(room);
   if (plannerResult) {
@@ -7486,9 +7489,9 @@ function planInitialSpawnConstructionSite(room) {
   }
   const positions = findInitialSpawnConstructionPositions(room);
   if (positions.length === 0) {
-    return { result: ERR_INVALID_TARGET_CODE };
+    return { result: ERR_INVALID_TARGET_CODE2 };
   }
-  let lastResult = ERR_INVALID_TARGET_CODE;
+  let lastResult = ERR_INVALID_TARGET_CODE2;
   for (const position of positions) {
     lastResult = room.createConstructionSite(position.x, position.y, getStructureConstant5("STRUCTURE_SPAWN", "spawn"));
     if (lastResult === OK_CODE6) {
@@ -31391,7 +31394,7 @@ var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE11 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
-var ERR_INVALID_TARGET_CODE2 = -7;
+var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ADJACENT_ACTION_MOVE_RANGE = 1;
@@ -32158,7 +32161,7 @@ function shouldImmediatelyReselectAfterTaskResult(task, result) {
   return isEnergyAcquisitionTask2(task) && isUnavailableEnergyAcquisitionResult(result);
 }
 function isUnavailableEnergyAcquisitionResult(result) {
-  return result === ERR_NOT_ENOUGH_RESOURCES_CODE2 || result === ERR_INVALID_TARGET_CODE2;
+  return result === ERR_NOT_ENOUGH_RESOURCES_CODE2 || result === ERR_INVALID_TARGET_CODE3;
 }
 function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask2(previousTask, selectedTask)) {
@@ -37261,7 +37264,7 @@ function getGlobalNumber17(name) {
 var ROOM_EDGE_MIN9 = 1;
 var ROOM_EDGE_MAX9 = 48;
 var DEFAULT_TERRAIN_WALL_MASK14 = 1;
-var ERR_INVALID_TARGET_CODE3 = -7;
+var ERR_INVALID_TARGET_CODE4 = -7;
 var REMOTE_HARVESTER_ROLE2 = "remoteHarvester";
 function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps2()) {
   const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
@@ -37567,7 +37570,7 @@ function getOkCode7() {
 }
 function getErrInvalidTargetCode() {
   var _a;
-  return (_a = globalThis.ERR_INVALID_TARGET) != null ? _a : ERR_INVALID_TARGET_CODE3;
+  return (_a = globalThis.ERR_INVALID_TARGET) != null ? _a : ERR_INVALID_TARGET_CODE4;
 }
 function getTerrainWallMask10() {
   const terrainWallMask = globalThis.TERRAIN_MASK_WALL;
@@ -42425,7 +42428,7 @@ var MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL = 2;
 var EXIT_DIRECTION_ORDER6 = ["1", "3", "5", "7"];
 var OK_CODE16 = 0;
 var ERR_NOT_IN_RANGE_CODE10 = -9;
-var ERR_INVALID_TARGET_CODE4 = -7;
+var ERR_INVALID_TARGET_CODE5 = -7;
 var ERR_NO_BODYPART_CODE = -12;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
 var RECOMMENDED_EXPANSION_CLAIM_SOURCES = /* @__PURE__ */ new Set([
@@ -42493,7 +42496,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   if (((_a = creep.room) == null ? void 0 : _a.name) !== assignment.targetRoom) {
     if (hasClaimExecutionTimedOut(execution, gameTime)) {
-      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "claimFailed", {
+      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
         suppressIntent: true,
         telemetryEvents
       });
@@ -42505,7 +42508,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   const controller = selectClaimTargetController(creep, assignment);
   if (!controller) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerMissing", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerMissing", {
       suppressIntent: true,
       telemetryEvents
     });
@@ -42517,7 +42520,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (hasClaimExecutionTimedOut(execution, gameTime)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "claimFailed", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -42526,7 +42529,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (isForeignOwnedController(controller)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerOwned", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerOwned", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -42570,7 +42573,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     completeClaimAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE4 && isForeignReservedController3(controller, creep.memory.colony)) {
+  if (result === ERR_INVALID_TARGET_CODE5 && isForeignReservedController3(controller, creep.memory.colony)) {
     const activeClaimParts = getKnownActiveClaimPartCount(creep);
     const needsPressureCreep = activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
     recordRecommendedClaimRetry(creep, assignment, result, "controllerReserved", {
@@ -42583,7 +42586,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     }
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE4 || result === ERR_NO_BODYPART_CODE) {
+  if (result === ERR_INVALID_TARGET_CODE5 || result === ERR_NO_BODYPART_CODE) {
     recordRecommendedClaimRetry(creep, assignment, result, (_c = getClaimResultReason(result)) != null ? _c : "claimFailed", {
       controllerId: controller.id,
       releaseAssignment: result === ERR_NO_BODYPART_CODE
@@ -43157,7 +43160,7 @@ function getClaimResultReason(result) {
       return null;
     case ERR_NOT_IN_RANGE_CODE10:
       return "notInRange";
-    case ERR_INVALID_TARGET_CODE4:
+    case ERR_INVALID_TARGET_CODE5:
       return "invalidTarget";
     case ERR_NO_BODYPART_CODE:
       return "missingClaimPart";
@@ -43290,7 +43293,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
   }
   const activeClaimParts = getKnownActiveClaimPartCount(creep);
   if (activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS) {
-    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerReserved", {
+    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerReserved", {
       controllerId: controller.id,
       releaseAssignment: true,
       requiresControllerPressure: true,
@@ -43317,7 +43320,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
     completeClaimAssignment(creep);
     return true;
   }
-  return result !== ERR_INVALID_TARGET_CODE4;
+  return result !== ERR_INVALID_TARGET_CODE5;
 }
 function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents) {
   const colony = getClaimColony(creep, controller);
@@ -44153,16 +44156,16 @@ function isNonEmptyString35(value) {
 
 // src/territory/territoryRunner.ts
 var ERR_NOT_IN_RANGE_CODE11 = -9;
-var ERR_INVALID_TARGET_CODE5 = -7;
+var ERR_INVALID_TARGET_CODE6 = -7;
 var ERR_NO_BODYPART_CODE2 = -12;
 var ERR_GCL_NOT_ENOUGH_CODE2 = -15;
 var OK_CODE17 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
-  ERR_INVALID_TARGET_CODE5,
+  ERR_INVALID_TARGET_CODE6,
   ERR_NO_BODYPART_CODE2,
   ERR_GCL_NOT_ENOUGH_CODE2
 ]);
-var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE5, ERR_NO_BODYPART_CODE2]);
+var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE6, ERR_NO_BODYPART_CODE2]);
 var PRESSURE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_NO_BODYPART_CODE2]);
 function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   var _a;
@@ -44252,7 +44255,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
       suppressTerritoryAssignment(creep, assignment);
       return;
     }
-    if (pressureResult !== ERR_INVALID_TARGET_CODE5) {
+    if (pressureResult !== ERR_INVALID_TARGET_CODE6) {
       return;
     }
   }
@@ -46069,7 +46072,7 @@ function isNonEmptyString40(value) {
 // src/territory/reservationExecutor.ts
 var OK_CODE19 = 0;
 var ERR_NOT_IN_RANGE_CODE13 = -9;
-var ERR_INVALID_TARGET_CODE6 = -7;
+var ERR_INVALID_TARGET_CODE7 = -7;
 var ERR_NO_BODYPART_CODE3 = -12;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR5 = ">";
 function runReservationExecutor(creep) {
@@ -46179,7 +46182,7 @@ function runAssignedReservation(creep, assignment, gate) {
     completeReservationAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE6) {
+  if (result === ERR_INVALID_TARGET_CODE7) {
     suppressTerritoryIntent(colony, assignment, gameTime);
     completeReservationAssignment(creep);
   }
