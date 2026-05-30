@@ -2375,6 +2375,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         )
         self.assertEqual(payload["rooms"][0]["rclLevel"], 3)
         self.assertEqual(payload["rooms"][0]["storedEnergy"], 355)
+        self.assertEqual(payload["rooms"][0]["workerCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 355)
         self.assertEqual(payload["rooms"][0]["resources"]["workerCarriedEnergy"], 61)
         self.assertEqual(payload["rooms"][0]["resources"]["sourceCount"], 1)
@@ -2648,6 +2649,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             room["taskCounts"],
             {"harvest": 0, "transfer": 0, "build": 0, "repair": 0, "upgrade": 0, "none": 0},
         )
+        self.assertEqual(room["workerCarriedEnergy"], 48)
         self.assertEqual(room["resources"]["workerCarriedEnergy"], 48)
         self.assertEqual(room["constructionDeadlockTicks"], 0)
         self.assertNotIn("buildBlockedReason", room)

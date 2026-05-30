@@ -274,6 +274,7 @@ interface RuntimeRoomSummary {
   cpuBucket?: number;
   energyBufferHealth: EnergyBufferHealth;
   workerCount: number;
+  workerCarriedEnergy: number;
   workerAssignmentEvidenceAvailable: true;
   workerAssignmentEvidence: RuntimeWorkerAssignmentEvidenceSummary;
   workerAssignmentBlockedDetail?: RuntimeWorkerAssignmentBlockedDetail;
@@ -964,6 +965,7 @@ function summarizeRoom(
     energyCapacity: colony.energyCapacityAvailable,
     energyBufferHealth: getRoomEnergyBufferHealth(colony.room),
     workerCount: colonyWorkers.length,
+    workerCarriedEnergy: resources.workerCarriedEnergy,
     workerAssignmentEvidenceAvailable: true,
     workerAssignmentEvidence,
     ...summarizeWorkerAssignmentBlockedRoomFields(resources.productiveEnergy),
