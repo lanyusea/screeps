@@ -68,45 +68,22 @@ interface Positioned {
 
 type StructureConstantGlobal = 'STRUCTURE_ROAD';
 
+interface EarlyRoadConstructionPlan {
+  candidates: RoadCandidate[];
+  lookups: RoadPlannerLookups;
+  remainingSiteBudget: number;
+}
+
 export function planEarlyRoadConstruction(
   colony: ColonySnapshot,
   options: EarlyRoadPlannerOptions = {}
 ): ScreepsReturnCode[] {
-  const limits = resolveRoadPlannerLimits(options);
-  if (
-    limits.maxSitesPerTick <= 0 ||
-    limits.maxPendingRoadSites <= 0 ||
-    (colony.room.controller?.level ?? 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS ||
-    !isPathFinderAvailable() ||
-    !hasRequiredRoomApis(colony.room)
-  ) {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  if (!plan) {
     return [];
   }
 
-  const anchor = selectRoadAnchor(colony);
-  if (!anchor) {
-    return [];
-  }
-
-  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
-  if (routes.length === 0) {
-    return [];
-  }
-
-  const lookups = createRoadPlannerLookups(colony.room);
-  if (!lookups) {
-    return [];
-  }
-
-  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true
-    ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits)
-    : countPendingRoadConstructionSites(colony.room);
-  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
-  if (remainingSiteBudget <= 0) {
-    return [];
-  }
-
-  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  const { candidates, lookups, remainingSiteBudget } = plan;
   const results: ScreepsReturnCode[] = [];
   for (const candidate of candidates) {
     if (results.length >= remainingSiteBudget) {
@@ -129,6 +106,67 @@ export function planEarlyRoadConstruction(
   }
 
   return results;
+}
+
+export function hasEarlyRoadConstructionCandidate(
+  colony: ColonySnapshot,
+  options: EarlyRoadPlannerOptions = {}
+): boolean | null {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  return plan ? plan.candidates.length > 0 : null;
+}
+
+function createEarlyRoadConstructionPlan(
+  colony: ColonySnapshot,
+  options: EarlyRoadPlannerOptions
+): EarlyRoadConstructionPlan | null {
+  const limits = resolveRoadPlannerLimits(options);
+  if (
+    limits.maxSitesPerTick <= 0 ||
+    limits.maxPendingRoadSites <= 0 ||
+    (colony.room.controller?.level ?? 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS ||
+    !isPathFinderAvailable() ||
+    !hasRequiredRoomApis(colony.room)
+  ) {
+    return null;
+  }
+
+  const anchor = selectRoadAnchor(colony);
+  if (!anchor) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+
+  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
+  if (routes.length === 0) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+
+  const lookups = createRoadPlannerLookups(colony.room);
+  if (!lookups) {
+    return null;
+  }
+
+  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true
+    ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits)
+    : countPendingRoadConstructionSites(colony.room);
+  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
+  if (remainingSiteBudget <= 0) {
+    return { candidates: [], lookups, remainingSiteBudget };
+  }
+
+  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  return { candidates, lookups, remainingSiteBudget };
+}
+
+function createEmptyRoadPlannerLookups(): RoadPlannerLookups {
+  return {
+    terrain: { get: () => 0 } as unknown as RoomTerrain,
+    costMatrix: new PathFinder.CostMatrix(),
+    blockingPositions: new Set<string>(),
+    existingRoadPositions: new Set<string>(),
+    pendingRoadSitePositions: new Set<string>(),
+    pathBlockedPositions: new Set<string>()
+  };
 }
 
 function resolveRoadPlannerLimits(options: EarlyRoadPlannerOptions): RoadPlannerLimits {

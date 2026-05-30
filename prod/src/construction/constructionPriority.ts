@@ -6,7 +6,11 @@ import {
 } from './criticalRoads';
 import { getStrategyNumberDefault, type StrategyRegistryEntry } from '../strategy/strategyRegistry';
 import { getExtensionLimitForRcl, planExtensionConstruction } from './extensionPlanner';
-import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
+import {
+  hasEarlyRoadConstructionCandidate,
+  planEarlyRoadConstruction,
+  type EarlyRoadPlannerOptions
+} from './roadPlanner';
 import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
 
 export type ConstructionVisionLayer = 'survival' | 'territory' | 'resources' | 'enemyKills';
@@ -177,8 +181,12 @@ export interface ImpactWeightedConstructionSiteSelectionOptions {
 }
 
 interface RuntimeConstructionPriorityState extends ConstructionPriorityRoomState {
+  room: Room;
   ownedConstructionSites: ConstructionSite[] | null;
   ownedStructures: AnyOwnedStructure[] | null;
+  sources: Source[] | null;
+  spawns: StructureSpawn[];
+  visibleConstructionSites: ConstructionSite[] | null;
   visibleStructures: AnyStructure[] | null;
 }
 
@@ -2093,6 +2101,7 @@ function buildRuntimeConstructionPriorityState(
   const room = colony.room;
   const ownedConstructionSites = findRoomObjects(room, 'FIND_MY_CONSTRUCTION_SITES') as ConstructionSite[] | null;
   const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES') as AnyOwnedStructure[] | null;
+  const visibleConstructionSites = findRoomObjects(room, 'FIND_CONSTRUCTION_SITES') as ConstructionSite[] | null;
   const visibleStructures = findRoomObjects(room, 'FIND_STRUCTURES') as AnyStructure[] | null;
   const hostileCreeps = findRoomObjects(room, 'FIND_HOSTILE_CREEPS') as Creep[] | null;
   const hostileStructures = findRoomObjects(room, 'FIND_HOSTILE_STRUCTURES') as Structure[] | null;
@@ -2102,6 +2111,7 @@ function buildRuntimeConstructionPriorityState(
   const territoryIntentCounts = countTerritoryIntents(room.name);
 
   return {
+    room,
     roomName: room.name,
     rcl: room.controller?.my === true ? room.controller.level : undefined,
     energyAvailable: colony.energyAvailable,
@@ -2135,6 +2145,9 @@ function buildRuntimeConstructionPriorityState(
     },
     ownedConstructionSites,
     ownedStructures,
+    sources,
+    spawns: colony.spawns,
+    visibleConstructionSites,
     visibleStructures
   };
 }
@@ -2257,11 +2270,11 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
     candidates.push(createCandidateForBuildType('tower', state));
   }
 
-  if (rcl >= 2 && (state.sourceCount ?? 0) > 0) {
+  if (rcl >= 2 && hasSourceContainerConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType('container', state));
   }
 
-  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && (state.sourceCount ?? 0) > 0) {
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && hasRoadConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType('road', state));
   }
 
@@ -2274,6 +2287,56 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
   }
 
   return candidates;
+}
+
+function hasSourceContainerConstructionNeed(state: RuntimeConstructionPriorityState): boolean {
+  const sources = state.sources;
+  if (sources === null) {
+    return (state.sourceCount ?? 0) > 0;
+  }
+
+  return sources.some((source) => !hasRuntimeSourceContainerCoverage(state, source));
+}
+
+function hasRuntimeSourceContainerCoverage(
+  state: RuntimeConstructionPriorityState,
+  source: Source
+): boolean {
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition || !isSameRoomPosition(sourcePosition, state.roomName)) {
+    return false;
+  }
+
+  const structures = state.visibleStructures ?? state.ownedStructures ?? [];
+  const constructionSites = state.visibleConstructionSites ?? state.ownedConstructionSites ?? [];
+  return [...structures, ...constructionSites]
+    .filter((object) => matchesStructureType(String(object.structureType), 'STRUCTURE_CONTAINER', 'container'))
+    .some((object) => {
+      const position = getRoomObjectPosition(object);
+      const range = getRangeBetweenPositions(sourcePosition, position);
+      return isSameRoomPosition(position, state.roomName) && range !== null && range <= 1;
+    });
+}
+
+function hasRoadConstructionNeed(state: RuntimeConstructionPriorityState): boolean {
+  if ((state.sourceCount ?? 0) <= 0) {
+    return false;
+  }
+
+  const hasCandidate = hasEarlyRoadConstructionCandidate(
+    {
+      room: state.room,
+      spawns: state.spawns,
+      energyAvailable: state.energyAvailable ?? 0,
+      energyCapacityAvailable: state.energyCapacity ?? 0
+    },
+    {
+      maxSitesPerTick: 1,
+      maxTargetsPerTick: Math.max(1, (state.sourceCount ?? 0) + 1)
+    }
+  );
+
+  return hasCandidate ?? true;
 }
 
 function getTowerLimitForRcl(level: number | undefined): number {

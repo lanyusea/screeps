@@ -140,7 +140,7 @@ function buildClaimedRoomConstructionOptions(
     maxContainerSitesPerTick: options.maxContainerSitesPerTick ?? Math.max(1, sourceCount),
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,
-      maxTargetsPerTick: Math.max(1, sourceCount),
+      maxTargetsPerTick: Math.max(1, sourceCount + 1),
       ...options.roadOptions
     }
   };

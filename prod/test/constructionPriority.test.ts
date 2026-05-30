@@ -24,6 +24,7 @@ const TEST_GLOBALS = {
   FIND_HOSTILE_CREEPS: 104,
   FIND_HOSTILE_STRUCTURES: 105,
   FIND_SOURCES: 106,
+  FIND_CONSTRUCTION_SITES: 107,
   LOOK_STRUCTURES: 'structure',
   LOOK_CONSTRUCTION_SITES: 'constructionSite',
   STRUCTURE_EXTENSION: 'extension',
@@ -901,6 +902,45 @@ describe('runtime construction priority report', () => {
     expect(hasBuildItem(report.candidates, 'finish extension site')).toBe(true);
     expect(hasBuildItem(report.candidates, 'build extension capacity')).toBe(false);
   });
+
+  it('does not advertise source-logistics construction when visible neutral coverage is complete', () => {
+    const source = makeSource('source1', 20, 20);
+    const { colony } = makeRuntimeColony({
+      controllerLevel: 5,
+      energyCapacityAvailable: 1_800,
+      sources: [source],
+      ownedStructures: [
+        makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25),
+        ...Array.from({ length: 30 }, (_, index) =>
+          makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 10 + (index % 10), 10 + Math.floor(index / 10))
+        ),
+        makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24),
+        makeOwnedStructure('tower2', TEST_GLOBALS.STRUCTURE_TOWER, 26, 24),
+        makeOwnedStructure('storage1', TEST_GLOBALS.STRUCTURE_STORAGE, 25, 26)
+      ],
+      visibleStructures: [
+        makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 25, 25),
+        ...Array.from({ length: 30 }, (_, index) =>
+          makeOwnedStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 10 + (index % 10), 10 + Math.floor(index / 10))
+        ),
+        makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24),
+        makeOwnedStructure('tower2', TEST_GLOBALS.STRUCTURE_TOWER, 26, 24),
+        makeOwnedStructure('storage1', TEST_GLOBALS.STRUCTURE_STORAGE, 25, 26),
+        makeOwnedStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 19, 20),
+        makeOwnedStructure('source-road', TEST_GLOBALS.STRUCTURE_ROAD, 24, 25)
+      ]
+    });
+    installRuntimePathFinder({});
+
+    const report = buildRuntimeConstructionPriorityReport(colony, [
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+    ]);
+
+    expect(hasBuildItem(report.candidates, 'build source containers')).toBe(false);
+    expect(hasBuildItem(report.candidates, 'build source/controller roads')).toBe(false);
+  });
 });
 
 describe('post-claim construction room detection', () => {
@@ -1096,6 +1136,7 @@ interface RuntimeColonyOptions {
   ownedConstructionSites?: ConstructionSite[];
   ownedStructures?: AnyOwnedStructure[];
   sources?: Source[];
+  visibleConstructionSites?: ConstructionSite[];
   visibleStructures?: AnyStructure[];
 }
 
@@ -1116,6 +1157,8 @@ function makeRuntimeColony(options: RuntimeColonyOptions = {}): { colony: Colony
       switch (findType) {
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
           return ownedConstructionSites;
+        case TEST_GLOBALS.FIND_CONSTRUCTION_SITES:
+          return options.visibleConstructionSites ?? ownedConstructionSites;
         case TEST_GLOBALS.FIND_MY_STRUCTURES:
           return ownedStructures;
         case TEST_GLOBALS.FIND_STRUCTURES:
@@ -1128,7 +1171,8 @@ function makeRuntimeColony(options: RuntimeColonyOptions = {}): { colony: Colony
         default:
           return [];
       }
-    })
+    }),
+    createConstructionSite: jest.fn()
   } as unknown as Room;
   const spawn = {
     id: 'spawn1',
@@ -1197,6 +1241,13 @@ function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition
   return { x, y, roomName } as RoomPosition;
 }
 
+function makeSource(id: string, x: number, y: number): Source {
+  return {
+    id,
+    pos: makeRoomPosition(x, y)
+  } as unknown as Source;
+}
+
 function makeConstructionSite(
   id: string,
   structureType: string,
@@ -1261,6 +1312,7 @@ function clearTestGlobals(): void {
   }
   delete globals.Memory;
   delete globals.Game;
+  delete globals.PathFinder;
 }
 
 function installOpenTerrain(): void {
@@ -1269,4 +1321,40 @@ function installOpenTerrain(): void {
       getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
     } as unknown as GameMap
   };
+}
+
+function installRuntimePathFinder(pathsByTarget: Record<string, Array<{ x: number; y: number }>>): void {
+  installOpenTerrain();
+  class MockCostMatrix {
+    set(): void {}
+    get(): number {
+      return 0;
+    }
+    clone(): CostMatrix {
+      return new MockCostMatrix() as unknown as CostMatrix;
+    }
+    serialize(): number[] {
+      return [];
+    }
+  }
+
+  (globalThis as unknown as { PathFinder: Partial<PathFinder> }).PathFinder = {
+    CostMatrix: MockCostMatrix as unknown as typeof PathFinder.CostMatrix,
+    search: jest.fn((origin: RoomPosition, goal: { pos: RoomPosition }) => ({
+      path: (pathsByTarget[getPositionKey(goal.pos)] ?? pathsByTarget[getRouteKey(origin, goal)] ?? []).map(
+        (position) => makeRoomPosition(position.x, position.y)
+      ),
+      ops: 1,
+      cost: 1,
+      incomplete: false
+    })) as unknown as typeof PathFinder.search
+  };
+}
+
+function getRouteKey(origin: RoomPosition, goal: { pos: RoomPosition }): string {
+  return `${getPositionKey(origin)}->${getPositionKey(goal.pos)}`;
+}
+
+function getPositionKey(position: { x: number; y: number }): string {
+  return `${position.x},${position.y}`;
 }

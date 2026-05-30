@@ -2,6 +2,9 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { runRampartWallConstructionExecutorForColony } from '../src/territory/rampartWallConstructionExecutor';
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_NOT_OWNER_CODE = -1 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const ERR_INVALID_ARGS_CODE = -10 as ScreepsReturnCode;
 
 const TEST_GLOBALS = {
   FIND_SOURCES: 1,
@@ -17,7 +20,10 @@ const TEST_GLOBALS = {
   STRUCTURE_RAMPART: 'rampart',
   STRUCTURE_WALL: 'constructedWall',
   TERRAIN_MASK_WALL: 1,
-  OK: OK_CODE
+  OK: OK_CODE,
+  ERR_NOT_OWNER: ERR_NOT_OWNER_CODE,
+  ERR_INVALID_TARGET: ERR_INVALID_TARGET_CODE,
+  ERR_INVALID_ARGS: ERR_INVALID_ARGS_CODE
 } as const;
 
 describe('rampart and wall construction executor', () => {
@@ -76,6 +82,34 @@ describe('rampart and wall construction executor', () => {
       y: 1
     });
     expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
+  });
+
+  it.each([
+    ['not-owner', ERR_NOT_OWNER_CODE],
+    ['invalid-target', ERR_INVALID_TARGET_CODE],
+    ['invalid-args', ERR_INVALID_ARGS_CODE]
+  ] as const)('skips barrier placement without advancing stages on %s placement failure', (_label, errorCode) => {
+    const { colony, room } = makeBarrierExecutorColony();
+    room.createConstructionSite = jest.fn().mockReturnValueOnce(errorCode).mockReturnValueOnce(OK_CODE);
+    installGame(room);
+
+    const result = runRampartWallConstructionExecutorForColony(colony, {
+      requireExpansionMemory: true,
+      stageOrder: ['entranceRampart', 'towerRampart']
+    });
+
+    expect(result).toEqual({
+      roomName: 'W2N1',
+      status: 'skipped',
+      reason: 'noPlacement',
+      result: errorCode,
+      stage: 'entranceRampart',
+      structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+      x: 25,
+      y: 1
+    });
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
   });
 
   it('creates spawn/controller core ramparts after tower ramparts are covered', () => {

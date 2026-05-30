@@ -6381,12 +6381,21 @@ function isContainerConstructionSite(site) {
 var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_RCL = 3;
 var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_ENERGY = 1;
 var OK_CODE4 = 0;
+var ERR_NOT_OWNER_CODE = -1;
 var ERR_FULL_CODE = -8;
+var ERR_INVALID_TARGET_CODE = -7;
+var ERR_INVALID_ARGS_CODE = -10;
 var ERR_RCL_NOT_ENOUGH_CODE = -14;
 var FALLBACK_EXTENSION_LIMITS_BY_RCL2 = [0, 0, 5, 10, 20, 30, 40, 50, 60];
 var FALLBACK_TOWER_LIMITS_BY_RCL = [0, 0, 0, 1, 1, 2, 2, 3, 6];
+var DEFAULT_BARRIER_STAGE_ORDER = [
+  "towerRampart",
+  "coreRampart",
+  "entranceRampart",
+  "entranceWall"
+];
 function runRampartWallConstructionExecutorForColony(colony, options = {}) {
-  var _a, _b;
+  var _a;
   const room = colony.room;
   if (options.requireExpansionMemory === true && !isExpansionControlledRoom(room.name)) {
     return { roomName: room.name, status: "skipped", reason: "notExpansionRoom" };
@@ -6411,44 +6420,60 @@ function runRampartWallConstructionExecutorForColony(colony, options = {}) {
   if (!isDefenseBarrierStageReady(colony, rcl)) {
     return { roomName: room.name, status: "skipped", reason: "essentialStructuresPending" };
   }
-  const placements = planExpansionDefenseBarrierPlacements(room, {
-    maxPlacements: options.maxPlacementCandidates,
-    stageOrder: options.stageOrder
-  });
-  const stage = (_b = placements[0]) == null ? void 0 : _b.stage;
-  if (!stage) {
-    return { roomName: room.name, status: "skipped", reason: "noPlacement" };
-  }
-  for (const placement of placements) {
-    if (placement.stage !== stage) {
+  let firstAttemptedPlacement = null;
+  let firstAttemptResult;
+  for (const stage of getBarrierStageOrder(options.stageOrder)) {
+    const placements = planExpansionDefenseBarrierPlacements(room, {
+      maxPlacements: options.maxPlacementCandidates,
+      stageOrder: [stage]
+    });
+    if (placements.length === 0) {
       continue;
     }
-    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
-    if (result === OK_CODE4) {
-      return {
-        roomName: room.name,
-        status: "created",
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
-    }
-    if (isFatalConstructionSiteResult(result)) {
-      return {
-        roomName: room.name,
-        status: "skipped",
-        reason: "noPlacement",
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
+    for (const placement of placements) {
+      const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
+      firstAttemptedPlacement != null ? firstAttemptedPlacement : firstAttemptedPlacement = placement;
+      firstAttemptResult != null ? firstAttemptResult : firstAttemptResult = result;
+      if (result === OK_CODE4) {
+        return {
+          roomName: room.name,
+          status: "created",
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
+      if (isFatalConstructionSiteResult(result)) {
+        return {
+          roomName: room.name,
+          status: "skipped",
+          reason: "noPlacement",
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
     }
   }
-  return { roomName: room.name, status: "skipped", reason: "noPlacement", stage };
+  return {
+    roomName: room.name,
+    status: "skipped",
+    reason: "noPlacement",
+    ...firstAttemptResult !== void 0 ? { result: firstAttemptResult } : {},
+    ...firstAttemptedPlacement ? {
+      stage: firstAttemptedPlacement.stage,
+      structureType: firstAttemptedPlacement.structureType,
+      x: firstAttemptedPlacement.x,
+      y: firstAttemptedPlacement.y
+    } : {}
+  };
+}
+function getBarrierStageOrder(stageOrder) {
+  return stageOrder && stageOrder.length > 0 ? [...new Set(stageOrder)] : DEFAULT_BARRIER_STAGE_ORDER;
 }
 function isDefenseBarrierStageReady(colony, rcl) {
   const room = colony.room;
@@ -6590,7 +6615,7 @@ function getGlobalReturnCode(name, fallback) {
   return typeof value === "number" ? value : fallback;
 }
 function isFatalConstructionSiteResult(result) {
-  return result === getGlobalReturnCode("ERR_FULL", ERR_FULL_CODE) || result === getGlobalReturnCode("ERR_RCL_NOT_ENOUGH", ERR_RCL_NOT_ENOUGH_CODE);
+  return result === getGlobalReturnCode("ERR_NOT_OWNER", ERR_NOT_OWNER_CODE) || result === getGlobalReturnCode("ERR_FULL", ERR_FULL_CODE) || result === getGlobalReturnCode("ERR_INVALID_TARGET", ERR_INVALID_TARGET_CODE) || result === getGlobalReturnCode("ERR_INVALID_ARGS", ERR_INVALID_ARGS_CODE) || result === getGlobalReturnCode("ERR_RCL_NOT_ENOUGH", ERR_RCL_NOT_ENOUGH_CODE);
 }
 function resolveNonNegativeInteger2(value, fallback) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
@@ -6746,7 +6771,7 @@ function isRecord10(value) {
 // src/territory/postClaimBootstrap.ts
 var POST_CLAIM_BOOTSTRAP_WORKER_TARGET = 2;
 var OK_CODE6 = 0;
-var ERR_INVALID_TARGET_CODE = -7;
+var ERR_INVALID_TARGET_CODE2 = -7;
 var ROOM_EDGE_MIN2 = 2;
 var ROOM_EDGE_MAX2 = 47;
 var DEFAULT_TERRAIN_WALL_MASK5 = 1;
@@ -7456,7 +7481,7 @@ function recordSpawnSitePlacedTelemetry(record, spawnSite, result, telemetryEven
 }
 function planInitialSpawnConstructionSite(room) {
   if (typeof room.createConstructionSite !== "function") {
-    return { result: ERR_INVALID_TARGET_CODE };
+    return { result: ERR_INVALID_TARGET_CODE2 };
   }
   const plannerResult = planInitialSpawnConstructionSiteWithPlanner(room);
   if (plannerResult) {
@@ -7464,9 +7489,9 @@ function planInitialSpawnConstructionSite(room) {
   }
   const positions = findInitialSpawnConstructionPositions(room);
   if (positions.length === 0) {
-    return { result: ERR_INVALID_TARGET_CODE };
+    return { result: ERR_INVALID_TARGET_CODE2 };
   }
-  let lastResult = ERR_INVALID_TARGET_CODE;
+  let lastResult = ERR_INVALID_TARGET_CODE2;
   for (const position of positions) {
     lastResult = room.createConstructionSite(position.x, position.y, getStructureConstant5("STRUCTURE_SPAWN", "spawn"));
     if (lastResult === OK_CODE6) {
@@ -11387,29 +11412,11 @@ var ROAD_PATH_COST = 1;
 var PLAIN_PATH_COST = 2;
 var SWAMP_PATH_COST = 10;
 function planEarlyRoadConstruction(colony, options = {}) {
-  var _a, _b;
-  const limits = resolveRoadPlannerLimits(options);
-  if (limits.maxSitesPerTick <= 0 || limits.maxPendingRoadSites <= 0 || ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS || !isPathFinderAvailable() || !hasRequiredRoomApis(colony.room)) {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  if (!plan) {
     return [];
   }
-  const anchor = selectRoadAnchor(colony);
-  if (!anchor) {
-    return [];
-  }
-  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
-  if (routes.length === 0) {
-    return [];
-  }
-  const lookups = createRoadPlannerLookups(colony.room);
-  if (!lookups) {
-    return [];
-  }
-  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits) : countPendingRoadConstructionSites(colony.room);
-  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
-  if (remainingSiteBudget <= 0) {
-    return [];
-  }
-  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  const { candidates, lookups, remainingSiteBudget } = plan;
   const results = [];
   for (const candidate of candidates) {
     if (results.length >= remainingSiteBudget) {
@@ -11427,6 +11434,46 @@ function planEarlyRoadConstruction(colony, options = {}) {
     lookups.costMatrix.set(candidate.x, candidate.y, ROAD_PATH_COST);
   }
   return results;
+}
+function hasEarlyRoadConstructionCandidate(colony, options = {}) {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  return plan ? plan.candidates.length > 0 : null;
+}
+function createEarlyRoadConstructionPlan(colony, options) {
+  var _a, _b;
+  const limits = resolveRoadPlannerLimits(options);
+  if (limits.maxSitesPerTick <= 0 || limits.maxPendingRoadSites <= 0 || ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS || !isPathFinderAvailable() || !hasRequiredRoomApis(colony.room)) {
+    return null;
+  }
+  const anchor = selectRoadAnchor(colony);
+  if (!anchor) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
+  if (routes.length === 0) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+  const lookups = createRoadPlannerLookups(colony.room);
+  if (!lookups) {
+    return null;
+  }
+  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits) : countPendingRoadConstructionSites(colony.room);
+  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
+  if (remainingSiteBudget <= 0) {
+    return { candidates: [], lookups, remainingSiteBudget };
+  }
+  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  return { candidates, lookups, remainingSiteBudget };
+}
+function createEmptyRoadPlannerLookups() {
+  return {
+    terrain: { get: () => 0 },
+    costMatrix: new PathFinder.CostMatrix(),
+    blockingPositions: /* @__PURE__ */ new Set(),
+    existingRoadPositions: /* @__PURE__ */ new Set(),
+    pendingRoadSitePositions: /* @__PURE__ */ new Set(),
+    pathBlockedPositions: /* @__PURE__ */ new Set()
+  };
 }
 function resolveRoadPlannerLimits(options) {
   return {
@@ -12847,6 +12894,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const room = colony.room;
   const ownedConstructionSites = findRoomObjects16(room, "FIND_MY_CONSTRUCTION_SITES");
   const ownedStructures = findRoomObjects16(room, "FIND_MY_STRUCTURES");
+  const visibleConstructionSites = findRoomObjects16(room, "FIND_CONSTRUCTION_SITES");
   const visibleStructures = findRoomObjects16(room, "FIND_STRUCTURES");
   const hostileCreeps = findRoomObjects16(room, "FIND_HOSTILE_CREEPS");
   const hostileStructures = findRoomObjects16(room, "FIND_HOSTILE_STRUCTURES");
@@ -12855,6 +12903,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
   return {
+    room,
     roomName: room.name,
     rcl: ((_a = room.controller) == null ? void 0 : _a.my) === true ? room.controller.level : void 0,
     energyAvailable: colony.energyAvailable,
@@ -12888,6 +12937,9 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
     },
     ownedConstructionSites,
     ownedStructures,
+    sources,
+    spawns: colony.spawns,
+    visibleConstructionSites,
     visibleStructures
   };
 }
@@ -12970,7 +13022,7 @@ function buildExistingSiteCandidates(state) {
   });
 }
 function buildPlannedLocalCandidates(state) {
-  var _a, _b, _c, _d;
+  var _a, _b;
   const candidates = [];
   const rcl = (_a = state.rcl) != null ? _a : 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
@@ -12984,10 +13036,10 @@ function buildPlannedLocalCandidates(state) {
   if (towerLimit > 0 && getExistingAndPendingBuildCount(state, "STRUCTURE_TOWER", "tower") < towerLimit) {
     candidates.push(createCandidateForBuildType("tower", state));
   }
-  if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
+  if (rcl >= 2 && hasSourceContainerConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType("container", state));
   }
-  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && hasRoadConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType("road", state));
   }
   if (rcl >= MIN_RCL_FOR_STORAGE && getExistingAndPendingBuildCount(state, "STRUCTURE_STORAGE", "storage") < STORAGE_STRUCTURE_LIMIT) {
@@ -12997,6 +13049,47 @@ function buildPlannedLocalCandidates(state) {
     candidates.push(createCandidateForBuildType("rampart", state));
   }
   return candidates;
+}
+function hasSourceContainerConstructionNeed(state) {
+  var _a;
+  const sources = state.sources;
+  if (sources === null) {
+    return ((_a = state.sourceCount) != null ? _a : 0) > 0;
+  }
+  return sources.some((source) => !hasRuntimeSourceContainerCoverage(state, source));
+}
+function hasRuntimeSourceContainerCoverage(state, source) {
+  var _a, _b, _c, _d;
+  const sourcePosition = getRoomObjectPosition4(source);
+  if (!sourcePosition || !isSameRoomPosition5(sourcePosition, state.roomName)) {
+    return false;
+  }
+  const structures = (_b = (_a = state.visibleStructures) != null ? _a : state.ownedStructures) != null ? _b : [];
+  const constructionSites = (_d = (_c = state.visibleConstructionSites) != null ? _c : state.ownedConstructionSites) != null ? _d : [];
+  return [...structures, ...constructionSites].filter((object) => matchesStructureType10(String(object.structureType), "STRUCTURE_CONTAINER", "container")).some((object) => {
+    const position = getRoomObjectPosition4(object);
+    const range = getRangeBetweenPositions4(sourcePosition, position);
+    return isSameRoomPosition5(position, state.roomName) && range !== null && range <= 1;
+  });
+}
+function hasRoadConstructionNeed(state) {
+  var _a, _b, _c, _d;
+  if (((_a = state.sourceCount) != null ? _a : 0) <= 0) {
+    return false;
+  }
+  const hasCandidate = hasEarlyRoadConstructionCandidate(
+    {
+      room: state.room,
+      spawns: state.spawns,
+      energyAvailable: (_b = state.energyAvailable) != null ? _b : 0,
+      energyCapacityAvailable: (_c = state.energyCapacity) != null ? _c : 0
+    },
+    {
+      maxSitesPerTick: 1,
+      maxTargetsPerTick: Math.max(1, ((_d = state.sourceCount) != null ? _d : 0) + 1)
+    }
+  );
+  return hasCandidate != null ? hasCandidate : true;
 }
 function getTowerLimitForRcl2(level) {
   var _a;
@@ -14837,7 +14930,7 @@ function buildClaimedRoomConstructionOptions(colony, options) {
     maxContainerSitesPerTick: (_e = options.maxContainerSitesPerTick) != null ? _e : Math.max(1, sourceCount),
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,
-      maxTargetsPerTick: Math.max(1, sourceCount),
+      maxTargetsPerTick: Math.max(1, sourceCount + 1),
       ...options.roadOptions
     }
   };
@@ -31301,7 +31394,7 @@ var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE11 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE2 = -6;
-var ERR_INVALID_TARGET_CODE2 = -7;
+var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_FULL_CODE5 = -8;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ADJACENT_ACTION_MOVE_RANGE = 1;
@@ -32068,7 +32161,7 @@ function shouldImmediatelyReselectAfterTaskResult(task, result) {
   return isEnergyAcquisitionTask2(task) && isUnavailableEnergyAcquisitionResult(result);
 }
 function isUnavailableEnergyAcquisitionResult(result) {
-  return result === ERR_NOT_ENOUGH_RESOURCES_CODE2 || result === ERR_INVALID_TARGET_CODE2;
+  return result === ERR_NOT_ENOUGH_RESOURCES_CODE2 || result === ERR_INVALID_TARGET_CODE3;
 }
 function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask2(previousTask, selectedTask)) {
@@ -37171,7 +37264,7 @@ function getGlobalNumber17(name) {
 var ROOM_EDGE_MIN9 = 1;
 var ROOM_EDGE_MAX9 = 48;
 var DEFAULT_TERRAIN_WALL_MASK14 = 1;
-var ERR_INVALID_TARGET_CODE3 = -7;
+var ERR_INVALID_TARGET_CODE4 = -7;
 var REMOTE_HARVESTER_ROLE2 = "remoteHarvester";
 function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps2()) {
   const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
@@ -37477,7 +37570,7 @@ function getOkCode7() {
 }
 function getErrInvalidTargetCode() {
   var _a;
-  return (_a = globalThis.ERR_INVALID_TARGET) != null ? _a : ERR_INVALID_TARGET_CODE3;
+  return (_a = globalThis.ERR_INVALID_TARGET) != null ? _a : ERR_INVALID_TARGET_CODE4;
 }
 function getTerrainWallMask10() {
   const terrainWallMask = globalThis.TERRAIN_MASK_WALL;
@@ -42335,7 +42428,7 @@ var MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL = 2;
 var EXIT_DIRECTION_ORDER6 = ["1", "3", "5", "7"];
 var OK_CODE16 = 0;
 var ERR_NOT_IN_RANGE_CODE10 = -9;
-var ERR_INVALID_TARGET_CODE4 = -7;
+var ERR_INVALID_TARGET_CODE5 = -7;
 var ERR_NO_BODYPART_CODE = -12;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
 var RECOMMENDED_EXPANSION_CLAIM_SOURCES = /* @__PURE__ */ new Set([
@@ -42403,7 +42496,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   if (((_a = creep.room) == null ? void 0 : _a.name) !== assignment.targetRoom) {
     if (hasClaimExecutionTimedOut(execution, gameTime)) {
-      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "claimFailed", {
+      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
         suppressIntent: true,
         telemetryEvents
       });
@@ -42415,7 +42508,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   const controller = selectClaimTargetController(creep, assignment);
   if (!controller) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerMissing", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerMissing", {
       suppressIntent: true,
       telemetryEvents
     });
@@ -42427,7 +42520,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (hasClaimExecutionTimedOut(execution, gameTime)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "claimFailed", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "claimFailed", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -42436,7 +42529,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (isForeignOwnedController(controller)) {
-    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerOwned", {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerOwned", {
       controllerId: controller.id,
       suppressIntent: true,
       telemetryEvents
@@ -42480,7 +42573,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     completeClaimAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE4 && isForeignReservedController3(controller, creep.memory.colony)) {
+  if (result === ERR_INVALID_TARGET_CODE5 && isForeignReservedController3(controller, creep.memory.colony)) {
     const activeClaimParts = getKnownActiveClaimPartCount(creep);
     const needsPressureCreep = activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
     recordRecommendedClaimRetry(creep, assignment, result, "controllerReserved", {
@@ -42493,7 +42586,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     }
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE4 || result === ERR_NO_BODYPART_CODE) {
+  if (result === ERR_INVALID_TARGET_CODE5 || result === ERR_NO_BODYPART_CODE) {
     recordRecommendedClaimRetry(creep, assignment, result, (_c = getClaimResultReason(result)) != null ? _c : "claimFailed", {
       controllerId: controller.id,
       releaseAssignment: result === ERR_NO_BODYPART_CODE
@@ -43067,7 +43160,7 @@ function getClaimResultReason(result) {
       return null;
     case ERR_NOT_IN_RANGE_CODE10:
       return "notInRange";
-    case ERR_INVALID_TARGET_CODE4:
+    case ERR_INVALID_TARGET_CODE5:
       return "invalidTarget";
     case ERR_NO_BODYPART_CODE:
       return "missingClaimPart";
@@ -43200,7 +43293,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
   }
   const activeClaimParts = getKnownActiveClaimPartCount(creep);
   if (activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS) {
-    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE4, "controllerReserved", {
+    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE5, "controllerReserved", {
       controllerId: controller.id,
       releaseAssignment: true,
       requiresControllerPressure: true,
@@ -43227,7 +43320,7 @@ function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetry
     completeClaimAssignment(creep);
     return true;
   }
-  return result !== ERR_INVALID_TARGET_CODE4;
+  return result !== ERR_INVALID_TARGET_CODE5;
 }
 function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents) {
   const colony = getClaimColony(creep, controller);
@@ -44063,16 +44156,16 @@ function isNonEmptyString35(value) {
 
 // src/territory/territoryRunner.ts
 var ERR_NOT_IN_RANGE_CODE11 = -9;
-var ERR_INVALID_TARGET_CODE5 = -7;
+var ERR_INVALID_TARGET_CODE6 = -7;
 var ERR_NO_BODYPART_CODE2 = -12;
 var ERR_GCL_NOT_ENOUGH_CODE2 = -15;
 var OK_CODE17 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
-  ERR_INVALID_TARGET_CODE5,
+  ERR_INVALID_TARGET_CODE6,
   ERR_NO_BODYPART_CODE2,
   ERR_GCL_NOT_ENOUGH_CODE2
 ]);
-var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE5, ERR_NO_BODYPART_CODE2]);
+var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE6, ERR_NO_BODYPART_CODE2]);
 var PRESSURE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_NO_BODYPART_CODE2]);
 function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   var _a;
@@ -44162,7 +44255,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
       suppressTerritoryAssignment(creep, assignment);
       return;
     }
-    if (pressureResult !== ERR_INVALID_TARGET_CODE5) {
+    if (pressureResult !== ERR_INVALID_TARGET_CODE6) {
       return;
     }
   }
@@ -45979,7 +46072,7 @@ function isNonEmptyString40(value) {
 // src/territory/reservationExecutor.ts
 var OK_CODE19 = 0;
 var ERR_NOT_IN_RANGE_CODE13 = -9;
-var ERR_INVALID_TARGET_CODE6 = -7;
+var ERR_INVALID_TARGET_CODE7 = -7;
 var ERR_NO_BODYPART_CODE3 = -12;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR5 = ">";
 function runReservationExecutor(creep) {
@@ -46089,7 +46182,7 @@ function runAssignedReservation(creep, assignment, gate) {
     completeReservationAssignment(creep);
     return true;
   }
-  if (result === ERR_INVALID_TARGET_CODE6) {
+  if (result === ERR_INVALID_TARGET_CODE7) {
     suppressTerritoryIntent(colony, assignment, gameTime);
     completeReservationAssignment(creep);
   }
