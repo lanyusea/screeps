@@ -1,4 +1,5 @@
 import {
+  CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_SPAWN_REPAIR_HITS_RATIO,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
@@ -28,6 +29,7 @@ import {
   getRoomSpawnEnergyReservationState,
   selectSpawnEnergyReservationRefillTarget
 } from '../economy/spawnEnergyReservation';
+import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../defense/defensePlanner';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   isDurableEnergyDropoff,
@@ -149,6 +151,8 @@ export function runWorker(creep: Creep): void {
       criticalCpuTaskRetention.repairPreemptionTask
     )
   ) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptRepairTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -470,6 +474,102 @@ function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(
     repairPreemptionTask !== undefined &&
     !isSameTask(task, repairPreemptionTask)
   );
+}
+
+function shouldPreemptRepairTaskForConstructionBacklog(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (task.type !== 'repair' || selectedTask?.type !== 'build' || isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+}
+
+function isProtectedRepairTargetForConstructionBacklog(creep: Creep, target: unknown): boolean {
+  if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {
+    return false;
+  }
+
+  if (isBuildPreemptionCriticalSpawnRepairTarget(target)) {
+    return true;
+  }
+
+  if (isBuildPreemptionBarrierRepairTarget(target)) {
+    if (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) {
+      return true;
+    }
+
+    if (target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING) {
+      return true;
+    }
+
+    return isRoomThreatened(creep);
+  }
+
+  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
+}
+
+function isRepairPreemptionStructure(target: unknown): target is Structure {
+  const structure = target as Partial<Structure> | null;
+  return (
+    typeof structure?.structureType === 'string' &&
+    typeof structure.hits === 'number' &&
+    typeof structure.hitsMax === 'number'
+  );
+}
+
+function isBuildPreemptionCriticalSpawnRepairTarget(structure: Structure): boolean {
+  return (
+    isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_SPAWN', 'spawn') &&
+    (structure as Partial<StructureSpawn>).my !== false &&
+    getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO
+  );
+}
+
+function isBuildPreemptionBarrierRepairTarget(structure: Structure): structure is StructureRampart | StructureWall {
+  return (
+    isBuildPreemptionOwnedRampart(structure) ||
+    isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_WALL', 'constructedWall')
+  );
+}
+
+function isBuildPreemptionOwnedRampart(structure: Structure): structure is StructureRampart {
+  return (
+    isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_RAMPART', 'rampart') &&
+    (structure as Partial<StructureRampart>).my !== false
+  );
+}
+
+function isBuildPreemptionCriticalRoadOrContainerRepairTarget(structure: Structure): boolean {
+  return (
+    (isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_ROAD', 'road') ||
+      isBuildPreemptionRepairStructureType(structure, 'STRUCTURE_CONTAINER', 'container')) &&
+    getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO
+  );
+}
+
+function isBuildPreemptionRepairStructureType(
+  structure: Structure,
+  globalConstantName:
+    | 'STRUCTURE_CONTAINER'
+    | 'STRUCTURE_RAMPART'
+    | 'STRUCTURE_ROAD'
+    | 'STRUCTURE_SPAWN'
+    | 'STRUCTURE_WALL',
+  fallback: StructureConstant
+): boolean {
+  const globalConstant = (globalThis as unknown as Record<string, StructureConstant | undefined>)[
+    globalConstantName
+  ];
+  return structure.structureType === (globalConstant ?? fallback);
+}
+
+function isRoomThreatened(creep: Creep): boolean {
+  const roomName = creep.room?.name;
+  return typeof roomName === 'string' && isColonyRoomThreatened(roomName);
 }
 
 function shouldPauseOptionalTaskForCriticalCpu(

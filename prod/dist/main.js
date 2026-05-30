@@ -31340,6 +31340,8 @@ function runWorker(creep) {
     criticalCpuTaskRetention.repairPreemptionTask
   )) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptRepairTaskForConstructionBacklog(creep, currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPauseOptionalTaskForCriticalCpu(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptControllerSigningForRecovery(currentTask, selectedTask)) {
@@ -31572,6 +31574,55 @@ function shouldRetainCriticalCpuRepairTask(creep) {
 }
 function shouldPreemptRepairTaskForCriticalCpuRepairPreemption(task, repairPreemptionTask) {
   return task.type === "repair" && repairPreemptionTask !== void 0 && !isSameTask2(task, repairPreemptionTask);
+}
+function shouldPreemptRepairTaskForConstructionBacklog(creep, task, selectedTask) {
+  if (task.type !== "repair" || (selectedTask == null ? void 0 : selectedTask.type) !== "build" || isSameTask2(task, selectedTask)) {
+    return false;
+  }
+  return !isProtectedRepairTargetForConstructionBacklog(creep, getTaskTarget(task));
+}
+function isProtectedRepairTargetForConstructionBacklog(creep, target) {
+  if (!isRepairPreemptionStructure(target) || isWorkerRepairTargetComplete(target)) {
+    return false;
+  }
+  if (isBuildPreemptionCriticalSpawnRepairTarget(target)) {
+    return true;
+  }
+  if (isBuildPreemptionBarrierRepairTarget(target)) {
+    if (isBuildPreemptionOwnedRampart(target) && target.hits <= EMERGENCY_RAMPART_REPAIR_HITS_CEILING) {
+      return true;
+    }
+    if (target.hits <= BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING) {
+      return true;
+    }
+    return isRoomThreatened(creep);
+  }
+  return isBuildPreemptionCriticalRoadOrContainerRepairTarget(target);
+}
+function isRepairPreemptionStructure(target) {
+  const structure = target;
+  return typeof (structure == null ? void 0 : structure.structureType) === "string" && typeof structure.hits === "number" && typeof structure.hitsMax === "number";
+}
+function isBuildPreemptionCriticalSpawnRepairTarget(structure) {
+  return isBuildPreemptionRepairStructureType(structure, "STRUCTURE_SPAWN", "spawn") && structure.my !== false && getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO;
+}
+function isBuildPreemptionBarrierRepairTarget(structure) {
+  return isBuildPreemptionOwnedRampart(structure) || isBuildPreemptionRepairStructureType(structure, "STRUCTURE_WALL", "constructedWall");
+}
+function isBuildPreemptionOwnedRampart(structure) {
+  return isBuildPreemptionRepairStructureType(structure, "STRUCTURE_RAMPART", "rampart") && structure.my !== false;
+}
+function isBuildPreemptionCriticalRoadOrContainerRepairTarget(structure) {
+  return (isBuildPreemptionRepairStructureType(structure, "STRUCTURE_ROAD", "road") || isBuildPreemptionRepairStructureType(structure, "STRUCTURE_CONTAINER", "container")) && getCriticalCpuRepairHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO;
+}
+function isBuildPreemptionRepairStructureType(structure, globalConstantName, fallback) {
+  const globalConstant = globalThis[globalConstantName];
+  return structure.structureType === (globalConstant != null ? globalConstant : fallback);
+}
+function isRoomThreatened(creep) {
+  var _a;
+  const roomName = (_a = creep.room) == null ? void 0 : _a.name;
+  return typeof roomName === "string" && isColonyRoomThreatened(roomName);
 }
 function shouldPauseOptionalTaskForCriticalCpu(creep, task, selectedTask) {
   if (!getRuntimeCpuBudget().critical || isSameOptionalTask(task, selectedTask)) {

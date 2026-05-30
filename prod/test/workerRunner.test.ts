@@ -10,6 +10,7 @@ import {
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
 } from '../src/tasks/workerTasks';
+import { BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING } from '../src/defense/defensePlanner';
 import {
   assessColonySurvival,
   clearColonySurvivalAssessmentCache,
@@ -3665,6 +3666,155 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'tower1' });
     expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
+    expect(creep.build).not.toHaveBeenCalled();
+  });
+
+  it('preempts stale E29N56 routine repair for an RCL3 construction backlog', () => {
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 3_000
+    } as ConstructionSite;
+    const towerSite = {
+      id: 'tower-site1',
+      my: true,
+      structureType: 'tower',
+      progress: 546,
+      progressTotal: 5_000
+    } as ConstructionSite;
+    const routineWall = {
+      id: 'wall-routine',
+      structureType: 'constructedWall',
+      hits: IDLE_RAMPART_REPAIR_HITS_CEILING - 1,
+      hitsMax: 300_000_000
+    } as StructureWall;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = {
+      name: 'E29N56',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite, towerSite];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [routineWall];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'worker-E29N56-builder',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'repair', targetId: 'wall-routine' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      repair: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_548_721,
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'extension-site1'
+          ? extensionSite
+          : id === 'tower-site1'
+            ? towerSite
+            : id === 'wall-routine'
+              ? routineWall
+              : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(creep.build).toHaveBeenCalledWith(extensionSite);
+    expect(creep.repair).not.toHaveBeenCalled();
+  });
+
+  it('keeps E29N56 defense-floor repair ahead of RCL3 construction preemption', () => {
+    const extensionSite = {
+      id: 'extension-site1',
+      my: true,
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 3_000
+    } as ConstructionSite;
+    const defenseFloorWall = {
+      id: 'wall-defense-floor',
+      structureType: 'constructedWall',
+      hits: BOOTSTRAP_DEFENSE_FLOOR_REPAIR_HITS_CEILING - 1,
+      hitsMax: 300_000_000
+    } as StructureWall;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 5_000
+    } as StructureController;
+    const room = {
+      name: 'E29N56',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [extensionSite];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [defenseFloorWall];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'worker-E29N56-repair',
+      memory: {
+        role: 'worker',
+        colony: 'E29N56',
+        task: { type: 'repair', targetId: 'wall-defense-floor' as Id<Structure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      repair: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_548_722,
+      creeps: { [creep.name]: creep },
+      getObjectById: jest.fn((id: string) =>
+        id === 'extension-site1' ? extensionSite : id === 'wall-defense-floor' ? defenseFloorWall : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'wall-defense-floor' });
+    expect(creep.repair).toHaveBeenCalledWith(defenseFloorWall);
     expect(creep.build).not.toHaveBeenCalled();
   });
 
