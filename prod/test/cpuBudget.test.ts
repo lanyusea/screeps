@@ -3,6 +3,7 @@ import {
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
   resetRuntimeCpuTelemetryForTesting,
+  shouldRunOptionalCpuWork,
   shouldRunOptionalCpuRoomWork,
   shouldThrottleRuntimeSummaryCadence
 } from '../src/runtime/cpuBudget';
@@ -82,6 +83,45 @@ describe('runtime CPU budget policy', () => {
       reasons: ['criticalBucket']
     });
     expect(shouldThrottleRuntimeSummaryCadence(budget)).toBe(true);
+  });
+
+  it('keeps optional work paused throughout low-bucket recovery on otherwise healthy CPU accounts', () => {
+    const decisions = [1, 2, 3, 4, 5, 6].map((tick) => {
+      const budget = buildRuntimeCpuBudget({
+        tick,
+        used: 18,
+        limit: 70,
+        bucket: 500,
+        tickLimit: 500
+      });
+
+      return {
+        global: shouldRunOptionalCpuWork(budget, 'economy-global-optional'),
+        room: shouldRunOptionalCpuRoomWork(budget, 'E29N55')
+      };
+    });
+
+    expect(
+      buildRuntimeCpuBudget({
+        tick: 1,
+        used: 18,
+        limit: 70,
+        bucket: 500,
+        tickLimit: 500
+      })
+    ).toMatchObject({
+      pressure: 'degraded',
+      degraded: true,
+      critical: false,
+      lowCpuLimit: false,
+      reasons: ['lowBucket']
+    });
+    expect(decisions).toEqual(
+      expect.arrayContaining([
+        { global: false, room: false }
+      ])
+    );
+    expect(decisions.every((decision) => decision.global === false && decision.room === false)).toBe(true);
   });
 
   it('refreshes CPU used samples during the same game tick', () => {
