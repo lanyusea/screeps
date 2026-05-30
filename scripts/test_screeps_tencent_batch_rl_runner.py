@@ -854,6 +854,20 @@ def write_post_fix_validation_preflight_admission_summary(
     return summary_path
 
 
+def write_post_fix_validation_in_progress_summary(artifact_root: Path, run_id: str) -> Path:
+    summary_path = write_post_fix_validation_pre_scale_admission_failure_summary(
+        artifact_root,
+        run_id,
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["finishedAt"] = None
+    summary["partial"] = True
+    summary["finalStatus"] = "unknown"
+    summary["outputs"].pop("error", None)
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    return summary_path
+
+
 def write_invalid_run_id_validation_admission_failure_summary(artifact_root: Path, run_id: str) -> Path:
     summary_path = write_post_fix_validation_pre_scale_admission_failure_summary(
         artifact_root,
@@ -4009,6 +4023,64 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertFalse(guard["postFixValidation"]["recoveryEligibility"]["eligible"])
         self.assertIn("reached compute", guard["postFixValidation"]["recoveryEligibility"]["reason"])
         self.assertIn("already attempted", guard["nextAction"])
+        self.assertFalse(summary["execution"]["computeAttempted"])
+
+    def test_paid_failure_recurrence_guard_blocks_second_post_fix_validation_while_prior_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
+                write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
+            write_post_fix_validation_in_progress_summary(
+                artifact_root,
+                "tencent-pg-post-fix-running",
+            )
+            args = runner.parse_cli_args([
+                "run-single",
+                "--run-id",
+                "new-run",
+                "--artifact-root",
+                str(artifact_root),
+                "--training-approach",
+                "policy_gradient",
+                "--scenario-id",
+                runner.MULTI_TIER_SCENARIO_ID,
+                "--ticks",
+                "500",
+                "--workers",
+                "1",
+                "--allow-paid-failure-recurrence-validation",
+                runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+            ])
+            artifact_dir = artifact_root / "new-run"
+
+            with mock.patch.object(
+                runner,
+                "paid_failure_recurrence_known_fix_status",
+                return_value={
+                    "signature": runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
+                    "issue": "#1501",
+                    "pullRequest": "#1504",
+                    "mergeCommit": "95f960b2",
+                    "present": True,
+                    "evidence": "merge commit 95f960b2 is reachable from HEAD",
+                },
+            ):
+                events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
+
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "consumed")
+        prior_attempt = guard["postFixValidation"]["priorAttempt"]
+        self.assertEqual(prior_attempt["runId"], "tencent-pg-post-fix-running")
+        self.assertEqual(prior_attempt["finalStatus"], "unknown")
+        self.assertTrue(prior_attempt["validationSlotConsumed"])
+        self.assertFalse(guard["postFixValidation"]["recoveryEligibility"]["eligible"])
+        self.assertIn(
+            "not a pre-scale no-compute admission failure",
+            guard["postFixValidation"]["recoveryEligibility"]["reason"],
+        )
         self.assertFalse(summary["execution"]["computeAttempted"])
 
     def test_paid_failure_recurrence_guard_allows_recovery_after_pre_scale_admission_failure(self) -> None:
