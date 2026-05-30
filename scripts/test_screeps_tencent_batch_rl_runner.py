@@ -4139,7 +4139,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(controller.final_status, "completed")
         self.assertTrue(summary["execution"]["computeAttempted"])
 
-    def test_paid_failure_recurrence_guard_ignores_prior_without_execution_metadata(self) -> None:
+    def test_paid_failure_recurrence_guard_blocks_legacy_run_single_failure_without_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
             for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
@@ -4188,16 +4188,23 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             ):
                 events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
 
-        self.assertIn("scale_up", events)
-        self.assertIn("remote_training", events)
-        self.assertEqual(controller.final_status, "completed")
-        self.assertFalse(guard["blocked"])
-        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS)
-        self.assertEqual(guard["postFixValidation"]["status"], "allowed")
-        self.assertIsNone(guard["postFixValidation"]["priorAttempt"])
-        self.assertTrue(summary["execution"]["computeAttempted"])
+        self.assertEqual(events, [])
+        self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+        self.assertTrue(guard["blocked"])
+        self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
+        self.assertEqual(guard["postFixValidation"]["status"], "consumed")
+        prior_attempt = guard["postFixValidation"]["priorAttempt"]
+        self.assertEqual(prior_attempt["runId"], "tencent-postfix-room-busy-v1")
+        self.assertFalse(prior_attempt["executionContextPresent"])
+        self.assertTrue(prior_attempt["validationSlotConsumed"])
+        self.assertFalse(guard["postFixValidation"]["recoveryEligibility"]["eligible"])
+        self.assertIn(
+            "not a pre-scale no-compute admission failure",
+            guard["postFixValidation"]["recoveryEligibility"]["reason"],
+        )
+        self.assertFalse(summary["execution"]["computeAttempted"])
 
-    def test_paid_failure_recurrence_guard_ignores_recovery_with_incomplete_prior_execution_metadata(self) -> None:
+    def test_paid_failure_recurrence_guard_blocks_recovery_with_incomplete_prior_execution_metadata(self) -> None:
         cases: list[tuple[str, str | None]] = [("empty execution", None)]
         cases.extend(
             (f"missing {field}", field)
@@ -4259,18 +4266,25 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
                     ):
                         events, controller, guard, summary = self.run_stubbed_compute(args, artifact_dir)
 
-                self.assertIn("scale_up", events)
-                self.assertIn("remote_training", events)
-                self.assertEqual(controller.final_status, "completed")
-                self.assertFalse(guard["blocked"])
-                self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS)
+                self.assertEqual(events, [])
+                self.assertEqual(controller.final_status, runner.PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS)
+                self.assertTrue(guard["blocked"])
+                self.assertEqual(guard["status"], runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS)
                 self.assertNotEqual(
                     guard["status"],
                     runner.PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS,
                 )
-                self.assertEqual(guard["postFixValidation"]["status"], "allowed")
-                self.assertIsNone(guard["postFixValidation"]["priorAttempt"])
-                self.assertTrue(summary["execution"]["computeAttempted"])
+                self.assertEqual(guard["postFixValidation"]["status"], "consumed")
+                prior_attempt = guard["postFixValidation"]["priorAttempt"]
+                self.assertEqual(prior_attempt["runId"], "tencent-postfix-room-busy-v1")
+                self.assertFalse(prior_attempt["executionContextPresent"])
+                self.assertTrue(prior_attempt["validationSlotConsumed"])
+                self.assertFalse(guard["postFixValidation"]["recoveryEligibility"]["eligible"])
+                self.assertIn(
+                    "not a pre-scale no-compute admission failure",
+                    guard["postFixValidation"]["recoveryEligibility"]["reason"],
+                )
+                self.assertFalse(summary["execution"]["computeAttempted"])
 
     def test_paid_failure_recurrence_guard_blocks_recovery_without_explicit_signature(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

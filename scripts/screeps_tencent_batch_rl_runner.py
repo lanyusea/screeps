@@ -3269,12 +3269,15 @@ def paid_failure_post_fix_attempt_consumes_validation_slot(attempt: dict[str, An
         return False
     if paid_failure_post_fix_attempt_reached_compute_or_training(attempt):
         return True
-    return bool(
-        final_status == "failed"
-        and text_value(attempt.get("command")) == "run-single"
-        and text_value(attempt.get("mode")) == "compute"
-        and attempt.get("executionContextPresent") is True
-    )
+    if final_status != "failed":
+        return False
+    command = text_value(attempt.get("command"))
+    mode = text_value(attempt.get("mode"))
+    if command is not None and command != "run-single":
+        return False
+    if mode is not None and mode != "compute":
+        return False
+    return True
 
 
 def paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(
