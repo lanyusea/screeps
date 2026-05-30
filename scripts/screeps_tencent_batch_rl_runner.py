@@ -98,6 +98,27 @@ PAID_FAILURE_RECURRENCE_GUARD_FINAL_STATUS = "skipped_paid_failure_recurrence_la
 PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD = 10
 PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT = 100
 PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE = "simulator_place_spawn_room_busy"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS = "post_fix_validation_allowed"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS = "post_fix_validation_recovery_allowed"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_REQUIRED_STATUS = "blocked_post_fix_validation_required"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS = "blocked_post_fix_validation_consumed"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS = "blocked_post_fix_validation_superseded"
+PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS = "clear_post_fix_validated"
+PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS = (
+    "computeAttempted",
+    "scaleOutAttempted",
+    "remoteTrainingAttempted",
+    "trainingReportProduced",
+    "environmentsRun",
+)
+PAID_FAILURE_RECURRENCE_KNOWN_FIXES = {
+    PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE: {
+        "issue": "#1501",
+        "pullRequest": "#1504",
+        "mergeCommit": "95f960b2",
+        "description": "simulator room-busy self-heal/root fix",
+    },
+}
 PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS = {
     PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE: (
         "auto-pause Tencent RL paid compute for repeated place-spawn room busy failures (#1506); "
@@ -1101,6 +1122,8 @@ class Controller:
             "evidenceCount": evidence["count"],
             "evidenceThreshold": evidence["threshold"],
         }
+        if isinstance(guard.get("postFixValidation"), dict):
+            self.result["launchGuard"]["postFixValidation"] = guard["postFixValidation"]
         self.record_step(
             "e1s1_repeat_launch_guard",
             started,
@@ -2629,6 +2652,23 @@ def build_tencent_batch_launch_guard(
                 "activeGuard": "paid_failure_recurrence_guard",
             }
         )
+        if isinstance(recurrence_guard.get("postFixValidation"), dict):
+            guard["postFixValidation"] = recurrence_guard["postFixValidation"]
+        return guard
+    if not e1s1_guard["blocked"] and recurrence_guard["status"] != "clear":
+        guard.update(
+            {
+                "status": recurrence_guard["status"],
+                "blocked": False,
+                "reason": recurrence_guard.get("reason"),
+                "nextAction": recurrence_guard.get("nextAction"),
+                "evidence": recurrence_guard["evidence"],
+                "safety": recurrence_guard["safety"],
+                "activeGuard": None,
+            }
+        )
+        if isinstance(recurrence_guard.get("postFixValidation"), dict):
+            guard["postFixValidation"] = recurrence_guard["postFixValidation"]
         return guard
     guard["activeGuard"] = "e1s1_repeat_launch_guard" if e1s1_guard["blocked"] else None
     return guard
@@ -2709,27 +2749,63 @@ def build_paid_failure_recurrence_launch_guard(
         if blocked_signature is not None
         else max(signature_counts.values(), default=0)
     )
+    validation: dict[str, Any] | None = None
     blocked = blocked_signature is not None
+    status = "blocked" if blocked else "clear"
     reason = None
     if blocked:
+        validation = paid_failure_post_fix_validation_state(
+            args=args,
+            artifact_dir=artifact_dir,
+            signature=blocked_signature,
+        )
+        if validation.get("status") == "validated":
+            validation = paid_failure_post_fix_validation_state_with_recurrence_evidence(
+                validation,
+                signature_runs,
+            )
+            if validation.get("status") == "validated":
+                blocked = False
+                status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATED_STATUS
+            else:
+                status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_SUPERSEDED_STATUS
+        elif validation.get("status") == "allowed":
+            blocked = False
+            status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS
+        elif validation.get("status") == "recovery_allowed":
+            blocked = False
+            status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS
+        elif validation.get("status") == "available":
+            status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_REQUIRED_STATUS
+        elif validation.get("status") == "consumed":
+            status = PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_CONSUMED_STATUS
         reason = (
             f"recent Tencent RL paid-run failures reached {active_count}/"
             f"{PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD} identical known failure signature "
             f"{blocked_signature!r}"
         )
+        if validation.get("status") == "validated":
+            reason += "; a later post-fix validation completed, so older recurrence evidence is reset"
+        elif validation.get("status") == "superseded":
+            reason += "; a completed post-fix validation is superseded by newer matching failures"
+        elif validation.get("status") == "allowed":
+            reason += "; allowing one explicit post-fix validation attempt"
+        elif validation.get("status") == "recovery_allowed":
+            reason += "; allowing one explicit recovery validation after a pre-scale no-compute admission failure"
+        elif validation.get("status") == "consumed":
+            reason += "; a post-fix validation attempt already ran without completing successfully"
+    next_action = None
+    if blocked_signature is not None:
+        next_action = paid_failure_recurrence_next_action(blocked_signature, validation)
     return {
         "type": PAID_FAILURE_RECURRENCE_GUARD_TYPE,
         "schemaVersion": 1,
         "runId": run_id,
         "checkedAt": utc_now_iso(),
-        "status": "blocked" if blocked else "clear",
+        "status": status,
         "blocked": blocked,
         "reason": reason,
-        "nextAction": (
-            PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS.get(blocked_signature)
-            if blocked_signature is not None
-            else None
-        ),
+        "nextAction": next_action,
         "currentLaunch": {
             "command": getattr(args, "command", None),
             "preflightOnly": bool(getattr(args, "preflight_only", False)),
@@ -2737,6 +2813,10 @@ def build_paid_failure_recurrence_launch_guard(
             "scenarioId": scenario_id_from_args(args),
             "workers": getattr(args, "workers", None),
             "repetitions": getattr(args, "repetitions", None),
+            "policyGradientTrustSampleRequest": policy_gradient_trust_sample_request(args),
+            "allowedPaidFailureRecurrenceValidations": sorted(
+                paid_failure_recurrence_validation_requests(args)
+            ),
         },
         "evidence": {
             "threshold": PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
@@ -2744,8 +2824,9 @@ def build_paid_failure_recurrence_launch_guard(
             "recentSummaryLimit": PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT,
             "activeSignature": blocked_signature,
             "signatureCounts": signature_counts,
-            "runs": signature_runs if blocked else evidence_runs,
+            "runs": signature_runs if blocked_signature is not None else evidence_runs,
         },
+        "postFixValidation": validation,
         "safety": {
             "liveEffect": False,
             "officialMmoWrites": False,
@@ -2805,6 +2886,444 @@ def recent_paid_failure_recurrence_evidence(args: argparse.Namespace, artifact_d
             if len(evidence) >= PAID_FAILURE_RECURRENCE_GUARD_RECENT_SUMMARY_LIMIT:
                 break
     return evidence
+
+
+def paid_failure_recurrence_validation_requests(args: argparse.Namespace) -> set[str]:
+    raw = getattr(args, "allow_paid_failure_recurrence_validation", None)
+    if raw is None:
+        return set()
+    values = raw if isinstance(raw, list) else [raw]
+    return {value for value in (text_value(item) for item in values) if value is not None}
+
+
+def paid_failure_post_fix_validation_state(
+    *,
+    args: argparse.Namespace,
+    artifact_dir: Path,
+    signature: str,
+) -> dict[str, Any]:
+    requested_signatures = paid_failure_recurrence_validation_requests(args)
+    fix_status = paid_failure_recurrence_known_fix_status(signature)
+    prior_attempts = paid_failure_post_fix_validation_attempts(args, artifact_dir, signature)
+    prior_attempt = prior_attempts[0] if prior_attempts else None
+    state: dict[str, Any] = {
+        "signature": signature,
+        "status": "unavailable",
+        "requested": signature in requested_signatures,
+        "requestedSignatures": sorted(requested_signatures),
+        "knownFix": fix_status,
+        "priorAttempt": prior_attempt,
+    }
+    if prior_attempt is not None:
+        state["priorAttemptCount"] = len(prior_attempts)
+        recovery = paid_failure_post_fix_validation_recovery_eligibility(
+            args=args,
+            signature=signature,
+            prior_attempts=prior_attempts,
+            fix_status=fix_status,
+        )
+        state["recoveryEligibility"] = recovery
+        if text_value(prior_attempt.get("outcome")) == "completed":
+            state["status"] = "validated"
+        elif recovery["eligible"] is True:
+            state["status"] = "recovery_allowed"
+        else:
+            state["status"] = "consumed"
+        return state
+    if fix_status.get("present") is True:
+        state["status"] = "allowed" if signature in requested_signatures else "available"
+        return state
+    if signature in requested_signatures:
+        state["status"] = "unverified"
+    return state
+
+
+def paid_failure_post_fix_validation_recovery_eligibility(
+    *,
+    args: argparse.Namespace,
+    signature: str,
+    prior_attempts: list[dict[str, Any]],
+    fix_status: dict[str, Any],
+) -> dict[str, Any]:
+    trust_sample_request = policy_gradient_trust_sample_request(args)
+    requested = signature in paid_failure_recurrence_validation_requests(args)
+    result: dict[str, Any] = {
+        "eligible": False,
+        "reason": None,
+        "requiresExplicitValidationSignature": True,
+        "requested": requested,
+        "policyGradientTrustSampleRequest": trust_sample_request,
+    }
+    if signature != PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE:
+        result["reason"] = "recovery is only defined for simulator_place_spawn_room_busy"
+        return result
+    if fix_status.get("present") is not True:
+        result["reason"] = "registered room-busy fix is not verified in the current checkout"
+        return result
+    if not requested:
+        result["reason"] = "explicit post-fix validation signature was not requested"
+        return result
+    if len(prior_attempts) != 1:
+        result["reason"] = "recovery requires exactly one prior consumed post-fix validation attempt"
+        return result
+    prior_attempt = prior_attempts[0]
+    if any(text_value(attempt.get("outcome")) == "completed" for attempt in prior_attempts):
+        result["reason"] = "a post-fix validation already completed"
+        return result
+    if any(attempt.get("recoveryAttempt") is True for attempt in prior_attempts):
+        result["reason"] = "post-fix validation recovery was already attempted"
+        return result
+    if any(paid_failure_post_fix_attempt_reached_compute_or_training(attempt) for attempt in prior_attempts):
+        result["reason"] = "a prior post-fix validation reached compute, scale, remote training, environments, or a report"
+        return result
+    if not paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(prior_attempt):
+        result["reason"] = "prior post-fix validation was not a pre-scale no-compute admission failure"
+        return result
+    if not isinstance(trust_sample_request, dict):
+        result["reason"] = "policy-gradient trust sample request metadata is absent"
+        return result
+    if trust_sample_request.get("meetsTrustSampleTarget") is not True:
+        result["reason"] = "policy-gradient requested samples are below the trust gate target"
+        return result
+    result["eligible"] = True
+    result["reason"] = (
+        "one recovery validation is allowed after a consumed pre-scale no-compute admission failure"
+    )
+    result["priorAttemptRunId"] = text_value(prior_attempt.get("runId"))
+    return result
+
+
+def paid_failure_post_fix_validation_state_with_recurrence_evidence(
+    validation: dict[str, Any],
+    signature_runs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    state = copy.deepcopy(validation)
+    prior_attempt = dict_value(state.get("priorAttempt"))
+    validation_epoch = paid_failure_summary_item_epoch(prior_attempt)
+    post_validation_runs: list[dict[str, Any]] = []
+    reset_runs: list[dict[str, Any]] = []
+    unknown_order_runs: list[dict[str, Any]] = []
+    for item in signature_runs:
+        item_epoch = paid_failure_summary_item_epoch(item)
+        if validation_epoch is None or item_epoch is None:
+            unknown_order_runs.append(item)
+        elif item_epoch > validation_epoch:
+            post_validation_runs.append(item)
+        else:
+            reset_runs.append(item)
+    post_validation_count = len(post_validation_runs)
+    unknown_order_count = len(unknown_order_runs)
+    reset_applies = (
+        validation_epoch is not None
+        and unknown_order_count == 0
+        and post_validation_count < PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD
+    )
+    state["recurrenceEvidence"] = {
+        "threshold": PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD,
+        "thresholdEvidenceCount": len(signature_runs),
+        "validationFinishedAt": text_value(prior_attempt.get("finishedAt")) if prior_attempt else None,
+        "validationSummaryPath": text_value(prior_attempt.get("summaryPath")) if prior_attempt else None,
+        "postValidationFailureCount": post_validation_count,
+        "resetFailureCount": len(reset_runs),
+        "unknownOrderFailureCount": unknown_order_count,
+        "resetApplies": reset_applies,
+        "postValidationRuns": paid_failure_recurrence_evidence_refs(post_validation_runs),
+        "unknownOrderRuns": paid_failure_recurrence_evidence_refs(unknown_order_runs),
+    }
+    if not reset_applies:
+        state["status"] = "superseded"
+    return state
+
+
+def paid_failure_summary_item_epoch(item: dict[str, Any] | None) -> float | None:
+    if item is None:
+        return None
+    epoch = parse_iso_epoch(item.get("finishedAt"))
+    if epoch is not None:
+        return epoch
+    summary_path = text_value(item.get("summaryPath"))
+    if summary_path is None:
+        return None
+    try:
+        return Path(summary_path).stat().st_mtime
+    except OSError:
+        return None
+
+
+def paid_failure_recurrence_evidence_refs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in items:
+        refs.append(
+            {
+                "runId": text_value(item.get("runId")),
+                "finishedAt": text_value(item.get("finishedAt")),
+                "summaryPath": text_value(item.get("summaryPath")),
+                "finalStatus": text_value(item.get("finalStatus")),
+            }
+        )
+    return refs
+
+
+def paid_failure_recurrence_known_fix_status(signature: str) -> dict[str, Any]:
+    fix = PAID_FAILURE_RECURRENCE_KNOWN_FIXES.get(signature)
+    if fix is None:
+        return {
+            "signature": signature,
+            "present": False,
+            "reason": "no known post-fix validation reset is registered for this signature",
+        }
+    merge_commit = str(fix["mergeCommit"])
+    present = git_ref_is_ancestor_of_head(merge_commit)
+    if present is True:
+        evidence = f"merge commit {merge_commit} is reachable from HEAD"
+    elif present is False:
+        evidence = f"merge commit {merge_commit} is not reachable from HEAD"
+    else:
+        evidence = f"could not verify whether merge commit {merge_commit} is reachable from HEAD"
+    return {
+        **fix,
+        "signature": signature,
+        "present": present,
+        "evidence": evidence,
+    }
+
+
+def git_ref_is_ancestor_of_head(ref: str) -> bool | None:
+    try:
+        cp = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ref, "HEAD"],
+            cwd=str(REPO_ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if cp.returncode == 0:
+        return True
+    if cp.returncode == 1:
+        return False
+    return None
+
+
+def latest_paid_failure_post_fix_validation_attempt(
+    args: argparse.Namespace,
+    artifact_dir: Path,
+    signature: str,
+) -> dict[str, Any] | None:
+    attempts = paid_failure_post_fix_validation_attempts(args, artifact_dir, signature)
+    return attempts[0] if attempts else None
+
+
+def paid_failure_post_fix_validation_attempts(
+    args: argparse.Namespace,
+    artifact_dir: Path,
+    signature: str,
+) -> list[dict[str, Any]]:
+    artifact_root = resolved_artifact_root(args)
+    if not artifact_root.is_dir():
+        return []
+    current_dir = artifact_dir.resolve()
+    try:
+        summary_paths = sorted(
+            artifact_root.glob("*/controller-summary.json"),
+            key=lambda path: (path.stat().st_mtime, path.as_posix()),
+            reverse=True,
+        )
+    except OSError:
+        return []
+    attempts: list[dict[str, Any]] = []
+    for summary_path in summary_paths:
+        try:
+            if summary_path.parent.resolve() == current_dir:
+                continue
+        except OSError:
+            continue
+        item = paid_failure_post_fix_validation_attempt_from_summary(
+            read_json_object(summary_path),
+            summary_path,
+            signature,
+        )
+        if item is not None:
+            attempts.append(item)
+    return attempts
+
+
+def paid_failure_post_fix_validation_attempt_from_summary(
+    summary: dict[str, Any] | None,
+    summary_path: Path,
+    signature: str,
+) -> dict[str, Any] | None:
+    if not isinstance(summary, dict):
+        return None
+    guard = dict_value(path_value(summary, "outputs", "launchGuard"))
+    if guard is None:
+        return None
+    validation = dict_value(guard.get("postFixValidation"))
+    if validation is None:
+        return None
+    validation_signature = text_value(validation.get("signature")) or text_value(guard.get("activeSignature"))
+    if validation_signature != signature:
+        return None
+    validation_status = text_value(validation.get("status"))
+    guard_status = text_value(guard.get("status"))
+    allowed_validation_statuses = {"allowed", "recovery_allowed"}
+    allowed_guard_statuses = {
+        PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_ALLOWED_STATUS,
+        PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS,
+    }
+    if validation_status not in allowed_validation_statuses and guard_status not in allowed_guard_statuses:
+        return None
+    final_status = text_value(summary.get("finalStatus"))
+    run_id = text_value(summary.get("runId")) or summary_path.parent.name
+    failure_signature = None
+    if paid_failure_recurrence_summary_candidate(summary):
+        failure = paid_failure_signature_from_summary(summary)
+        if failure is not None:
+            failure_signature = failure["signature"]
+    execution_context = dict_value(summary.get("execution"))
+    execution_context_present = paid_failure_post_fix_execution_context_complete(execution_context)
+    execution = execution_context or {}
+    environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
+    remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
+    remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
+    training_report = dict_value(path_value(summary, "outputs", "trainingReport"))
+    return {
+        "runId": run_id,
+        "summaryPath": str(summary_path),
+        "finishedAt": text_value(summary.get("finishedAt")),
+        "finalStatus": final_status,
+        "signature": signature,
+        "status": validation_status,
+        "guardStatus": guard_status,
+        "outcome": "completed" if isinstance(final_status, str) and final_status.startswith("completed") else "not_completed",
+        "failureSignature": failure_signature,
+        "recoveryAttempt": validation_status == "recovery_allowed"
+        or guard_status == PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS,
+        "executionContextPresent": execution_context_present,
+        "computeAttempted": execution.get("computeAttempted") is True,
+        "scaleOutAttempted": execution.get("scaleOutAttempted") is True,
+        "remoteTrainingAttempted": execution.get("remoteTrainingAttempted") is True,
+        "trainingReportProduced": execution.get("trainingReportProduced") is True,
+        "trainingReportPresent": training_report is not None,
+        "environmentsRun": environments_run,
+        "remoteTrainingFailureClass": remote_failure_class,
+    }
+
+
+def paid_failure_post_fix_execution_context_complete(
+    execution_context: dict[str, Any] | None,
+) -> bool:
+    if execution_context is None:
+        return False
+    if not all(
+        field in execution_context
+        for field in PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS
+    ):
+        return False
+    bool_fields = PAID_FAILURE_POST_FIX_NO_COMPUTE_REQUIRED_EXECUTION_FIELDS[:-1]
+    if not all(isinstance(execution_context.get(field), bool) for field in bool_fields):
+        return False
+    return scale_gates.non_negative_int(execution_context.get("environmentsRun")) is not None
+
+
+def paid_failure_post_fix_attempt_reached_compute_or_training(attempt: dict[str, Any]) -> bool:
+    environments_run = attempt.get("environmentsRun")
+    return bool(
+        attempt.get("computeAttempted") is True
+        or attempt.get("scaleOutAttempted") is True
+        or attempt.get("remoteTrainingAttempted") is True
+        or attempt.get("trainingReportProduced") is True
+        or attempt.get("trainingReportPresent") is True
+        or (isinstance(environments_run, int) and environments_run > 0)
+    )
+
+
+def paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(
+    attempt: dict[str, Any],
+) -> bool:
+    final_status = text_value(attempt.get("finalStatus"))
+    environments_run = attempt.get("environmentsRun")
+    no_environments = environments_run in (None, 0)
+    return bool(
+        final_status == "failed"
+        and text_value(attempt.get("outcome")) == "not_completed"
+        and attempt.get("executionContextPresent") is True
+        and not paid_failure_post_fix_attempt_reached_compute_or_training(attempt)
+        and no_environments
+        and attempt.get("failureSignature") is None
+        and attempt.get("remoteTrainingFailureClass") is None
+    )
+
+
+def paid_failure_recurrence_next_action(
+    signature: str,
+    validation: dict[str, Any] | None,
+) -> str | None:
+    if signature != PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE:
+        return PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS.get(signature)
+    base = "auto-pause Tencent RL paid compute for repeated place-spawn room busy failures (#1506)"
+    if validation is None:
+        return PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS.get(signature)
+    status = text_value(validation.get("status"))
+    known_fix = dict_value(validation.get("knownFix")) or {}
+    merge_commit = text_value(known_fix.get("mergeCommit")) or "the room-busy fix"
+    issue = text_value(known_fix.get("issue")) or "#1501"
+    pr = text_value(known_fix.get("pullRequest")) or "#1504"
+    if status == "validated":
+        prior = dict_value(validation.get("priorAttempt")) or {}
+        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        return f"{base}; post-fix validation {run_id} completed, so older room-busy recurrence evidence is reset"
+    if status == "allowed":
+        return (
+            f"{base}; run exactly one bounded post-fix validation for {issue} / {pr}; "
+            "if simulator_place_spawn_room_busy recurs, keep the paid recurrence guard active"
+        )
+    if status == "recovery_allowed":
+        prior = dict_value(validation.get("priorAttempt")) or {}
+        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        return (
+            f"{base}; one recovery validation is allowed because {run_id} failed before scale, "
+            "compute, remote training, environments, or a training report; if simulator_place_spawn_room_busy "
+            "recurs or compute starts and fails, keep the paid recurrence guard active"
+        )
+    if status == "available":
+        return (
+            f"{base}; {issue} / {pr} fix {merge_commit} is present, so launch exactly one guarded "
+            "post-fix validation with --allow-paid-failure-recurrence-validation "
+            f"{PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE}; if the same signature recurs, keep compute paused"
+        )
+    if status == "consumed":
+        prior = dict_value(validation.get("priorAttempt")) or {}
+        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        return (
+            f"{base}; post-fix validation was already attempted in {run_id} without a completed report, "
+            "so inspect that run before any further paid rerun"
+        )
+    if status == "superseded":
+        prior = dict_value(validation.get("priorAttempt")) or {}
+        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        evidence = dict_value(validation.get("recurrenceEvidence")) or {}
+        count = evidence.get("postValidationFailureCount")
+        threshold = evidence.get("threshold") or PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD
+        unknown_count = evidence.get("unknownOrderFailureCount")
+        if not isinstance(count, int) or count < PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD:
+            return (
+                f"{base}; post-fix validation {run_id} completed, but {unknown_count} matching failures "
+                "could not be ordered relative to it, so keep paid compute paused and inspect those runs"
+            )
+        return (
+            f"{base}; post-fix validation {run_id} completed, but {count}/{threshold} newer matching "
+            "failures reached the recurrence threshold, so keep paid compute paused and inspect those runs"
+        )
+    if status == "unverified":
+        evidence = text_value(known_fix.get("evidence")) or f"could not verify {issue} / {pr}"
+        return (
+            f"{base}; post-fix validation was requested but the current checkout is not verified safe "
+            f"({evidence}); verify the fix before paid compute"
+        )
+    return PAID_FAILURE_RECURRENCE_GUARD_NEXT_ACTIONS.get(signature)
 
 
 def recent_e1s1_dead_tier_evidence(args: argparse.Namespace, artifact_dir: Path) -> list[dict[str, Any]]:
@@ -5091,6 +5610,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-multi-tier-scenario",
         action="store_true",
         help="Reject Tencent policy comparison cards unless the scenario has territory and combat signals.",
+    )
+    parser.add_argument(
+        "--allow-paid-failure-recurrence-validation",
+        action="append",
+        choices=tuple(PAID_FAILURE_RECURRENCE_KNOWN_FIXES),
+        default=None,
+        help=(
+            "Allow one guarded post-fix validation for a known paid-failure recurrence signature after "
+            "the registered fix is present in the current checkout."
+        ),
     )
     parser.add_argument("--variant", action="append", help="Strategy variant id; repeat to override generated card variants.")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)

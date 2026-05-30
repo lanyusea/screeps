@@ -72,6 +72,12 @@ export function getRuntimeCpuBudget(game?: RuntimeGameLike): RuntimeCpuBudget {
   return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
 }
 
+export function isRuntimeCpuBucketCritical(game?: RuntimeGameLike): boolean {
+  const runtimeGame = game ?? getRuntimeGame();
+  const bucket = runtimeGame?.cpu?.bucket;
+  return typeof bucket === 'number' && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+}
+
 export function buildRuntimeCpuBudget(sample: RuntimeCpuSample): RuntimeCpuBudget {
   const reasons: RuntimeCpuPressureReason[] = [];
   const lowCpuLimit = sample.limit !== undefined && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
@@ -162,7 +168,7 @@ export function shouldRunOptionalCpuWork(
     return true;
   }
 
-  if (budget.critical) {
+  if (budget.critical || hasLowBucketPressure(budget)) {
     return false;
   }
 
@@ -178,7 +184,7 @@ export function shouldRunOptionalCpuRoomWork(
     return true;
   }
 
-  if (budget.critical) {
+  if (budget.critical || hasLowBucketPressure(budget)) {
     return false;
   }
 
@@ -195,6 +201,10 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
     bucketEmptyTicks: 0,
     overLimitTicks: 0
   };
+}
+
+function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
+  return budget.reasons.includes('lowBucket') || budget.reasons.includes('criticalBucket');
 }
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {
