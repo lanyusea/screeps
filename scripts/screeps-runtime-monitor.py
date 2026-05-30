@@ -4612,6 +4612,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     ]
     behavior_totals = behavior_pathing_totals(snapshot.info)
     assignment_blocked_fields = worker_assignment_blocked_fields(snapshot, metrics)
+    worker_carried_energy = sum(store_energy(obj) for obj in owned_creeps)
     productive_energy = {
         "pendingBuildProgress": metrics.pending_build_progress,
         "buildCarriedEnergy": metrics.build_carried_energy,
@@ -4643,6 +4644,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         "cpuBucket": metrics.cpu_bucket,
         "rclLevel": metrics.rcl_level,
         "storedEnergy": metrics.stored_energy,
+        "workerCarriedEnergy": worker_carried_energy,
         "controller": metrics.controller_summary,
         "structures": {
             "extensionCount": metrics.extension_count,
@@ -4650,7 +4652,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
         },
         "resources": {
             "storedEnergy": metrics.stored_energy,
-            "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
+            "workerCarriedEnergy": worker_carried_energy,
             "droppedEnergy": sum(number_value(obj.get("amount")) or 0 for obj in dropped_energy),
             "sourceCount": len(sources),
             "productiveEnergy": productive_energy,
