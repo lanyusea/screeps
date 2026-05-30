@@ -3175,7 +3175,9 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         failure = paid_failure_signature_from_summary(summary)
         if failure is not None:
             failure_signature = failure["signature"]
-    execution = dict_value(summary.get("execution")) or {}
+    execution_context = dict_value(summary.get("execution"))
+    execution_context_present = execution_context is not None
+    execution = execution_context or {}
     environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
     remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
@@ -3192,6 +3194,7 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "failureSignature": failure_signature,
         "recoveryAttempt": validation_status == "recovery_allowed"
         or guard_status == PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS,
+        "executionContextPresent": execution_context_present,
         "computeAttempted": execution.get("computeAttempted") is True,
         "scaleOutAttempted": execution.get("scaleOutAttempted") is True,
         "remoteTrainingAttempted": execution.get("remoteTrainingAttempted") is True,
@@ -3223,6 +3226,7 @@ def paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(
     return bool(
         final_status == "failed"
         and text_value(attempt.get("outcome")) == "not_completed"
+        and attempt.get("executionContextPresent") is True
         and not paid_failure_post_fix_attempt_reached_compute_or_training(attempt)
         and no_environments
         and attempt.get("failureSignature") is None
