@@ -1,8 +1,10 @@
 import {
   compareSpawnSourceRouteDistances,
   orderCreepsForEconomyTaskPriority,
-  runEconomy
+  runEconomy,
+  shouldRunCreepForCpuBudget
 } from '../src/economy/economyLoop';
+import { buildRuntimeCpuBudget } from '../src/runtime/cpuBudget';
 import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
@@ -102,6 +104,71 @@ describe('runEconomy', () => {
       'Second',
       'Third'
     ]);
+  });
+
+  it('sheds optional creep roles under critical CPU bucket pressure', () => {
+    const criticalBudget = buildRuntimeCpuBudget({
+      tick: 125,
+      used: 21,
+      limit: 70,
+      bucket: 1,
+      tickLimit: 500
+    });
+    const stableRoom = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: 10_000 } as StructureController
+    } as Room;
+    const downgradeRoom = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: 1_000 } as StructureController
+    } as Room;
+    const creep = (
+      role: string,
+      memory: Partial<CreepMemory> = {},
+      room: Room = stableRoom
+    ): Creep => ({ memory: { role, ...memory }, room }) as unknown as Creep;
+
+    expect(shouldRunCreepForCpuBudget(creep('worker'), criticalBudget)).toBe(true);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('worker', { spawnSupport: { originRoom: 'W1N1', targetRoom: 'W2N1' } }),
+        criticalBudget
+      )
+    ).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('sourceHarvester'), criticalBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('hauler'), criticalBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('crossRoomHauler'), criticalBudget)).toBe(true);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('upgrader', {
+          controllerUpgrade: {
+            roomName: 'W1N1',
+            controllerId: 'controller1' as Id<StructureController>,
+            priority: 'downgradeGuard'
+          }
+        }),
+        criticalBudget
+      )
+    ).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('upgrader', {}, downgradeRoom), criticalBudget)).toBe(true);
+
+    expect(shouldRunCreepForCpuBudget(creep('upgrader'), criticalBudget)).toBe(false);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('worker', { controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' } }),
+        criticalBudget
+      )
+    ).toBe(false);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('worker', { territory: { targetRoom: 'W2N1', action: 'reserve' } }),
+        criticalBudget
+      )
+    ).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('remoteHarvester'), criticalBudget)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('mineralHarvester'), criticalBudget)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('claimer'), criticalBudget)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('scout'), criticalBudget)).toBe(false);
   });
 
   it('spawns a worker request for an owned colony below target workers', () => {

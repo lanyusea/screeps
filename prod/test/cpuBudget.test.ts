@@ -2,6 +2,7 @@ import {
   buildRuntimeCpuBudget,
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
+  isRuntimeCpuBucketCritical,
   resetRuntimeCpuTelemetryForTesting,
   shouldRunOptionalCpuWork,
   shouldRunOptionalCpuRoomWork,
@@ -151,6 +152,23 @@ describe('runtime CPU budget policy', () => {
       sample: expect.objectContaining({ used: 71 })
     });
     expect(getUsed).toHaveBeenCalledTimes(2);
+  });
+
+  it('detects critical bucket pressure without sampling CPU used', () => {
+    const getUsed = jest.fn().mockReturnValue(21);
+
+    expect(
+      isRuntimeCpuBucketCritical({
+        time: 124,
+        cpu: {
+          getUsed,
+          limit: 70,
+          bucket: 1,
+          tickLimit: 500
+        }
+      })
+    ).toBe(true);
+    expect(getUsed).not.toHaveBeenCalled();
   });
 
   it('alerts on repeated empty bucket and sustained used-over-limit samples', () => {

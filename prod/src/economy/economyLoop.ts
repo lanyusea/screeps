@@ -12,7 +12,11 @@ import {
 } from '../construction/claimed-room-planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
-import { runUpgraderCreep, UPGRADER_ROLE } from '../creeps/upgraderRunner';
+import {
+  CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS,
+  runUpgraderCreep,
+  UPGRADER_ROLE
+} from '../creeps/upgraderRunner';
 import { SOURCE_HARVESTER_ROLE, runSourceHarvester } from '../creeps/sourceHarvester';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
@@ -358,7 +362,12 @@ export function runEconomy(
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
+  const creepCpuBudget = getRuntimeCpuBudget();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
+    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget)) {
+      continue;
+    }
+
     if (featureGates.labManagement && shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
@@ -432,6 +441,50 @@ export function orderCreepsForEconomyTaskPriority(creeps: Creep[]): Creep[] {
         left.index - right.index
     )
     .map((entry) => entry.creep);
+}
+
+export function shouldRunCreepForCpuBudget(creep: Creep, cpuBudget: RuntimeCpuBudget): boolean {
+  if (!cpuBudget.critical) {
+    return true;
+  }
+
+  const role = creep.memory.role;
+  if (role === 'worker') {
+    return shouldRunWorkerForCriticalCpu(creep);
+  }
+
+  if (role === UPGRADER_ROLE) {
+    return isDowngradeGuardControllerCreep(creep);
+  }
+
+  if (role === SOURCE_HARVESTER_ROLE || role === HAULER_ROLE || role === CROSS_ROOM_HAULER_ROLE) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldRunWorkerForCriticalCpu(creep: Creep): boolean {
+  const sustain = creep.memory.controllerSustain;
+  if (sustain?.role === 'upgrader') {
+    return isDowngradeGuardControllerCreep(creep);
+  }
+
+  return creep.memory.territory === undefined;
+}
+
+function isDowngradeGuardControllerCreep(creep: Creep): boolean {
+  if (creep.memory.controllerUpgrade?.priority === 'downgradeGuard') {
+    return true;
+  }
+
+  const controller = creep.room?.controller;
+  const ticksToDowngrade = normalizeOptionalNonNegativeInteger(controller?.ticksToDowngrade);
+  return (
+    controller?.my === true &&
+    ticksToDowngrade !== undefined &&
+    ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS
+  );
 }
 
 function getEconomyCreepTaskPriority(creep: Creep): number {

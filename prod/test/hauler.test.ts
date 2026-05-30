@@ -64,6 +64,32 @@ describe('runHauler', () => {
     expect(creep.memory.behaviorTelemetry).toMatchObject({ energyAcquisitionWithdrawn: 1 });
   });
 
+  it('skips behavior telemetry writes under critical CPU bucket pressure', () => {
+    const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 0);
+    const richContainer = makeStoreStructure('container-rich', STRUCTURE_CONTAINER, 800, 0);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [
+      assignedContainer as unknown as Structure,
+      richContainer as unknown as Structure
+    ]);
+    const creep = makeHauler(remoteRoom, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(21),
+        limit: 70,
+        bucket: 1,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-rich' });
+    expect(creep.withdraw).toHaveBeenCalledWith(richContainer, RESOURCE_ENERGY);
+    expect(creep.memory.behaviorTelemetry).toBeUndefined();
+  });
+
   it('withdraws from an overflow-risk container before richer durable storage', () => {
     const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 1_900, 2_000);
     const overflowContainer = makeStoreStructure('container-overflow', STRUCTURE_CONTAINER, 1_700, 300, 2_000);
