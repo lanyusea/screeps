@@ -1,3 +1,5 @@
+import { isRuntimeCpuBucketCritical } from '../runtime/cpuBudget';
+
 export interface RuntimeCreepBehaviorSummary {
   creepName?: string;
   idleTicks: number;
@@ -71,6 +73,10 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
 const TOP_IDLE_WORKER_COUNT = 3;
 
 export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTime()): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastObservedTick === tick) {
     return;
@@ -93,6 +99,10 @@ export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTim
 }
 
 export function recordCreepBehaviorIdle(creep: Creep, tick: number = getGameTime()): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastIdleTick === tick) {
     return;
@@ -103,6 +113,10 @@ export function recordCreepBehaviorIdle(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime()): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastMoveTick === tick) {
     return;
@@ -113,6 +127,10 @@ export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime()): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastWorkTick === tick) {
     return;
@@ -123,15 +141,27 @@ export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime
 }
 
 export function recordCreepBehaviorRepairTarget(creep: Creep, targetId: string): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   ensureCreepBehaviorTelemetry(creep).repairTargetId = targetId;
 }
 
 export function recordCreepBehaviorContainerTransfer(creep: Creep): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   telemetry.containerTransfers = (telemetry.containerTransfers ?? 0) + 1;
 }
 
 export function recordCreepBehaviorSourceContainerWithdrawal(creep: Creep, tick: number = getGameTime()): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastSourceContainerWithdrawalTick === tick) {
     return;
@@ -145,6 +175,10 @@ export function recordCreepBehaviorEnergyAcquisition(
   creep: Creep,
   method: RuntimeEnergyAcquisitionMethod
 ): void {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
+
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   const key = getEnergyAcquisitionCounterKey(method);
   telemetry[key] = (telemetry[key] ?? 0) + 1;

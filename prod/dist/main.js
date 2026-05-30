@@ -21016,6 +21016,12 @@ function getRuntimeCpuBudget(game) {
   const runtimeGame = game != null ? game : getRuntimeGame();
   return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
 }
+function isRuntimeCpuBucketCritical(game) {
+  var _a;
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  const bucket = (_a = runtimeGame == null ? void 0 : runtimeGame.cpu) == null ? void 0 : _a.bucket;
+  return typeof bucket === "number" && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+}
 function buildRuntimeCpuBudget(sample) {
   const reasons = [];
   const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
@@ -21598,6 +21604,9 @@ var BEHAVIOR_COUNTER_KEYS = [
 var TOP_IDLE_WORKER_COUNT = 3;
 function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
   var _a, _b;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastObservedTick === tick) {
     return;
@@ -21618,6 +21627,9 @@ function observeCreepBehaviorTick(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorIdle(creep, tick = getGameTime24()) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastIdleTick === tick) {
     return;
@@ -21627,6 +21639,9 @@ function recordCreepBehaviorIdle(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastMoveTick === tick) {
     return;
@@ -21636,6 +21651,9 @@ function recordCreepBehaviorMove(creep, tick = getGameTime24()) {
 }
 function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastWorkTick === tick) {
     return;
@@ -21644,15 +21662,24 @@ function recordCreepBehaviorWork(creep, tick = getGameTime24()) {
   telemetry.lastWorkTick = tick;
 }
 function recordCreepBehaviorRepairTarget(creep, targetId) {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   ensureCreepBehaviorTelemetry(creep).repairTargetId = targetId;
 }
 function recordCreepBehaviorContainerTransfer(creep) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   telemetry.containerTransfers = ((_a = telemetry.containerTransfers) != null ? _a : 0) + 1;
 }
 function recordCreepBehaviorSourceContainerWithdrawal(creep, tick = getGameTime24()) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastSourceContainerWithdrawalTick === tick) {
     return;
@@ -21662,6 +21689,9 @@ function recordCreepBehaviorSourceContainerWithdrawal(creep, tick = getGameTime2
 }
 function recordCreepBehaviorEnergyAcquisition(creep, method) {
   var _a;
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   const key = getEnergyAcquisitionCounterKey(method);
   telemetry[key] = ((_a = telemetry[key]) != null ? _a : 0) + 1;
@@ -31359,6 +31389,9 @@ function runWorker(creep) {
   executeAssignedTask(creep, selectedTask);
 }
 function recordWorkerDispatchDiagnostic(creep, context) {
+  if (isRuntimeCpuBucketCritical()) {
+    return;
+  }
   const memory = creep.memory;
   if (!memory) {
     return;
@@ -47219,7 +47252,11 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
+  const creepCpuBudget = getRuntimeCpuBudget();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
+    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget)) {
+      continue;
+    }
     if (featureGates.labManagement && shouldYieldCreepToLabManager(creep, Game.time)) {
       continue;
     }
@@ -47281,6 +47318,40 @@ function orderCreepsForEconomyTaskPriority(creeps) {
   })).sort(
     (left, right) => left.priority - right.priority || left.index - right.index
   ).map((entry) => entry.creep);
+}
+function shouldRunCreepForCpuBudget(creep, cpuBudget) {
+  var _a;
+  if (!cpuBudget.critical) {
+    return true;
+  }
+  const role = (_a = creep.memory) == null ? void 0 : _a.role;
+  if (role === "worker") {
+    return shouldRunWorkerForCriticalCpu(creep);
+  }
+  if (role === UPGRADER_ROLE) {
+    return isDowngradeGuardControllerCreep(creep);
+  }
+  if (role === SOURCE_HARVESTER_ROLE || role === HAULER_ROLE || role === CROSS_ROOM_HAULER_ROLE) {
+    return true;
+  }
+  return false;
+}
+function shouldRunWorkerForCriticalCpu(creep) {
+  var _a, _b;
+  const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
+  if ((sustain == null ? void 0 : sustain.role) === "upgrader") {
+    return true;
+  }
+  return ((_b = creep.memory) == null ? void 0 : _b.territory) === void 0;
+}
+function isDowngradeGuardControllerCreep(creep) {
+  var _a, _b, _c;
+  if (((_b = (_a = creep.memory) == null ? void 0 : _a.controllerUpgrade) == null ? void 0 : _b.priority) === "downgradeGuard") {
+    return true;
+  }
+  const controller = (_c = creep.room) == null ? void 0 : _c.controller;
+  const ticksToDowngrade = normalizeOptionalNonNegativeInteger3(controller == null ? void 0 : controller.ticksToDowngrade);
+  return (controller == null ? void 0 : controller.my) === true && ticksToDowngrade !== void 0 && ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS;
 }
 function getEconomyCreepTaskPriority(creep) {
   if (!isLowRoomEnergyForWorkerTaskPriority(creep.room)) {
