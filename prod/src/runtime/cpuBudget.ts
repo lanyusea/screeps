@@ -162,7 +162,7 @@ export function shouldRunOptionalCpuWork(
     return true;
   }
 
-  if (budget.critical) {
+  if (budget.critical || hasLowBucketPressure(budget)) {
     return false;
   }
 
@@ -178,7 +178,7 @@ export function shouldRunOptionalCpuRoomWork(
     return true;
   }
 
-  if (budget.critical) {
+  if (budget.critical || hasLowBucketPressure(budget)) {
     return false;
   }
 
@@ -195,6 +195,10 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
     bucketEmptyTicks: 0,
     overLimitTicks: 0
   };
+}
+
+function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
+  return budget.reasons.includes('lowBucket') || budget.reasons.includes('criticalBucket');
 }
 
 function updateRuntimeCpuTelemetryState(sample: RuntimeCpuSample): RuntimeCpuTelemetryState {
