@@ -6385,8 +6385,14 @@ var ERR_FULL_CODE = -8;
 var ERR_RCL_NOT_ENOUGH_CODE = -14;
 var FALLBACK_EXTENSION_LIMITS_BY_RCL2 = [0, 0, 5, 10, 20, 30, 40, 50, 60];
 var FALLBACK_TOWER_LIMITS_BY_RCL = [0, 0, 0, 1, 1, 2, 2, 3, 6];
+var DEFAULT_BARRIER_STAGE_ORDER = [
+  "towerRampart",
+  "coreRampart",
+  "entranceRampart",
+  "entranceWall"
+];
 function runRampartWallConstructionExecutorForColony(colony, options = {}) {
-  var _a, _b;
+  var _a;
   const room = colony.room;
   if (options.requireExpansionMemory === true && !isExpansionControlledRoom(room.name)) {
     return { roomName: room.name, status: "skipped", reason: "notExpansionRoom" };
@@ -6411,44 +6417,60 @@ function runRampartWallConstructionExecutorForColony(colony, options = {}) {
   if (!isDefenseBarrierStageReady(colony, rcl)) {
     return { roomName: room.name, status: "skipped", reason: "essentialStructuresPending" };
   }
-  const placements = planExpansionDefenseBarrierPlacements(room, {
-    maxPlacements: options.maxPlacementCandidates,
-    stageOrder: options.stageOrder
-  });
-  const stage = (_b = placements[0]) == null ? void 0 : _b.stage;
-  if (!stage) {
-    return { roomName: room.name, status: "skipped", reason: "noPlacement" };
-  }
-  for (const placement of placements) {
-    if (placement.stage !== stage) {
+  let firstAttemptedPlacement = null;
+  let firstAttemptResult;
+  for (const stage of getBarrierStageOrder(options.stageOrder)) {
+    const placements = planExpansionDefenseBarrierPlacements(room, {
+      maxPlacements: options.maxPlacementCandidates,
+      stageOrder: [stage]
+    });
+    if (placements.length === 0) {
       continue;
     }
-    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
-    if (result === OK_CODE4) {
-      return {
-        roomName: room.name,
-        status: "created",
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
-    }
-    if (isFatalConstructionSiteResult(result)) {
-      return {
-        roomName: room.name,
-        status: "skipped",
-        reason: "noPlacement",
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
+    for (const placement of placements) {
+      const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
+      firstAttemptedPlacement != null ? firstAttemptedPlacement : firstAttemptedPlacement = placement;
+      firstAttemptResult != null ? firstAttemptResult : firstAttemptResult = result;
+      if (result === OK_CODE4) {
+        return {
+          roomName: room.name,
+          status: "created",
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
+      if (isFatalConstructionSiteResult(result)) {
+        return {
+          roomName: room.name,
+          status: "skipped",
+          reason: "noPlacement",
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
     }
   }
-  return { roomName: room.name, status: "skipped", reason: "noPlacement", stage };
+  return {
+    roomName: room.name,
+    status: "skipped",
+    reason: "noPlacement",
+    ...firstAttemptResult !== void 0 ? { result: firstAttemptResult } : {},
+    ...firstAttemptedPlacement ? {
+      stage: firstAttemptedPlacement.stage,
+      structureType: firstAttemptedPlacement.structureType,
+      x: firstAttemptedPlacement.x,
+      y: firstAttemptedPlacement.y
+    } : {}
+  };
+}
+function getBarrierStageOrder(stageOrder) {
+  return stageOrder && stageOrder.length > 0 ? [...new Set(stageOrder)] : DEFAULT_BARRIER_STAGE_ORDER;
 }
 function isDefenseBarrierStageReady(colony, rcl) {
   const room = colony.room;
@@ -11387,29 +11409,11 @@ var ROAD_PATH_COST = 1;
 var PLAIN_PATH_COST = 2;
 var SWAMP_PATH_COST = 10;
 function planEarlyRoadConstruction(colony, options = {}) {
-  var _a, _b;
-  const limits = resolveRoadPlannerLimits(options);
-  if (limits.maxSitesPerTick <= 0 || limits.maxPendingRoadSites <= 0 || ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS || !isPathFinderAvailable() || !hasRequiredRoomApis(colony.room)) {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  if (!plan) {
     return [];
   }
-  const anchor = selectRoadAnchor(colony);
-  if (!anchor) {
-    return [];
-  }
-  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
-  if (routes.length === 0) {
-    return [];
-  }
-  const lookups = createRoadPlannerLookups(colony.room);
-  if (!lookups) {
-    return [];
-  }
-  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits) : countPendingRoadConstructionSites(colony.room);
-  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
-  if (remainingSiteBudget <= 0) {
-    return [];
-  }
-  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  const { candidates, lookups, remainingSiteBudget } = plan;
   const results = [];
   for (const candidate of candidates) {
     if (results.length >= remainingSiteBudget) {
@@ -11427,6 +11431,46 @@ function planEarlyRoadConstruction(colony, options = {}) {
     lookups.costMatrix.set(candidate.x, candidate.y, ROAD_PATH_COST);
   }
   return results;
+}
+function hasEarlyRoadConstructionCandidate(colony, options = {}) {
+  const plan = createEarlyRoadConstructionPlan(colony, options);
+  return plan ? plan.candidates.length > 0 : null;
+}
+function createEarlyRoadConstructionPlan(colony, options) {
+  var _a, _b;
+  const limits = resolveRoadPlannerLimits(options);
+  if (limits.maxSitesPerTick <= 0 || limits.maxPendingRoadSites <= 0 || ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS || !isPathFinderAvailable() || !hasRequiredRoomApis(colony.room)) {
+    return null;
+  }
+  const anchor = selectRoadAnchor(colony);
+  if (!anchor) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
+  if (routes.length === 0) {
+    return { candidates: [], lookups: createEmptyRoadPlannerLookups(), remainingSiteBudget: 0 };
+  }
+  const lookups = createRoadPlannerLookups(colony.room);
+  if (!lookups) {
+    return null;
+  }
+  const pendingRoadSites = options.countOnlyRouteRoadSitesForPendingLimit === true ? countPendingRoadConstructionSitesOnRoutes(colony.room.name, routes, lookups, limits) : countPendingRoadConstructionSites(colony.room);
+  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
+  if (remainingSiteBudget <= 0) {
+    return { candidates: [], lookups, remainingSiteBudget };
+  }
+  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
+  return { candidates, lookups, remainingSiteBudget };
+}
+function createEmptyRoadPlannerLookups() {
+  return {
+    terrain: { get: () => 0 },
+    costMatrix: new PathFinder.CostMatrix(),
+    blockingPositions: /* @__PURE__ */ new Set(),
+    existingRoadPositions: /* @__PURE__ */ new Set(),
+    pendingRoadSitePositions: /* @__PURE__ */ new Set(),
+    pathBlockedPositions: /* @__PURE__ */ new Set()
+  };
 }
 function resolveRoadPlannerLimits(options) {
   return {
@@ -12847,6 +12891,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const room = colony.room;
   const ownedConstructionSites = findRoomObjects16(room, "FIND_MY_CONSTRUCTION_SITES");
   const ownedStructures = findRoomObjects16(room, "FIND_MY_STRUCTURES");
+  const visibleConstructionSites = findRoomObjects16(room, "FIND_CONSTRUCTION_SITES");
   const visibleStructures = findRoomObjects16(room, "FIND_STRUCTURES");
   const hostileCreeps = findRoomObjects16(room, "FIND_HOSTILE_CREEPS");
   const hostileStructures = findRoomObjects16(room, "FIND_HOSTILE_STRUCTURES");
@@ -12855,6 +12900,7 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
   return {
+    room,
     roomName: room.name,
     rcl: ((_a = room.controller) == null ? void 0 : _a.my) === true ? room.controller.level : void 0,
     energyAvailable: colony.energyAvailable,
@@ -12888,6 +12934,9 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
     },
     ownedConstructionSites,
     ownedStructures,
+    sources,
+    spawns: colony.spawns,
+    visibleConstructionSites,
     visibleStructures
   };
 }
@@ -12970,7 +13019,7 @@ function buildExistingSiteCandidates(state) {
   });
 }
 function buildPlannedLocalCandidates(state) {
-  var _a, _b, _c, _d;
+  var _a, _b;
   const candidates = [];
   const rcl = (_a = state.rcl) != null ? _a : 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
@@ -12984,10 +13033,10 @@ function buildPlannedLocalCandidates(state) {
   if (towerLimit > 0 && getExistingAndPendingBuildCount(state, "STRUCTURE_TOWER", "tower") < towerLimit) {
     candidates.push(createCandidateForBuildType("tower", state));
   }
-  if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
+  if (rcl >= 2 && hasSourceContainerConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType("container", state));
   }
-  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && hasRoadConstructionNeed(state)) {
     candidates.push(createCandidateForBuildType("road", state));
   }
   if (rcl >= MIN_RCL_FOR_STORAGE && getExistingAndPendingBuildCount(state, "STRUCTURE_STORAGE", "storage") < STORAGE_STRUCTURE_LIMIT) {
@@ -12997,6 +13046,47 @@ function buildPlannedLocalCandidates(state) {
     candidates.push(createCandidateForBuildType("rampart", state));
   }
   return candidates;
+}
+function hasSourceContainerConstructionNeed(state) {
+  var _a;
+  const sources = state.sources;
+  if (sources === null) {
+    return ((_a = state.sourceCount) != null ? _a : 0) > 0;
+  }
+  return sources.some((source) => !hasRuntimeSourceContainerCoverage(state, source));
+}
+function hasRuntimeSourceContainerCoverage(state, source) {
+  var _a, _b, _c, _d;
+  const sourcePosition = getRoomObjectPosition4(source);
+  if (!sourcePosition || !isSameRoomPosition5(sourcePosition, state.roomName)) {
+    return false;
+  }
+  const structures = (_b = (_a = state.visibleStructures) != null ? _a : state.ownedStructures) != null ? _b : [];
+  const constructionSites = (_d = (_c = state.visibleConstructionSites) != null ? _c : state.ownedConstructionSites) != null ? _d : [];
+  return [...structures, ...constructionSites].filter((object) => matchesStructureType10(String(object.structureType), "STRUCTURE_CONTAINER", "container")).some((object) => {
+    const position = getRoomObjectPosition4(object);
+    const range = getRangeBetweenPositions4(sourcePosition, position);
+    return isSameRoomPosition5(position, state.roomName) && range !== null && range <= 1;
+  });
+}
+function hasRoadConstructionNeed(state) {
+  var _a, _b, _c, _d;
+  if (((_a = state.sourceCount) != null ? _a : 0) <= 0) {
+    return false;
+  }
+  const hasCandidate = hasEarlyRoadConstructionCandidate(
+    {
+      room: state.room,
+      spawns: state.spawns,
+      energyAvailable: (_b = state.energyAvailable) != null ? _b : 0,
+      energyCapacityAvailable: (_c = state.energyCapacity) != null ? _c : 0
+    },
+    {
+      maxSitesPerTick: 1,
+      maxTargetsPerTick: Math.max(1, ((_d = state.sourceCount) != null ? _d : 0) + 1)
+    }
+  );
+  return hasCandidate != null ? hasCandidate : true;
 }
 function getTowerLimitForRcl2(level) {
   var _a;
@@ -14837,7 +14927,7 @@ function buildClaimedRoomConstructionOptions(colony, options) {
     maxContainerSitesPerTick: (_e = options.maxContainerSitesPerTick) != null ? _e : Math.max(1, sourceCount),
     roadOptions: {
       maxSitesPerTick: DEFAULT_CLAIMED_ROOM_ROAD_SITES_PER_TICK,
-      maxTargetsPerTick: Math.max(1, sourceCount),
+      maxTargetsPerTick: Math.max(1, sourceCount + 1),
       ...options.roadOptions
     }
   };

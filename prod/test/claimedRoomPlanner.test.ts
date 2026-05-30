@@ -229,6 +229,32 @@ describe('claimed room construction planner', () => {
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(10, 11, STRUCTURE_ROAD);
   });
 
+  it('continues claimed-room controller road buildout when the source route has no missing road tiles', () => {
+    const { room, colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 800,
+      controllerPosition: { x: 10, y: 20 },
+      sources: [makeSource('source-a', 20, 10)],
+      structures: [
+        ...makeExtensions(10),
+        makeStructure('source-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 19, 10),
+        makeStructure('spawn-staging-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 24, 25),
+        makeStructure('controller-staging-container', TEST_GLOBALS.STRUCTURE_CONTAINER, 10, 19),
+        makeStructure('tower-existing', TEST_GLOBALS.STRUCTURE_TOWER, 24, 24)
+      ],
+      pathsByTarget: {
+        '10,20': [{ x: 23, y: 24 }]
+      }
+    });
+    installPathFinder(room);
+
+    const result = planClaimedRoomConstruction(colony);
+
+    expect(result.placements.map((placement) => placement.priority)).toContain('road');
+    expect(room.createConstructionSite).toHaveBeenCalledWith(23, 24, STRUCTURE_ROAD);
+  });
+
   it('places both E17S59 RCL2 source containers before roads while preserving the energy buffer', () => {
     const { room, colony } = makeColony({
       roomName: 'E17S59',

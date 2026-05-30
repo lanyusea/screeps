@@ -25,6 +25,12 @@ type StructureConstantGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_TOWER';
 type ReturnCodeGlobal = 'ERR_FULL' | 'ERR_RCL_NOT_ENOUGH';
+const DEFAULT_BARRIER_STAGE_ORDER: readonly ExpansionDefenseBarrierPlacementStage[] = [
+  'towerRampart',
+  'coreRampart',
+  'entranceRampart',
+  'entranceWall'
+];
 
 interface PositionedRoomObject {
   pos?: {
@@ -102,48 +108,69 @@ export function runRampartWallConstructionExecutorForColony(
     return { roomName: room.name, status: 'skipped', reason: 'essentialStructuresPending' };
   }
 
-  const placements = planExpansionDefenseBarrierPlacements(room, {
-    maxPlacements: options.maxPlacementCandidates,
-    stageOrder: options.stageOrder
-  });
-  const stage = placements[0]?.stage;
-  if (!stage) {
-    return { roomName: room.name, status: 'skipped', reason: 'noPlacement' };
-  }
-
-  for (const placement of placements) {
-    if (placement.stage !== stage) {
+  let firstAttemptedPlacement: ReturnType<typeof planExpansionDefenseBarrierPlacements>[number] | null = null;
+  let firstAttemptResult: ScreepsReturnCode | undefined;
+  for (const stage of getBarrierStageOrder(options.stageOrder)) {
+    const placements = planExpansionDefenseBarrierPlacements(room, {
+      maxPlacements: options.maxPlacementCandidates,
+      stageOrder: [stage]
+    });
+    if (placements.length === 0) {
       continue;
     }
 
-    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
-    if (result === OK_CODE) {
-      return {
-        roomName: room.name,
-        status: 'created',
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
-    }
+    for (const placement of placements) {
+      const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
+      firstAttemptedPlacement ??= placement;
+      firstAttemptResult ??= result;
 
-    if (isFatalConstructionSiteResult(result)) {
-      return {
-        roomName: room.name,
-        status: 'skipped',
-        reason: 'noPlacement',
-        result,
-        stage: placement.stage,
-        structureType: placement.structureType,
-        x: placement.x,
-        y: placement.y
-      };
+      if (result === OK_CODE) {
+        return {
+          roomName: room.name,
+          status: 'created',
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
+
+      if (isFatalConstructionSiteResult(result)) {
+        return {
+          roomName: room.name,
+          status: 'skipped',
+          reason: 'noPlacement',
+          result,
+          stage: placement.stage,
+          structureType: placement.structureType,
+          x: placement.x,
+          y: placement.y
+        };
+      }
     }
   }
 
-  return { roomName: room.name, status: 'skipped', reason: 'noPlacement', stage };
+  return {
+    roomName: room.name,
+    status: 'skipped',
+    reason: 'noPlacement',
+    ...(firstAttemptResult !== undefined ? { result: firstAttemptResult } : {}),
+    ...(firstAttemptedPlacement
+      ? {
+          stage: firstAttemptedPlacement.stage,
+          structureType: firstAttemptedPlacement.structureType,
+          x: firstAttemptedPlacement.x,
+          y: firstAttemptedPlacement.y
+        }
+      : {})
+  };
+}
+
+function getBarrierStageOrder(
+  stageOrder: readonly ExpansionDefenseBarrierPlacementStage[] | undefined
+): readonly ExpansionDefenseBarrierPlacementStage[] {
+  return stageOrder && stageOrder.length > 0 ? [...new Set(stageOrder)] : DEFAULT_BARRIER_STAGE_ORDER;
 }
 
 function isDefenseBarrierStageReady(colony: ColonySnapshot, rcl: number): boolean {
