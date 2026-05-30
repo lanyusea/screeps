@@ -3145,7 +3145,7 @@ def paid_failure_post_fix_validation_attempts(
             summary_path,
             signature,
         )
-        if item is not None:
+        if item is not None and paid_failure_post_fix_attempt_consumes_validation_slot(item):
             attempts.append(item)
     return attempts
 
@@ -3185,11 +3185,17 @@ def paid_failure_post_fix_validation_attempt_from_summary(
     execution_context = dict_value(summary.get("execution"))
     execution_context_present = paid_failure_post_fix_execution_context_complete(execution_context)
     execution = execution_context or {}
+    inputs = dict_value(summary.get("inputs")) or {}
+    command = text_value(execution.get("command")) or text_value(inputs.get("command"))
+    mode = text_value(execution.get("mode")) or text_value(inputs.get("executionMode"))
+    preflight_only = execution.get("preflightOnly")
+    if not isinstance(preflight_only, bool):
+        preflight_only = inputs.get("preflightOnly") is True
     environments_run = scale_gates.non_negative_int(execution.get("environmentsRun"))
     remote_failure = dict_value(path_value(summary, "outputs", "remoteTrainingFailure"))
     remote_failure_class = text_value(remote_failure.get("failureClass")) if remote_failure else None
     training_report = dict_value(path_value(summary, "outputs", "trainingReport"))
-    return {
+    attempt = {
         "runId": run_id,
         "summaryPath": str(summary_path),
         "finishedAt": text_value(summary.get("finishedAt")),
@@ -3201,6 +3207,10 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "failureSignature": failure_signature,
         "recoveryAttempt": validation_status == "recovery_allowed"
         or guard_status == PAID_FAILURE_RECURRENCE_POST_FIX_VALIDATION_RECOVERY_ALLOWED_STATUS,
+        "command": command,
+        "mode": mode,
+        "preflightOnly": preflight_only,
+        "runIdValid": RUN_ID_RE.fullmatch(run_id) is not None,
         "executionContextPresent": execution_context_present,
         "computeAttempted": execution.get("computeAttempted") is True,
         "scaleOutAttempted": execution.get("scaleOutAttempted") is True,
@@ -3208,8 +3218,11 @@ def paid_failure_post_fix_validation_attempt_from_summary(
         "trainingReportProduced": execution.get("trainingReportProduced") is True,
         "trainingReportPresent": training_report is not None,
         "environmentsRun": environments_run,
+        "remoteTrainingFailurePresent": remote_failure is not None,
         "remoteTrainingFailureClass": remote_failure_class,
     }
+    attempt["validationSlotConsumed"] = paid_failure_post_fix_attempt_consumes_validation_slot(attempt)
+    return attempt
 
 
 def paid_failure_post_fix_execution_context_complete(
@@ -3236,7 +3249,31 @@ def paid_failure_post_fix_attempt_reached_compute_or_training(attempt: dict[str,
         or attempt.get("remoteTrainingAttempted") is True
         or attempt.get("trainingReportProduced") is True
         or attempt.get("trainingReportPresent") is True
+        or attempt.get("remoteTrainingFailurePresent") is True
         or (isinstance(environments_run, int) and environments_run > 0)
+    )
+
+
+def paid_failure_post_fix_attempt_consumes_validation_slot(attempt: dict[str, Any]) -> bool:
+    run_id = text_value(attempt.get("runId"))
+    if run_id is None or RUN_ID_RE.fullmatch(run_id) is None:
+        return False
+    final_status = text_value(attempt.get("finalStatus"))
+    if final_status is None or final_status.startswith(("preflight", "skipped_")):
+        return False
+    if attempt.get("preflightOnly") is True:
+        return False
+    if text_value(attempt.get("command")) == "preflight":
+        return False
+    if text_value(attempt.get("mode")) == "preflight":
+        return False
+    if paid_failure_post_fix_attempt_reached_compute_or_training(attempt):
+        return True
+    return bool(
+        final_status == "failed"
+        and text_value(attempt.get("command")) == "run-single"
+        and text_value(attempt.get("mode")) == "compute"
+        and attempt.get("executionContextPresent") is True
     )
 
 
