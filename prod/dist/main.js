@@ -47320,10 +47320,11 @@ function orderCreepsForEconomyTaskPriority(creeps) {
   ).map((entry) => entry.creep);
 }
 function shouldRunCreepForCpuBudget(creep, cpuBudget) {
+  var _a;
   if (!cpuBudget.critical) {
     return true;
   }
-  const role = creep.memory.role;
+  const role = (_a = creep.memory) == null ? void 0 : _a.role;
   if (role === "worker") {
     return shouldRunWorkerForCriticalCpu(creep);
   }
@@ -47336,18 +47337,19 @@ function shouldRunCreepForCpuBudget(creep, cpuBudget) {
   return false;
 }
 function shouldRunWorkerForCriticalCpu(creep) {
-  const sustain = creep.memory.controllerSustain;
-  if ((sustain == null ? void 0 : sustain.role) === "upgrader") {
-    return isDowngradeGuardControllerCreep(creep);
-  }
-  return creep.memory.territory === void 0;
-}
-function isDowngradeGuardControllerCreep(creep) {
   var _a, _b;
-  if (((_a = creep.memory.controllerUpgrade) == null ? void 0 : _a.priority) === "downgradeGuard") {
+  const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
+  if ((sustain == null ? void 0 : sustain.role) === "upgrader") {
     return true;
   }
-  const controller = (_b = creep.room) == null ? void 0 : _b.controller;
+  return ((_b = creep.memory) == null ? void 0 : _b.territory) === void 0;
+}
+function isDowngradeGuardControllerCreep(creep) {
+  var _a, _b, _c;
+  if (((_b = (_a = creep.memory) == null ? void 0 : _a.controllerUpgrade) == null ? void 0 : _b.priority) === "downgradeGuard") {
+    return true;
+  }
+  const controller = (_c = creep.room) == null ? void 0 : _c.controller;
   const ticksToDowngrade = normalizeOptionalNonNegativeInteger3(controller == null ? void 0 : controller.ticksToDowngrade);
   return (controller == null ? void 0 : controller.my) === true && ticksToDowngrade !== void 0 && ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS;
 }

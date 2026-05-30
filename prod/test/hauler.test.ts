@@ -1,4 +1,5 @@
 import { runHauler } from '../src/creeps/hauler';
+import { CRITICAL_CPU_BUCKET_THRESHOLD } from '../src/runtime/cpuBudget';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -77,7 +78,7 @@ describe('runHauler', () => {
       cpu: {
         getUsed: jest.fn().mockReturnValue(21),
         limit: 70,
-        bucket: 1,
+        bucket: CRITICAL_CPU_BUCKET_THRESHOLD,
         tickLimit: 500
       } as unknown as CPU,
       getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))

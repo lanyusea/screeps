@@ -5,6 +5,7 @@ import {
   shouldRunCreepForCpuBudget
 } from '../src/economy/economyLoop';
 import { buildRuntimeCpuBudget } from '../src/runtime/cpuBudget';
+import { CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS } from '../src/creeps/upgraderRunner';
 import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
@@ -116,11 +117,11 @@ describe('runEconomy', () => {
     });
     const stableRoom = {
       name: 'W1N1',
-      controller: { my: true, ticksToDowngrade: 10_000 } as StructureController
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
     } as Room;
     const downgradeRoom = {
       name: 'W1N1',
-      controller: { my: true, ticksToDowngrade: 1_000 } as StructureController
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS } as StructureController
     } as Room;
     const creep = (
       role: string,
@@ -151,14 +152,14 @@ describe('runEconomy', () => {
       )
     ).toBe(true);
     expect(shouldRunCreepForCpuBudget(creep('upgrader', {}, downgradeRoom), criticalBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('upgrader', {}, stableRoom), criticalBudget)).toBe(false);
 
-    expect(shouldRunCreepForCpuBudget(creep('upgrader'), criticalBudget)).toBe(false);
     expect(
       shouldRunCreepForCpuBudget(
         creep('worker', { controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' } }),
         criticalBudget
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldRunCreepForCpuBudget(
         creep('worker', { territory: { targetRoom: 'W2N1', action: 'reserve' } }),

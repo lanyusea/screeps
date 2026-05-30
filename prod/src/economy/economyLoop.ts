@@ -448,7 +448,7 @@ export function shouldRunCreepForCpuBudget(creep: Creep, cpuBudget: RuntimeCpuBu
     return true;
   }
 
-  const role = creep.memory.role;
+  const role = creep.memory?.role;
   if (role === 'worker') {
     return shouldRunWorkerForCriticalCpu(creep);
   }
@@ -465,16 +465,16 @@ export function shouldRunCreepForCpuBudget(creep: Creep, cpuBudget: RuntimeCpuBu
 }
 
 function shouldRunWorkerForCriticalCpu(creep: Creep): boolean {
-  const sustain = creep.memory.controllerSustain;
+  const sustain = creep.memory?.controllerSustain;
   if (sustain?.role === 'upgrader') {
-    return isDowngradeGuardControllerCreep(creep);
+    return true;
   }
 
-  return creep.memory.territory === undefined;
+  return creep.memory?.territory === undefined;
 }
 
 function isDowngradeGuardControllerCreep(creep: Creep): boolean {
-  if (creep.memory.controllerUpgrade?.priority === 'downgradeGuard') {
+  if (creep.memory?.controllerUpgrade?.priority === 'downgradeGuard') {
     return true;
   }
 
