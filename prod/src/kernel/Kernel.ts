@@ -4,6 +4,7 @@ import { runEconomy } from '../economy/economyLoop';
 import { RUNTIME_SUMMARY_INTERVAL, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import type { RuntimeSummary } from '../telemetry/runtimeSummary';
 import type { StrategyRegistryEntry } from '../strategy/strategyRegistry';
+import { getRuntimeCpuBudget, type RuntimeCpuBudget } from '../runtime/cpuBudget';
 
 const MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
 const DEFENSE_EVENT_FORWARDING_TTL_TICKS = RUNTIME_SUMMARY_INTERVAL;
@@ -40,7 +41,13 @@ export class Kernel {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime());
+    const cpuBudget = getRuntimeCpuBudget();
+    const forwardedEvents = selectForwardedDefenseEvents(
+      defenseEvents,
+      this.lastForwardedDefenseEventTick,
+      getGameTime(),
+      cpuBudget
+    );
     return hasKernelRunOptions(options)
       ? this.dependencies.runEconomy(forwardedEvents, options)
       : this.dependencies.runEconomy(forwardedEvents);
@@ -58,7 +65,8 @@ function hasKernelRunOptions(options: KernelRunOptions): boolean {
 function selectForwardedDefenseEvents(
   events: RuntimeTelemetryEvent[],
   lastForwardedDefenseEventTick: Map<string, number>,
-  tick: number
+  tick: number,
+  cpuBudget: RuntimeCpuBudget
 ): RuntimeTelemetryEvent[] {
   const forwardedEvents: RuntimeTelemetryEvent[] = [];
   pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
@@ -72,7 +80,7 @@ function selectForwardedDefenseEvents(
   for (const { event } of prioritizedEvents) {
     if (event.type !== 'defense') {
       forwardedEvents.push(event);
-    } else if (shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick)) {
+    } else if (shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick, cpuBudget)) {
       forwardedEvents.push(event);
     }
 
@@ -87,8 +95,13 @@ function selectForwardedDefenseEvents(
 function shouldForwardDefenseEvent(
   event: Extract<RuntimeTelemetryEvent, { type: 'defense' }>,
   lastForwardedDefenseEventTick: Map<string, number>,
-  tick: number
+  tick: number,
+  cpuBudget: RuntimeCpuBudget
 ): boolean {
+  if (shouldSuppressRecoveryDefenseTelemetry(event, cpuBudget)) {
+    return false;
+  }
+
   if (event.action === 'safeMode') {
     return true;
   }
@@ -105,6 +118,21 @@ function shouldForwardDefenseEvent(
 
   lastForwardedDefenseEventTick.set(key, tick);
   return true;
+}
+
+function shouldSuppressRecoveryDefenseTelemetry(
+  event: Extract<RuntimeTelemetryEvent, { type: 'defense' }>,
+  cpuBudget: RuntimeCpuBudget
+): boolean {
+  if (!hasLowBucketPressure(cpuBudget) || event.hostileCreepCount > 0 || event.hostileStructureCount > 0) {
+    return false;
+  }
+
+  return event.action === 'towerRepair' || event.action === 'towerHeal';
+}
+
+function hasLowBucketPressure(cpuBudget: RuntimeCpuBudget): boolean {
+  return cpuBudget.reasons.includes('lowBucket') || cpuBudget.reasons.includes('criticalBucket');
 }
 
 function pruneStaleForwardedDefenseEvents(

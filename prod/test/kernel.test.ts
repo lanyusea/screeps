@@ -148,6 +148,82 @@ describe('Kernel', () => {
     expect(runEconomy).toHaveBeenNthCalledWith(2, [safeModeEvent]);
   });
 
+  it('suppresses recovery defense telemetry during low-bucket recovery while still running economy', () => {
+    const towerRepairEvent = makeDefenseEvent({
+      action: 'towerRepair',
+      reason: 'criticalStructureDamaged',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 12,
+      structureId: 'tower1',
+      targetId: 'rampart1'
+    });
+    const runDefense = jest.fn().mockReturnValue([towerRepairEvent]);
+    const runEconomy = jest.fn();
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense,
+      runEconomy
+    });
+
+    setGameTime(501, { used: 65, limit: 70, bucket: 101, tickLimit: 500 });
+    kernel.run();
+
+    expect(runDefense).toHaveBeenCalledTimes(1);
+    expect(runEconomy).toHaveBeenCalledWith([]);
+  });
+
+  it('forwards recovery defense telemetry when CPU bucket is healthy', () => {
+    const towerRepairEvent = makeDefenseEvent({
+      action: 'towerRepair',
+      reason: 'criticalStructureDamaged',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 12,
+      structureId: 'tower1',
+      targetId: 'rampart1'
+    });
+    const runEconomy = jest.fn();
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense: jest.fn().mockReturnValue([towerRepairEvent]),
+      runEconomy
+    });
+
+    setGameTime(601, { used: 12, limit: 70, bucket: 9_000, tickLimit: 500 });
+    kernel.run();
+
+    expect(runEconomy).toHaveBeenCalledWith([towerRepairEvent]);
+  });
+
+  it('keeps critical defense telemetry during low-bucket recovery', () => {
+    const safeModeEvent = makeDefenseEvent({
+      action: 'safeMode',
+      reason: 'safeModeEarlyRoomThreat',
+      targetId: 'controller1'
+    });
+    const towerAttackEvent = makeDefenseEvent({
+      action: 'towerAttack',
+      reason: 'hostileVisible',
+      hostileCreepCount: 1,
+      targetId: 'hostile1'
+    });
+    const runEconomy = jest.fn();
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense: jest.fn().mockReturnValue([towerAttackEvent, safeModeEvent]),
+      runEconomy
+    });
+
+    setGameTime(701, { used: 65, limit: 70, bucket: 101, tickLimit: 500 });
+    kernel.run();
+
+    expect(runEconomy).toHaveBeenCalledWith([safeModeEvent, towerAttackEvent]);
+  });
+
   it('forwards strategy runtime-use options to the economy loop', () => {
     const runEconomy = jest.fn();
     const onStrategyRegistryRuntimeUse = jest.fn();
@@ -195,6 +271,19 @@ function makeDefenseEvent(
   };
 }
 
-function setGameTime(time: number): void {
-  (globalThis as unknown as { Game: Partial<Game> }).Game = { time };
+function setGameTime(
+  time: number,
+  cpu?: { used: number; limit: number; bucket: number; tickLimit: number }
+): void {
+  const game: Partial<Game> = { time };
+  if (cpu) {
+    game.cpu = {
+      getUsed: jest.fn().mockReturnValue(cpu.used),
+      limit: cpu.limit,
+      bucket: cpu.bucket,
+      tickLimit: cpu.tickLimit
+    } as unknown as CPU;
+  }
+
+  (globalThis as unknown as { Game: Partial<Game> }).Game = game;
 }

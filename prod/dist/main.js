@@ -48248,14 +48248,20 @@ var Kernel = class {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    const forwardedEvents = selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime45());
+    const cpuBudget = getRuntimeCpuBudget();
+    const forwardedEvents = selectForwardedDefenseEvents(
+      defenseEvents,
+      this.lastForwardedDefenseEventTick,
+      getGameTime45(),
+      cpuBudget
+    );
     return hasKernelRunOptions(options) ? this.dependencies.runEconomy(forwardedEvents, options) : this.dependencies.runEconomy(forwardedEvents);
   }
 };
 function hasKernelRunOptions(options) {
   return options.strategyRegistry !== void 0 || options.runtimeStrategyConstructionEnabled !== void 0 || options.onStrategyRegistryRuntimeUse !== void 0;
 }
-function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
+function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick, cpuBudget) {
   const forwardedEvents = [];
   pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
   const prioritizedEvents = events.map((event, index) => ({ event, index })).sort(
@@ -48264,7 +48270,7 @@ function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tic
   for (const { event } of prioritizedEvents) {
     if (event.type !== "defense") {
       forwardedEvents.push(event);
-    } else if (shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick)) {
+    } else if (shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick, cpuBudget)) {
       forwardedEvents.push(event);
     }
     if (forwardedEvents.length >= MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK) {
@@ -48273,7 +48279,10 @@ function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tic
   }
   return forwardedEvents;
 }
-function shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick) {
+function shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick, cpuBudget) {
+  if (shouldSuppressRecoveryDefenseTelemetry(event, cpuBudget)) {
+    return false;
+  }
   if (event.action === "safeMode") {
     return true;
   }
@@ -48284,6 +48293,15 @@ function shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick) {
   }
   lastForwardedDefenseEventTick.set(key, tick);
   return true;
+}
+function shouldSuppressRecoveryDefenseTelemetry(event, cpuBudget) {
+  if (!hasLowBucketPressure2(cpuBudget) || event.hostileCreepCount > 0 || event.hostileStructureCount > 0) {
+    return false;
+  }
+  return event.action === "towerRepair" || event.action === "towerHeal";
+}
+function hasLowBucketPressure2(cpuBudget) {
+  return cpuBudget.reasons.includes("lowBucket") || cpuBudget.reasons.includes("criticalBucket");
 }
 function pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick) {
   for (const [key, lastForwardedTick] of lastForwardedDefenseEventTick) {
