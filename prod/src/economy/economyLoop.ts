@@ -363,8 +363,9 @@ export function runEconomy(
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
   const creepCpuBudget = getRuntimeCpuBudget();
+  const criticalCpuIdleWorkerProbeRooms = new Set<string>();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
-    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget)) {
+    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget, criticalCpuIdleWorkerProbeRooms)) {
       continue;
     }
 
@@ -443,14 +444,18 @@ export function orderCreepsForEconomyTaskPriority(creeps: Creep[]): Creep[] {
     .map((entry) => entry.creep);
 }
 
-export function shouldRunCreepForCpuBudget(creep: Creep, cpuBudget: RuntimeCpuBudget): boolean {
+export function shouldRunCreepForCpuBudget(
+  creep: Creep,
+  cpuBudget: RuntimeCpuBudget,
+  criticalCpuIdleWorkerProbeRooms?: Set<string>
+): boolean {
   if (!cpuBudget.critical) {
     return true;
   }
 
   const role = creep.memory?.role;
   if (role === 'worker') {
-    return shouldRunWorkerForCriticalCpu(creep);
+    return shouldRunWorkerForCriticalCpu(creep, criticalCpuIdleWorkerProbeRooms);
   }
 
   if (role === UPGRADER_ROLE) {
@@ -464,13 +469,43 @@ export function shouldRunCreepForCpuBudget(creep: Creep, cpuBudget: RuntimeCpuBu
   return false;
 }
 
-function shouldRunWorkerForCriticalCpu(creep: Creep): boolean {
+function shouldRunWorkerForCriticalCpu(
+  creep: Creep,
+  criticalCpuIdleWorkerProbeRooms: Set<string> | undefined
+): boolean {
   const sustain = creep.memory?.controllerSustain;
   if (sustain?.role === 'upgrader') {
     return true;
   }
 
-  return creep.memory?.territory === undefined;
+  if (creep.memory?.territory !== undefined) {
+    return false;
+  }
+
+  if (
+    creep.memory?.spawnSupport !== undefined ||
+    creep.memory?.task != null ||
+    criticalCpuIdleWorkerProbeRooms === undefined
+  ) {
+    return true;
+  }
+
+  const roomName = getWorkerCriticalCpuProbeRoomName(creep);
+  if (roomName === null) {
+    return true;
+  }
+
+  if (criticalCpuIdleWorkerProbeRooms.has(roomName)) {
+    return false;
+  }
+
+  criticalCpuIdleWorkerProbeRooms.add(roomName);
+  return true;
+}
+
+function getWorkerCriticalCpuProbeRoomName(creep: Creep): string | null {
+  const roomName = creep.room?.name ?? creep.memory?.colony;
+  return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
 function isDowngradeGuardControllerCreep(creep: Creep): boolean {
