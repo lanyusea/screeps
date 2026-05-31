@@ -79,12 +79,12 @@ Repeat policy values:
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | P1 | Research/RL progress fanout. |
 | Screeps 6h development report | `dfcaf65d7ea7` | `47 */6 * * *` | `discord:1497587260835758222:1497833662241181746` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Threaded 6h health/progress report. |
-| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
+| Screeps Gameplay Evolution Review | `c7b3dda8f1ac` | `0 */8 * * *` | `discord:#task-queue` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | 8h strategy review for current target `E29N55`. |
 | Screeps Gameplay Evolution Review decisions archive | `dc1c46787f2e` | `15 */8 * * *` | `discord:1497586175580311654` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Archive accepted strategy decisions/current strategy. |
 | Screeps RL flywheel steward | `aed8362e4501` | `17 * * * *` | `discord:#task-queue` | `openai-codex` | `gpt-5.5` | `/root/screeps` | `high-horizon` | P1 | RL flywheel stewardship and issue/Project reconciliation. |
-| Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
-| Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `-` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
-| Screeps RL policy online advantage ledger | `01609968392a` | `27,57 * * * *` | `discord:#task-queue` | `deepseek` | `deepseek-v4-pro` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
+| Screeps RL shadow-eval pipeline | `d6cff532edd4` | `5 * * * *` | `discord:#task-queue` | `minimax-cn` | `MiniMax-M2.7` | `/root/screeps` | `high-horizon` | P1 | Shadow-eval ledger producer for RL candidate/baseline evidence. |
+| Screeps RL training execution ledger | `5c869e7d8a1d` | `14,44 * * * *` | `discord:#task-queue` | `minimax-cn` | `MiniMax-M2.7` | `-` | `high-horizon` | P1 | Training execution ledger for offline/private RL campaigns; owns Tencent RL utilization control through its preflight instead of a standalone cron. |
+| Screeps RL policy online advantage ledger | `01609968392a` | `27,57 * * * *` | `discord:#task-queue` | `minimax-cn` | `MiniMax-M2.7` | `/root/screeps` | `high-horizon` | P1 | Online advantage ledger comparing candidate policy signals against baseline. |
 | Hermes state daily backup | `bf68a3951853` | `0 4 * * *` | `local` | `minimax-cn` | `MiniMax-M2.7` | `-` | `forever` | Support | Daily private Hermes-state backup. |
 
 ## Transient and retired cron jobs
