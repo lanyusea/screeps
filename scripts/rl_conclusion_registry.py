@@ -16,6 +16,9 @@ from typing import Any, Sequence
 SCHEMA_VERSION = 1
 REGISTRY_TYPE = "rl-conclusion-registry"
 CONCLUSION_STATUSES = ("OPEN", "STALE", "ACTIONED", "VALIDATING", "CLOSED", "ESCALATED")
+ACTIONABLE_STALE_SEVERITIES = ("P0", "P1")
+ACTIONABLE_STALE_CONCLUSION_THRESHOLD = 10
+ACTIONABLE_STALE_CONCLUSION_PREVIEW_LIMIT = 10
 
 JsonObject = dict[str, Any]
 
@@ -204,7 +207,75 @@ def summarize_conclusions(
         "staleOrEscalated": status_counts["STALE"] + status_counts["ESCALATED"],
         "countsByStatus": counts_by_status,
         "unknown": unknown_count,
+        "actionableIssueGate": high_priority_stale_issue_gate(records),
     }
+
+
+def high_priority_stale_issue_gate(records: dict[str, JsonObject]) -> JsonObject:
+    stale_by_severity = {severity: 0 for severity in ACTIONABLE_STALE_SEVERITIES}
+    open_by_severity = {severity: 0 for severity in ACTIONABLE_STALE_SEVERITIES}
+    unresolved: list[JsonObject] = []
+
+    for record in records.values():
+        severity = str(record.get("severity", "")).upper()
+        if severity not in ACTIONABLE_STALE_SEVERITIES:
+            continue
+        status = str(record.get("status", "")).upper()
+        if status == "STALE":
+            stale_by_severity[severity] += 1
+            unresolved.append(record)
+        elif status == "OPEN":
+            open_by_severity[severity] += 1
+            unresolved.append(record)
+
+    stale_count = sum(stale_by_severity.values())
+    open_count = sum(open_by_severity.values())
+    threshold_exceeded = stale_count > ACTIONABLE_STALE_CONCLUSION_THRESHOLD
+    highest_priority_ids = [
+        conclusion_id
+        for conclusion_id in (
+            record.get("conclusionId")
+            for record in sorted(unresolved, key=conclusion_gate_priority_key)
+        )
+        if isinstance(conclusion_id, str) and conclusion_id
+    ][:ACTIONABLE_STALE_CONCLUSION_PREVIEW_LIMIT]
+
+    gate: JsonObject = {
+        "name": "p0_p1_stale_conclusion_backlog",
+        "status": "ACTION_REQUIRED" if threshold_exceeded else "OK",
+        "threshold": ACTIONABLE_STALE_CONCLUSION_THRESHOLD,
+        "thresholdExceeded": threshold_exceeded,
+        "staleHighPriorityCount": stale_count,
+        "openHighPriorityCount": open_count,
+        "staleBySeverity": stale_by_severity,
+        "openBySeverity": open_by_severity,
+        "highestPriorityConclusionIds": highest_priority_ids,
+    }
+    if threshold_exceeded:
+        gate["recommendedAction"] = (
+            "create_or_update_aggregate_rl_conclusion_closure_issue_and_project_evidence"
+        )
+        gate["evidence"] = (
+            f"{stale_count} P0/P1 STALE conclusions exceed threshold "
+            f"{ACTIONABLE_STALE_CONCLUSION_THRESHOLD}; steward/checker must route aggregate closure "
+            "or escalation before reporting the backlog as background context."
+        )
+    return gate
+
+
+def conclusion_gate_priority_key(record: JsonObject) -> tuple[int, int, str, str]:
+    severity_order = {"P0": 0, "P1": 1}
+    status_order = {"STALE": 0, "OPEN": 1}
+    severity = str(record.get("severity", "")).upper()
+    status = str(record.get("status", "")).upper()
+    last_seen = str(record.get("lastSeenAt") or record.get("nextVerification") or "")
+    conclusion_id = str(record.get("conclusionId") or "")
+    return (
+        severity_order.get(severity, 99),
+        status_order.get(status, 99),
+        last_seen,
+        conclusion_id,
+    )
 
 
 def merge_registry_file(
