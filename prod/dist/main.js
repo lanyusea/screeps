@@ -37680,10 +37680,11 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   const cpuBudget = getRuntimeCpuBudget();
   const emitsSummary = shouldEmitRuntimeSummary(tick, events, cpuBudget);
   const shouldRefreshRuntimeTelemetry = !shouldThrottleRuntimeSummaryCadence(cpuBudget) || emitsSummary;
-  const creepsByColony = groupCreepsByColony(creeps, colonies);
+  let creepsByColony;
   let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
   let eventMetricsByRoom = cachedEventMetricsByRoom;
   if (emitsSummary) {
+    creepsByColony = groupCreepsByColony(creeps, colonies);
     refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
     eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
     cachedRefillTargetIdsByRoom = refillTargetIdsByRoom;
@@ -37691,6 +37692,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
     cachedEventMetricsTick = tick;
   }
   if (shouldRefreshRuntimeTelemetry) {
+    creepsByColony != null ? creepsByColony : creepsByColony = groupCreepsByColony(creeps, colonies);
     refreshRefillTelemetry(
       colonies,
       creepsByColony,
@@ -37706,6 +37708,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (!emitsSummary) {
     return void 0;
   }
+  creepsByColony != null ? creepsByColony : creepsByColony = groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
@@ -37736,11 +37739,22 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   return summary;
 }
 function shouldEmitRuntimeSummary(tick, events, cpuBudget = getRuntimeCpuBudget()) {
+  if (cpuBudget.critical) {
+    return hasCriticalRuntimeSummaryEvent(events);
+  }
   if (events.length > 0) {
     return true;
   }
   const interval = shouldThrottleRuntimeSummaryCadence(cpuBudget) ? DEGRADED_RUNTIME_SUMMARY_INTERVAL : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+function hasCriticalRuntimeSummaryEvent(events) {
+  return events.some((event) => {
+    if (event.type !== "defense") {
+      return false;
+    }
+    return event.action === "safeMode" || event.hostileCreepCount > 0 || event.hostileStructureCount > 0 || event.damagedCriticalStructureCount > 0;
+  });
 }
 function resetCachedRefillTelemetryIfTickRewound(tick) {
   if (cachedEventMetricsTick === void 0 || tick >= cachedEventMetricsTick) {
@@ -47222,8 +47236,9 @@ var LOW_ROOM_ENERGY_TASK_PRIORITY_RATIO = 0.5;
 function runEconomy(preludeTelemetryEvents = [], options = {}) {
   var _a, _b, _c, _d;
   const featureGates = getRuntimeFeatureGates();
-  const shouldRunOptionalGlobalWork = () => shouldRunOptionalCpuWork(getRuntimeCpuBudget(), "economy-global-optional");
   const cpuBudget = getRuntimeCpuBudget();
+  const criticalCpu = cpuBudget.critical;
+  const shouldRunOptionalGlobalWork = () => shouldRunOptionalCpuWork(getRuntimeCpuBudget(), "economy-global-optional");
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, "economy-global-optional");
   const creeps = Object.values(Game.creeps);
   if (runOptionalGlobalWork) {
@@ -47237,27 +47252,40 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   const ownedColonies = getOwnedColonies();
   ensureLocalWorkerColonyMemory(ownedColonies, creeps);
-  refreshSpawnEnergyReservationStates(ownedColonies);
+  if (!criticalCpu) {
+    refreshSpawnEnergyReservationStates(ownedColonies);
+  }
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)])
   );
-  const colonies = orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
+  const colonies = criticalCpu ? ownedColonies : orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
   const telemetryEvents = [...preludeTelemetryEvents];
   const usedSpawnsByRoom = /* @__PURE__ */ new Map();
   const reservedSpawnEnergyByRoom = /* @__PURE__ */ new Map();
   const plannedRoleCountsByRoom = new Map(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
-  refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
-  const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
-  const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms2(colonies);
+  if (!criticalCpu) {
+    refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
+  }
+  const postClaimBootstrapFocusRoomName = criticalCpu ? null : selectPostClaimBootstrapFocusRoomName(colonies);
+  const controllerUpgradeTargetRooms = criticalCpu ? void 0 : getControllerUpgradeTargetRooms2(colonies);
   for (const colony of colonies) {
     let roomCpuBudget = getRuntimeCpuBudget();
     let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
-    recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
-    const workerTarget = getWorkerTarget(colony, roleCounts);
-    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    let survivalAssessment;
+    if (criticalCpu) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+      if (!shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+        continue;
+      }
+    }
+    recordSourceWorkloads(colony.room, creeps, Game.time);
+    if (survivalAssessment === void 0) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    }
+    const workerTarget = survivalAssessment.workerTarget;
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
     refreshControllerManagement(
@@ -47388,15 +47416,19 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
       recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
     }
   }
-  if (shouldRunOptionalGlobalWork()) {
+  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
     ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   }
-  attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  if (shouldRunOptionalGlobalWork()) {
+  if (!criticalCpu) {
+    attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  }
+  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
-  refreshSpawnEnergyReservationStates(colonies);
-  refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
+  if (!criticalCpu) {
+    refreshSpawnEnergyReservationStates(colonies);
+    refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
+  }
   const creepCpuBudget = getRuntimeCpuBudget();
   const criticalCpuIdleWorkerProbeRooms = /* @__PURE__ */ new Set();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
@@ -47509,12 +47541,27 @@ function getWorkerCriticalCpuProbeRoomName(creep) {
   const roomName = (_c = (_a = creep.room) == null ? void 0 : _a.name) != null ? _c : (_b = creep.memory) == null ? void 0 : _b.colony;
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
+function shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment) {
+  if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
+    return true;
+  }
+  if (roleCounts.worker < survivalAssessment.survivalWorkerFloor || survivalAssessment.workerCapacity < survivalAssessment.survivalWorkerFloor) {
+    return true;
+  }
+  if (isControllerDowngradeGuardController(colony.room.controller)) {
+    return true;
+  }
+  return isColonyRoomThreatened(colony.room.name, Game.time);
+}
 function isDowngradeGuardControllerCreep(creep) {
   var _a, _b, _c;
   if (((_b = (_a = creep.memory) == null ? void 0 : _a.controllerUpgrade) == null ? void 0 : _b.priority) === "downgradeGuard") {
     return true;
   }
   const controller = (_c = creep.room) == null ? void 0 : _c.controller;
+  return isControllerDowngradeGuardController(controller);
+}
+function isControllerDowngradeGuardController(controller) {
   const ticksToDowngrade = normalizeOptionalNonNegativeInteger3(controller == null ? void 0 : controller.ticksToDowngrade);
   return (controller == null ? void 0 : controller.my) === true && ticksToDowngrade !== void 0 && ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS;
 }

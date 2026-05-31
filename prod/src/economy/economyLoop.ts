@@ -43,6 +43,7 @@ import {
   shouldRunOptionalCpuWork,
   type RuntimeCpuBudget
 } from '../runtime/cpuBudget';
+import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
   ensureRemoteSourceContainersForAssignedHarvesters
@@ -165,9 +166,10 @@ export function runEconomy(
   options: EconomyRuntimeOptions = {}
 ): RuntimeSummary | undefined {
   const featureGates = getRuntimeFeatureGates();
+  const cpuBudget = getRuntimeCpuBudget();
+  const criticalCpu = cpuBudget.critical;
   const shouldRunOptionalGlobalWork = (): boolean =>
     shouldRunOptionalCpuWork(getRuntimeCpuBudget(), 'economy-global-optional');
-  const cpuBudget = getRuntimeCpuBudget();
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, 'economy-global-optional');
   const creeps = Object.values(Game.creeps);
   if (runOptionalGlobalWork) {
@@ -186,28 +188,44 @@ export function runEconomy(
   }
   const ownedColonies = getOwnedColonies();
   ensureLocalWorkerColonyMemory(ownedColonies, creeps);
-  refreshSpawnEnergyReservationStates(ownedColonies);
+  if (!criticalCpu) {
+    refreshSpawnEnergyReservationStates(ownedColonies);
+  }
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)] as const)
   );
-  const colonies = orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
+  const colonies = criticalCpu
+    ? ownedColonies
+    : orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
   const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
   const usedSpawnsByRoom = new Map<string, Set<StructureSpawn>>();
   const reservedSpawnEnergyByRoom = new Map<string, number>();
   const plannedRoleCountsByRoom = new Map<string, RoleCounts>(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
-  refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
-  const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
-  const controllerUpgradeTargetRooms = getControllerUpgradeTargetRooms(colonies);
+  if (!criticalCpu) {
+    refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
+  }
+  const postClaimBootstrapFocusRoomName = criticalCpu ? null : selectPostClaimBootstrapFocusRoomName(colonies);
+  const controllerUpgradeTargetRooms = criticalCpu ? undefined : getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
     let roomCpuBudget = getRuntimeCpuBudget();
     let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
-    recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
-    const workerTarget = getWorkerTarget(colony, roleCounts);
-    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    let survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival> | undefined;
+    if (criticalCpu) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+      if (!shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+        continue;
+      }
+    }
+
+    recordSourceWorkloads(colony.room, creeps, Game.time);
+    if (survivalAssessment === undefined) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    }
+    const workerTarget = survivalAssessment.workerTarget;
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
     refreshControllerManagement(
@@ -352,15 +370,19 @@ export function runEconomy(
     }
   }
 
-  if (shouldRunOptionalGlobalWork()) {
+  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
     ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   }
-  attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
-  if (shouldRunOptionalGlobalWork()) {
+  if (!criticalCpu) {
+    attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  }
+  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
-  refreshSpawnEnergyReservationStates(colonies);
-  refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
+  if (!criticalCpu) {
+    refreshSpawnEnergyReservationStates(colonies);
+    refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
+  }
 
   const creepCpuBudget = getRuntimeCpuBudget();
   const criticalCpuIdleWorkerProbeRooms = new Set<string>();
@@ -508,12 +530,39 @@ function getWorkerCriticalCpuProbeRoomName(creep: Creep): string | null {
   return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
+function shouldRunCriticalCpuColonyPlanning(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
+    return true;
+  }
+
+  if (
+    roleCounts.worker < survivalAssessment.survivalWorkerFloor ||
+    survivalAssessment.workerCapacity < survivalAssessment.survivalWorkerFloor
+  ) {
+    return true;
+  }
+
+  if (isControllerDowngradeGuardController(colony.room.controller)) {
+    return true;
+  }
+
+  return isColonyRoomThreatened(colony.room.name, Game.time);
+}
+
 function isDowngradeGuardControllerCreep(creep: Creep): boolean {
   if (creep.memory?.controllerUpgrade?.priority === 'downgradeGuard') {
     return true;
   }
 
   const controller = creep.room?.controller;
+  return isControllerDowngradeGuardController(controller);
+}
+
+function isControllerDowngradeGuardController(controller: StructureController | undefined): boolean {
   const ticksToDowngrade = normalizeOptionalNonNegativeInteger(controller?.ticksToDowngrade);
   return (
     controller?.my === true &&
@@ -1467,7 +1516,7 @@ function buildAffordableCrossRoomHaulerBody(
 function getSpawnPlanningOptions(
   successfulSpawnCount: number,
   hasPendingTerritoryFollowUp: boolean,
-  controllerUpgradeTargetRooms: readonly string[] | null
+  controllerUpgradeTargetRooms: readonly string[] | null | undefined
 ): SpawnPlanningOptions {
   const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
   if (successfulSpawnCount === 0) {
