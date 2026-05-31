@@ -25329,9 +25329,9 @@ function selectWorkerTask(creep) {
   return selectWorkerTaskWithBcFallback(creep, heuristicTask);
 }
 function hasActiveTerritoryControlAssignment(creep) {
-  var _a, _b;
+  var _a;
   const task = (_a = creep.memory) == null ? void 0 : _a.task;
-  return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve" || ((_b = creep.memory) == null ? void 0 : _b.territory) !== void 0;
+  return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
 }
 function selectCriticalCpuWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy2(creep);

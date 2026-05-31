@@ -332,7 +332,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
 function hasActiveTerritoryControlAssignment(creep: Creep): boolean {
   const task = creep.memory?.task;
-  return task?.type === 'claim' || task?.type === 'reserve' || creep.memory?.territory !== undefined;
+  return task?.type === 'claim' || task?.type === 'reserve';
 }
 
 function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
