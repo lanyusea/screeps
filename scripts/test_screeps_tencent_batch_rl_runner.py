@@ -6221,6 +6221,79 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(progress["ticksRun"], 19600)
         self.assertEqual(progress["wallClockSeconds"], 1330.75)
 
+    def test_remote_training_partial_progress_counts_terminal_rows_not_planned_total(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "remote" / "simulator-artifacts" / "run-test"
+            run_dir.mkdir(parents=True)
+            (run_dir / "run_summary.json").write_text(
+                json.dumps({
+                    "runId": "run-test",
+                    "ok": False,
+                    "successful": 2,
+                    "failed": 1,
+                    "total_environments": 5,
+                    "total_ticks": 1234,
+                    "wallClockSeconds": 12.3456,
+                    "variants": [{}, {}, {}, {}, {}],
+                }),
+                encoding="utf-8",
+            )
+
+            progress = runner.remote_training_partial_simulator_progress(root, "run-test")
+
+        self.assertIsNotNone(progress)
+        assert progress is not None
+        self.assertEqual(progress["completedEnvironmentRows"], 3)
+        self.assertEqual(progress["successfulEnvironmentRows"], 2)
+        self.assertEqual(progress["failedEnvironmentRows"], 1)
+        self.assertEqual(progress["runSummaries"][0]["totalEnvironments"], 5)
+        self.assertEqual(progress["runSummaries"][0]["wallClockSeconds"], 12.346)
+
+        execution = runner.controller_execution_summary(
+            controller_args(),
+            steps=[],
+            result={"remoteTrainingFailure": {"partialSimulatorProgress": progress}},
+            scaled_up=False,
+            instance_id=None,
+        )
+        self.assertEqual(execution["environmentsRun"], 3)
+
+    def test_remote_training_partial_progress_normalizes_non_finite_wall_clock_seconds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            simulator_root = root / "remote" / "simulator-artifacts"
+            for run_id, seconds in (("run-test-r01", float("nan")), ("run-test-r02", float("inf"))):
+                run_dir = simulator_root / run_id
+                run_dir.mkdir(parents=True)
+                (run_dir / "run_summary.json").write_text(
+                    json.dumps({
+                        "runId": run_id,
+                        "ok": True,
+                        "successful": 1,
+                        "failed": 0,
+                        "total_environments": 1,
+                        "total_ticks": 100,
+                        "wallClockSeconds": seconds,
+                    }),
+                    encoding="utf-8",
+                )
+
+            progress = runner.remote_training_partial_simulator_progress(root, "run-test")
+
+        self.assertIsNotNone(progress)
+        assert progress is not None
+        self.assertEqual(progress["wallClockSeconds"], 0.0)
+        self.assertEqual([summary["wallClockSeconds"] for summary in progress["runSummaries"]], [0.0, 0.0])
+        self.assertEqual(progress["completedEnvironmentRows"], 2)
+        encoded = runner.canonical_json({"partialSimulatorProgress": progress})
+        self.assertNotIn("NaN", encoded)
+        self.assertNotIn("Infinity", encoded)
+
+    def test_canonical_json_rejects_non_finite_numbers(self) -> None:
+        with self.assertRaises(ValueError):
+            runner.canonical_json({"wallClockSeconds": float("nan")})
+
     def test_controller_execution_summary_uses_partial_timeout_progress_when_no_report(self) -> None:
         args = controller_args()
         result = {

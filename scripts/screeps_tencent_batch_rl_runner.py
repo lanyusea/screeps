@@ -1916,7 +1916,7 @@ def default_run_id(command: str = "run-single") -> str:
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + "\n"
 
 
 def tail_text(raw: str | None, limit: int = 3000) -> str:
@@ -2546,6 +2546,7 @@ def remote_training_partial_simulator_progress(artifact_dir: Path, run_id: str |
         if ticks_run is None:
             ticks_run = scale_gates.non_negative_int(payload.get("totalTicks")) or 0
         wall_clock_seconds = numeric_value(payload.get("wallClockSeconds")) or 0.0
+        completed_environment_rows = successful + failed
         summary = {
             "runId": text_value(payload.get("runId")) or path.parent.name,
             "summaryPath": str(path),
@@ -2557,7 +2558,7 @@ def remote_training_partial_simulator_progress(artifact_dir: Path, run_id: str |
             "wallClockSeconds": round(wall_clock_seconds, 3),
         }
         summaries.append(summary)
-        totals["completedEnvironmentRows"] += total_environments
+        totals["completedEnvironmentRows"] += completed_environment_rows
         totals["successfulEnvironmentRows"] += successful
         totals["failedEnvironmentRows"] += failed
         totals["ticksRun"] += ticks_run
@@ -3985,12 +3986,14 @@ def numeric_value(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
     if isinstance(value, str):
         try:
-            return float(value)
+            parsed = float(value)
         except ValueError:
             return None
+        return parsed if math.isfinite(parsed) else None
     return None
 
 
