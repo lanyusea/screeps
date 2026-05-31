@@ -78,6 +78,12 @@ export function isRuntimeCpuBucketCritical(game?: RuntimeGameLike): boolean {
   return typeof bucket === 'number' && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
 }
 
+export function isRuntimeCpuBucketLow(game?: RuntimeGameLike): boolean {
+  const runtimeGame = game ?? getRuntimeGame();
+  const bucket = runtimeGame?.cpu?.bucket;
+  return typeof bucket === 'number' && Number.isFinite(bucket) && bucket < LOW_CPU_BUCKET_THRESHOLD;
+}
+
 export function buildRuntimeCpuBudget(sample: RuntimeCpuSample): RuntimeCpuBudget {
   const reasons: RuntimeCpuPressureReason[] = [];
   const lowCpuLimit = sample.limit !== undefined && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
