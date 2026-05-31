@@ -201,6 +201,54 @@ class StrategyShadowReportTest(unittest.TestCase):
         self.assertIn("kpiSummary", report)
         self.assertNotIn("#runtime-summary", json.dumps(report, sort_keys=True))
 
+    def test_generated_rl_dataset_source_index_directory_is_not_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            generated_dataset_dir = artifact_root / "rl-datasets" / "old-run"
+            generated_dataset_dir.mkdir(parents=True)
+            generated_source_index = generated_dataset_dir / "source_index.json"
+            generated_source_index.write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-source-index",
+                        "skippedSamples": [
+                            {"reason": "stale_non_current_room_console_capture", "roomName": "E26S49"}
+                            for _ in range(60)
+                        ],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            runtime_artifact = artifact_root / "runtime.log"
+            runtime_artifact.write_text(runtime_line(replay_payload()), encoding="utf-8")
+            out_dir = root / "strategy-shadow"
+            original_scan_file = dataset_export.scan_file
+            scanned_paths: list[Path] = []
+
+            def tracking_scan_file(path: Path, *args: object, **kwargs: object) -> None:
+                scanned_paths.append(path)
+                original_scan_file(path, *args, **kwargs)
+
+            with mock.patch.object(dataset_export, "scan_file", side_effect=tracking_scan_file):
+                with mock.patch.object(
+                    shadow_report,
+                    "run_shadow_evaluator",
+                    return_value={"enabled": True, "artifactCount": 1, "modelReports": []},
+                ):
+                    summary = shadow_report.build_strategy_shadow_report(
+                        [str(artifact_root)],
+                        out_dir,
+                        report_id="shadow-skip-generated-source-index",
+                        generated_at="2026-05-01T00:00:00Z",
+                        bot_commit="a" * 40,
+                        repo_root=REPO_ROOT,
+                    )
+
+        self.assertTrue(summary["ok"])
+        self.assertNotIn(generated_source_index, scanned_paths)
+
     def test_bounds_diff_samples_and_redacts_configured_secret_values(self) -> None:
         secret = "supersecret123456"
         payloads = [replay_payload(200, secret), replay_payload(201, secret), replay_payload(202, secret)]

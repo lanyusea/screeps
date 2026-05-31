@@ -139,11 +139,12 @@ def build_strategy_shadow_report(
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
     resolved_generated_at = generated_at or utc_now_iso()
 
-    scan_kwargs = {}
+    excluded_directory_names = list(dataset_export.GENERATED_ARTIFACT_DIRECTORY_NAMES)
+    scan_kwargs = {"excluded_directory_names": excluded_directory_names}
     if fast:
+        excluded_directory_names.extend(FAST_EXCLUDED_DIRECTORY_NAMES)
         scan_kwargs.update(
             max_age_hours=max_age_hours,
-            excluded_directory_names=FAST_EXCLUDED_DIRECTORY_NAMES,
             binary_file_extensions=FAST_BINARY_FILE_EXTENSIONS,
         )
 
