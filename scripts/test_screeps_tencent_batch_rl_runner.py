@@ -3777,7 +3777,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(evidence["matchedBy"], "controller-summary diagnostic text")
         self.assertIn("place-spawn room busy after 12 attempt", evidence["diagnosticExcerpt"])
 
-    def test_paid_failure_recurrence_guard_extracts_room_busy_signature_from_retry_loop(self) -> None:
+    def test_paid_failure_recurrence_guard_ignores_nonterminal_room_busy_retry_telemetry(self) -> None:
         retry_log = "\n".join(
             [
                 'phase="place-spawn room busy; retrying" attempt="1" maxAttempts="12" retrySeconds="1.0"',
@@ -3796,11 +3796,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
 
             evidence = runner.paid_failure_recurrence_evidence_from_summary(summary, summary_path)
 
-        assert evidence is not None
-        self.assertEqual(evidence["signature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
-        self.assertEqual(evidence["reason"], "place-spawn room busy")
-        self.assertEqual(evidence["matchedBy"], "controller-summary diagnostic text")
-        self.assertIn("place-spawn room busy; retrying", evidence["diagnosticExcerpt"])
+        self.assertIsNone(evidence)
 
     def test_paid_failure_recurrence_guard_allows_dispatch_below_threshold(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5538,7 +5534,7 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             failure["diagnostics"]["training-stderr.log"]["tail"],
         )
 
-    def test_run_remote_training_classifies_timeout_room_busy_retry_loop(self) -> None:
+    def test_run_remote_training_keeps_timeout_for_nonterminal_room_busy_retry_telemetry(self) -> None:
         args = controller_args()
         args.training_timeout_seconds = 3600
         retry_log = "\n".join(
@@ -5587,11 +5583,10 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             failure = controller.result["remoteTrainingFailure"]
 
         self.assertEqual(failure["returncode"], runner.PROCESS_TIMEOUT_RETURN_CODE)
-        self.assertEqual(failure["failureClass"], "simulator_place_spawn_room_busy")
+        self.assertEqual(failure["failureClass"], "remote_training_timeout")
         self.assertTrue(failure["controllerTimedOut"])
         self.assertFalse(failure["retryable"])
-        self.assertIn("local code/diagnostic fix", failure["nextAction"])
-        self.assertIn("do not rerun paid validation unchanged", failure["nextAction"])
+        self.assertIn("smaller chunks", failure["nextAction"])
 
     def test_run_remote_training_does_not_classify_remote_exit_124_as_controller_timeout(self) -> None:
         args = controller_args()

@@ -207,11 +207,6 @@ REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE = re.compile(
     r"(?:place-spawn room busy after \d+ attempt\(s\)|\bplace_spawn_room_busy\b|room-busy placement lock)",
     re.IGNORECASE,
 )
-REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RETRY_RE = re.compile(
-    r"place-spawn room busy;\s*retrying\b",
-    re.IGNORECASE,
-)
-REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RETRY_THRESHOLD = 2
 REMOTE_NETWORK_RE = re.compile(
     r"(?:connection refused|request canceled|too many requests|toomanyrequests|network .*timed? out|"
     r"net/http|Client\.Timeout)",
@@ -2484,8 +2479,6 @@ def classify_remote_training_failure(
         return "simulator_resource_guard_rejected"
     if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(diagnostic_text):
         return "simulator_place_spawn_room_busy"
-    if controller_timed_out and simulator_place_spawn_room_busy_retry_loop(diagnostic_text):
-        return "simulator_place_spawn_room_busy"
     if process_failure_class in {"network_unreachable", "host_key_self_healing_failed", "host_key_mismatch"}:
         return process_failure_class
     simulator_setup_text = "\n".join(
@@ -2517,11 +2510,6 @@ def classify_remote_training_failure(
     if returncode == 255:
         return "ssh_transport_failed"
     return "remote_process_failed"
-
-
-def simulator_place_spawn_room_busy_retry_loop(text: str) -> bool:
-    retry_count = len(REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RETRY_RE.findall(text))
-    return retry_count >= REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RETRY_THRESHOLD
 
 
 def remote_training_failure_next_action(failure_class: str) -> str | None:
@@ -3512,10 +3500,7 @@ def paid_failure_signature_from_summary(summary: dict[str, Any]) -> dict[str, st
             "diagnosticExcerpt": failure_class,
         }
     for text in iter_failure_signature_texts(summary):
-        if (
-            REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(text)
-            or simulator_place_spawn_room_busy_retry_loop(text)
-        ):
+        if REMOTE_SIMULATOR_PLACE_SPAWN_ROOM_BUSY_RE.search(text):
             return {
                 "signature": PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE,
                 "reason": "place-spawn room busy",
