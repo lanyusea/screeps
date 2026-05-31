@@ -3777,6 +3777,31 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
         self.assertEqual(evidence["matchedBy"], "controller-summary diagnostic text")
         self.assertIn("place-spawn room busy after 12 attempt", evidence["diagnosticExcerpt"])
 
+    def test_paid_failure_recurrence_guard_extracts_room_busy_signature_from_retry_loop(self) -> None:
+        retry_log = "\n".join(
+            [
+                'phase="place-spawn room busy; retrying" attempt="1" maxAttempts="12" retrySeconds="1.0"',
+                'phase="place-spawn room busy; retrying" attempt="1" maxAttempts="12" retrySeconds="1.0"',
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_root = Path(temp_dir) / "batch-runs"
+            summary_path = write_tencent_failure_summary(
+                artifact_root,
+                "postfix-room-busy-validation",
+                failure_class="remote_training_timeout",
+                failure_text=retry_log,
+            )
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+            evidence = runner.paid_failure_recurrence_evidence_from_summary(summary, summary_path)
+
+        assert evidence is not None
+        self.assertEqual(evidence["signature"], runner.PAID_FAILURE_PLACE_SPAWN_ROOM_BUSY_SIGNATURE)
+        self.assertEqual(evidence["reason"], "place-spawn room busy")
+        self.assertEqual(evidence["matchedBy"], "controller-summary diagnostic text")
+        self.assertIn("place-spawn room busy; retrying", evidence["diagnosticExcerpt"])
+
     def test_paid_failure_recurrence_guard_allows_dispatch_below_threshold(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_root = Path(temp_dir) / "batch-runs"
@@ -5512,6 +5537,61 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             "validation heartbeat",
             failure["diagnostics"]["training-stderr.log"]["tail"],
         )
+
+    def test_run_remote_training_classifies_timeout_room_busy_retry_loop(self) -> None:
+        args = controller_args()
+        args.training_timeout_seconds = 3600
+        retry_log = "\n".join(
+            [
+                (
+                    "2026-05-30T21:18:41Z rl-sim-worker[0] variant=baseline "
+                    'phase="place-spawn room busy; retrying" '
+                    'attempt="1" maxAttempts="12" retrySeconds="1.0"'
+                ),
+                (
+                    "2026-05-30T21:21:31Z rl-sim-worker[2] variant=baseline "
+                    'phase="place-spawn room busy; retrying" '
+                    'attempt="1" maxAttempts="12" retrySeconds="1.0"'
+                ),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = runner.Controller(args=args, run_id="run-test", artifact_dir=root)
+
+            def fake_ssh_cmd(
+                _name: str,
+                _remote_command: str,
+                **_kwargs: object,
+            ) -> subprocess.CompletedProcess[str]:
+                return runner.timeout_completed_process(
+                    ["ssh"],
+                    subprocess.TimeoutExpired(["ssh"], 3600, output=b"", stderr=retry_log.encode()),
+                )
+
+            def fake_collect_remote_artifacts() -> None:
+                remote = root / "remote"
+                remote.mkdir(parents=True)
+                (remote / "training-stderr.log").write_text(f"{retry_log}\n", encoding="utf-8")
+                (remote / "training-summary.json").write_text("", encoding="utf-8")
+                (remote / "card-validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+                (remote / "report-extract.json").write_text("", encoding="utf-8")
+
+            with (
+                mock.patch.object(controller, "ssh_cmd", side_effect=fake_ssh_cmd),
+                mock.patch.object(controller, "collect_remote_artifacts", side_effect=fake_collect_remote_artifacts),
+            ):
+                with self.assertRaisesRegex(runner.BatchRunError, "place-spawn room busy; retrying"):
+                    controller.run_remote_training()
+
+            failure = controller.result["remoteTrainingFailure"]
+
+        self.assertEqual(failure["returncode"], runner.PROCESS_TIMEOUT_RETURN_CODE)
+        self.assertEqual(failure["failureClass"], "simulator_place_spawn_room_busy")
+        self.assertTrue(failure["controllerTimedOut"])
+        self.assertFalse(failure["retryable"])
+        self.assertIn("local code/diagnostic fix", failure["nextAction"])
+        self.assertIn("do not rerun paid validation unchanged", failure["nextAction"])
 
     def test_run_remote_training_does_not_classify_remote_exit_124_as_controller_timeout(self) -> None:
         args = controller_args()
