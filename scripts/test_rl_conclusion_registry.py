@@ -212,6 +212,10 @@ class RlConclusionRegistryTest(unittest.TestCase):
             gate["recommendedAction"],
             "create_or_update_aggregate_rl_conclusion_closure_issue_and_project_evidence",
         )
+        self.assertEqual(gate["aggregateRoutingIssue"], "#1543")
+        self.assertEqual(gate["aggregateRoutingIssueNumber"], 1543)
+        self.assertEqual(gate["minimumStaleTransitionsPerStewardCycle"], 3)
+        self.assertEqual(gate["requiredStaleTransition"], "STALE -> ACTIONED/CLOSED")
         self.assertIn("11 P0/P1 STALE conclusions exceed threshold 10", gate["evidence"])
 
     def test_summary_gate_ok_when_high_priority_stale_count_within_threshold(self) -> None:
@@ -231,6 +235,155 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(gate["staleHighPriorityCount"], 10)
         self.assertNotIn("recommendedAction", gate)
         self.assertNotIn("evidence", gate)
+
+    def test_action_plan_handles_object_registry_and_routes_issue_1543(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": {
+                "P1-CURRENT-BLOCKER": {
+                    "conclusionId": "P1-CURRENT-BLOCKER",
+                    "status": "OPEN",
+                    "severity": "P1",
+                    "category": "runtime-evidence",
+                    "linkedIssues": [1542, "#1540"],
+                    "requiredLandingEvidence": {"pr": "#1500"},
+                    "nextVerification": "rerun steward after merge evidence lands",
+                    "lastSeenAt": "2026-05-31T00:00:00Z",
+                    "statement": "Runtime policy still needs landing evidence.",
+                },
+                "P0-SUPERSEDED": {
+                    "conclusionId": "P0-SUPERSEDED",
+                    "status": "STALE",
+                    "severity": "P0",
+                    "category": "policy-stale",
+                    "lastSeenAt": "2026-05-25T00:00:00Z",
+                    "statement": "SUPERSEDED by the current rollout path.",
+                },
+                "P2-IGNORED": {
+                    "conclusionId": "P2-IGNORED",
+                    "status": "STALE",
+                    "severity": "P2",
+                    "category": "policy-stale",
+                },
+                "P0-CLOSED-IGNORED": {
+                    "conclusionId": "P0-CLOSED-IGNORED",
+                    "status": "CLOSED",
+                    "severity": "P0",
+                    "category": "runtime-evidence",
+                },
+            },
+        }
+
+        plan = registry.build_stale_conclusion_action_plan(payload)
+
+        self.assertEqual(plan["aggregateRoutingIssue"], "#1543")
+        self.assertEqual(plan["aggregateRoutingIssueNumber"], 1543)
+        self.assertEqual(plan["candidateFilter"], {"statuses": ["OPEN", "STALE"], "severities": ["P0", "P1"]})
+        self.assertEqual(plan["totalActionableCount"], 2)
+        self.assertEqual(plan["staleDecisionBacklogCount"], 1)
+        self.assertEqual(plan["countsByStatus"], {"OPEN": 1, "STALE": 1})
+        self.assertEqual(plan["countsBySeverity"], {"P0": 1, "P1": 1})
+        self.assertEqual(plan["countsByCategory"], {"policy-stale": 1, "runtime-evidence": 1})
+        self.assertEqual(plan["highestPriorityConclusionIds"], ["P0-SUPERSEDED", "P1-CURRENT-BLOCKER"])
+        self.assertEqual(
+            plan["recommendedNextAction"],
+            {
+                "action": "triage_stale_conclusions_via_aggregate_routing_issue",
+                "routingIssue": "#1543",
+                "routingIssueNumber": 1543,
+                "minimumStaleTransitionsPerStewardCycle": 3,
+                "requiredStaleTransition": "STALE -> ACTIONED/CLOSED",
+                "targetStaleTransitionsThisCycle": 1,
+            },
+        )
+
+        stale_records = plan["groups"]["likelySupersededOrStale"]
+        self.assertEqual([item["conclusionId"] for item in stale_records], ["P0-SUPERSEDED"])
+        self.assertEqual(stale_records[0]["recommendedDisposition"], "CLOSE_IF_SUPERSEDED")
+        self.assertEqual(
+            stale_records[0]["evidenceFlags"],
+            ["status_stale", "statement_superseded", "category_stale"],
+        )
+
+        current_records = plan["groups"]["currentActionableBlockers"]
+        self.assertEqual([item["conclusionId"] for item in current_records], ["P1-CURRENT-BLOCKER"])
+        self.assertEqual(current_records[0]["recommendedDisposition"], "ROUTE_CURRENT_BLOCKER_FOR_EVIDENCE")
+        self.assertEqual(
+            current_records[0]["evidenceFlags"],
+            [
+                "linked_issue_present",
+                "required_landing_evidence_present",
+                "next_verification_present",
+            ],
+        )
+        self.assertEqual(current_records[0]["linkedIssues"], ["#1540", "1542"])
+        self.assertEqual(
+            registry.summarize_conclusions(registry.normalize_conclusions(payload))["staleConclusionActionPlan"],
+            plan,
+        )
+
+    def test_action_plan_handles_legacy_list_registry_and_orders_deterministically(self) -> None:
+        payload = {
+            "schemaVersion": 1,
+            "registryType": "rl-conclusion-registry",
+            "conclusions": [
+                {
+                    "conclusionId": "P1-STALE-OLDER",
+                    "status": "STALE",
+                    "severity": "P1",
+                    "category": "runtime-evidence",
+                    "lastSeenAt": "2026-05-01T00:00:00Z",
+                },
+                {
+                    "conclusionId": "P0-OPEN",
+                    "status": "OPEN",
+                    "severity": "P0",
+                    "category": "runtime-evidence",
+                    "lastSeenAt": "2026-05-01T00:00:00Z",
+                },
+                {
+                    "conclusionId": "P0-STALE-NEWER",
+                    "status": "STALE",
+                    "severity": "P0",
+                    "category": "runtime-evidence",
+                    "lastSeenAt": "2026-05-03T00:00:00Z",
+                },
+                {
+                    "conclusionId": "P0-STALE-OLDER",
+                    "status": "STALE",
+                    "severity": "P0",
+                    "category": "runtime-evidence",
+                    "lastSeenAt": "2026-05-02T00:00:00Z",
+                },
+                {
+                    "conclusionId": "P1-ACTIONED-IGNORED",
+                    "status": "ACTIONED",
+                    "severity": "P1",
+                    "category": "runtime-evidence",
+                },
+            ],
+        }
+
+        plan = registry.build_stale_conclusion_action_plan(payload, preview_limit=3)
+
+        self.assertEqual(plan["totalActionableCount"], 4)
+        self.assertEqual(plan["staleDecisionBacklogCount"], 3)
+        self.assertEqual(plan["countsByStatus"], {"OPEN": 1, "STALE": 3})
+        self.assertEqual(plan["countsBySeverity"], {"P0": 3, "P1": 1})
+        self.assertEqual(
+            plan["highestPriorityConclusionIds"],
+            ["P0-STALE-OLDER", "P0-STALE-NEWER", "P0-OPEN"],
+        )
+        self.assertEqual(plan["recommendedNextAction"]["targetStaleTransitionsThisCycle"], 3)
+        self.assertEqual(
+            [item["conclusionId"] for item in plan["groups"]["likelySupersededOrStale"]],
+            ["P0-STALE-OLDER", "P0-STALE-NEWER", "P1-STALE-OLDER"],
+        )
+        self.assertEqual(
+            [item["conclusionId"] for item in plan["groups"]["currentActionableBlockers"]],
+            ["P0-OPEN"],
+        )
 
     def test_normalize_conclusions_rejects_duplicate_conclusion_ids(self) -> None:
         with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
