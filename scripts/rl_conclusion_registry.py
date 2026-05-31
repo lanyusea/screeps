@@ -8,6 +8,7 @@ import json
 import os
 import stat
 import tempfile
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Sequence
@@ -17,8 +18,12 @@ SCHEMA_VERSION = 1
 REGISTRY_TYPE = "rl-conclusion-registry"
 CONCLUSION_STATUSES = ("OPEN", "STALE", "ACTIONED", "VALIDATING", "CLOSED", "ESCALATED")
 ACTIONABLE_STALE_SEVERITIES = ("P0", "P1")
+ACTIONABLE_STALE_STATUSES = ("OPEN", "STALE")
 ACTIONABLE_STALE_CONCLUSION_THRESHOLD = 10
 ACTIONABLE_STALE_CONCLUSION_PREVIEW_LIMIT = 10
+STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE = "#1543"
+STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE_NUMBER = 1543
+MIN_STALE_CONCLUSION_TRIAGE_DECISIONS_PER_STEWARD_CYCLE = 3
 
 JsonObject = dict[str, Any]
 
@@ -208,6 +213,7 @@ def summarize_conclusions(
         "countsByStatus": counts_by_status,
         "unknown": unknown_count,
         "actionableIssueGate": high_priority_stale_issue_gate(records),
+        "staleConclusionActionPlan": build_stale_conclusion_action_plan(records),
     }
 
 
@@ -243,6 +249,12 @@ def high_priority_stale_issue_gate(records: dict[str, JsonObject]) -> JsonObject
     gate: JsonObject = {
         "name": "p0_p1_stale_conclusion_backlog",
         "status": "ACTION_REQUIRED" if threshold_exceeded else "OK",
+        "aggregateRoutingIssue": STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE,
+        "aggregateRoutingIssueNumber": STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE_NUMBER,
+        "minimumStaleTransitionsPerStewardCycle": (
+            MIN_STALE_CONCLUSION_TRIAGE_DECISIONS_PER_STEWARD_CYCLE
+        ),
+        "requiredStaleTransition": "STALE -> ACTIONED/CLOSED",
         "threshold": ACTIONABLE_STALE_CONCLUSION_THRESHOLD,
         "thresholdExceeded": threshold_exceeded,
         "staleHighPriorityCount": stale_count,
@@ -261,6 +273,204 @@ def high_priority_stale_issue_gate(records: dict[str, JsonObject]) -> JsonObject
             "or escalation before reporting the backlog as background context."
         )
     return gate
+
+
+def build_stale_conclusion_action_plan(
+    registry_or_conclusions: Any,
+    *,
+    aggregate_issue: str = STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE,
+    aggregate_issue_number: int = STALE_CONCLUSION_AGGREGATE_ROUTING_ISSUE_NUMBER,
+    minimum_stale_transitions_per_cycle: int = (
+        MIN_STALE_CONCLUSION_TRIAGE_DECISIONS_PER_STEWARD_CYCLE
+    ),
+    preview_limit: int = ACTIONABLE_STALE_CONCLUSION_PREVIEW_LIMIT,
+) -> JsonObject:
+    """Build a deterministic steward plan for P0/P1 OPEN or STALE conclusions."""
+    if minimum_stale_transitions_per_cycle < 0:
+        raise ConclusionRegistryError("minimum_stale_transitions_per_cycle must be non-negative")
+    if preview_limit < 0:
+        raise ConclusionRegistryError("preview_limit must be non-negative")
+
+    records = normalize_conclusions(registry_or_conclusions)
+    candidates = sorted(
+        (record for record in records.values() if is_stale_action_plan_candidate(record)),
+        key=stale_action_plan_priority_key,
+    )
+
+    counts_by_status = {
+        status: sum(1 for record in candidates if conclusion_status(record) == status)
+        for status in ACTIONABLE_STALE_STATUSES
+    }
+    counts_by_severity = {
+        severity: sum(1 for record in candidates if conclusion_severity(record) == severity)
+        for severity in ACTIONABLE_STALE_SEVERITIES
+    }
+    counts_by_category = dict(
+        sorted(Counter(conclusion_category(record) for record in candidates).items())
+    )
+
+    grouped_records: dict[str, list[JsonObject]] = {
+        "likelySupersededOrStale": [],
+        "currentActionableBlockers": [],
+    }
+    for record in candidates:
+        action_record = stale_action_plan_record(record)
+        group_name = str(action_record["triageGroup"])
+        grouped_records[group_name].append(action_record)
+
+    stale_count = counts_by_status["STALE"]
+    target_transitions = min(stale_count, minimum_stale_transitions_per_cycle)
+
+    return {
+        "name": "p0_p1_open_stale_conclusion_action_plan",
+        "aggregateRoutingIssue": aggregate_issue,
+        "aggregateRoutingIssueNumber": aggregate_issue_number,
+        "candidateFilter": {
+            "statuses": list(ACTIONABLE_STALE_STATUSES),
+            "severities": list(ACTIONABLE_STALE_SEVERITIES),
+        },
+        "totalActionableCount": len(candidates),
+        "staleDecisionBacklogCount": stale_count,
+        "countsByStatus": counts_by_status,
+        "countsBySeverity": counts_by_severity,
+        "countsByCategory": counts_by_category,
+        "highestPriorityConclusionIds": [
+            conclusion_id
+            for conclusion_id in (record.get("conclusionId") for record in candidates)
+            if isinstance(conclusion_id, str) and conclusion_id
+        ][:preview_limit],
+        "groups": grouped_records,
+        "recommendedNextAction": {
+            "action": "triage_stale_conclusions_via_aggregate_routing_issue",
+            "routingIssue": aggregate_issue,
+            "routingIssueNumber": aggregate_issue_number,
+            "minimumStaleTransitionsPerStewardCycle": minimum_stale_transitions_per_cycle,
+            "requiredStaleTransition": "STALE -> ACTIONED/CLOSED",
+            "targetStaleTransitionsThisCycle": target_transitions,
+        },
+    }
+
+
+def is_stale_action_plan_candidate(record: JsonObject) -> bool:
+    return (
+        conclusion_severity(record) in ACTIONABLE_STALE_SEVERITIES
+        and conclusion_status(record) in ACTIONABLE_STALE_STATUSES
+    )
+
+
+def stale_action_plan_record(record: JsonObject) -> JsonObject:
+    status = conclusion_status(record)
+    severity = conclusion_severity(record)
+    category = conclusion_category(record)
+    flags = stale_action_plan_evidence_flags(record)
+    superseded = "statement_superseded" in flags or "category_superseded" in flags
+    likely_stale = superseded or "status_stale" in flags or "category_stale" in flags
+    group = "likelySupersededOrStale" if likely_stale else "currentActionableBlockers"
+    if superseded:
+        disposition = "CLOSE_IF_SUPERSEDED"
+    elif likely_stale:
+        disposition = "TRIAGE_STALE_TO_ACTIONED_OR_CLOSED"
+    elif "required_landing_evidence_present" in flags or "next_verification_present" in flags:
+        disposition = "ROUTE_CURRENT_BLOCKER_FOR_EVIDENCE"
+    else:
+        disposition = "VERIFY_AND_ROUTE_CURRENT_BLOCKER"
+
+    action_record: JsonObject = {
+        "conclusionId": str(record.get("conclusionId") or ""),
+        "status": status,
+        "severity": severity,
+        "category": category,
+        "triageGroup": group,
+        "recommendedDisposition": disposition,
+        "evidenceFlags": flags,
+    }
+    for field in ("lastSeenAt", "requiredLandingEvidence", "nextVerification"):
+        value = record.get(field)
+        if has_evidence_value(value):
+            action_record[field] = value
+    linked_issues = normalize_linked_issues(record.get("linkedIssues"))
+    if linked_issues:
+        action_record["linkedIssues"] = linked_issues
+    return action_record
+
+
+def stale_action_plan_evidence_flags(record: JsonObject) -> list[str]:
+    flags: list[str] = []
+    status = conclusion_status(record)
+    statement = str(record.get("statement") or "")
+    category = conclusion_category(record)
+    category_upper = category.upper()
+    if status == "STALE":
+        flags.append("status_stale")
+    if "SUPERSEDED" in statement.upper():
+        flags.append("statement_superseded")
+    if "SUPERSEDED" in category_upper or "OBSOLETE" in category_upper or "DEPRECATED" in category_upper:
+        flags.append("category_superseded")
+    if "STALE" in category_upper:
+        flags.append("category_stale")
+    if normalize_linked_issues(record.get("linkedIssues")):
+        flags.append("linked_issue_present")
+    if has_evidence_value(record.get("requiredLandingEvidence")):
+        flags.append("required_landing_evidence_present")
+    if has_evidence_value(record.get("nextVerification")):
+        flags.append("next_verification_present")
+    return flags
+
+
+def stale_action_plan_priority_key(record: JsonObject) -> tuple[int, int, str, str, str]:
+    severity_order = {"P0": 0, "P1": 1}
+    status_order = {"STALE": 0, "OPEN": 1}
+    return (
+        severity_order.get(conclusion_severity(record), 99),
+        status_order.get(conclusion_status(record), 99),
+        str(record.get("lastSeenAt") or record.get("nextVerification") or ""),
+        conclusion_category(record),
+        str(record.get("conclusionId") or ""),
+    )
+
+
+def conclusion_status(record: JsonObject) -> str:
+    return str(record.get("status", "UNKNOWN")).upper()
+
+
+def conclusion_severity(record: JsonObject) -> str:
+    return str(record.get("severity", "")).upper()
+
+
+def conclusion_category(record: JsonObject) -> str:
+    category = record.get("category")
+    if not isinstance(category, str) or not category.strip():
+        return "UNCATEGORIZED"
+    return category.strip()
+
+
+def has_evidence_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict)):
+        return bool(value)
+    return True
+
+
+def normalize_linked_issues(value: Any) -> list[str]:
+    if not has_evidence_value(value):
+        return []
+    if isinstance(value, list):
+        values = value
+    else:
+        values = [value]
+    normalized = [stable_text_value(item) for item in values if has_evidence_value(item)]
+    return sorted(dict.fromkeys(item for item in normalized if item))
+
+
+def stable_text_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
 
 def conclusion_gate_priority_key(record: JsonObject) -> tuple[int, int, str, str]:
