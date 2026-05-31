@@ -13,7 +13,8 @@ const TEST_GLOBALS = {
   FIND_MY_CREEPS: 104,
   RESOURCE_ENERGY: 'energy',
   STRUCTURE_SPAWN: 'spawn',
-  STRUCTURE_TOWER: 'tower'
+  STRUCTURE_TOWER: 'tower',
+  STRUCTURE_RAMPART: 'rampart'
 } as const;
 
 describe('runDefense', () => {
@@ -210,6 +211,48 @@ describe('runDefense', () => {
       hostileStructureCount: 0,
       damagedCriticalStructureCount: 1
     });
+  });
+
+  it('sheds passive rampart tower recovery during low-bucket recovery without hostiles', () => {
+    const rampart = makeRampart('rampart-low', 200_000, 300_000);
+    const roomFixture = makeOwnedRoom({ extraStructures: [rampart] });
+    const tower = makeTower(roomFixture.room, {
+      id: 'tower1',
+      repair: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    roomFixture.setTowers([tower]);
+    setCpu({ used: 10, limit: 70, bucket: 942, tickLimit: 500 });
+
+    const events = runDefense();
+
+    expect(tower.repair).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('keeps damaged spawn tower recovery during low-bucket recovery', () => {
+    const roomFixture = makeOwnedRoom({
+      spawnHits: 2_000,
+      spawnHitsMax: 5_000
+    });
+    const tower = makeTower(roomFixture.room, {
+      id: 'tower1',
+      repair: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    roomFixture.setTowers([tower]);
+    setCpu({ used: 10, limit: 70, bucket: 942, tickLimit: 500 });
+
+    const events = runDefense();
+
+    expect(tower.repair).toHaveBeenCalledWith(roomFixture.spawn);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'towerRepair',
+        targetId: 'spawn1'
+      }
+    ]);
   });
 
   it('falls back to local hostiles when attacked sibling room targets are out of tower range', () => {
@@ -759,6 +802,7 @@ function makeOwnedRoom({
   hostiles = [],
   hostileStructures = [],
   includeSpawn = true,
+  extraStructures = [],
   spawnHits = 5_000,
   spawnHitsMax = 5_000
 }: {
@@ -766,11 +810,12 @@ function makeOwnedRoom({
   hostiles?: Creep[];
   hostileStructures?: Structure[];
   includeSpawn?: boolean;
+  extraStructures?: Structure[];
   spawnHits?: number;
   spawnHitsMax?: number;
 } = {}): OwnedRoomFixture {
   let towers: StructureTower[] = [];
-  const room = makeRoom({ controller, hostiles, hostileStructures, getTowers: () => towers });
+  const room = makeRoom({ controller, hostiles, hostileStructures, getTowers: () => towers, extraStructures });
   const spawn = includeSpawn
     ? ({
         id: 'spawn1',
@@ -805,7 +850,8 @@ function makeRoom({
   hostiles = [],
   hostileStructures = [],
   myCreeps = [],
-  getTowers = () => []
+  getTowers = () => [],
+  extraStructures = []
 }: {
   roomName?: string;
   controller: StructureController;
@@ -813,6 +859,7 @@ function makeRoom({
   hostileStructures?: Structure[];
   myCreeps?: Creep[];
   getTowers?: () => StructureTower[];
+  extraStructures?: Structure[];
 }): Room {
   const room = {
     name: roomName,
@@ -830,7 +877,7 @@ function makeRoom({
 
       if (type === TEST_GLOBALS.FIND_MY_STRUCTURES) {
         const spawns = Object.values((globalThis as unknown as { Game?: Partial<Game> }).Game?.spawns ?? {});
-        return [...spawns, ...getTowers()];
+        return [...spawns, ...getTowers(), ...extraStructures];
       }
 
       if (type === TEST_GLOBALS.FIND_MY_CREEPS) {
@@ -850,6 +897,15 @@ function makeRoom({
   }
 
   return room;
+}
+
+function setCpu(cpu: { used: number; limit: number; bucket: number; tickLimit: number }): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game.cpu = {
+    getUsed: jest.fn().mockReturnValue(cpu.used),
+    limit: cpu.limit,
+    bucket: cpu.bucket,
+    tickLimit: cpu.tickLimit
+  } as unknown as CPU;
 }
 
 function makeController({
@@ -935,6 +991,17 @@ function makeHostileStructure(
     structureType,
     pos: makePosition(x, y, roomName)
   } as unknown as Structure;
+}
+
+function makeRampart(id: string, hits: number, hitsMax: number): StructureRampart {
+  return {
+    id,
+    structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+    my: true,
+    hits,
+    hitsMax,
+    pos: makePosition()
+  } as unknown as StructureRampart;
 }
 
 function makePosition(x = 25, y = 25, roomName = 'W1N1'): RoomPosition {

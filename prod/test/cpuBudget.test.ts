@@ -3,6 +3,7 @@ import {
   buildRuntimeCpuTelemetrySummary,
   getRuntimeCpuBudget,
   isRuntimeCpuBucketCritical,
+  isRuntimeCpuBucketLow,
   resetRuntimeCpuTelemetryForTesting,
   shouldRunOptionalCpuWork,
   shouldRunOptionalCpuRoomWork,
@@ -181,6 +182,34 @@ describe('runtime CPU budget policy', () => {
         }
       })
     ).toBe(true);
+    expect(getUsed).not.toHaveBeenCalled();
+  });
+
+  it('detects low bucket pressure without sampling CPU used', () => {
+    const getUsed = jest.fn().mockReturnValue(21);
+
+    expect(
+      isRuntimeCpuBucketLow({
+        time: 125,
+        cpu: {
+          getUsed,
+          limit: 70,
+          bucket: 999,
+          tickLimit: 500
+        }
+      })
+    ).toBe(true);
+    expect(
+      isRuntimeCpuBucketLow({
+        time: 126,
+        cpu: {
+          getUsed,
+          limit: 70,
+          bucket: 1_000,
+          tickLimit: 500
+        }
+      })
+    ).toBe(false);
     expect(getUsed).not.toHaveBeenCalled();
   });
 

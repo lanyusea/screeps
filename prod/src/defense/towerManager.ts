@@ -2,6 +2,8 @@ import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
   buildDefenseTelemetryContext,
   compareObjectIds,
+  findHostileCreeps,
+  findHostileStructures,
   findMyCreeps,
   findOwnedStructures,
   getEnergyResource,
@@ -27,6 +29,7 @@ export interface TowerPriorityTargetGroup {
 
 export interface TowerRunOptions {
   priorityTargetGroups?: TowerPriorityTargetGroup[];
+  allowRecoveryActions?: boolean;
 }
 
 export const TOWER_RECOVERY_ENERGY_RESERVE = 250;
@@ -38,7 +41,10 @@ export function runTowers(room: Room, options: TowerRunOptions = {}): RuntimeTel
 }
 
 export function runTowersWithResult(room: Room, options: TowerRunOptions = {}): TowerRunResult {
-  const context = buildDefenseTelemetryContext(room);
+  const allowRecoveryActions = options.allowRecoveryActions !== false;
+  const context = allowRecoveryActions
+    ? buildDefenseTelemetryContext(room)
+    : buildTowerAttackOnlyTelemetryContext(room);
   const events: RuntimeTelemetryEvent[] = [];
   const result: TowerRunResult = {
     events,
@@ -52,6 +58,10 @@ export function runTowersWithResult(room: Room, options: TowerRunOptions = {}): 
       continue;
     }
 
+    if (!allowRecoveryActions) {
+      continue;
+    }
+
     if (runTowerHeal(tower, context, result)) {
       continue;
     }
@@ -60,6 +70,15 @@ export function runTowersWithResult(room: Room, options: TowerRunOptions = {}): 
   }
 
   return result;
+}
+
+function buildTowerAttackOnlyTelemetryContext(room: Room): DefenseTelemetryContext {
+  return {
+    room,
+    hostileCreeps: findHostileCreeps(room),
+    hostileStructures: findHostileStructures(room),
+    damagedCriticalStructures: []
+  };
 }
 
 function runTowerHeal(
@@ -102,8 +121,13 @@ function runTowerAttack(
     return false;
   }
 
+  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
+  if (!priorityTarget && context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
+    return false;
+  }
+
   const target =
-    selectPriorityTowerAttackTarget(tower, priorityTargetGroups) ??
+    priorityTarget ??
     selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {
       controller: context.room.controller,
       protectedStructures: findOwnedStructures(context.room)

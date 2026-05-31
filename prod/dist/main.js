@@ -942,6 +942,196 @@ function normalizeEnergyAmount(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
+// src/runtime/cpuBudget.ts
+var LOW_CPU_ACCOUNT_LIMIT = 20;
+var LOW_CPU_BUCKET_THRESHOLD = 1e3;
+var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
+var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
+var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
+var REPEATED_BUCKET_EMPTY_TICKS = 2;
+var SUSTAINED_OVER_LIMIT_TICKS = 2;
+var cpuTelemetryState = {
+  lowBucketTicks: 0,
+  bucketEmptyTicks: 0,
+  overLimitTicks: 0
+};
+function getRuntimeCpuBudget(game) {
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
+}
+function isRuntimeCpuBucketCritical(game) {
+  var _a;
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  const bucket = (_a = runtimeGame == null ? void 0 : runtimeGame.cpu) == null ? void 0 : _a.bucket;
+  return typeof bucket === "number" && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+}
+function isRuntimeCpuBucketLow(game) {
+  var _a;
+  const runtimeGame = game != null ? game : getRuntimeGame();
+  const bucket = (_a = runtimeGame == null ? void 0 : runtimeGame.cpu) == null ? void 0 : _a.bucket;
+  return typeof bucket === "number" && Number.isFinite(bucket) && bucket < LOW_CPU_BUCKET_THRESHOLD;
+}
+function buildRuntimeCpuBudget(sample) {
+  const reasons = [];
+  const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
+  if (lowCpuLimit) {
+    reasons.push("lowCpuLimit");
+  }
+  const criticalBucket = sample.bucket !== void 0 && sample.bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
+  if (criticalBucket) {
+    reasons.push("criticalBucket");
+  } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    reasons.push("lowBucket");
+  }
+  if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
+    reasons.push("usedOverLimit");
+  }
+  const critical = criticalBucket;
+  const degraded = critical || reasons.length > 0;
+  return {
+    tick: sample.tick,
+    sample,
+    pressure: critical ? "critical" : degraded ? "degraded" : "normal",
+    degraded,
+    critical,
+    lowCpuLimit,
+    reasons
+  };
+}
+function readRuntimeCpuSample(game = getRuntimeGame()) {
+  const cpu = game == null ? void 0 : game.cpu;
+  return {
+    tick: normalizeTick(game == null ? void 0 : game.time),
+    ...optionalFiniteNumber("used", readCpuUsed(cpu)),
+    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
+    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
+    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
+  };
+}
+function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
+  if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
+    resetRuntimeCpuTelemetryStateForTick(sample.tick);
+    clearRuntimeCpuTelemetryCounters();
+    return null;
+  }
+  const budget = buildRuntimeCpuBudget(sample);
+  const state = updateRuntimeCpuTelemetryState(sample);
+  const alerts = buildRuntimeCpuAlerts(sample, state);
+  return {
+    tick: sample.tick,
+    ...sample.used !== void 0 ? { used: sample.used } : {},
+    ...sample.limit !== void 0 ? { limit: sample.limit } : {},
+    ...sample.tickLimit !== void 0 ? { tickLimit: sample.tickLimit } : {},
+    ...sample.bucket !== void 0 ? { bucket: sample.bucket } : {},
+    pressure: budget.pressure,
+    ...budget.reasons.length > 0 ? { reasons: budget.reasons } : {},
+    ...alerts.length > 0 ? { alerts } : {},
+    ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
+    ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
+    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
+  };
+}
+function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical || hasLowBucketPressure(budget)) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, key, interval);
+}
+function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL) {
+  if (!budget.degraded) {
+    return true;
+  }
+  if (budget.critical || hasLowBucketPressure(budget)) {
+    return false;
+  }
+  return isCadenceTick(budget.tick, roomName, interval);
+}
+function shouldThrottleRuntimeSummaryCadence(budget) {
+  return budget.degraded;
+}
+function shouldShedNonessentialCpuWork(budget) {
+  return budget.critical || hasLowBucketPressure(budget);
+}
+function hasLowBucketPressure(budget) {
+  return budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
+}
+function updateRuntimeCpuTelemetryState(sample) {
+  resetRuntimeCpuTelemetryStateForTick(sample.tick);
+  const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
+  const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
+  const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
+  cpuTelemetryState.lowBucketTicks = lowBucket ? cpuTelemetryState.lowBucketTicks + 1 : 0;
+  cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
+  cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
+  return cpuTelemetryState;
+}
+function resetRuntimeCpuTelemetryStateForTick(tick) {
+  const lastTick = cpuTelemetryState.lastTick;
+  if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
+    clearRuntimeCpuTelemetryCounters();
+  }
+  cpuTelemetryState.lastTick = tick;
+}
+function clearRuntimeCpuTelemetryCounters() {
+  cpuTelemetryState.lowBucketTicks = 0;
+  cpuTelemetryState.bucketEmptyTicks = 0;
+  cpuTelemetryState.overLimitTicks = 0;
+}
+function buildRuntimeCpuAlerts(sample, state) {
+  const alerts = [];
+  if (state.bucketEmptyTicks >= REPEATED_BUCKET_EMPTY_TICKS) {
+    alerts.push("bucketEmptyRepeated");
+  }
+  if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
+    alerts.push("lowBucket");
+  }
+  if (state.overLimitTicks >= SUSTAINED_OVER_LIMIT_TICKS) {
+    alerts.push("sustainedUsedOverLimit");
+  }
+  return alerts;
+}
+function isCadenceTick(tick, key, interval) {
+  const normalizedInterval = Math.max(1, Math.floor(interval));
+  if (tick <= 0) {
+    return false;
+  }
+  return (tick + stableHash(key)) % normalizedInterval === 0;
+}
+function stableHash(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = hash * 31 + value.charCodeAt(index) >>> 0;
+  }
+  return hash;
+}
+function readCpuUsed(cpu) {
+  const getUsed = cpu == null ? void 0 : cpu.getUsed;
+  if (typeof getUsed !== "function") {
+    return void 0;
+  }
+  try {
+    const used = getUsed.call(cpu);
+    return typeof used === "number" && Number.isFinite(used) ? used : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function optionalFiniteNumber(key, value) {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+function normalizeTick(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function getRuntimeGame() {
+  return globalThis.Game;
+}
+
 // src/defense/defenseTelemetry.ts
 var MAX_RECORDED_DEFENSE_ACTIONS = 20;
 var CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
@@ -2070,7 +2260,8 @@ var TOWER_RECOVERY_ENERGY_RESERVE = 250;
 var OK_CODE2 = 0;
 function runTowersWithResult(room, options = {}) {
   var _a;
-  const context = buildDefenseTelemetryContext(room);
+  const allowRecoveryActions = options.allowRecoveryActions !== false;
+  const context = allowRecoveryActions ? buildDefenseTelemetryContext(room) : buildTowerAttackOnlyTelemetryContext(room);
   const events = [];
   const result = {
     events,
@@ -2082,12 +2273,23 @@ function runTowersWithResult(room, options = {}) {
     if (runTowerAttack(tower, context, result, (_a = options.priorityTargetGroups) != null ? _a : [])) {
       continue;
     }
+    if (!allowRecoveryActions) {
+      continue;
+    }
     if (runTowerHeal(tower, context, result)) {
       continue;
     }
     runTowerRepair(tower, context, result);
   }
   return result;
+}
+function buildTowerAttackOnlyTelemetryContext(room) {
+  return {
+    room,
+    hostileCreeps: findHostileCreeps(room),
+    hostileStructures: findHostileStructures(room),
+    damagedCriticalStructures: []
+  };
 }
 function runTowerHeal(tower, context, result) {
   if (!canSpendTowerEnergyOnRecovery(tower) || typeof tower.heal !== "function") {
@@ -2113,11 +2315,14 @@ function runTowerHeal(tower, context, result) {
   return healResult === OK_CODE2;
 }
 function runTowerAttack(tower, context, result, priorityTargetGroups) {
-  var _a;
   if (typeof tower.attack !== "function") {
     return false;
   }
-  const target = (_a = selectPriorityTowerAttackTarget(tower, priorityTargetGroups)) != null ? _a : selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {
+  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
+  if (!priorityTarget && context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
+    return false;
+  }
+  const target = priorityTarget != null ? priorityTarget : selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {
     controller: context.room.controller,
     protectedStructures: findOwnedStructures(context.room)
   });
@@ -2297,20 +2502,27 @@ var MAX_RECORDED_DEFENSE_ACTIONS2 = 20;
 var ERR_NOT_IN_RANGE_CODE = -9;
 function runDefense() {
   const telemetryEvents = [];
+  const shedNonessentialCpuWork = isRuntimeCpuBucketLow();
   refreshVisibleDeadZoneMemory();
   const colonies = getOwnedColonies();
   const contexts = colonies.map(createDefenseContext);
   recordColonyThreats(contexts.map(buildThreatObservation));
   const towerPriorityTargetGroups = buildTowerPriorityTargetGroups(contexts);
   for (const context of contexts) {
-    runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups);
+    runColonyDefense(
+      context,
+      telemetryEvents,
+      towerPriorityTargetGroups,
+      shouldAllowPassiveTowerRecovery(context, shedNonessentialCpuWork)
+    );
   }
   runDefenders(Object.values(Game.creeps), telemetryEvents);
   return telemetryEvents;
 }
-function runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups) {
+function runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups, allowPassiveTowerRecovery) {
   const towerDefenseResult = runTowersWithResult(context.colony.room, {
-    priorityTargetGroups: towerPriorityTargetGroups
+    priorityTargetGroups: towerPriorityTargetGroups,
+    allowRecoveryActions: allowPassiveTowerRecovery
   });
   telemetryEvents.push(...towerDefenseResult.events);
   const safeModeResult = runSafeModeWithResult(context.colony.room);
@@ -2322,6 +2534,12 @@ function runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups) {
     return;
   }
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
+}
+function shouldAllowPassiveTowerRecovery(context, shedNonessentialCpuWork) {
+  if (!shedNonessentialCpuWork) {
+    return true;
+  }
+  return context.hostileCreeps.length > 0 || context.hostileStructures.length > 0 || context.damagedCriticalStructures.length > 0;
 }
 function recordWorkerFallbackIfNeeded(context, telemetryEvents) {
   if (!hasDefensePressure({
@@ -21090,190 +21308,6 @@ function isPositiveFiniteNumber2(value) {
 }
 function isRecord19(value) {
   return typeof value === "object" && value !== null;
-}
-
-// src/runtime/cpuBudget.ts
-var LOW_CPU_ACCOUNT_LIMIT = 20;
-var LOW_CPU_BUCKET_THRESHOLD = 1e3;
-var CRITICAL_CPU_BUCKET_THRESHOLD = 100;
-var DEGRADED_OPTIONAL_WORK_INTERVAL = 5;
-var DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL = 3;
-var REPEATED_BUCKET_EMPTY_TICKS = 2;
-var SUSTAINED_OVER_LIMIT_TICKS = 2;
-var cpuTelemetryState = {
-  lowBucketTicks: 0,
-  bucketEmptyTicks: 0,
-  overLimitTicks: 0
-};
-function getRuntimeCpuBudget(game) {
-  const runtimeGame = game != null ? game : getRuntimeGame();
-  return buildRuntimeCpuBudget(readRuntimeCpuSample(runtimeGame));
-}
-function isRuntimeCpuBucketCritical(game) {
-  var _a;
-  const runtimeGame = game != null ? game : getRuntimeGame();
-  const bucket = (_a = runtimeGame == null ? void 0 : runtimeGame.cpu) == null ? void 0 : _a.bucket;
-  return typeof bucket === "number" && Number.isFinite(bucket) && bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
-}
-function buildRuntimeCpuBudget(sample) {
-  const reasons = [];
-  const lowCpuLimit = sample.limit !== void 0 && sample.limit <= LOW_CPU_ACCOUNT_LIMIT;
-  if (lowCpuLimit) {
-    reasons.push("lowCpuLimit");
-  }
-  const criticalBucket = sample.bucket !== void 0 && sample.bucket <= CRITICAL_CPU_BUCKET_THRESHOLD;
-  if (criticalBucket) {
-    reasons.push("criticalBucket");
-  } else if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
-    reasons.push("lowBucket");
-  }
-  if (sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit) {
-    reasons.push("usedOverLimit");
-  }
-  const critical = criticalBucket;
-  const degraded = critical || reasons.length > 0;
-  return {
-    tick: sample.tick,
-    sample,
-    pressure: critical ? "critical" : degraded ? "degraded" : "normal",
-    degraded,
-    critical,
-    lowCpuLimit,
-    reasons
-  };
-}
-function readRuntimeCpuSample(game = getRuntimeGame()) {
-  const cpu = game == null ? void 0 : game.cpu;
-  return {
-    tick: normalizeTick(game == null ? void 0 : game.time),
-    ...optionalFiniteNumber("used", readCpuUsed(cpu)),
-    ...optionalFiniteNumber("limit", cpu == null ? void 0 : cpu.limit),
-    ...optionalFiniteNumber("bucket", cpu == null ? void 0 : cpu.bucket),
-    ...optionalFiniteNumber("tickLimit", cpu == null ? void 0 : cpu.tickLimit)
-  };
-}
-function buildRuntimeCpuTelemetrySummary(sample = readRuntimeCpuSample()) {
-  if (sample.used === void 0 && sample.limit === void 0 && sample.bucket === void 0 && sample.tickLimit === void 0) {
-    resetRuntimeCpuTelemetryStateForTick(sample.tick);
-    clearRuntimeCpuTelemetryCounters();
-    return null;
-  }
-  const budget = buildRuntimeCpuBudget(sample);
-  const state = updateRuntimeCpuTelemetryState(sample);
-  const alerts = buildRuntimeCpuAlerts(sample, state);
-  return {
-    tick: sample.tick,
-    ...sample.used !== void 0 ? { used: sample.used } : {},
-    ...sample.limit !== void 0 ? { limit: sample.limit } : {},
-    ...sample.tickLimit !== void 0 ? { tickLimit: sample.tickLimit } : {},
-    ...sample.bucket !== void 0 ? { bucket: sample.bucket } : {},
-    pressure: budget.pressure,
-    ...budget.reasons.length > 0 ? { reasons: budget.reasons } : {},
-    ...alerts.length > 0 ? { alerts } : {},
-    ...state.lowBucketTicks > 0 ? { lowBucketTicks: state.lowBucketTicks } : {},
-    ...state.bucketEmptyTicks > 0 ? { bucketEmptyTicks: state.bucketEmptyTicks } : {},
-    ...state.overLimitTicks > 0 ? { overLimitTicks: state.overLimitTicks } : {}
-  };
-}
-function shouldRunOptionalCpuWork(budget, key, interval = DEGRADED_OPTIONAL_WORK_INTERVAL) {
-  if (!budget.degraded) {
-    return true;
-  }
-  if (budget.critical || hasLowBucketPressure(budget)) {
-    return false;
-  }
-  return isCadenceTick(budget.tick, key, interval);
-}
-function shouldRunOptionalCpuRoomWork(budget, roomName, interval = DEGRADED_ROOM_OPTIONAL_WORK_INTERVAL) {
-  if (!budget.degraded) {
-    return true;
-  }
-  if (budget.critical || hasLowBucketPressure(budget)) {
-    return false;
-  }
-  return isCadenceTick(budget.tick, roomName, interval);
-}
-function shouldThrottleRuntimeSummaryCadence(budget) {
-  return budget.degraded;
-}
-function shouldShedNonessentialCpuWork(budget) {
-  return budget.critical || hasLowBucketPressure(budget);
-}
-function hasLowBucketPressure(budget) {
-  return budget.reasons.includes("lowBucket") || budget.reasons.includes("criticalBucket");
-}
-function updateRuntimeCpuTelemetryState(sample) {
-  resetRuntimeCpuTelemetryStateForTick(sample.tick);
-  const lowBucket = sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD;
-  const bucketEmpty = sample.bucket !== void 0 && sample.bucket <= 0;
-  const overLimit = sample.used !== void 0 && sample.limit !== void 0 && sample.limit > 0 && sample.used > sample.limit;
-  cpuTelemetryState.lowBucketTicks = lowBucket ? cpuTelemetryState.lowBucketTicks + 1 : 0;
-  cpuTelemetryState.bucketEmptyTicks = bucketEmpty ? cpuTelemetryState.bucketEmptyTicks + 1 : 0;
-  cpuTelemetryState.overLimitTicks = overLimit ? cpuTelemetryState.overLimitTicks + 1 : 0;
-  return cpuTelemetryState;
-}
-function resetRuntimeCpuTelemetryStateForTick(tick) {
-  const lastTick = cpuTelemetryState.lastTick;
-  if (lastTick !== void 0 && tick > 0 && lastTick > 0 && tick !== lastTick + 1) {
-    clearRuntimeCpuTelemetryCounters();
-  }
-  if (lastTick !== void 0 && tick > 0 && lastTick > tick) {
-    clearRuntimeCpuTelemetryCounters();
-  }
-  cpuTelemetryState.lastTick = tick;
-}
-function clearRuntimeCpuTelemetryCounters() {
-  cpuTelemetryState.lowBucketTicks = 0;
-  cpuTelemetryState.bucketEmptyTicks = 0;
-  cpuTelemetryState.overLimitTicks = 0;
-}
-function buildRuntimeCpuAlerts(sample, state) {
-  const alerts = [];
-  if (state.bucketEmptyTicks >= REPEATED_BUCKET_EMPTY_TICKS) {
-    alerts.push("bucketEmptyRepeated");
-  }
-  if (sample.bucket !== void 0 && sample.bucket < LOW_CPU_BUCKET_THRESHOLD) {
-    alerts.push("lowBucket");
-  }
-  if (state.overLimitTicks >= SUSTAINED_OVER_LIMIT_TICKS) {
-    alerts.push("sustainedUsedOverLimit");
-  }
-  return alerts;
-}
-function isCadenceTick(tick, key, interval) {
-  const normalizedInterval = Math.max(1, Math.floor(interval));
-  if (tick <= 0) {
-    return false;
-  }
-  return (tick + stableHash(key)) % normalizedInterval === 0;
-}
-function stableHash(value) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = hash * 31 + value.charCodeAt(index) >>> 0;
-  }
-  return hash;
-}
-function readCpuUsed(cpu) {
-  const getUsed = cpu == null ? void 0 : cpu.getUsed;
-  if (typeof getUsed !== "function") {
-    return void 0;
-  }
-  try {
-    const used = getUsed.call(cpu);
-    return typeof used === "number" && Number.isFinite(used) ? used : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function optionalFiniteNumber(key, value) {
-  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
-}
-function normalizeTick(value) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-}
-function getRuntimeGame() {
-  return globalThis.Game;
 }
 
 // src/creeps/upgraderRunner.ts
