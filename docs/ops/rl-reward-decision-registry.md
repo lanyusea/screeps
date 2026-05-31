@@ -175,7 +175,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 - **RL Steward:** Converts Gameplay Evolution findings into explicit reward-decision issues, PRs, or validation work.
 - **E1 Shadow-Eval Gate (cron `d6cff532edd4`):** Validates proposed or implemented components in shadow mode before acceptance.
 - **E4 Training (cron `5c869e7d8a1d`):** Uses only accepted components or explicitly approved offline experiments.
-- **#924 Scorecard:** Standardized candidate-vs-baseline evaluation for reward/policy changes; reliability drops above the configured rollback threshold fail closed for candidate admission.
+- **#924 Scorecard:** Standardized candidate-vs-baseline evaluation for reward/policy changes. RD-V3-005 proposes adding fail-closed candidate admission when online/shadow reliability drops exceed the configured rollback threshold or required reliability data is missing; until RD-V3-005 is accepted and implemented, this reliability gate is not deployed behavior.
 - **#906 Metric Taxonomy:** Owns missing or insufficient telemetry needed to validate reward decisions.
 
 ## Related Issues and PRs
