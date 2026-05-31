@@ -173,6 +173,65 @@ class RlConclusionRegistryTest(unittest.TestCase):
         self.assertEqual(merged["summary"]["countsByStatus"]["UNKNOWN"], 1)
         self.assertEqual(merged["summary"]["countsByStatus"]["DEFERRED"], 1)
 
+    def test_summary_surfaces_high_priority_stale_backlog_gate(self) -> None:
+        records = {
+            f"P0-STALE-{index:02d}": {
+                "conclusionId": f"P0-STALE-{index:02d}",
+                "status": "STALE",
+                "severity": "P0",
+                "lastSeenAt": f"2026-05-2{index % 10}T00:00:00Z",
+            }
+            for index in range(11)
+        }
+        records["P1-OPEN"] = {
+            "conclusionId": "P1-OPEN",
+            "status": "OPEN",
+            "severity": "P1",
+            "lastSeenAt": "2026-05-31T00:00:00Z",
+        }
+        records["P2-STALE"] = {
+            "conclusionId": "P2-STALE",
+            "status": "STALE",
+            "severity": "P2",
+            "lastSeenAt": "2026-05-31T00:00:00Z",
+        }
+
+        gate = registry.summarize_conclusions(records)["actionableIssueGate"]
+
+        self.assertEqual(gate["name"], "p0_p1_stale_conclusion_backlog")
+        self.assertEqual(gate["status"], "ACTION_REQUIRED")
+        self.assertTrue(gate["thresholdExceeded"])
+        self.assertEqual(gate["threshold"], 10)
+        self.assertEqual(gate["staleHighPriorityCount"], 11)
+        self.assertEqual(gate["openHighPriorityCount"], 1)
+        self.assertEqual(gate["staleBySeverity"], {"P0": 11, "P1": 0})
+        self.assertEqual(gate["openBySeverity"], {"P0": 0, "P1": 1})
+        self.assertEqual(gate["highestPriorityConclusionIds"][0], "P0-STALE-00")
+        self.assertNotIn("P2-STALE", gate["highestPriorityConclusionIds"])
+        self.assertEqual(
+            gate["recommendedAction"],
+            "create_or_update_aggregate_rl_conclusion_closure_issue_and_project_evidence",
+        )
+        self.assertIn("11 P0/P1 STALE conclusions exceed threshold 10", gate["evidence"])
+
+    def test_summary_gate_ok_when_high_priority_stale_count_within_threshold(self) -> None:
+        records = {
+            f"P1-STALE-{index:02d}": {
+                "conclusionId": f"P1-STALE-{index:02d}",
+                "status": "STALE",
+                "severity": "P1",
+            }
+            for index in range(10)
+        }
+
+        gate = registry.summarize_conclusions(records)["actionableIssueGate"]
+
+        self.assertEqual(gate["status"], "OK")
+        self.assertFalse(gate["thresholdExceeded"])
+        self.assertEqual(gate["staleHighPriorityCount"], 10)
+        self.assertNotIn("recommendedAction", gate)
+        self.assertNotIn("evidence", gate)
+
     def test_normalize_conclusions_rejects_duplicate_conclusion_ids(self) -> None:
         with self.assertRaisesRegex(registry.ConclusionRegistryError, "DUPLICATE-ID"):
             registry.normalize_conclusions(
