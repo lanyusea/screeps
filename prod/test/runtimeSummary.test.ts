@@ -395,6 +395,23 @@ describe('runtime telemetry summaries', () => {
     expect(logSpy).not.toHaveBeenCalled();
   });
 
+  it('suppresses full cadence summaries while the CPU bucket is critical', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL * 5 });
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(24),
+      limit: 70,
+      bucket: 43,
+      tickLimit: 63
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], []);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [message] = logSpy.mock.calls[0];
+    expect(typeof message).toBe('string');
+    expect((message as string).startsWith(RUNTIME_CPU_SUMMARY_PREFIX)).toBe(true);
+  });
+
   it('reports per-creep behavior counters and resets emitted counters', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const worker = makeWorker(
@@ -3037,13 +3054,20 @@ describe('runtime telemetry summaries', () => {
     ).toBe(true);
   });
 
-  it('uses degraded cadence for low CPU bucket pressure without suppressing event summaries', () => {
+  it('uses degraded cadence for low bucket pressure and suppresses noncritical summaries at critical bucket', () => {
+    const lowBucketBudget = buildRuntimeCpuBudget({
+      tick: RUNTIME_SUMMARY_INTERVAL,
+      used: 21,
+      limit: 70,
+      bucket: 500,
+      tickLimit: 500
+    });
     const criticalBucketBudget = buildRuntimeCpuBudget({
       tick: RUNTIME_SUMMARY_INTERVAL,
       used: 21,
       limit: 70,
       bucket: 43,
-      tickLimit: 500
+      tickLimit: 63
     });
     const spawnEvent: RuntimeTelemetryEvent = {
       type: 'spawn',
@@ -3053,10 +3077,23 @@ describe('runtime telemetry summaries', () => {
       role: 'worker',
       result: 0 as ScreepsReturnCode
     };
+    const safeModeEvent: RuntimeTelemetryEvent = {
+      type: 'defense',
+      action: 'safeMode',
+      roomName: 'W1N1',
+      reason: 'safeModeEarlyRoomThreat',
+      hostileCreepCount: 2,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 0,
+      tick: RUNTIME_SUMMARY_INTERVAL
+    };
 
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], criticalBucketBudget)).toBe(false);
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(true);
-    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], lowBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], lowBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(false);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], criticalBucketBudget)).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {

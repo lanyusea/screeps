@@ -292,6 +292,52 @@ describe('runEconomy', () => {
     });
   });
 
+  it('skips stable colony planning while the CPU bucket is critical', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      find: jest.fn(() => [])
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const worker = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 127,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: { Worker1: worker },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(12),
+        limit: 70,
+        bucket: 1,
+        tickLimit: 21
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(room.find).not.toHaveBeenCalled();
+  });
+
   it('spawns an emergency bootstrap worker without requiring the energy buffer', () => {
     const room = {
       name: 'W1N1',
