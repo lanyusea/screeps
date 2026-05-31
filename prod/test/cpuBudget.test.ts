@@ -6,6 +6,7 @@ import {
   resetRuntimeCpuTelemetryForTesting,
   shouldRunOptionalCpuWork,
   shouldRunOptionalCpuRoomWork,
+  shouldShedNonessentialCpuWork,
   shouldThrottleRuntimeSummaryCadence
 } from '../src/runtime/cpuBudget';
 
@@ -34,6 +35,7 @@ describe('runtime CPU budget policy', () => {
       reasons: []
     });
     expect(shouldRunOptionalCpuRoomWork(budget, 'E29N55')).toBe(true);
+    expect(shouldShedNonessentialCpuWork(budget)).toBe(false);
   });
 
   it('degrades a 20 CPU account and round-robins optional room work', () => {
@@ -123,6 +125,17 @@ describe('runtime CPU budget policy', () => {
       ])
     );
     expect(decisions.every((decision) => decision.global === false && decision.room === false)).toBe(true);
+    expect(
+      shouldShedNonessentialCpuWork(
+        buildRuntimeCpuBudget({
+          tick: 7,
+          used: 19,
+          limit: 70,
+          bucket: 101,
+          tickLimit: 121
+        })
+      )
+    ).toBe(true);
   });
 
   it('refreshes CPU used samples during the same game tick', () => {

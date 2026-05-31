@@ -306,6 +306,19 @@ function setRuntimeShard(name: string): void {
   };
 }
 
+function setCpuBucket(bucket: number): void {
+  const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+  globalScope.Game = {
+    ...(globalScope.Game ?? {}),
+    cpu: {
+      getUsed: jest.fn().mockReturnValue(21),
+      limit: 70,
+      bucket,
+      tickLimit: 25
+    } as unknown as CPU
+  };
+}
+
 function makePreHarvestSource(
   id: string,
   x: number,
@@ -11886,6 +11899,71 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
+
+  it('does not let stale territory memory bypass low-bucket CPU shedding', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 650,
+        energyCapacityAvailable: 650,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    setCpuBucket(500);
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it.each(['claim', 'reserve'] as const)(
+    'preserves active %s territory-control tasks during critical CPU shedding',
+    (action) => {
+      const controller = { id: 'controller2', my: false } as StructureController;
+      const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: {
+          intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action, status: 'active', updatedAt: 300 }]
+        }
+      };
+      const creep = {
+        owner: { username: 'me' },
+        memory: {
+          role: 'worker',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action },
+          task: { type: action, targetId: 'controller2' as Id<StructureController> }
+        },
+        getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === CLAIM ? 1 : 0)),
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room: makeWorkerTaskRoom({
+          constructionSites: [site],
+          controller
+        })
+      } as unknown as Creep;
+      (creep.room as Room & { name: string }).name = 'W2N1';
+      ensureVisibleOwnedRcl6ColonyRoom();
+      setCpuBucket(43);
+
+      expect(selectWorkerTask(creep)).toEqual({ type: action, targetId: 'controller2' });
+    }
+  );
 
   it('acquires energy for missing spawn construction under critical CPU bucket pressure', () => {
     const spawnSite = {
