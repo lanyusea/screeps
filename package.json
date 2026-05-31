@@ -8,6 +8,7 @@
     "rl-grafana:print-command": "python3 scripts/screeps_rl_grafana.py docker-command",
     "rl-grafana:run": "python3 scripts/screeps_rl_grafana.py run",
     "rl-grafana:validate": "python3 scripts/screeps_rl_grafana.py validate",
+    "rl-grafana:content-audit": "python3 scripts/screeps_rl_grafana.py content-audit",
     "rl-grafana:validate:provisioning": "python3 scripts/screeps_rl_grafana.py validate --provisioning-only",
     "rl-metrics-refresh": "python3 scripts/screeps_rl_live_dashboard.py refresh"
   },

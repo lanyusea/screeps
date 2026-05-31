@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
+import sqlite3
 import subprocess
 import sys
 import urllib.error
@@ -34,6 +36,28 @@ TIME_SERIES_FORMAT = "time_series"
 TIME_SERIES_QUERY_TYPE = "time series"
 TABLE_QUERY_TYPE = "table"
 TIME_SERIES_TIME_COLUMNS = ["time"]
+CONTENT_READY = "ready"
+CONTENT_WAITING_FOR_DATA = "waiting_for_data"
+CONTENT_NOT_INSTRUMENTED = "not_instrumented"
+CONTENT_MISCONFIGURED = "misconfigured"
+
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SQL_STRING_RE = re.compile(r"'((?:''|[^'])*)'")
+SQL_TABLE_RE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+
+RUNTIME_ROOM_COLUMN_METRICS = {
+    "build_carried_energy": "construction.build_carried_energy",
+    "build_blocked_reason": "construction.build_blocked_reason",
+    "construction_site_count": "construction.site_count",
+    "construction_deadlock_ticks": "construction.deadlock_ticks",
+    "destination_blocked": "creep.destination_blocked",
+    "extension_capacity_contribution": "economy.extension_capacity_contribution",
+    "extension_count": "economy.extension_count",
+    "path_finding_failures": "creep.path_finding_failures",
+    "pending_build_progress": "construction.pending_build_progress",
+    "worker_load_trip_energy_mean": "creep.worker_load_trip_energy_mean",
+    "worker_load_trip_energy_min": "creep.worker_load_trip_energy_min",
+}
 
 REQUIRED_QUERY_COVERAGE = {
     "metric observation history": "FROM metric_observations",
@@ -143,6 +167,401 @@ def panel_queries(panels: list[JsonObject]) -> list[str]:
             if isinstance(query_text, str):
                 queries.append(query_text)
     return queries
+
+
+def sqlite_string_values(text: str) -> list[str]:
+    return [match.group(1).replace("''", "'") for match in SQL_STRING_RE.finditer(text)]
+
+
+def filter_values_from_query(query_text: str, column_name: str) -> list[str]:
+    values: list[str] = []
+    escaped_column = re.escape(column_name)
+    equals_pattern = re.compile(
+        rf"\b{escaped_column}\s*=\s*'((?:''|[^'])*)'",
+        re.IGNORECASE,
+    )
+    in_pattern = re.compile(
+        rf"\b{escaped_column}\s+IN\s*\(([^)]*)\)",
+        re.IGNORECASE,
+    )
+    values.extend(match.group(1).replace("''", "'") for match in equals_pattern.finditer(query_text))
+    for match in in_pattern.finditer(query_text):
+        values.extend(sqlite_string_values(match.group(1)))
+    return sorted(set(values))
+
+
+def metric_names_from_query(query_text: str) -> list[str]:
+    return filter_values_from_query(query_text, "metric_name")
+
+
+def categories_from_query(query_text: str) -> list[str]:
+    return filter_values_from_query(query_text, "category")
+
+
+def tables_from_query(query_text: str) -> list[str]:
+    return sorted({match.group(1) for match in SQL_TABLE_RE.finditer(query_text)})
+
+
+def runtime_room_columns_from_query(query_text: str) -> list[str]:
+    lowered = query_text.lower()
+    columns = []
+    for column_name in RUNTIME_ROOM_COLUMN_METRICS:
+        if re.search(rf"\b{re.escape(column_name)}\b", lowered):
+            columns.append(column_name)
+    return sorted(columns)
+
+
+def strip_sql_statement(query_text: str) -> str:
+    return query_text.strip().rstrip(";").strip()
+
+
+def query_row_count(conn: sqlite3.Connection, query_text: str) -> int:
+    query = strip_sql_statement(query_text)
+    if not query:
+        raise sqlite3.OperationalError("empty queryText")
+    row = conn.execute(f"SELECT COUNT(*) AS row_count FROM ({query}) AS grafana_target").fetchone()
+    if row is None:
+        return 0
+    return int(row["row_count"])
+
+
+def table_row_count(conn: sqlite3.Connection, table_name: str) -> int | None:
+    if not SQL_IDENTIFIER_RE.match(table_name):
+        return None
+    try:
+        row = conn.execute(f"SELECT COUNT(*) AS row_count FROM {table_name}").fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return 0
+    return int(row["row_count"])
+
+
+def metric_observation_counts(conn: sqlite3.Connection, metric_names: list[str]) -> dict[str, int]:
+    if not metric_names:
+        return {}
+    placeholders = ", ".join("?" for _ in metric_names)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT metric_name, COUNT(*) AS row_count
+            FROM metric_observations
+            WHERE metric_name IN ({placeholders})
+            GROUP BY metric_name
+            """,
+            metric_names,
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    counts = {metric_name: 0 for metric_name in metric_names}
+    counts.update({str(row["metric_name"]): int(row["row_count"]) for row in rows})
+    return counts
+
+
+def metric_coverage_gap_counts(conn: sqlite3.Connection, metric_names: list[str]) -> dict[str, int]:
+    if not metric_names:
+        return {}
+    placeholders = ", ".join("?" for _ in metric_names)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT metric_name, COUNT(*) AS gap_count
+            FROM metric_coverage_gaps
+            WHERE metric_name IN ({placeholders})
+            GROUP BY metric_name
+            """,
+            metric_names,
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {str(row["metric_name"]): int(row["gap_count"]) for row in rows}
+
+
+def runtime_room_non_null_count(conn: sqlite3.Connection, column_names: list[str]) -> int | None:
+    safe_columns = [column_name for column_name in column_names if column_name in RUNTIME_ROOM_COLUMN_METRICS]
+    if not safe_columns:
+        return None
+    predicate = " OR ".join(f"{column_name} IS NOT NULL" for column_name in safe_columns)
+    try:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS row_count FROM runtime_room_metrics WHERE {predicate}"
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return 0
+    return int(row["row_count"])
+
+
+def classify_empty_target(conn: sqlite3.Connection, query_text: str) -> tuple[str, str, JsonObject]:
+    metric_names = metric_names_from_query(query_text)
+    runtime_columns = runtime_room_columns_from_query(query_text)
+    tables = tables_from_query(query_text)
+    categories = categories_from_query(query_text)
+    evidence: JsonObject = {
+        "tables": tables,
+        "metricNames": metric_names,
+        "runtimeRoomColumns": runtime_columns,
+        "categories": categories,
+    }
+
+    if "metric_observations" in tables and metric_names:
+        total_metric_rows = table_row_count(conn, "metric_observations")
+        observation_counts = metric_observation_counts(conn, metric_names)
+        gap_counts = metric_coverage_gap_counts(conn, metric_names)
+        missing_metrics = [metric_name for metric_name in metric_names if observation_counts.get(metric_name, 0) == 0]
+        evidence["metricObservationCounts"] = observation_counts
+        evidence["metricCoverageGapCounts"] = gap_counts
+        if total_metric_rows == 0:
+            return (
+                CONTENT_WAITING_FOR_DATA,
+                "metric_observations has no rows yet; refresh/ingest runtime artifacts before judging this panel",
+                evidence,
+            )
+        if missing_metrics:
+            gap_suffix = ""
+            gap_metrics = [metric_name for metric_name in missing_metrics if gap_counts.get(metric_name, 0) > 0]
+            if gap_metrics:
+                gap_suffix = f"; coverage gaps recorded for {', '.join(gap_metrics)}"
+            return (
+                CONTENT_NOT_INSTRUMENTED,
+                f"no metric_observations rows for metric streams {', '.join(missing_metrics)}{gap_suffix}",
+                evidence,
+            )
+
+    if "runtime_room_metrics" in tables and runtime_columns:
+        runtime_rows = table_row_count(conn, "runtime_room_metrics")
+        populated_rows = runtime_room_non_null_count(conn, runtime_columns)
+        runtime_metrics = [RUNTIME_ROOM_COLUMN_METRICS[column_name] for column_name in runtime_columns]
+        evidence["runtimeRoomRowCount"] = runtime_rows
+        evidence["runtimeRoomNonNullRows"] = populated_rows
+        evidence["runtimeMetricNames"] = runtime_metrics
+        if runtime_rows == 0:
+            return (
+                CONTENT_WAITING_FOR_DATA,
+                "runtime_room_metrics has no rows yet; refresh/ingest runtime artifacts before judging this panel",
+                evidence,
+            )
+        if populated_rows == 0:
+            return (
+                CONTENT_NOT_INSTRUMENTED,
+                f"runtime_room_metrics columns have no non-null samples: {', '.join(runtime_columns)}",
+                evidence,
+            )
+
+    if "gameplay_behavior_findings" in tables:
+        total_findings = table_row_count(conn, "gameplay_behavior_findings")
+        category_detail = f" for categories {', '.join(categories)}" if categories else ""
+        evidence["gameplayBehaviorFindingCount"] = total_findings
+        return (
+            CONTENT_WAITING_FOR_DATA,
+            f"no gameplay behavior findings observed{category_detail}",
+            evidence,
+        )
+
+    empty_source_tables = [table_name for table_name in tables if table_row_count(conn, table_name) == 0]
+    if empty_source_tables:
+        evidence["emptySourceTables"] = empty_source_tables
+        return (
+            CONTENT_WAITING_FOR_DATA,
+            f"source table has no rows yet: {', '.join(empty_source_tables)}",
+            evidence,
+        )
+
+    return (
+        CONTENT_WAITING_FOR_DATA,
+        "query returned zero rows; source tables exist but no matching samples are present yet",
+        evidence,
+    )
+
+
+def target_content_audit(conn: sqlite3.Connection, panel: JsonObject, target: JsonObject) -> JsonObject:
+    ref_id = target.get("refId")
+    query_text = target.get("queryText")
+    target_report: JsonObject = {
+        "refId": ref_id if isinstance(ref_id, str) else None,
+        "state": CONTENT_MISCONFIGURED,
+        "rowCount": 0,
+        "details": "target has no queryText",
+        "evidence": {},
+    }
+    if not isinstance(query_text, str) or not query_text.strip():
+        return target_report
+    try:
+        row_count = query_row_count(conn, query_text)
+    except sqlite3.Error as error:
+        target_report["details"] = f"query failed: {error}"
+        target_report["evidence"] = {
+            "tables": tables_from_query(query_text),
+            "metricNames": metric_names_from_query(query_text),
+            "runtimeRoomColumns": runtime_room_columns_from_query(query_text),
+            "categories": categories_from_query(query_text),
+        }
+        return target_report
+
+    target_report["rowCount"] = row_count
+    if row_count > 0:
+        target_report["state"] = CONTENT_READY
+        target_report["details"] = f"query returned {row_count} row(s)"
+        target_report["evidence"] = {
+            "tables": tables_from_query(query_text),
+            "metricNames": metric_names_from_query(query_text),
+            "runtimeRoomColumns": runtime_room_columns_from_query(query_text),
+            "categories": categories_from_query(query_text),
+        }
+        return target_report
+
+    state, details, evidence = classify_empty_target(conn, query_text)
+    target_report["state"] = state
+    target_report["details"] = details
+    target_report["evidence"] = evidence
+    return target_report
+
+
+def combined_content_state(states: list[str]) -> str:
+    if any(state == CONTENT_MISCONFIGURED for state in states):
+        return CONTENT_MISCONFIGURED
+    if any(state == CONTENT_READY for state in states):
+        return CONTENT_READY
+    if any(state == CONTENT_NOT_INSTRUMENTED for state in states):
+        return CONTENT_NOT_INSTRUMENTED
+    return CONTENT_WAITING_FOR_DATA
+
+
+def overall_content_state(states: list[str]) -> str:
+    if any(state == CONTENT_MISCONFIGURED for state in states):
+        return CONTENT_MISCONFIGURED
+    if any(state == CONTENT_NOT_INSTRUMENTED for state in states):
+        return CONTENT_NOT_INSTRUMENTED
+    if any(state == CONTENT_WAITING_FOR_DATA for state in states):
+        return CONTENT_WAITING_FOR_DATA
+    return CONTENT_READY
+
+
+def panel_content_audit(conn: sqlite3.Connection, panel: JsonObject) -> JsonObject:
+    targets = panel.get("targets", [])
+    if not isinstance(targets, list) or not targets:
+        return {
+            "id": panel.get("id"),
+            "title": panel.get("title"),
+            "type": panel.get("type"),
+            "state": CONTENT_MISCONFIGURED,
+            "rowCount": 0,
+            "details": "panel has no targets",
+            "targets": [],
+        }
+
+    target_reports = [
+        target_content_audit(conn, panel, target)
+        for target in targets
+        if isinstance(target, dict)
+    ]
+    target_states = [str(target_report["state"]) for target_report in target_reports]
+    panel_state = combined_content_state(target_states)
+    row_count = sum(int(target_report.get("rowCount") or 0) for target_report in target_reports)
+    non_ready_details = [
+        f"{target_report.get('refId') or '?'}: {target_report['details']}"
+        for target_report in target_reports
+        if target_report.get("state") != CONTENT_READY
+    ]
+    details = (
+        f"{row_count} total row(s) across {len(target_reports)} target(s)"
+        if panel_state == CONTENT_READY
+        else "; ".join(non_ready_details)
+    )
+    return {
+        "id": panel.get("id"),
+        "title": panel.get("title"),
+        "type": panel.get("type"),
+        "state": panel_state,
+        "rowCount": row_count,
+        "details": details,
+        "targets": target_reports,
+    }
+
+
+def audit_content(repo_root: Path, db_path: Path) -> JsonObject:
+    repo_root = repo_root.resolve()
+    db_path = db_path.resolve()
+    report: JsonObject = {
+        "status": "PASS",
+        "contentState": CONTENT_READY,
+        "repoRoot": str(repo_root),
+        "dbPath": str(db_path),
+        "dashboardPath": str(dashboard_file(repo_root)),
+        "checks": [],
+        "errors": [],
+        "warnings": [],
+        "panels": [],
+        "contentStateCounts": {
+            CONTENT_READY: 0,
+            CONTENT_WAITING_FOR_DATA: 0,
+            CONTENT_NOT_INSTRUMENTED: 0,
+            CONTENT_MISCONFIGURED: 0,
+        },
+    }
+
+    dashboard_path = dashboard_file(repo_root)
+    append_check(report, "dashboard JSON file", dashboard_path.is_file(), f"{dashboard_path} must exist")
+    append_check(report, "metrics DB file", db_path.is_file(), f"{db_path} must exist")
+    if report["errors"]:
+        report["status"] = "FAIL"
+        report["contentState"] = CONTENT_WAITING_FOR_DATA if not db_path.is_file() else CONTENT_MISCONFIGURED
+        return report
+
+    try:
+        dashboard = read_json(dashboard_path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        append_check(report, "dashboard JSON parses", False, str(error))
+        report["status"] = "FAIL"
+        report["contentState"] = CONTENT_MISCONFIGURED
+        return report
+
+    dashboard_report = validate_dashboard_payload(dashboard, dashboard_path)
+    if dashboard_report["errors"]:
+        report["checks"].extend(dashboard_report["checks"])
+        report["errors"].extend(dashboard_report["errors"])
+        report["warnings"].extend(dashboard_report["warnings"])
+        report["status"] = "FAIL"
+        report["contentState"] = CONTENT_MISCONFIGURED
+        return report
+
+    try:
+        conn = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+    except sqlite3.Error as error:
+        append_check(report, "metrics DB opens read-only", False, str(error))
+        report["status"] = "FAIL"
+        report["contentState"] = CONTENT_MISCONFIGURED
+        return report
+
+    try:
+        panels = iter_panels(dashboard.get("panels"))
+        panel_reports = [panel_content_audit(conn, panel) for panel in panels]
+    finally:
+        conn.close()
+
+    for panel_report in panel_reports:
+        state = str(panel_report.get("state"))
+        if state in report["contentStateCounts"]:
+            report["contentStateCounts"][state] += 1
+    report["panels"] = panel_reports
+    report["panelCount"] = len(panel_reports)
+    report["emptyPanelCount"] = sum(1 for panel_report in panel_reports if int(panel_report.get("rowCount") or 0) == 0)
+    report["classifiedEmptyPanelCount"] = sum(
+        1
+        for panel_report in panel_reports
+        if int(panel_report.get("rowCount") or 0) == 0 and panel_report.get("state") != CONTENT_MISCONFIGURED
+    )
+    report["contentState"] = overall_content_state([str(panel_report.get("state")) for panel_report in panel_reports])
+    if report["contentStateCounts"][CONTENT_MISCONFIGURED] > 0:
+        report["status"] = "FAIL"
+        for panel_report in panel_reports:
+            if panel_report.get("state") == CONTENT_MISCONFIGURED:
+                report["errors"].append(
+                    f"panel {panel_report.get('id')} {panel_report.get('title')}: {panel_report.get('details')}"
+                )
+    return report
 
 
 def is_time_series_target(panel: JsonObject, target: JsonObject) -> bool:
@@ -674,6 +1093,40 @@ def print_report(report: JsonObject, as_json: bool) -> None:
         print(f"ERROR: {error}")
 
 
+def print_content_audit_report(report: JsonObject, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    print(f"status: {report['status']}")
+    print(f"contentState: {report.get('contentState')}")
+    print(f"dbPath: {report.get('dbPath')}")
+    counts = report.get("contentStateCounts", {})
+    if isinstance(counts, dict):
+        print(
+            "contentStateCounts: "
+            + ", ".join(
+                f"{state}={counts.get(state, 0)}"
+                for state in (
+                    CONTENT_READY,
+                    CONTENT_WAITING_FOR_DATA,
+                    CONTENT_NOT_INSTRUMENTED,
+                    CONTENT_MISCONFIGURED,
+                )
+            )
+        )
+    for panel in report.get("panels", []):
+        if not isinstance(panel, dict):
+            continue
+        print(
+            f"{str(panel.get('state')).upper()}: panel {panel.get('id')} "
+            f"{panel.get('title')} - {panel.get('details')}"
+        )
+    for warning in report.get("warnings", []):
+        print(f"WARNING: {warning}")
+    for error in report.get("errors", []):
+        print(f"ERROR: {error}")
+
+
 def exit_code_for_report(report: JsonObject) -> int:
     if report["status"] == "PASS":
         return 0
@@ -753,6 +1206,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return exit_code_for_report(combined)
 
 
+def cmd_content_audit(args: argparse.Namespace) -> int:
+    report = audit_content(args.repo_root, args.db_path)
+    print_content_audit_report(report, args.json)
+    return exit_code_for_report(report)
+
+
 def cmd_docker_command(args: argparse.Namespace) -> int:
     try:
         command = build_docker_command(
@@ -814,6 +1273,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--provisioning-only", action="store_true")
     validate_parser.add_argument("--json", action="store_true")
     validate_parser.set_defaults(func=cmd_validate)
+
+    content_parser = subparsers.add_parser(
+        "content-audit",
+        help="Classify dashboard panel data states against the SQLite metrics DB.",
+    )
+    content_parser.add_argument("--repo-root", type=Path, default=default_repo_root())
+    content_parser.add_argument("--db-path", type=Path, default=default_db_path(default_repo_root()))
+    content_parser.add_argument("--json", action="store_true")
+    content_parser.set_defaults(func=cmd_content_audit)
 
     docker_parser = subparsers.add_parser("docker-command", help="Print the Docker command for local Grafana.")
     docker_parser.add_argument("--repo-root", type=Path, default=default_repo_root())

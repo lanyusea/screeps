@@ -5,6 +5,7 @@ import copy
 import io
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_rl_grafana as grafana
+import screeps_rl_metrics_ingestor as ingestor
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,18 @@ def isolated_static_repo(*, with_metrics_db: bool = False):
             db_path.parent.mkdir(parents=True)
             db_path.write_bytes(b"static validator only checks that this file exists\n")
         yield repo_root
+
+
+@contextmanager
+def isolated_metrics_db(repo_root: Path):
+    db_path = grafana.default_db_path(repo_root)
+    db_path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(ingestor.SCHEMA_SQL)
+        yield conn, db_path
+    finally:
+        conn.close()
 
 
 def grafana_docker_command(db_path: Path | None = None) -> list[str]:
@@ -139,6 +153,82 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(report["status"], "PASS")
         self.assertEqual(report["metricsDb"]["status"], "PRESENT")
         self.assertEqual(report["metricsDb"]["path"], str(grafana.default_db_path(repo_root.resolve())))
+
+    def test_content_audit_classifies_missing_metric_streams_as_not_instrumented(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
+            conn.execute(
+                """
+                INSERT INTO metric_observations (metric_name, tick, value, source_artifact, dedupe_key)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("survival.owned_rooms", 1, 1, "runtime-summary.log", "survival"),
+            )
+            conn.execute(
+                """
+                INSERT INTO metric_coverage_gaps (
+                  metric_name, category, severity, source_artifact, gap_type, message, dedupe_key
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "creep.stuck_ticks",
+                    "metric coverage",
+                    "warning",
+                    "runtime-summary.log",
+                    "missing_field",
+                    "stuck/actionless telemetry is absent",
+                    "stuck-gap",
+                ),
+            )
+            conn.commit()
+
+            report = grafana.audit_content(repo_root, db_path)
+
+        panel = next(panel for panel in report["panels"] if panel["id"] == 4)
+        target = next(target for target in panel["targets"] if target["refId"] == "A")
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(panel["state"], grafana.CONTENT_NOT_INSTRUMENTED)
+        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
+        self.assertIn("no metric_observations rows", target["details"])
+        self.assertEqual(target["evidence"]["metricCoverageGapCounts"]["creep.stuck_ticks"], 1)
+
+    def test_content_audit_classifies_empty_runtime_columns_as_not_instrumented(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
+            conn.execute(
+                """
+                INSERT INTO runtime_room_metrics (tick, room_name, source_artifact, dedupe_key)
+                VALUES (?, ?, ?, ?)
+                """,
+                (1, "W1N1", "runtime-summary.log", "runtime-room"),
+            )
+            conn.commit()
+
+            report = grafana.audit_content(repo_root, db_path)
+
+        panel = next(panel for panel in report["panels"] if panel["id"] == 11)
+        target = panel["targets"][0]
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(panel["state"], grafana.CONTENT_NOT_INSTRUMENTED)
+        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
+        self.assertEqual(target["evidence"]["runtimeRoomRowCount"], 1)
+        self.assertEqual(target["evidence"]["runtimeRoomNonNullRows"], 0)
+        self.assertIn("path_finding_failures", target["details"])
+
+    def test_content_audit_reports_query_errors_as_misconfigured(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (_conn, db_path):
+            dashboard_path = grafana.dashboard_file(repo_root)
+            dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+            dashboard["panels"][0]["targets"][0]["queryText"] = "SELECT * FROM metric_observations_broken;"
+            dashboard["panels"][0]["targets"][0]["rawQueryText"] = "SELECT * FROM metric_observations_broken;"
+            dashboard_path.write_text(json.dumps(dashboard, indent=2), encoding="utf-8")
+
+            report = grafana.audit_content(repo_root, db_path)
+
+        panel = next(panel for panel in report["panels"] if panel["id"] == 1)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["contentState"], grafana.CONTENT_MISCONFIGURED)
+        self.assertEqual(panel["state"], grafana.CONTENT_MISCONFIGURED)
+        self.assertIn("query failed", panel["targets"][0]["details"])
 
     def test_dashboard_contract_rejects_missing_iteration_decision_query(self) -> None:
         dashboard_path = grafana.dashboard_file(REPO_ROOT)
