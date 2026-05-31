@@ -12,6 +12,8 @@ This directory is the durable local Grafana contract for the RL flywheel metrics
 
 The datasource UID is `screeps-rl-metrics-sqlite`; the dashboard UID is `screeps-rl-gameplay-metrics`.
 
+Dashboard targets must keep the frser SQLite fields `rawQueryText`, `queryType`, and, for time-series panels, `timeColumns: ["time"]`; the validator fails when those tracked fields drift.
+
 ## Local Run
 
 Print the Docker command without starting Grafana:
@@ -20,11 +22,13 @@ Print the Docker command without starting Grafana:
 npm run rl-grafana:print-command
 ```
 
-Run actual Grafana on `127.0.0.1:3000`:
+Start or restore actual Grafana on `127.0.0.1:3000`:
 
 ```bash
 npm run rl-grafana:run
 ```
+
+The runner is durable by default: it creates a detached Docker container named `screeps-rl-grafana` with `--restart unless-stopped`, or starts the existing named container and refreshes its restart policy. The port binding remains loopback-only unless an operator explicitly passes the non-local override.
 
 The default image is `grafana/grafana-oss:11.5.2`; pass `-- --image <image>` to the npm command if the operator intentionally validates a different Grafana image.
 
@@ -32,7 +36,7 @@ The runner mounts:
 
 - `docs/ops/grafana/provisioning` at `/etc/grafana/provisioning`;
 - `docs/ops/grafana` at `/var/lib/grafana/dashboards/screeps`;
-- `runtime-artifacts/rl-metrics` at `/var/lib/grafana/rl-metrics`.
+- `runtime-artifacts/rl-metrics/rl_metrics.sqlite` at `/var/lib/grafana/rl-metrics/rl_metrics.sqlite`.
 
 The container installs the `frser-sqlite-datasource` plugin through `GF_INSTALL_PLUGINS`. The host database file must exist before starting the container:
 

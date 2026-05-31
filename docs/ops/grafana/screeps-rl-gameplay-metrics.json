@@ -39,7 +39,9 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('survival.owned_rooms','survival.owned_spawns','survival.claimed_room_without_spawn_age_ticks') ORDER BY observed_at DESC LIMIT 200;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('survival.owned_rooms','survival.owned_spawns','survival.claimed_room_without_spawn_age_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "queryType": "table"
         }
       ],
       "title": "Survival And Ownership",
@@ -79,7 +81,12 @@
           "format": "time_series",
           "queryText": "SELECT observed_at AS time, room_name || ':' || metric_name AS metric, value FROM metric_observations WHERE metric_name IN ('economy.energy_available','economy.stored_energy','economy.worker_carried_energy') ORDER BY observed_at;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at AS time, room_name || ':' || metric_name AS metric, value FROM metric_observations WHERE metric_name IN ('economy.energy_available','economy.stored_energy','economy.worker_carried_energy') ORDER BY observed_at;",
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ]
         }
       ],
       "title": "Resource Economy",
@@ -109,13 +116,17 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('construction.backlog_progress','construction.build_task_count','construction.built_progress','construction.build_carried_energy') ORDER BY observed_at DESC LIMIT 200;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('construction.backlog_progress','construction.build_task_count','construction.built_progress','construction.build_carried_energy') ORDER BY observed_at DESC LIMIT 200;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT first_seen_at, severity, room_name, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'stalled-construction' ORDER BY first_seen_at DESC LIMIT 50;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT first_seen_at, severity, room_name, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'stalled-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "queryType": "table"
         }
       ],
       "title": "Construction And Infrastructure",
@@ -145,13 +156,17 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, room_name, metric_name, value, evidence_json FROM metric_observations WHERE metric_name IN ('creep.worker_count','creep.low_load_return_count','creep.return_load_factor','creep.idle_count','creep.stuck_ticks','behavior.upgrade_dominance_ratio') ORDER BY observed_at DESC LIMIT 250;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, evidence_json FROM metric_observations WHERE metric_name IN ('creep.worker_count','creep.low_load_return_count','creep.return_load_factor','creep.idle_count','creep.stuck_ticks','behavior.upgrade_dominance_ratio') ORDER BY observed_at DESC LIMIT 250;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT first_seen_at, severity, category, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category IN ('low-load-return','stuck-actionless','upgrade-dominant-backlog') ORDER BY first_seen_at DESC LIMIT 100;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT first_seen_at, severity, category, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category IN ('low-load-return','stuck-actionless','upgrade-dominant-backlog') ORDER BY first_seen_at DESC LIMIT 100;",
+          "queryType": "table"
         }
       ],
       "title": "Creep Efficiency, Stuck, And Load Factor",
@@ -181,13 +196,17 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('defense.hostile_creep_count','defense.tower_count','defense.rampart_count','construction.defense_backlog') ORDER BY observed_at DESC LIMIT 200;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('defense.hostile_creep_count','defense.tower_count','defense.rampart_count','construction.defense_backlog') ORDER BY observed_at DESC LIMIT 200;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT first_seen_at, severity, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'missing-late-defense-construction' ORDER BY first_seen_at DESC LIMIT 50;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT first_seen_at, severity, room_name, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'missing-late-defense-construction' ORDER BY first_seen_at DESC LIMIT 50;",
+          "queryType": "table"
         }
       ],
       "title": "Defense Readiness",
@@ -217,13 +236,17 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('cpu.bucket','cpu.used','reliability.loop_exception_count','reliability.telemetry_silence_ticks') ORDER BY observed_at DESC LIMIT 200;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, metric_name, value, source_artifact FROM metric_observations WHERE metric_name IN ('cpu.bucket','cpu.used','reliability.loop_exception_count','reliability.telemetry_silence_ticks') ORDER BY observed_at DESC LIMIT 200;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT first_seen_at, severity, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'runtime-reliability' ORDER BY first_seen_at DESC LIMIT 50;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT first_seen_at, severity, finding_key, evidence_json, recommendation FROM gameplay_behavior_findings WHERE category = 'runtime-reliability' ORDER BY first_seen_at DESC LIMIT 50;",
+          "queryType": "table"
         }
       ],
       "title": "CPU And Reliability",
@@ -253,19 +276,25 @@
           "format": "table",
           "queryText": "SELECT observed_at, gate_id, status, metric_name, value, source_artifact FROM rl_dataset_gate_metrics ORDER BY observed_at DESC LIMIT 100;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, gate_id, status, metric_name, value, source_artifact FROM rl_dataset_gate_metrics ORDER BY observed_at DESC LIMIT 100;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT observed_at, report_id, variant_id, metric_name, value, source_artifact FROM rl_training_execution_metrics ORDER BY observed_at DESC LIMIT 150;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT observed_at, report_id, variant_id, metric_name, value, source_artifact FROM rl_training_execution_metrics ORDER BY observed_at DESC LIMIT 150;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT observed_at, report_id, candidate_id, incumbent_id, metric_name, value, directionality FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 150;",
           "rawQuery": true,
-          "refId": "C"
+          "refId": "C",
+          "rawQueryText": "SELECT observed_at, report_id, candidate_id, incumbent_id, metric_name, value, directionality FROM rl_policy_advantage_metrics ORDER BY observed_at DESC LIMIT 150;",
+          "queryType": "table"
         }
       ],
       "title": "RL Dataset, Training, And Policy Metrics",
@@ -295,13 +324,17 @@
           "format": "table",
           "queryText": "SELECT observed_at, severity, metric_name, category, room_name, tick, gap_type, message, source_artifact FROM metric_coverage_gaps ORDER BY observed_at DESC LIMIT 250;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, severity, metric_name, category, room_name, tick, gap_type, message, source_artifact FROM metric_coverage_gaps ORDER BY observed_at DESC LIMIT 250;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT metric_name, severity, COUNT(*) AS gap_count FROM metric_coverage_gaps GROUP BY metric_name, severity ORDER BY gap_count DESC, metric_name LIMIT 100;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT metric_name, severity, COUNT(*) AS gap_count FROM metric_coverage_gaps GROUP BY metric_name, severity ORDER BY gap_count DESC, metric_name LIMIT 100;",
+          "queryType": "table"
         }
       ],
       "title": "Metric Coverage Gaps",
@@ -331,7 +364,9 @@
           "format": "table",
           "queryText": "SELECT COALESCE(build_blocked_reason, 'missing') AS buildBlockedReason, COUNT(*) AS sample_count FROM runtime_room_metrics GROUP BY COALESCE(build_blocked_reason, 'missing') ORDER BY sample_count DESC;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT COALESCE(build_blocked_reason, 'missing') AS buildBlockedReason, COUNT(*) AS sample_count FROM runtime_room_metrics GROUP BY COALESCE(build_blocked_reason, 'missing') ORDER BY sample_count DESC;",
+          "queryType": "table"
         }
       ],
       "title": "Build Blocked Reason Distribution",
@@ -371,7 +406,12 @@
           "format": "time_series",
           "queryText": "SELECT observed_at AS time, room_name || ':extensions' AS metric, extension_count AS value FROM runtime_room_metrics WHERE extension_count IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':extensionCapacity' AS metric, extension_capacity_contribution AS value FROM runtime_room_metrics WHERE extension_capacity_contribution IS NOT NULL ORDER BY time;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at AS time, room_name || ':extensions' AS metric, extension_count AS value FROM runtime_room_metrics WHERE extension_count IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':extensionCapacity' AS metric, extension_capacity_contribution AS value FROM runtime_room_metrics WHERE extension_capacity_contribution IS NOT NULL ORDER BY time;",
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ]
         }
       ],
       "title": "Extension Count Trend",
@@ -411,7 +451,12 @@
           "format": "time_series",
           "queryText": "SELECT observed_at AS time, room_name || ':pathFindingFailures' AS metric, path_finding_failures AS value FROM runtime_room_metrics WHERE path_finding_failures IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':destinationBlocked' AS metric, destination_blocked AS value FROM runtime_room_metrics WHERE destination_blocked IS NOT NULL ORDER BY time;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at AS time, room_name || ':pathFindingFailures' AS metric, path_finding_failures AS value FROM runtime_room_metrics WHERE path_finding_failures IS NOT NULL UNION ALL SELECT observed_at AS time, room_name || ':destinationBlocked' AS metric, destination_blocked AS value FROM runtime_room_metrics WHERE destination_blocked IS NOT NULL ORDER BY time;",
+          "queryType": "time series",
+          "timeColumns": [
+            "time"
+          ]
         }
       ],
       "title": "Path Finding Failures Rate",
@@ -441,7 +486,9 @@
           "format": "table",
           "queryText": "SELECT observed_at, tick, room_name, worker_load_trip_energy_mean AS tripEnergyMean, worker_load_trip_energy_min AS tripEnergyMin, source_artifact FROM runtime_room_metrics WHERE worker_load_trip_energy_mean IS NOT NULL OR worker_load_trip_energy_min IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT observed_at, tick, room_name, worker_load_trip_energy_mean AS tripEnergyMean, worker_load_trip_energy_min AS tripEnergyMin, source_artifact FROM runtime_room_metrics WHERE worker_load_trip_energy_mean IS NOT NULL OR worker_load_trip_energy_min IS NOT NULL ORDER BY observed_at DESC LIMIT 250;",
+          "queryType": "table"
         }
       ],
       "title": "Worker Load Efficiency Distribution",
@@ -471,13 +518,17 @@
           "format": "table",
           "queryText": "SELECT created_at, decision_key, status, rationale, source_artifact FROM metric_iteration_decisions ORDER BY created_at DESC LIMIT 100;",
           "rawQuery": true,
-          "refId": "A"
+          "refId": "A",
+          "rawQueryText": "SELECT created_at, decision_key, status, rationale, source_artifact FROM metric_iteration_decisions ORDER BY created_at DESC LIMIT 100;",
+          "queryType": "table"
         },
         {
           "format": "table",
           "queryText": "SELECT observed_at, metric_name, value, source_artifact FROM metric_observations WHERE metric_name = 'source.rl_metrics_refresh.completed' ORDER BY observed_at DESC LIMIT 20;",
           "rawQuery": true,
-          "refId": "B"
+          "refId": "B",
+          "rawQueryText": "SELECT observed_at, metric_name, value, source_artifact FROM metric_observations WHERE metric_name = 'source.rl_metrics_refresh.completed' ORDER BY observed_at DESC LIMIT 20;",
+          "queryType": "table"
         }
       ],
       "title": "#879 Decision And Refresh Evidence",

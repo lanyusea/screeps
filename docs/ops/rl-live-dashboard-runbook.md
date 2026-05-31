@@ -19,6 +19,8 @@ docs/ops/grafana/provisioning/dashboards/screeps-rl-dashboards.yaml
 docs/ops/grafana/screeps-rl-gameplay-metrics.json
 ```
 
+The tracked dashboard JSON includes the frser SQLite target metadata required for rendered panels: `rawQueryText` mirrors `queryText`, every target declares `queryType`, and time-series targets declare `timeColumns: ["time"]`.
+
 The Grafana SQLite datasource plugin is required:
 
 ```text
@@ -31,11 +33,13 @@ Print the Docker command without starting a container:
 npm run rl-grafana:print-command
 ```
 
-Run actual Grafana locally:
+Start or restore actual Grafana locally:
 
 ```bash
 npm run rl-grafana:run
 ```
+
+This command is the durable local supervisor path. It uses a detached Docker container named `screeps-rl-grafana` with Docker restart policy `unless-stopped`; rerunning it starts the existing named container if it is present but stopped. The exposed port remains bound to `127.0.0.1` by default and must not be changed to a non-local address without explicit owner approval.
 
 Default Grafana URL:
 
