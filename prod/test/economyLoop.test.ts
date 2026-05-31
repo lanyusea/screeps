@@ -214,7 +214,7 @@ describe('runEconomy', () => {
     ).toBe(true);
   });
 
-  it('keeps creep execution active during noncritical low-bucket recovery', () => {
+  it('sheds nonessential creep roles during noncritical low-bucket recovery', () => {
     const lowBucketBudget = buildRuntimeCpuBudget({
       tick: 126,
       used: 65,
@@ -228,11 +228,24 @@ describe('runEconomy', () => {
     } as Room;
     const creep = (role: string, memory: Partial<CreepMemory> = {}): Creep =>
       ({ memory: { role, ...memory }, room }) as unknown as Creep;
+    const probedRooms = new Set<string>();
 
-    expect(shouldRunCreepForCpuBudget(creep('worker'), lowBucketBudget)).toBe(true);
-    expect(shouldRunCreepForCpuBudget(creep('upgrader'), lowBucketBudget)).toBe(true);
-    expect(shouldRunCreepForCpuBudget(creep('claimer'), lowBucketBudget)).toBe(true);
-    expect(shouldRunCreepForCpuBudget(creep('scout'), lowBucketBudget)).toBe(true);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('worker', { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } }),
+        lowBucketBudget,
+        probedRooms
+      )
+    ).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('worker'), lowBucketBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('sourceHarvester'), lowBucketBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('hauler'), lowBucketBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('crossRoomHauler'), lowBucketBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('upgrader'), lowBucketBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('remoteHarvester'), lowBucketBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('mineralHarvester'), lowBucketBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('claimer'), lowBucketBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('scout'), lowBucketBudget, probedRooms)).toBe(false);
   });
 
   it('spawns a worker request for an owned colony below target workers', () => {
@@ -292,6 +305,39 @@ describe('runEconomy', () => {
     });
   });
 
+  it('keeps emergency worker spawning during low-bucket recovery above the critical threshold', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true } as StructureController
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 130,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(8),
+        limit: 70,
+        bucket: 101,
+        tickLimit: 121
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-130', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('skips stable colony planning while the CPU bucket is critical', () => {
     const room = {
       name: 'W1N1',
@@ -331,6 +377,53 @@ describe('runEconomy', () => {
         limit: 70,
         bucket: 1,
         tickLimit: 21
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+  });
+
+  it('skips stable colony planning during noncritical low-bucket recovery', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      find: jest.fn(() => [])
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const makeWorker = (name: string): Creep => ({
+      name,
+      memory: {
+        role: 'worker',
+        colony: 'W1N1'
+      },
+      room
+    }) as unknown as Creep;
+    const worker1 = makeWorker('Worker1');
+    const worker2 = makeWorker('Worker2');
+    const worker3 = makeWorker('Worker3');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 131,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: { Worker1: worker1, Worker2: worker2, Worker3: worker3 },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(8),
+        limit: 70,
+        bucket: 101,
+        tickLimit: 121
       } as unknown as CPU
     };
 

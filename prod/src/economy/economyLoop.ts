@@ -41,6 +41,7 @@ import {
   getRuntimeCpuBudget,
   shouldRunOptionalCpuRoomWork,
   shouldRunOptionalCpuWork,
+  shouldShedNonessentialCpuWork,
   type RuntimeCpuBudget
 } from '../runtime/cpuBudget';
 import { isColonyRoomThreatened } from '../defense/colonyThreats';
@@ -167,7 +168,7 @@ export function runEconomy(
 ): RuntimeSummary | undefined {
   const featureGates = getRuntimeFeatureGates();
   const cpuBudget = getRuntimeCpuBudget();
-  const criticalCpu = cpuBudget.critical;
+  const shedNonessentialCpuWork = shouldShedNonessentialCpuWork(cpuBudget);
   const shouldRunOptionalGlobalWork = (): boolean =>
     shouldRunOptionalCpuWork(getRuntimeCpuBudget(), 'economy-global-optional');
   const runOptionalGlobalWork = shouldRunOptionalCpuWork(cpuBudget, 'economy-global-optional');
@@ -188,13 +189,13 @@ export function runEconomy(
   }
   const ownedColonies = getOwnedColonies();
   ensureLocalWorkerColonyMemory(ownedColonies, creeps);
-  if (!criticalCpu) {
+  if (!shedNonessentialCpuWork) {
     refreshSpawnEnergyReservationStates(ownedColonies);
   }
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)] as const)
   );
-  const colonies = criticalCpu
+  const colonies = shedNonessentialCpuWork
     ? ownedColonies
     : orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
   const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
@@ -202,11 +203,11 @@ export function runEconomy(
   const reservedSpawnEnergyByRoom = new Map<string, number>();
   const plannedRoleCountsByRoom = new Map<string, RoleCounts>(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
-  if (!criticalCpu) {
+  if (!shedNonessentialCpuWork) {
     refreshClaimedRoomBootstrapperOwnership(telemetryEvents);
   }
-  const postClaimBootstrapFocusRoomName = criticalCpu ? null : selectPostClaimBootstrapFocusRoomName(colonies);
-  const controllerUpgradeTargetRooms = criticalCpu ? undefined : getControllerUpgradeTargetRooms(colonies);
+  const postClaimBootstrapFocusRoomName = shedNonessentialCpuWork ? null : selectPostClaimBootstrapFocusRoomName(colonies);
+  const controllerUpgradeTargetRooms = shedNonessentialCpuWork ? undefined : getControllerUpgradeTargetRooms(colonies);
 
   for (const colony of colonies) {
     let roomCpuBudget = getRuntimeCpuBudget();
@@ -214,9 +215,9 @@ export function runEconomy(
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
     let survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival> | undefined;
-    if (criticalCpu) {
+    if (shedNonessentialCpuWork) {
       survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
-      if (!shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+      if (!shouldRunShedCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
         continue;
       }
     }
@@ -370,24 +371,24 @@ export function runEconomy(
     }
   }
 
-  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
+  if (!shedNonessentialCpuWork && shouldRunOptionalGlobalWork()) {
     ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   }
-  if (!criticalCpu) {
+  if (!shedNonessentialCpuWork) {
     attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
-  if (!criticalCpu && shouldRunOptionalGlobalWork()) {
+  if (!shedNonessentialCpuWork && shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
-  if (!criticalCpu) {
+  if (!shedNonessentialCpuWork) {
     refreshSpawnEnergyReservationStates(colonies);
     refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   }
 
   const creepCpuBudget = getRuntimeCpuBudget();
-  const criticalCpuIdleWorkerProbeRooms = new Set<string>();
+  const shedCpuIdleWorkerProbeRooms = new Set<string>();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
-    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget, criticalCpuIdleWorkerProbeRooms)) {
+    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget, shedCpuIdleWorkerProbeRooms)) {
       continue;
     }
 
@@ -469,15 +470,15 @@ export function orderCreepsForEconomyTaskPriority(creeps: Creep[]): Creep[] {
 export function shouldRunCreepForCpuBudget(
   creep: Creep,
   cpuBudget: RuntimeCpuBudget,
-  criticalCpuIdleWorkerProbeRooms?: Set<string>
+  shedCpuIdleWorkerProbeRooms?: Set<string>
 ): boolean {
-  if (!cpuBudget.critical) {
+  if (!shouldShedNonessentialCpuWork(cpuBudget)) {
     return true;
   }
 
   const role = creep.memory?.role;
   if (role === 'worker') {
-    return shouldRunWorkerForCriticalCpu(creep, criticalCpuIdleWorkerProbeRooms);
+    return shouldRunWorkerForShedCpu(creep, shedCpuIdleWorkerProbeRooms);
   }
 
   if (role === UPGRADER_ROLE) {
@@ -491,9 +492,9 @@ export function shouldRunCreepForCpuBudget(
   return false;
 }
 
-function shouldRunWorkerForCriticalCpu(
+function shouldRunWorkerForShedCpu(
   creep: Creep,
-  criticalCpuIdleWorkerProbeRooms: Set<string> | undefined
+  shedCpuIdleWorkerProbeRooms: Set<string> | undefined
 ): boolean {
   const sustain = creep.memory?.controllerSustain;
   if (sustain?.role === 'upgrader') {
@@ -507,30 +508,30 @@ function shouldRunWorkerForCriticalCpu(
   if (
     creep.memory?.spawnSupport !== undefined ||
     creep.memory?.task != null ||
-    criticalCpuIdleWorkerProbeRooms === undefined
+    shedCpuIdleWorkerProbeRooms === undefined
   ) {
     return true;
   }
 
-  const roomName = getWorkerCriticalCpuProbeRoomName(creep);
+  const roomName = getWorkerShedCpuProbeRoomName(creep);
   if (roomName === null) {
     return true;
   }
 
-  if (criticalCpuIdleWorkerProbeRooms.has(roomName)) {
+  if (shedCpuIdleWorkerProbeRooms.has(roomName)) {
     return false;
   }
 
-  criticalCpuIdleWorkerProbeRooms.add(roomName);
+  shedCpuIdleWorkerProbeRooms.add(roomName);
   return true;
 }
 
-function getWorkerCriticalCpuProbeRoomName(creep: Creep): string | null {
+function getWorkerShedCpuProbeRoomName(creep: Creep): string | null {
   const roomName = creep.room?.name ?? creep.memory?.colony;
   return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
-function shouldRunCriticalCpuColonyPlanning(
+function shouldRunShedCpuColonyPlanning(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>

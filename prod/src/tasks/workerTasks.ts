@@ -78,7 +78,7 @@ import {
 import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
-import { getRuntimeCpuBudget } from '../runtime/cpuBudget';
+import { getRuntimeCpuBudget, shouldShedNonessentialCpuWork } from '../runtime/cpuBudget';
 import { selectSeasonScoreCollectionTask } from '../season/scoreCollection';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
@@ -313,7 +313,7 @@ let workerTaskSelectionTelemetrySuppressionDepth = 0;
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerTaskSelectionTelemetry(creep);
   const cpuBudget = getRuntimeCpuBudget();
-  if (cpuBudget.critical && !hasActiveTerritoryControlAssignment(creep)) {
+  if (shouldShedNonessentialCpuWork(cpuBudget) && !hasActiveTerritoryControlAssignment(creep)) {
     const criticalTask = withWorkerTaskSelectionTelemetrySuppressed(true, () => selectCriticalCpuWorkerTask(creep));
     clearWorkerTaskShadowTelemetry(creep);
     return criticalTask;
