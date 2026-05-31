@@ -4403,7 +4403,9 @@ function hasSafeStoredEnergyForBoundedConstruction(creep: Creep): boolean {
     return false;
   }
 
-  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter((worker) => isSameRoomWorker(worker, creep.room));
+  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter((worker) =>
+    isProductiveSameRoomWorker(worker, creep.room)
+  );
   if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS) {
     return false;
   }
@@ -7738,6 +7740,63 @@ function hasOtherSource2ControllerLaneWorker(creep: Creep, topology: Source2Cont
 
 function isSameRoomWorker(creep: Creep, room: Room): boolean {
   return creep.memory?.role === 'worker' && isInRoom(creep, room);
+}
+
+function isProductiveSameRoomWorker(creep: Creep, room: Room): boolean {
+  return isSameRoomWorker(creep, room) && !willBypassNormalWorkerTaskSelectionThisTick(creep);
+}
+
+function willBypassNormalWorkerTaskSelectionThisTick(creep: Creep): boolean {
+  return (
+    willRunControllerSustainMovementBeforeNormalTaskSelection(creep) ||
+    willRunSpawnSupportMovementBeforeNormalTaskSelection(creep)
+  );
+}
+
+function willRunControllerSustainMovementBeforeNormalTaskSelection(creep: Creep): boolean {
+  const sustain = creep.memory?.controllerSustain;
+  if (!isControllerSustainMemory(sustain)) {
+    return false;
+  }
+
+  const roomName = creep.room?.name;
+  if (roomName !== sustain.targetRoom) {
+    return true;
+  }
+
+  return sustain.role === 'hauler' && getUsedEnergy(creep) <= 0;
+}
+
+function willRunSpawnSupportMovementBeforeNormalTaskSelection(creep: Creep): boolean {
+  const support = creep.memory?.spawnSupport;
+  return isSpawnSupportMemory(support) && creep.room?.name !== support.targetRoom;
+}
+
+function isControllerSustainMemory(value: unknown): value is CreepControllerSustainMemory {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const memory = value as Partial<CreepControllerSustainMemory>;
+  return (
+    typeof memory.homeRoom === 'string' &&
+    memory.homeRoom.length > 0 &&
+    typeof memory.targetRoom === 'string' &&
+    memory.targetRoom.length > 0 &&
+    (memory.role === 'upgrader' || memory.role === 'hauler')
+  );
+}
+
+function isSpawnSupportMemory(value: unknown): value is CreepSpawnSupportMemory {
+  const support = value as Partial<CreepSpawnSupportMemory>;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof support.originRoom === 'string' &&
+    typeof support.targetRoom === 'string' &&
+    support.originRoom.length > 0 &&
+    support.targetRoom.length > 0
+  );
 }
 
 function isSource2ControllerLaneTask(creep: Creep, topology: Source2ControllerLaneTopology): boolean {
