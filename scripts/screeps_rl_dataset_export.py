@@ -43,6 +43,7 @@ DEFAULT_EVAL_RATIO = 0.2
 INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_summary"
 STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON = "stale_non_current_room_console_capture"
 STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS = 24.0
+SKIPPED_FILE_LOG_LIMIT = 100
 SKIPPED_SAMPLE_LOG_LIMIT = 50
 GENERATED_ARTIFACT_DIRECTORY_NAMES = (
     "rl-datasets",
@@ -194,7 +195,7 @@ def collect_artifact_records(
     binary_file_extensions: Sequence[str] = (),
     use_default_paths: bool = True,
 ) -> ScanResult:
-    input_paths = list(paths) if paths or not use_default_paths else list(DEFAULT_INPUT_PATHS)
+    input_paths = dedupe_input_paths(list(paths) if paths or not use_default_paths else list(DEFAULT_INPUT_PATHS))
     resolved_excluded_roots = resolved_paths(excluded_roots)
     result = ScanResult(input_paths=input_paths)
     max_age_cutoff = (
@@ -245,6 +246,18 @@ def collect_artifact_records(
 
     result.records.sort(key=record_sort_key)
     return result
+
+
+def dedupe_input_paths(paths: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for path_text in paths:
+        key = str(resolve_path(Path(path_text).expanduser()))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path_text)
+    return deduped
 
 
 def iter_directory_files(
@@ -1285,6 +1298,30 @@ def build_skipped_sample_summary(scan: ScanResult) -> JsonObject:
     }
 
 
+def build_skipped_file_summary(scan: ScanResult) -> JsonObject:
+    skipped_files = sorted_skipped_files(scan)
+    return {
+        "skippedFileCount": len(scan.skipped_files),
+        "skippedFileReasons": count_skipped_file_field(scan, "reason"),
+        "skippedFiles": skipped_files[:SKIPPED_FILE_LOG_LIMIT],
+        "skippedFileLogLimit": SKIPPED_FILE_LOG_LIMIT,
+        "skippedFilesTruncated": max(0, len(skipped_files) - SKIPPED_FILE_LOG_LIMIT),
+    }
+
+
+def sorted_skipped_files(scan: ScanResult) -> list[JsonObject]:
+    return sorted(scan.skipped_files, key=lambda item: (str(item.get("path", "")), str(item.get("reason", ""))))
+
+
+def count_skipped_file_field(scan: ScanResult, field_name: str) -> JsonObject:
+    counts: dict[str, int] = {}
+    for skipped_file in scan.skipped_files:
+        value = skipped_file.get(field_name)
+        key = value if isinstance(value, str) and value else "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
 def sorted_skipped_samples(scan: ScanResult) -> list[JsonObject]:
     return sorted(
         scan.skipped_samples,
@@ -1307,6 +1344,7 @@ def count_skipped_sample_field(scan: ScanResult, field_name: str) -> JsonObject:
 
 
 def build_source_index(scan: ScanResult) -> JsonObject:
+    skipped_file_summary = build_skipped_file_summary(scan)
     skipped_sample_summary = build_skipped_sample_summary(scan)
     return {
         "type": "screeps-rl-source-index",
@@ -1325,7 +1363,7 @@ def build_source_index(scan: ScanResult) -> JsonObject:
             for source in sorted(scan.source_files.values(), key=lambda item: item.source_id)
         ],
         "strategyShadowReports": scan.strategy_shadow_reports,
-        "skippedFiles": sorted(scan.skipped_files, key=lambda item: (item.get("path", ""), item.get("reason", ""))),
+        **skipped_file_summary,
         **skipped_sample_summary,
     }
 

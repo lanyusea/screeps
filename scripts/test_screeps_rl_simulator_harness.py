@@ -240,6 +240,46 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         )
         self.assertEqual([item["workDir"] for item in manifest["privateSmoke"]], [None, "/tmp/screeps-private-smoke"])
 
+    def test_source_index_metadata_rejects_invalid_skipped_file_counts(self) -> None:
+        source = harness.dataset_export.SourceFile(
+            source_id="source-index",
+            path="source_index.json",
+            display_path="source_index.json",
+            size_bytes=100,
+            sha256="0" * 64,
+        )
+        metadata: harness.JsonObject = {
+            "datasets": {
+                "runManifests": [],
+                "scenarioManifests": [],
+                "sourceIndexes": [],
+                "exportSummaries": [],
+            },
+        }
+
+        for line_number, skipped_file_count in enumerate((-1, 2.5, "3"), start=1):
+            harness.append_dataset_metadata(
+                metadata,
+                source,
+                line_number,
+                {
+                    "type": "screeps-rl-source-index",
+                    "skippedFileCount": skipped_file_count,
+                    "skippedFiles": [{"path": "a.log"}, {"path": "b.log"}],
+                },
+            )
+        harness.append_dataset_metadata(
+            metadata,
+            source,
+            4,
+            {"type": "screeps-rl-source-index", "skippedFileCount": 3.0, "skippedFiles": [{"path": "a.log"}]},
+        )
+
+        self.assertEqual(
+            [item["skippedFileCount"] for item in metadata["datasets"]["sourceIndexes"]],
+            [2, 2, 2, 3],
+        )
+
     def test_estimated_worker_rate_records_target_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

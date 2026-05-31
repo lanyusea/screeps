@@ -7532,6 +7532,9 @@ def append_dataset_metadata(
 
     if raw_type == "screeps-rl-source-index":
         source_files = raw.get("sourceFiles")
+        skipped_file_count = non_negative_int_or_none(raw.get("skippedFileCount"))
+        if skipped_file_count is None and isinstance(raw.get("skippedFiles"), list):
+            skipped_file_count = len(raw["skippedFiles"])
         metadata["datasets"]["sourceIndexes"].append(
             {
                 **common,
@@ -7540,7 +7543,7 @@ def append_dataset_metadata(
                 "scannedFiles": number_or_none(raw.get("scannedFiles")),
                 "matchedArtifactCount": number_or_none(raw.get("matchedArtifactCount")),
                 "strategyShadowReportCount": number_or_none(raw.get("strategyShadowReportCount")),
-                "skippedFileCount": len(raw.get("skippedFiles")) if isinstance(raw.get("skippedFiles"), list) else None,
+                "skippedFileCount": skipped_file_count,
             }
         )
         return
@@ -7847,6 +7850,15 @@ def select_number_map(raw: Any) -> JsonObject:
 
 def number_or_none(value: Any) -> int | float | None:
     return value if dataset_export.is_number(value) else None
+
+
+def non_negative_int_or_none(value: Any) -> int | None:
+    number = number_or_none(value)
+    if isinstance(number, int):
+        return number if number >= 0 else None
+    if isinstance(number, float) and number >= 0 and number.is_integer():
+        return int(number)
+    return None
 
 
 def assert_no_secret_leak(payload: JsonObject, secrets: Sequence[str]) -> None:

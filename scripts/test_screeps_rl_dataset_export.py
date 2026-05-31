@@ -258,6 +258,37 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(summary["sampleCount"], 1)
         self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
 
+    def test_duplicate_input_roots_are_scanned_once(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 121,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-summary-console"
+            artifact_root.mkdir()
+            artifact = artifact_root / "runtime-summary-console-20260521T025000Z.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(artifact_root), str(artifact_root)],
+                out_dir,
+                run_id="deduped-input-root-run",
+                bot_commit="2" * 40,
+                eval_ratio_value=0,
+                created_at="2026-05-21T03:03:07Z",
+                home_room="E29N55",
+            )
+            source_index = read_json(out_dir / "deduped-input-root-run" / "source_index.json")
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["runtimeSummaryArtifactCount"], 1)
+        self.assertEqual(source_index["scannedFiles"], 1)
+        self.assertEqual(source_index["inputPaths"], [str(artifact_root)])
+
     def test_stale_non_current_console_capture_sample_is_filtered_with_evidence(self) -> None:
         stale_payload = {
             "type": "runtime-summary",
@@ -427,6 +458,40 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(source_index["skippedSamplesTruncated"], 5)
         self.assertEqual(run_manifest["source"]["skippedSampleCount"], skipped_count)
         self.assertEqual(len(run_manifest["source"]["skippedSamples"]), exporter.SKIPPED_SAMPLE_LOG_LIMIT)
+
+    def test_skipped_files_are_summarized_without_full_source_index_log(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            skipped_count = exporter.SKIPPED_FILE_LOG_LIMIT + 7
+            for index in range(skipped_count):
+                (root / f"binary-{index:03d}.log").write_bytes(b"\0")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(root)],
+                out_dir,
+                run_id="bounded-skipped-files-run",
+                bot_commit="4" * 40,
+                eval_ratio_value=0,
+                created_at="2026-05-21T03:03:07Z",
+                home_room="E29N55",
+            )
+            source_index = read_json(out_dir / "bounded-skipped-files-run" / "source_index.json")
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(summary["skippedFileCount"], skipped_count)
+        self.assertEqual(source_index["skippedFileCount"], skipped_count)
+        self.assertEqual(source_index["skippedFileReasons"], {"binary": skipped_count})
+        self.assertEqual(len(source_index["skippedFiles"]), exporter.SKIPPED_FILE_LOG_LIMIT)
+        self.assertEqual(source_index["skippedFilesTruncated"], 7)
 
     def test_generated_rl_dataset_source_index_directory_is_not_rescanned(self) -> None:
         payload = {
