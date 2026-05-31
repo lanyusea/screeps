@@ -2583,6 +2583,18 @@ def validate_simulation(raw: Any) -> None:
         value = first_present(raw, aliases)
         if value is not None and positive_int(value) is None:
             raise CardValidationError(f"simulation.{field} must be a positive integer")
+    scale_environments = positive_int(first_present(raw, ("scale_environments", "scaleEnvironments")))
+    min_concurrent_environments = positive_int(
+        first_present(raw, ("min_concurrent_environments", "minConcurrentEnvironments"))
+    )
+    if (
+        scale_environments is not None
+        and min_concurrent_environments is not None
+        and min_concurrent_environments > scale_environments
+    ):
+        raise CardValidationError(
+            "simulation.min_concurrent_environments must be <= simulation.scale_environments"
+        )
     host_port_start = first_present(raw, ("host_port_start", "hostPortStart"))
     if host_port_start is not None and positive_int(host_port_start) is None:
         raise CardValidationError("simulation.host_port_start must be a positive integer")

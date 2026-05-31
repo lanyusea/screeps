@@ -2713,6 +2713,33 @@ class RlExperimentCardTest(unittest.TestCase):
 
         card_helper.validate_card(card)
 
+    def test_validate_rejects_simulation_min_concurrent_above_scale_environments(self) -> None:
+        for index, (scale_field, min_field) in enumerate((
+            ("scale_environments", "min_concurrent_environments"),
+            ("scaleEnvironments", "minConcurrentEnvironments"),
+        ), start=1):
+            with self.subTest(scale_field=scale_field, min_field=min_field):
+                card = card_helper.build_card(
+                    dataset_run_id=f"rl-simulation-concurrency-{index}",
+                    code_commit="1" * 40,
+                    training_approach="policy_gradient",
+                    created_at="2026-05-17T00:25:00Z",
+                    simulation_scale_environments=2,
+                    simulation_min_concurrent_environments=2,
+                )
+                simulation = card.pop("simulation")
+                simulation[scale_field] = simulation.pop("scale_environments")
+                simulation[min_field] = 10
+                if min_field != "min_concurrent_environments":
+                    simulation.pop("min_concurrent_environments")
+                card["simulation"] = simulation
+
+                with self.assertRaisesRegex(
+                    card_helper.CardValidationError,
+                    "min_concurrent_environments must be <= simulation\\.scale_environments",
+                ):
+                    card_helper.validate_card(card)
+
     def test_validate_rejects_policy_gradient_below_target_trust_sample_budget(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-policy-gradient-high-target",
