@@ -310,8 +310,57 @@ describe('runEconomy', () => {
       spawning: null,
       spawnCreep: jest.fn().mockReturnValue(OK_CODE)
     } as unknown as StructureSpawn;
+    const makeWorker = (name: string): Creep => ({
+      name,
+      memory: {
+        role: 'worker',
+        colony: 'W1N1'
+      },
+      room
+    }) as unknown as Creep;
+    const worker1 = makeWorker('Worker1');
+    const worker2 = makeWorker('Worker2');
+    const worker3 = makeWorker('Worker3');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 127,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: { Worker1: worker1, Worker2: worker2, Worker3: worker3 },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(12),
+        limit: 70,
+        bucket: 1,
+        tickLimit: 21
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+  });
+
+  it('keeps local worker floor recovery planning under critical CPU when one counted worker remains', () => {
+    const findSources = (globalThis as Record<string, unknown>).FIND_SOURCES;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      find: jest.fn((type: FindConstant) => (type === findSources ? [{} as Source] : []))
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
     const worker = {
       name: 'Worker1',
+      ticksToLive: 1000,
       memory: {
         role: 'worker',
         colony: 'W1N1',
@@ -320,7 +369,7 @@ describe('runEconomy', () => {
       room
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      time: 127,
+      time: 129,
       rooms: { W1N1: room },
       spawns: { Spawn1: spawn },
       creeps: { Worker1: worker },
@@ -334,8 +383,9 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).not.toHaveBeenCalled();
-    expect(room.find).not.toHaveBeenCalled();
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-129', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 
   it('keeps worker recovery planning under critical CPU when only source harvesters remain', () => {

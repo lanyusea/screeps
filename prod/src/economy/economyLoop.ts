@@ -213,13 +213,19 @@ export function runEconomy(
     let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
-    if (criticalCpu && !shouldRunCriticalCpuColonyPlanning(colony, roleCounts)) {
-      continue;
+    let survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival> | undefined;
+    if (criticalCpu) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+      if (!shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+        continue;
+      }
     }
 
     recordSourceWorkloads(colony.room, creeps, Game.time);
-    const workerTarget = getWorkerTarget(colony, roleCounts);
-    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    if (survivalAssessment === undefined) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    }
+    const workerTarget = survivalAssessment.workerTarget;
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
     refreshControllerManagement(
@@ -524,8 +530,19 @@ function getWorkerCriticalCpuProbeRoomName(creep: Creep): string | null {
   return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
-function shouldRunCriticalCpuColonyPlanning(colony: ColonySnapshot, roleCounts: RoleCounts): boolean {
+function shouldRunCriticalCpuColonyPlanning(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
   if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
+    return true;
+  }
+
+  if (
+    roleCounts.worker < survivalAssessment.survivalWorkerFloor ||
+    survivalAssessment.workerCapacity < survivalAssessment.survivalWorkerFloor
+  ) {
     return true;
   }
 

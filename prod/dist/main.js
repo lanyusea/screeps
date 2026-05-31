@@ -47274,12 +47274,18 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
     let runOptionalRoomWork = shouldRunOptionalCpuRoomWork(roomCpuBudget, colony.room.name);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
-    if (criticalCpu && !shouldRunCriticalCpuColonyPlanning(colony, roleCounts)) {
-      continue;
+    let survivalAssessment;
+    if (criticalCpu) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+      if (!shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment)) {
+        continue;
+      }
     }
     recordSourceWorkloads(colony.room, creeps, Game.time);
-    const workerTarget = getWorkerTarget(colony, roleCounts);
-    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    if (survivalAssessment === void 0) {
+      survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    }
+    const workerTarget = survivalAssessment.workerTarget;
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
     refreshControllerManagement(
@@ -47535,8 +47541,11 @@ function getWorkerCriticalCpuProbeRoomName(creep) {
   const roomName = (_c = (_a = creep.room) == null ? void 0 : _a.name) != null ? _c : (_b = creep.memory) == null ? void 0 : _b.colony;
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
-function shouldRunCriticalCpuColonyPlanning(colony, roleCounts) {
+function shouldRunCriticalCpuColonyPlanning(colony, roleCounts, survivalAssessment) {
   if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
+    return true;
+  }
+  if (roleCounts.worker < survivalAssessment.survivalWorkerFloor || survivalAssessment.workerCapacity < survivalAssessment.survivalWorkerFloor) {
     return true;
   }
   if (isControllerDowngradeGuardController(colony.room.controller)) {
