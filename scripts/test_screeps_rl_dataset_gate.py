@@ -571,23 +571,32 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
             home_room["rooms"][0]["roomName"] = "E29N55"
             artifact.write_text(runtime_line(home_room), encoding="utf-8")
 
-            report = gate.run_gate(
-                [str(artifact_root), str(artifact_root)],
-                out_dir=root / "gates",
-                gate_id="gate-deduped-input-root",
-                created_at="2026-05-21T03:03:07Z",
-                dataset_out_dir=root / "datasets",
-                skip_shadow_report=True,
-                bot_commit="e" * 40,
-                eval_ratio_value=0,
-                repo_root=Path.cwd(),
-            )
+            scanned_roots: list[Path] = []
+            real_iter_directory_files = dataset_export.iter_directory_files
+
+            def counting_iter_directory_files(root_path: Path, *args: Any, **kwargs: Any) -> list[Path]:
+                scanned_roots.append(root_path.resolve())
+                return real_iter_directory_files(root_path, *args, **kwargs)
+
+            with mock.patch.object(dataset_export, "iter_directory_files", side_effect=counting_iter_directory_files):
+                report = gate.run_gate(
+                    [str(artifact_root), str(artifact_root)],
+                    out_dir=root / "gates",
+                    gate_id="gate-deduped-input-root",
+                    created_at="2026-05-21T03:03:07Z",
+                    dataset_out_dir=root / "datasets",
+                    skip_shadow_report=True,
+                    bot_commit="e" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
             source_index = read_json(root / "datasets" / report["dataset"]["runId"] / "source_index.json")
 
         self.assertTrue(report["ok"])
         self.assertEqual(report["dataset"]["runtimeSummaryArtifactCount"], 1)
         self.assertEqual(report["quality_checks"]["samples_total"], 1)
         self.assertEqual(source_index["scannedFiles"], 1)
+        self.assertEqual(scanned_roots, [artifact_root.resolve()])
 
     def test_home_room_env_var_controls_no_owned_spawns_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
