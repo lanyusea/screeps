@@ -511,10 +511,12 @@ def simulation_block(
     ticks: int = DEFAULT_SIMULATION_TICKS,
     workers: int = DEFAULT_SIMULATION_WORKERS,
     repetitions: int = DEFAULT_SIMULATION_REPETITIONS,
+    scale_environments: int | None = None,
+    min_concurrent_environments: int | None = None,
     room: str = "E1S1",
     map_source_file: Path = DEFAULT_SIMULATION_MAP_SOURCE_FILE,
 ) -> JsonObject:
-    return {
+    block = {
         "branch": "$activeWorld",
         "code_path": str(DEFAULT_SIMULATION_CODE_PATH),
         "map_source_file": str(map_source_file),
@@ -525,6 +527,11 @@ def simulation_block(
         "ticks": ticks,
         "workers": workers,
     }
+    if scale_environments is not None:
+        block["scale_environments"] = scale_environments
+    if min_concurrent_environments is not None:
+        block["min_concurrent_environments"] = min_concurrent_environments
+    return block
 
 
 def scenario_metadata_block(*, scenario_id: str = DEFAULT_SCENARIO_ID) -> JsonObject:
@@ -856,6 +863,8 @@ def build_card(
     simulation_ticks: int | None = None,
     simulation_repetitions: int | None = None,
     simulation_workers: int | None = None,
+    simulation_scale_environments: int | None = None,
+    simulation_min_concurrent_environments: int | None = None,
     registry_path: Path | None = None,
     loop_a_card_supply: bool = False,
     source_gate: JsonObject | None = None,
@@ -886,9 +895,22 @@ def build_card(
         simulation_workers if simulation_workers is not None else default_workers,
         "simulation.workers",
     )
+    scale_environments = (
+        require_positive_int(simulation_scale_environments, "simulation.scale_environments")
+        if simulation_scale_environments is not None
+        else None
+    )
+    min_concurrent_environments = (
+        require_positive_int(simulation_min_concurrent_environments, "simulation.min_concurrent_environments")
+        if simulation_min_concurrent_environments is not None
+        else None
+    )
     if training_approach == "policy_gradient":
         ticks = max(ticks, POLICY_GRADIENT_MIN_SIMULATION_TICKS)
-        repetitions = max(repetitions, POLICY_GRADIENT_SIMULATION_REPETITIONS)
+        if scale_environments is None:
+            repetitions = max(repetitions, POLICY_GRADIENT_SIMULATION_REPETITIONS)
+        else:
+            repetitions = max(repetitions, math.ceil(POLICY_GRADIENT_SIMULATION_REPETITIONS / scale_environments))
     scenario = scenario_metadata_block(scenario_id=scenario_id)
     if require_multi_tier_scenario and not scenario_supports_multi_tier_policy_comparison(scenario):
         raise CardValidationError(
@@ -919,6 +941,8 @@ def build_card(
             ticks=ticks,
             workers=workers,
             repetitions=repetitions,
+            scale_environments=scale_environments,
+            min_concurrent_environments=min_concurrent_environments,
             room=scenario_anchor_room(scenario_id),
             map_source_file=simulation_map_source_file,
         ),
@@ -2552,6 +2576,13 @@ def validate_simulation(raw: Any) -> None:
     for field in ("ticks", "workers", "repetitions"):
         if positive_int(raw.get(field)) is None:
             raise CardValidationError(f"simulation.{field} must be a positive integer")
+    for field, aliases in (
+        ("scale_environments", ("scale_environments", "scaleEnvironments")),
+        ("min_concurrent_environments", ("min_concurrent_environments", "minConcurrentEnvironments")),
+    ):
+        value = first_present(raw, aliases)
+        if value is not None and positive_int(value) is None:
+            raise CardValidationError(f"simulation.{field} must be a positive integer")
     host_port_start = first_present(raw, ("host_port_start", "hostPortStart"))
     if host_port_start is not None and positive_int(host_port_start) is None:
         raise CardValidationError("simulation.host_port_start must be a positive integer")
@@ -2688,8 +2719,15 @@ def positive_int_arg(raw: str) -> int:
     return value
 
 
-def loop_a_local_fallback_value(value: int | None, *, default: int, maximum: int, label: str) -> int:
-    resolved = default if value is None else max(value, default)
+def loop_a_local_fallback_value(
+    value: int | None,
+    *,
+    default: int,
+    maximum: int,
+    label: str,
+    allow_below_default: bool = False,
+) -> int:
+    resolved = default if value is None else (value if allow_below_default else max(value, default))
     if resolved > maximum:
         raise CardValidationError(f"Loop A local fallback {label} must be <= {maximum}")
     return resolved
@@ -2766,6 +2804,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Simulator worker count to request. Defaults to 1.",
     )
     parser.add_argument(
+        "--scale-environments",
+        type=positive_int_arg,
+        help=(
+            "Policy-gradient scale environments used for sample-budget validation. "
+            "Defaults to the worker count for degraded Loop A local fallback cards."
+        ),
+    )
+    parser.add_argument(
+        "--min-concurrent-environments",
+        type=positive_int_arg,
+        help="Minimum concurrent simulator environments requested by the training runner.",
+    )
+    parser.add_argument(
         "--scenario-id",
         choices=SCENARIO_IDS,
         default=None,
@@ -2800,6 +2851,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Write a standalone Loop A local-fallback experiment_card.json from an accepted "
             "dataset gate. Implies policy_gradient card supply and defaults to 5 workers, "
             f"20 repetitions, and {POLICY_GRADIENT_MIN_SIMULATION_TICKS} ticks."
+        ),
+    )
+    parser.add_argument(
+        "--degraded-local-fallback-profile",
+        action="store_true",
+        help=(
+            "Allow explicit lower worker/repetition counts for a shadow-only Loop A local-fallback "
+            "card when scale environments still satisfy the policy-gradient sample budget."
         ),
     )
     parser.add_argument(
@@ -2880,6 +2939,8 @@ def main(
             raise CardValidationError("--loop-a-local-fallback writes a standalone experiment_card.json; use --output")
         if args.loop_a_local_fallback and args.dry_run:
             raise CardValidationError("--loop-a-local-fallback requires an accepted dataset gate")
+        if args.degraded_local_fallback_profile and not args.loop_a_local_fallback:
+            raise CardValidationError("--degraded-local-fallback-profile requires --loop-a-local-fallback")
 
         if args.select_loop_a_card:
             if args.validate or args.loop_a_local_fallback:
@@ -2951,7 +3012,10 @@ def main(
         simulation_ticks = args.ticks
         simulation_repetitions = args.repetitions
         simulation_workers = args.workers
+        simulation_scale_environments = args.scale_environments
+        simulation_min_concurrent_environments = args.min_concurrent_environments
         if args.loop_a_local_fallback:
+            degraded_local_fallback_profile = bool(args.degraded_local_fallback_profile)
             simulation_ticks = loop_a_local_fallback_value(
                 args.ticks,
                 default=LOOP_A_LOCAL_FALLBACK_TICKS,
@@ -2963,13 +3027,20 @@ def main(
                 default=LOOP_A_LOCAL_FALLBACK_REPETITIONS,
                 maximum=LOOP_A_LOCAL_FALLBACK_REPETITIONS,
                 label="repetitions",
+                allow_below_default=degraded_local_fallback_profile,
             )
             simulation_workers = loop_a_local_fallback_value(
                 args.workers,
                 default=LOOP_A_LOCAL_FALLBACK_WORKERS,
                 maximum=LOOP_A_LOCAL_FALLBACK_WORKERS,
                 label="workers",
+                allow_below_default=degraded_local_fallback_profile,
             )
+            if degraded_local_fallback_profile:
+                if simulation_scale_environments is None:
+                    simulation_scale_environments = simulation_workers
+                if simulation_min_concurrent_environments is None:
+                    simulation_min_concurrent_environments = simulation_scale_environments
         scenario_id, require_multi_tier_scenario = resolve_cli_scenario_request(args)
         card = build_card(
             dataset_run_id=dataset_run_id,
@@ -2979,6 +3050,8 @@ def main(
             simulation_ticks=simulation_ticks,
             simulation_repetitions=simulation_repetitions,
             simulation_workers=simulation_workers,
+            simulation_scale_environments=simulation_scale_environments,
+            simulation_min_concurrent_environments=simulation_min_concurrent_environments,
             loop_a_card_supply=loop_a_card_supply,
             source_gate=source_gate,
             scenario_id=scenario_id,

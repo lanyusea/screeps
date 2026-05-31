@@ -795,6 +795,87 @@ class RlExperimentCardTest(unittest.TestCase):
             with self.assertRaises(card_helper.CardValidationError):
                 card_helper.validate_card(nested_live_regression)
 
+    def test_cli_writes_degraded_loop_a_local_fallback_resource_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            gate_id = "rl-gate-e40f73af6f71"
+            dataset_run_id = "rl-b3d6e3a2af75"
+            gate_path = runtime_root / "rl-control-loop" / "gate-data" / gate_id / "gate_report.json"
+            output_path = runtime_root / "rl-experiment-cards" / "experiment_card.json"
+            gate_path.parent.mkdir(parents=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "type": card_helper.SOURCE_GATE_TYPE,
+                        "ok": True,
+                        "gateId": gate_id,
+                        "createdAt": "2026-05-30T18:08:37Z",
+                        "dataset": {"ok": True, "runId": dataset_run_id, "sampleCount": 200},
+                        "datasetGate": {"status": "pass", "sampleCount": 200},
+                        "quality_checks": {
+                            "status": "pass",
+                            "samples_accepted": 200,
+                            "samples_rejected": 0,
+                            "acceptance_rate": 1.0,
+                        },
+                        "shadowEvaluation": {"status": "pass", "ok": True},
+                        "blockingReasons": [],
+                        "outputs": {"gateDir": f"runtime-artifacts/rl-control-loop/gate-data/{gate_id}"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            exit_code = card_helper.main(
+                [
+                    "--loop-a-local-fallback",
+                    "--degraded-local-fallback-profile",
+                    "--source-gate-id",
+                    gate_id,
+                    "--dataset-gate-root",
+                    str(runtime_root),
+                    "--code-commit",
+                    "7" * 40,
+                    "--created-at",
+                    "2026-05-31T21:06:00Z",
+                    "--ticks",
+                    "2000",
+                    "--repetitions",
+                    "10",
+                    "--workers",
+                    "2",
+                    "--output",
+                    str(output_path),
+                ],
+                stdout=stdout,
+                stderr=io.StringIO(),
+                repo_root=REPO_ROOT,
+            )
+            summary = json.loads(stdout.getvalue())
+            generated = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(summary["loop_a_local_fallback"])
+        self.assertEqual(summary["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(summary["source_gate"]["dataset_run_id"], dataset_run_id)
+        card_helper.validate_card(generated)
+        runner.validate_experiment_card(generated)
+        config = runner.simulation_config_from_card(generated)
+        self.assertEqual(config.workers, 2)
+        self.assertEqual(config.repetitions, 10)
+        self.assertEqual(config.ticks, card_helper.POLICY_GRADIENT_MIN_SIMULATION_TICKS)
+        self.assertEqual(config.scale_environments, 2)
+        self.assertEqual(config.min_concurrent_environments, 2)
+        self.assertEqual(generated["dataset_run_id"], dataset_run_id)
+        self.assertEqual(generated["source_gate"]["gate_id"], gate_id)
+        self.assertEqual(generated["training_approach"], "policy_gradient")
+        self.assertEqual(generated["simulation"]["scale_environments"], 2)
+        self.assertEqual(generated["simulation"]["min_concurrent_environments"], 2)
+        self.assertEqual(generated["card_supply"]["state"], "available")
+        self.assertTrue(generated["card_supply"]["available_for_training"])
+
     def test_loop_a_local_fallback_rejects_explicit_single_room_scenario(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
