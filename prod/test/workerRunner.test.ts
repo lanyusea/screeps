@@ -4408,7 +4408,11 @@ describe('runWorker', () => {
           return site;
         }
 
-        return id === 'spawn1' ? spawn : storage;
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'storage1' ? storage : null;
       })
     };
 
@@ -4522,7 +4526,11 @@ describe('runWorker', () => {
           return site;
         }
 
-        return id === 'spawn1' ? spawn : storage;
+        if (id === 'spawn1') {
+          return spawn;
+        }
+
+        return id === 'storage1' ? storage : null;
       })
     };
 
