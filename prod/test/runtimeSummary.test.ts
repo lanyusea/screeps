@@ -412,6 +412,31 @@ describe('runtime telemetry summaries', () => {
     expect((message as string).startsWith(RUNTIME_CPU_SUMMARY_PREFIX)).toBe(true);
   });
 
+  it('emits damage-only critical defense summaries while the CPU bucket is critical', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const damageOnlyDefenseEvent: RuntimeTelemetryEvent = {
+      type: 'defense',
+      action: 'workerFallback',
+      roomName: 'W1N1',
+      reason: 'workerEmergencyFallback',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 1,
+      tick: RUNTIME_SUMMARY_INTERVAL
+    };
+    (Game as Partial<Game>).cpu = {
+      getUsed: jest.fn().mockReturnValue(24),
+      limit: 70,
+      bucket: 43,
+      tickLimit: 63
+    } as unknown as CPU;
+
+    emitRuntimeSummary([colony], [], [damageOnlyDefenseEvent]);
+
+    const payload = parseLoggedSummary();
+    expect(payload.events).toEqual([damageOnlyDefenseEvent]);
+  });
+
   it('reports per-creep behavior counters and resets emitted counters', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const worker = makeWorker(
@@ -3087,6 +3112,16 @@ describe('runtime telemetry summaries', () => {
       damagedCriticalStructureCount: 0,
       tick: RUNTIME_SUMMARY_INTERVAL
     };
+    const damageOnlyDefenseEvent: RuntimeTelemetryEvent = {
+      type: 'defense',
+      action: 'workerFallback',
+      roomName: 'W1N1',
+      reason: 'workerEmergencyFallback',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 1,
+      tick: RUNTIME_SUMMARY_INTERVAL
+    };
 
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [], lowBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], lowBucketBudget)).toBe(true);
@@ -3094,6 +3129,7 @@ describe('runtime telemetry summaries', () => {
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL * 5, [], criticalBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [spawnEvent], criticalBucketBudget)).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [safeModeEvent], criticalBucketBudget)).toBe(true);
+    expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [damageOnlyDefenseEvent], criticalBucketBudget)).toBe(true);
   });
 
   it('reports construction-priority runtime use from runtime summary scoring', () => {

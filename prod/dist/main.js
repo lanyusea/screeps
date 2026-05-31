@@ -37753,7 +37753,7 @@ function hasCriticalRuntimeSummaryEvent(events) {
     if (event.type !== "defense") {
       return false;
     }
-    return event.action === "safeMode" || event.hostileCreepCount > 0 || event.hostileStructureCount > 0;
+    return event.action === "safeMode" || event.hostileCreepCount > 0 || event.hostileStructureCount > 0 || event.damagedCriticalStructureCount > 0;
   });
 }
 function resetCachedRefillTelemetryIfTickRewound(tick) {

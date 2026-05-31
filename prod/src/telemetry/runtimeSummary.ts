@@ -863,7 +863,8 @@ function hasCriticalRuntimeSummaryEvent(events: RuntimeTelemetryEvent[]): boolea
     return (
       event.action === 'safeMode' ||
       event.hostileCreepCount > 0 ||
-      event.hostileStructureCount > 0
+      event.hostileStructureCount > 0 ||
+      event.damagedCriticalStructureCount > 0
     );
   });
 }
