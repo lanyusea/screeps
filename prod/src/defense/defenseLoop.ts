@@ -1,4 +1,5 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
+import { isRuntimeCpuBucketLow } from '../runtime/cpuBudget';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { isDamagedStructure } from './defenseTelemetry';
 import {
@@ -53,6 +54,7 @@ interface DefenseActionInput {
 
 export function runDefense(): RuntimeTelemetryEvent[] {
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
+  const shedNonessentialCpuWork = isRuntimeCpuBucketLow();
   refreshVisibleDeadZoneMemory();
   const colonies = getOwnedColonies();
   const contexts = colonies.map(createDefenseContext);
@@ -60,7 +62,12 @@ export function runDefense(): RuntimeTelemetryEvent[] {
   const towerPriorityTargetGroups = buildTowerPriorityTargetGroups(contexts);
 
   for (const context of contexts) {
-    runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups);
+    runColonyDefense(
+      context,
+      telemetryEvents,
+      towerPriorityTargetGroups,
+      shouldAllowPassiveTowerRecovery(context, shedNonessentialCpuWork)
+    );
   }
 
   runDefenders(Object.values(Game.creeps), telemetryEvents);
@@ -71,10 +78,12 @@ export function runDefense(): RuntimeTelemetryEvent[] {
 function runColonyDefense(
   context: DefenseContext,
   telemetryEvents: RuntimeTelemetryEvent[],
-  towerPriorityTargetGroups: TowerPriorityTargetGroup[]
+  towerPriorityTargetGroups: TowerPriorityTargetGroup[],
+  allowPassiveTowerRecovery: boolean
 ): void {
   const towerDefenseResult = runTowersWithResult(context.colony.room, {
-    priorityTargetGroups: towerPriorityTargetGroups
+    priorityTargetGroups: towerPriorityTargetGroups,
+    allowRecoveryActions: allowPassiveTowerRecovery
   });
   telemetryEvents.push(...towerDefenseResult.events);
   const safeModeResult = runSafeModeWithResult(context.colony.room);
@@ -89,6 +98,18 @@ function runColonyDefense(
   }
 
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
+}
+
+function shouldAllowPassiveTowerRecovery(context: DefenseContext, shedNonessentialCpuWork: boolean): boolean {
+  if (!shedNonessentialCpuWork) {
+    return true;
+  }
+
+  return (
+    context.hostileCreeps.length > 0 ||
+    context.hostileStructures.length > 0 ||
+    context.damagedCriticalStructures.length > 0
+  );
 }
 
 function recordWorkerFallbackIfNeeded(
