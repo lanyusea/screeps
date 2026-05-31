@@ -47536,7 +47536,7 @@ function getWorkerCriticalCpuProbeRoomName(creep) {
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function shouldRunCriticalCpuColonyPlanning(colony, roleCounts) {
-  if (getWorkerCapacity(roleCounts) <= 0) {
+  if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
     return true;
   }
   if (isControllerDowngradeGuardController(colony.room.controller)) {

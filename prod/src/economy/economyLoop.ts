@@ -525,7 +525,7 @@ function getWorkerCriticalCpuProbeRoomName(creep: Creep): string | null {
 }
 
 function shouldRunCriticalCpuColonyPlanning(colony: ColonySnapshot, roleCounts: RoleCounts): boolean {
-  if (getWorkerCapacity(roleCounts) <= 0) {
+  if (roleCounts.worker <= 0 || getWorkerCapacity(roleCounts) <= 0) {
     return true;
   }
 

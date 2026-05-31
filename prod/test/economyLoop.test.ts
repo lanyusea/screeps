@@ -338,6 +338,58 @@ describe('runEconomy', () => {
     expect(room.find).not.toHaveBeenCalled();
   });
 
+  it('keeps worker recovery planning under critical CPU when only source harvesters remain', () => {
+    const findSources = (globalThis as Record<string, unknown>).FIND_SOURCES;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        level: 3,
+        ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController,
+      find: jest.fn((type: FindConstant) => (type === findSources ? [{} as Source] : []))
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const sourceHarvester = {
+      name: 'SourceHarvester1',
+      ticksToLive: 1000,
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N1',
+        sourceHarvester: {
+          roomName: 'W1N1',
+          sourceId: 'source1' as Id<Source>
+        }
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 128,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: { SourceHarvester1: sourceHarvester },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(12),
+        limit: 70,
+        bucket: 1,
+        tickLimit: 21
+      } as unknown as CPU
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-128', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('spawns an emergency bootstrap worker without requiring the energy buffer', () => {
     const room = {
       name: 'W1N1',
