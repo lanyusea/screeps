@@ -382,6 +382,106 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertEqual(summary["skippedSampleCount"], 0)
         self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
 
+    def test_stale_skipped_samples_are_summarized_without_full_source_index_log(self) -> None:
+        current_payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for index in range(exporter.SKIPPED_SAMPLE_LOG_LIMIT + 5):
+                stale_payload = {
+                    "type": "runtime-summary",
+                    "tick": 786180 + index,
+                    "rooms": [{"roomName": f"E26S{index % 10}", "resources": {"storedEnergy": 0}}],
+                }
+                stale_artifact = root / f"runtime-summary-console-20260510T1735{index % 60:02d}Z-{index}.log"
+                stale_artifact.write_text(runtime_line(stale_payload), encoding="utf-8")
+
+            current_artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            current_artifact.write_text(runtime_line(current_payload), encoding="utf-8")
+            out_dir = root / "datasets"
+
+            summary = exporter.build_dataset(
+                [str(root)],
+                out_dir,
+                run_id="bounded-skipped-source-index-run",
+                bot_commit="3" * 40,
+                sample_limit=1,
+                eval_ratio_value=0,
+                created_at="2026-05-21T03:03:07Z",
+                home_room="E29N55",
+            )
+            rows = read_ndjson(out_dir / "bounded-skipped-source-index-run" / "ticks.ndjson")
+            source_index = read_json(out_dir / "bounded-skipped-source-index-run" / "source_index.json")
+            run_manifest = read_json(out_dir / "bounded-skipped-source-index-run" / "run_manifest.json")
+
+        skipped_count = exporter.SKIPPED_SAMPLE_LOG_LIMIT + 5
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["observation"]["roomName"], "E29N55")
+        self.assertEqual(source_index["skippedSampleCount"], skipped_count)
+        self.assertEqual(len(source_index["skippedSamples"]), exporter.SKIPPED_SAMPLE_LOG_LIMIT)
+        self.assertEqual(source_index["skippedSamplesTruncated"], 5)
+        self.assertEqual(run_manifest["source"]["skippedSampleCount"], skipped_count)
+        self.assertEqual(len(run_manifest["source"]["skippedSamples"]), exporter.SKIPPED_SAMPLE_LOG_LIMIT)
+
+    def test_generated_rl_dataset_source_index_directory_is_not_rescanned(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 1056600,
+            "rooms": [{"roomName": "E29N55", "resources": {"storedEnergy": 250}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-artifacts"
+            generated_dataset_dir = artifact_root / "rl-datasets" / "old-run"
+            generated_dataset_dir.mkdir(parents=True)
+            generated_source_index = generated_dataset_dir / "source_index.json"
+            generated_source_index.write_text(
+                json.dumps(
+                    {
+                        "type": "screeps-rl-source-index",
+                        "skippedSamples": [
+                            {
+                                "reason": exporter.STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON,
+                                "path": f"runtime-summary-console-20260510T0000{index:02d}Z.log",
+                                "roomName": "E26S49",
+                            }
+                            for index in range(60)
+                        ],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            runtime_artifact = artifact_root / "runtime-summary-console-20260521T025000Z.log"
+            runtime_artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = artifact_root / "rl-datasets-new"
+            original_scan_file = exporter.scan_file
+            scanned_paths: list[Path] = []
+
+            def tracking_scan_file(path: Path, *args: object, **kwargs: object) -> None:
+                scanned_paths.append(path)
+                original_scan_file(path, *args, **kwargs)
+
+            with mock.patch.object(exporter, "scan_file", side_effect=tracking_scan_file):
+                summary = exporter.build_dataset(
+                    [str(artifact_root)],
+                    out_dir,
+                    run_id="skip-generated-source-index-run",
+                    bot_commit="4" * 40,
+                    eval_ratio_value=0,
+                    created_at="2026-05-21T03:03:07Z",
+                    home_room="E29N55",
+                )
+
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertNotIn(generated_source_index, scanned_paths)
+
     def test_incomplete_postdeploy_monitor_summary_json_is_filtered_from_samples(self) -> None:
         monitor_payload = {
             "ok": True,

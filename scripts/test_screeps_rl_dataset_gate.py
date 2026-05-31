@@ -404,6 +404,55 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(quality["acceptance_rate"], 1.0)
         self.assertEqual(saved_report["dataset"]["skippedSamples"][0]["roomName"], "E26S48")
 
+    def test_run_bounds_large_stale_non_current_tail_before_quality_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            stale_count = dataset_export.SKIPPED_SAMPLE_LOG_LIMIT + 5
+            for index in range(stale_count):
+                stale_room = runtime_payload(786180 + index, stored_energy=0)
+                room = stale_room["rooms"][0]
+                room["roomName"] = f"E26S{index % 10}"
+                room["workerCount"] = 0
+                room["spawnStatus"] = []
+                room["taskCounts"] = {"harvest": 0, "upgrade": 0, "none": 0}
+                room["energyAvailable"] = 0
+                room["resources"]["workerCarriedEnergy"] = 0
+                stale_artifact = root / f"runtime-summary-console-20260510T1735{index % 60:02d}Z-{index}.log"
+                stale_artifact.write_text(runtime_line(stale_room), encoding="utf-8")
+
+            current_artifact = root / "runtime-summary-console-20260521T025000Z.log"
+            current_room = runtime_payload(1056600, stored_energy=250)
+            current_room["rooms"][0]["roomName"] = "E29N55"
+            current_artifact.write_text(runtime_line(current_room), encoding="utf-8")
+
+            with mock.patch.dict(gate.os.environ, {"SCREEPS_HOME_ROOM": "E29N55"}, clear=False):
+                report = gate.run_gate(
+                    [str(root)],
+                    out_dir=root / "gates",
+                    gate_id="gate-bounded-stale-tail",
+                    created_at="2026-05-21T03:03:07Z",
+                    dataset_out_dir=root / "datasets",
+                    sample_limit=1,
+                    min_samples=1,
+                    skip_shadow_report=True,
+                    bot_commit="a" * 40,
+                    eval_ratio_value=0,
+                    repo_root=Path.cwd(),
+                )
+
+            source_index = read_json(root / "datasets" / report["dataset"]["runId"] / "source_index.json")
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["sampleCount"], 1)
+        self.assertEqual(report["dataset"]["skippedSampleCount"], stale_count)
+        self.assertEqual(len(report["dataset"]["skippedSamples"]), dataset_export.SKIPPED_SAMPLE_LOG_LIMIT)
+        self.assertEqual(report["dataset"]["skippedSamplesTruncated"], 5)
+        self.assertEqual(source_index["skippedSampleCount"], stale_count)
+        self.assertEqual(len(source_index["skippedSamples"]), dataset_export.SKIPPED_SAMPLE_LOG_LIMIT)
+        self.assertEqual(report["quality_checks"]["samples_total"], 1)
+        self.assertEqual(report["quality_checks"]["samples_accepted"], 1)
+        self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
+
     def test_run_rejects_malformed_created_at_before_stale_age_logic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

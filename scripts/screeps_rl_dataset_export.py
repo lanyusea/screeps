@@ -44,6 +44,11 @@ INCOMPLETE_DERIVED_RUNTIME_SUMMARY_SKIP_REASON = "incomplete_derived_runtime_sum
 STALE_NON_CURRENT_CONSOLE_CAPTURE_SKIP_REASON = "stale_non_current_room_console_capture"
 STALE_CONSOLE_CAPTURE_SOURCE_AGE_HOURS = 24.0
 SKIPPED_SAMPLE_LOG_LIMIT = 50
+GENERATED_ARTIFACT_DIRECTORY_NAMES = (
+    "rl-datasets",
+    "rl-dataset-gates",
+    "rl-control-loop",
+)
 DERIVED_RUNTIME_SOURCE_MARKERS = ("screeps-runtime-monitor", "screeps-runtime-monitor-json")
 DERIVED_RUNTIME_BASENAME_PREFIXES = ("postdeploy-observation", "runtime-summary-monitor", "latest-summary-output")
 CONSOLE_CAPTURE_SOURCE_MARKER = "runtime-summary-console"
@@ -883,7 +888,12 @@ def build_dataset(
     resolved_bot_commit = bot_commit or git_commit(repo)
     resolved_out_dir = out_dir.expanduser()
     resolved_home_room = home_room or configured_home_room()
-    scan = collect_artifact_records(paths, max_file_bytes=max_file_bytes, excluded_roots=[resolved_out_dir])
+    scan = collect_artifact_records(
+        paths,
+        max_file_bytes=max_file_bytes,
+        excluded_roots=[resolved_out_dir],
+        excluded_directory_names=GENERATED_ARTIFACT_DIRECTORY_NAMES,
+    )
     filter_incomplete_derived_runtime_records(scan)
     filter_stale_non_current_console_capture_records(scan, home_room=resolved_home_room, created_at=created_at)
     rows = build_tick_rows(scan.records, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
@@ -1297,6 +1307,7 @@ def count_skipped_sample_field(scan: ScanResult, field_name: str) -> JsonObject:
 
 
 def build_source_index(scan: ScanResult) -> JsonObject:
+    skipped_sample_summary = build_skipped_sample_summary(scan)
     return {
         "type": "screeps-rl-source-index",
         "schemaVersion": SCHEMA_VERSION,
@@ -1315,7 +1326,7 @@ def build_source_index(scan: ScanResult) -> JsonObject:
         ],
         "strategyShadowReports": scan.strategy_shadow_reports,
         "skippedFiles": sorted(scan.skipped_files, key=lambda item: (item.get("path", ""), item.get("reason", ""))),
-        "skippedSamples": sorted_skipped_samples(scan),
+        **skipped_sample_summary,
     }
 
 
