@@ -47255,9 +47255,7 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   }
   const ownedColonies = getOwnedColonies();
   ensureLocalWorkerColonyMemory(ownedColonies, creeps);
-  if (!shedNonessentialCpuWork) {
-    refreshSpawnEnergyReservationStates(ownedColonies);
-  }
+  refreshSpawnEnergyReservationStates(ownedColonies);
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)])
   );
@@ -47428,10 +47426,8 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   if (!shedNonessentialCpuWork && shouldRunOptionalGlobalWork()) {
     attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   }
-  if (!shedNonessentialCpuWork) {
-    refreshSpawnEnergyReservationStates(colonies);
-    refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
-  }
+  refreshSpawnEnergyReservationStates(colonies);
+  refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   const creepCpuBudget = getRuntimeCpuBudget();
   const shedCpuIdleWorkerProbeRooms = /* @__PURE__ */ new Set();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
