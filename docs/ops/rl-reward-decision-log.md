@@ -71,6 +71,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 | `RD-0002-worker-load-efficiency` | `proposed` | tiny-load returns such as 2/50 energy | needs metric evidence; not accepted | #907, #906 |
 | `RD-0003-stuck-actionless-creeps` | `proposed` | stuck/actionless creeps | needs metric evidence; not accepted | #907, #906 |
 | `RD-V3-004-constructionNeglectPenalty` | `proposed` | `build=0` with construction backlog | needs offline/shadow replay plus future #924-compatible scorecard artifact; not accepted | #1024, #907, #906, #924 |
+| `RD-V3-005-onlineReliabilityRollbackPenalty` | `proposed` | online/shadow reliability rollback over threshold | candidate admission/#924 scorecard gate proposal only; not accepted | #1558, #907, #924, #1536, #1548 |
 | `RD-0005-expansion-without-spawn` | `proposed` | claim/expansion room with 0 spawns after grace window | needs metric evidence; not accepted | #907, #906 |
 | `RD-0006-metric-and-reliability-gates` | `proposed` | CPU, reliability, or missing metrics | needs metric evidence; not accepted | #907, #906 |
 
@@ -117,6 +118,22 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 - Possible Act choice: add a shadow/offline `construction-neglect-penalty` when `constructionSiteCount > 0` and `taskCounts.build == 0`, with negative reward proportional to construction site count.
 - Evidence needed: historical shadow replay, construction-deadlock tick counts, build assignment distribution, build progress or build-carried energy, spawn/refill health, controller downgrade safety, and a future generated #924-compatible candidate-vs-baseline scorecard artifact. Issue #924 is the source scorecard contract; its closure is not acceptance for #1024.
 - Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize learned-policy live writes.
+- Acceptance status: not accepted; proposal only.
+
+### RD-V3-005-onlineReliabilityRollbackPenalty
+
+- State: `proposed`
+- Linked issue: https://github.com/lanyusea/screeps/issues/1558
+- Change-control reference: https://github.com/lanyusea/screeps/issues/907
+- Linked scorecard gate: https://github.com/lanyusea/screeps/issues/924
+- Compute-gate blockers: https://github.com/lanyusea/screeps/issues/1536 and https://github.com/lanyusea/screeps/issues/1548
+- Evidence: `runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json` and runtime console ticks 1623386-1623404. The Loop B policy online advantage evidence says `construction-priority.territory-shadow.v1` and `expansion-remote.territory-shadow.v1` passed offline/shadow evaluation, then were rolled back in official MMO after reliability dropped about 17-18% against a 10% rollback threshold.
+- Problem: candidate families can pass offline/shadow utility checks while failing online reliability above the configured rollback threshold.
+- Possible Act choice: first implementation is conservative candidate admission/#924 scorecard gating. Reward shaping and scenario weighting are future shadow-only follow-ups, not accepted changes.
+- Validation metric: candidate online/shadow reliability drop versus baseline over the same comparison window, with fail-closed rejection when the configured rollback threshold is exceeded or required reliability fields are missing. The current threshold evidence uses 10.0%.
+- Owner-independent rejection criteria: reject when reliability drop exceeds threshold; when #924 scorecard reliability, baseline, candidate, window, or threshold data is missing; when CPU, room survival, spawn survival, loop exceptions, or telemetry freshness regress; when paid Tencent compute would be required while #1536/#1548/Tencent recurrence gates are blocked; or when any live learned-policy write/control surface is enabled.
+- Post-gate experiment plan: after #1536, #1548, and Tencent recurrence gates clear, create an offline/shadow experiment card comparing the incumbent baseline against these candidate families or successor family IDs, with `rollbackThresholdPct`, baseline/candidate reliability, reliability delta, #924 scorecard status, CPU/room safety, territory, resources, and kills recorded before any reward-shaping or scenario-weighting variant.
+- Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize learned-policy live writes or paid Tencent validation.
 - Acceptance status: not accepted; proposal only.
 
 ### RD-0005-expansion-without-spawn
