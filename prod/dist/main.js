@@ -25302,6 +25302,8 @@ var HARVEST_SOURCE_CONTAINER_RANGE = 0;
 var MAX_HARVEST_PATH_OPS = 2e3;
 var LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO = 1.1;
 var LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN = 0.25;
+var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
+var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS = 300;
 var nearTermSpawnExtensionRefillReserveCache = null;
 var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
@@ -27989,7 +27991,11 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext) {
-  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink)) {
+  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+    creep,
+    spawnOrExtensionEnergySink,
+    constructionSites
+  )) {
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -28006,8 +28012,22 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOr
   const repairTarget = selectRepairTarget(creep);
   return repairTarget ? { type: "repair", targetId: repairTarget.id } : null;
 }
-function shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink) {
-  return spawnOrExtensionEnergySink !== null && hasHealthyRoomEnergyBuffer(creep.room) && !hasActiveSpawningSpawn(creep.room);
+function shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink, constructionSites) {
+  return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && (hasHealthyRoomEnergyBuffer(creep.room) || constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep));
+}
+function hasSafeStoredEnergyForBoundedConstruction(creep) {
+  const energyAvailable = getRoomEnergyAvailable10(creep.room);
+  if (energyAvailable === null || energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)) {
+    return false;
+  }
+  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter((worker) => isSameRoomWorker(worker, creep.room));
+  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS) {
+    return false;
+  }
+  if (hasSameRoomWorkerAssignedToTask(creep.room, creep, "build")) {
+    return false;
+  }
+  return getStorageEnergyAvailableForWithdrawal(creep.room) >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS;
 }
 function hasHealthyRoomEnergyBuffer(room) {
   const energyAvailable = getRoomEnergyAvailable10(room);
@@ -31401,6 +31421,8 @@ var ADJACENT_ACTION_MOVE_RANGE = 1;
 var RANGED_WORK_MOVE_RANGE = 3;
 var EXACT_POSITION_MOVE_RANGE = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
+var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2 = 2;
+var SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS2 = 300;
 function runWorker(creep) {
   var _a, _b;
   if (runControllerSustainMovement(creep)) {
@@ -31809,7 +31831,33 @@ function selectSpawnEnergyReservationRefillTask(creep, currentTask, selectedTask
   return targetId.length > 0 ? { type: "transfer", targetId } : null;
 }
 function shouldDeferSpawnReservationRefillForProductiveWork(creep, selectedTask) {
-  return ((selectedTask == null ? void 0 : selectedTask.type) === "build" || (selectedTask == null ? void 0 : selectedTask.type) === "repair") && hasHealthyRoomEnergyBuffer2(creep.room) && !hasActiveSpawningSpawn2(creep.room);
+  return ((selectedTask == null ? void 0 : selectedTask.type) === "build" || (selectedTask == null ? void 0 : selectedTask.type) === "repair") && !hasActiveSpawningSpawn2(creep.room) && (hasHealthyRoomEnergyBuffer2(creep.room) || hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask));
+}
+function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
+  if ((selectedTask == null ? void 0 : selectedTask.type) !== "build") {
+    return false;
+  }
+  const energyAvailable = getRoomEnergyAvailable12(creep.room);
+  if (energyAvailable === null || energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)) {
+    return false;
+  }
+  const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter((worker) => isSameRoomWorker2(worker, creep.room));
+  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2) {
+    return false;
+  }
+  if (hasOtherSameRoomBuildAssignment(creep)) {
+    return false;
+  }
+  return getStorageEnergyAvailableForWithdrawal(creep.room) >= SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS2;
+}
+function hasOtherSameRoomBuildAssignment(creep) {
+  return getRoomOwnedCreeps2(creep.room).some((worker) => {
+    var _a, _b;
+    if (isSameCreep2(worker, creep) || !isSameRoomWorker2(worker, creep.room)) {
+      return false;
+    }
+    return ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === "build";
+  });
 }
 function hasHealthyRoomEnergyBuffer2(room) {
   const energyAvailable = getRoomEnergyAvailable12(room);
@@ -32530,6 +32578,10 @@ function getUsedTransferEnergy(creep) {
 function isSameRoomWorkerWithEnergy2(creep, room) {
   var _a;
   return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom2(creep, room) && getUsedTransferEnergy(creep) > 0;
+}
+function isSameRoomWorker2(creep, room) {
+  var _a;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom2(creep, room);
 }
 function isInRoom2(creep, room) {
   var _a;

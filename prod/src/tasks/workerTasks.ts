@@ -151,6 +151,8 @@ const HARVEST_SOURCE_CONTAINER_RANGE = 0;
 const MAX_HARVEST_PATH_OPS = 2_000;
 const LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO = 1.1;
 const LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN = 0.25;
+const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS = 2;
+const SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS = 300;
 
 type RepairableWorkerStructure =
   | StructureRoad
@@ -4332,7 +4334,13 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
   constructionSites: ConstructionSite[],
   constructionReservationContext: ConstructionReservationContext
 ): ProductiveEnergySinkTask | null {
-  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink)) {
+  if (
+    !shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+      creep,
+      spawnOrExtensionEnergySink,
+      constructionSites
+    )
+  ) {
     return null;
   }
 
@@ -4354,12 +4362,38 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
 
 function shouldDeferIdleSpawnExtensionRefillForProductiveWork(
   creep: Creep,
-  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
+  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
+  constructionSites: ConstructionSite[]
 ): boolean {
   return (
     spawnOrExtensionEnergySink !== null &&
-    hasHealthyRoomEnergyBuffer(creep.room) &&
-    !hasActiveSpawningSpawn(creep.room)
+    !hasActiveSpawningSpawn(creep.room) &&
+    (hasHealthyRoomEnergyBuffer(creep.room) ||
+      (constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep)))
+  );
+}
+
+function hasSafeStoredEnergyForBoundedConstruction(creep: Creep): boolean {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (
+    energyAvailable === null ||
+    energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)
+  ) {
+    return false;
+  }
+
+  const sameRoomWorkers = getRoomOwnedCreeps(creep.room).filter((worker) => isSameRoomWorker(worker, creep.room));
+  if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS) {
+    return false;
+  }
+
+  if (hasSameRoomWorkerAssignedToTask(creep.room, creep, 'build')) {
+    return false;
+  }
+
+  return (
+    getStorageEnergyAvailableForWithdrawal(creep.room) >=
+    SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_STORAGE_SURPLUS
   );
 }
 
