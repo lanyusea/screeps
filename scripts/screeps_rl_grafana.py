@@ -503,6 +503,164 @@ def render_command(command: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
+def parse_docker_port_binding(binding: str) -> tuple[str, tuple[str, str]]:
+    if binding.startswith("["):
+        host_end = binding.find("]")
+        if host_end <= 0 or len(binding) <= host_end + 1 or binding[host_end + 1] != ":":
+            raise ValueError(f"invalid Docker port binding: {binding}")
+        host = binding[1:host_end]
+        host_port, container_port = binding[host_end + 2:].split(":", 1)
+    else:
+        host, host_port, container_port = binding.rsplit(":", 2)
+    return f"{container_port}/tcp", (host, host_port)
+
+
+def parse_docker_volume(volume: str) -> tuple[str, tuple[str, bool]]:
+    source, destination, *options = volume.split(":")
+    option_flags = {flag.strip() for option in options for flag in option.split(",")}
+    return destination, (source, "ro" in option_flags)
+
+
+def parse_docker_env(env: str) -> tuple[str, str] | None:
+    key, separator, value = env.partition("=")
+    if not separator:
+        return None
+    return key, value
+
+
+def expected_container_contract(command: list[str]) -> JsonObject:
+    ports: dict[str, list[tuple[str, str]]] = {}
+    mounts: dict[str, tuple[str, bool]] = {}
+    env: dict[str, str] = {}
+    image: str | None = None
+    index = 2 if command[:2] == ["docker", "run"] else 0
+    while index < len(command):
+        argument = command[index]
+        if argument in ("-p", "--publish"):
+            port_key, port_binding = parse_docker_port_binding(command[index + 1])
+            ports.setdefault(port_key, []).append(port_binding)
+            index += 2
+            continue
+        if argument in ("-v", "--volume"):
+            destination, mount = parse_docker_volume(command[index + 1])
+            mounts[destination] = mount
+            index += 2
+            continue
+        if argument in ("-e", "--env"):
+            parsed_env = parse_docker_env(command[index + 1])
+            if parsed_env:
+                key, value = parsed_env
+                env[key] = value
+            index += 2
+            continue
+        if argument in ("--name", "--restart"):
+            index += 2
+            continue
+        if argument in ("-d", "--detach"):
+            index += 1
+            continue
+        if argument.startswith("-"):
+            index += 1
+            continue
+        image = argument
+        break
+    return {
+        "ports": {key: sorted(values) for key, values in ports.items()},
+        "mounts": mounts,
+        "env": env,
+        "image": image,
+    }
+
+
+def actual_container_contract(container: JsonObject) -> JsonObject:
+    host_config = container.get("HostConfig", {})
+    if not isinstance(host_config, dict):
+        host_config = {}
+    config = container.get("Config", {})
+    if not isinstance(config, dict):
+        config = {}
+
+    ports: dict[str, list[tuple[str, str]]] = {}
+    port_bindings = host_config.get("PortBindings", {})
+    if isinstance(port_bindings, dict):
+        for port_key, bindings in port_bindings.items():
+            if not isinstance(port_key, str) or not isinstance(bindings, list):
+                continue
+            parsed_bindings: list[tuple[str, str]] = []
+            for binding in bindings:
+                if not isinstance(binding, dict):
+                    continue
+                parsed_bindings.append((str(binding.get("HostIp", "")), str(binding.get("HostPort", ""))))
+            ports[port_key] = sorted(parsed_bindings)
+
+    mounts: dict[str, tuple[str, bool]] = {}
+    mount_entries = container.get("Mounts", [])
+    if isinstance(mount_entries, list):
+        for mount in mount_entries:
+            if not isinstance(mount, dict):
+                continue
+            source = mount.get("Source")
+            destination = mount.get("Destination")
+            if not isinstance(source, str) or not isinstance(destination, str):
+                continue
+            mode = mount.get("Mode", "")
+            mode_flags = {part.strip() for part in str(mode).split(",")}
+            read_only = mount.get("RW") is False or "ro" in mode_flags
+            mounts[destination] = (source, read_only)
+    if not mounts:
+        binds = host_config.get("Binds", [])
+        if isinstance(binds, list):
+            for bind in binds:
+                if not isinstance(bind, str):
+                    continue
+                destination, mount = parse_docker_volume(bind)
+                mounts[destination] = mount
+
+    env: dict[str, str] = {}
+    env_entries = config.get("Env", [])
+    if isinstance(env_entries, list):
+        for entry in env_entries:
+            if not isinstance(entry, str):
+                continue
+            parsed_env = parse_docker_env(entry)
+            if parsed_env:
+                key, value = parsed_env
+                env[key] = value
+
+    return {
+        "ports": ports,
+        "mounts": mounts,
+        "env": env,
+        "image": config.get("Image") if isinstance(config.get("Image"), str) else None,
+    }
+
+
+def container_reuse_mismatches(command: list[str], container: JsonObject) -> list[str]:
+    expected = expected_container_contract(command)
+    actual = actual_container_contract(container)
+    mismatches: list[str] = []
+
+    if expected["image"] and actual["image"] != expected["image"]:
+        mismatches.append("image")
+
+    if actual["ports"].keys() != expected["ports"].keys():
+        mismatches.append("port set")
+    else:
+        for port_key, expected_bindings in expected["ports"].items():
+            if actual["ports"].get(port_key) != expected_bindings:
+                mismatches.append(f"port binding {port_key}")
+
+    for destination, expected_mount in expected["mounts"].items():
+        if actual["mounts"].get(destination) != expected_mount:
+            mismatches.append(f"mount {destination}")
+
+    for key, expected_value in expected["env"].items():
+        if actual["env"].get(key) != expected_value:
+            mismatches.append(f"env {key}")
+
+    return mismatches
+
+
 def print_report(report: JsonObject, as_json: bool) -> None:
     if as_json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -526,7 +684,7 @@ def exit_code_for_report(report: JsonObject) -> int:
 
 def ensure_durable_container(command: list[str], container_name: str, restart_policy: str) -> int:
     inspect = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
+        ["docker", "inspect", container_name],
         check=False,
         capture_output=True,
         text=True,
@@ -534,11 +692,34 @@ def ensure_durable_container(command: list[str], container_name: str, restart_po
     if inspect.returncode != 0:
         return subprocess.run(command, check=False).returncode
 
+    try:
+        inspected = json.loads(inspect.stdout)
+    except json.JSONDecodeError as error:
+        print(f"ERROR: docker inspect returned invalid JSON for {container_name}: {error}", file=sys.stderr)
+        return 1
+    if not isinstance(inspected, list) or not inspected or not isinstance(inspected[0], dict):
+        print(f"ERROR: docker inspect returned an invalid container payload for {container_name}", file=sys.stderr)
+        return 1
+
+    container = inspected[0]
+    mismatches = container_reuse_mismatches(command, container)
+    if mismatches:
+        print(
+            f"{container_name} exists with stale Docker settings ({', '.join(mismatches)}); recreating",
+            file=sys.stderr,
+        )
+        remove = subprocess.run(["docker", "rm", "-f", container_name], check=False)
+        if remove.returncode != 0:
+            return remove.returncode
+        return subprocess.run(command, check=False).returncode
+
     update = subprocess.run(["docker", "update", "--restart", restart_policy, container_name], check=False)
     if update.returncode != 0:
         return update.returncode
 
-    if inspect.stdout.strip().lower() == "true":
+    state = container.get("State", {})
+    running = isinstance(state, dict) and state.get("Running") is True
+    if running:
         print(f"{container_name} already running with restart policy {restart_policy}")
         return 0
 

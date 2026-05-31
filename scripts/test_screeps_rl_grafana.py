@@ -22,6 +22,81 @@ import screeps_rl_grafana as grafana
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def grafana_docker_command(db_path: Path | None = None) -> list[str]:
+    return grafana.build_docker_command(
+        repo_root=REPO_ROOT,
+        db_path=db_path or REPO_ROOT / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite",
+        host="127.0.0.1",
+        port=3000,
+        image="grafana/grafana-oss:test",
+        plugin=grafana.DATASOURCE_TYPE,
+        container_name="test",
+    )
+
+
+def grafana_inspect_payload(
+    *,
+    running: bool,
+    host_ip: str = "127.0.0.1",
+    host_port: str = "3000",
+    db_path: Path | None = None,
+    db_source: str | None = None,
+    image: str = "grafana/grafana-oss:test",
+    plugin: str = grafana.DATASOURCE_TYPE,
+) -> str:
+    metrics_db = (db_path or REPO_ROOT / "runtime-artifacts" / "rl-metrics" / "rl_metrics.sqlite").resolve()
+    return json.dumps(
+        [
+            {
+                "State": {"Running": running},
+                "HostConfig": {
+                    "PortBindings": {
+                        "3000/tcp": [
+                            {
+                                "HostIp": host_ip,
+                                "HostPort": host_port,
+                            }
+                        ]
+                    }
+                },
+                "Config": {
+                    "Image": image,
+                    "Env": [
+                        f"GF_INSTALL_PLUGINS={plugin}",
+                        f"GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS={plugin}",
+                        "GF_AUTH_ANONYMOUS_ENABLED=true",
+                        "GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer",
+                        "GF_AUTH_DISABLE_LOGIN_FORM=true",
+                        "GF_AUTH_BASIC_ENABLED=false",
+                        "GF_SECURITY_ADMIN_USER=admin",
+                        "GF_SECURITY_ADMIN_PASSWORD=local-dev-only",
+                    ],
+                },
+                "Mounts": [
+                    {
+                        "Source": str((grafana.grafana_root(REPO_ROOT) / "provisioning").resolve()),
+                        "Destination": grafana.CONTAINER_PROVISIONING_PATH,
+                        "Mode": "ro",
+                        "RW": False,
+                    },
+                    {
+                        "Source": str(grafana.grafana_root(REPO_ROOT).resolve()),
+                        "Destination": grafana.CONTAINER_DASHBOARD_PATH,
+                        "Mode": "ro",
+                        "RW": False,
+                    },
+                    {
+                        "Source": db_source or str(metrics_db),
+                        "Destination": grafana.CONTAINER_DB_PATH,
+                        "Mode": "ro",
+                        "RW": False,
+                    },
+                ],
+            }
+        ]
+    )
+
+
 class ScreepsRlGrafanaContractTest(unittest.TestCase):
     def test_static_repository_contract_passes_without_running_grafana(self) -> None:
         report = grafana.validate_static(REPO_ROOT)
@@ -191,7 +266,7 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertIn("[::1]:3000:3000", command)
 
     def test_ensure_durable_container_creates_missing_container(self) -> None:
-        command = ["docker", "run", "-d", "--restart", "unless-stopped", "--name", "test"]
+        command = grafana_docker_command()
 
         with patch.object(grafana.subprocess, "run") as run:
             run.side_effect = [
@@ -201,15 +276,20 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             exit_code = grafana.ensure_durable_container(command, "test", "unless-stopped")
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(run.call_args_list[0].args[0][:3], ["docker", "inspect", "--format"])
+        self.assertEqual(run.call_args_list[0].args[0], ["docker", "inspect", "test"])
         self.assertEqual(run.call_args_list[1].args[0], command)
 
     def test_ensure_durable_container_starts_existing_container_with_restart_policy(self) -> None:
-        command = ["docker", "run", "-d", "--restart", "unless-stopped", "--name", "test"]
+        command = grafana_docker_command()
 
         with patch.object(grafana.subprocess, "run") as run:
             run.side_effect = [
-                subprocess.CompletedProcess(["docker", "inspect"], 0, stdout="false\n", stderr=""),
+                subprocess.CompletedProcess(
+                    ["docker", "inspect"],
+                    0,
+                    stdout=grafana_inspect_payload(running=False),
+                    stderr="",
+                ),
                 subprocess.CompletedProcess(["docker", "update"], 0, stdout="test\n", stderr=""),
                 subprocess.CompletedProcess(["docker", "start"], 0, stdout="test\n", stderr=""),
             ]
@@ -218,6 +298,52 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(run.call_args_list[1].args[0], ["docker", "update", "--restart", "unless-stopped", "test"])
         self.assertEqual(run.call_args_list[2].args[0], ["docker", "start", "test"])
+
+    def test_ensure_durable_container_recreates_existing_container_with_public_binding(self) -> None:
+        command = grafana_docker_command()
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr), patch.object(grafana.subprocess, "run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess(
+                    ["docker", "inspect"],
+                    0,
+                    stdout=grafana_inspect_payload(running=True, host_ip="0.0.0.0"),
+                    stderr="",
+                ),
+                subprocess.CompletedProcess(["docker", "rm", "-f", "test"], 0, stdout="test\n", stderr=""),
+                subprocess.CompletedProcess(command, 0, stdout="container-id\n", stderr=""),
+            ]
+            exit_code = grafana.ensure_durable_container(command, "test", "unless-stopped")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("stale Docker settings", stderr.getvalue())
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_args_list[1].args[0], ["docker", "rm", "-f", "test"])
+        self.assertEqual(run.call_args_list[2].args[0], command)
+
+    def test_ensure_durable_container_recreates_existing_container_with_stale_db_mount(self) -> None:
+        command = grafana_docker_command()
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr), patch.object(grafana.subprocess, "run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess(
+                    ["docker", "inspect"],
+                    0,
+                    stdout=grafana_inspect_payload(running=False, db_source="/tmp/stale-rl-metrics.sqlite"),
+                    stderr="",
+                ),
+                subprocess.CompletedProcess(["docker", "rm", "-f", "test"], 0, stdout="test\n", stderr=""),
+                subprocess.CompletedProcess(command, 0, stdout="container-id\n", stderr=""),
+            ]
+            exit_code = grafana.ensure_durable_container(command, "test", "unless-stopped")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("stale Docker settings", stderr.getvalue())
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_args_list[1].args[0], ["docker", "rm", "-f", "test"])
+        self.assertEqual(run.call_args_list[2].args[0], command)
 
     def test_run_uses_durable_container_command(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sqlite") as db_file:
