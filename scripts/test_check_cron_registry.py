@@ -45,13 +45,13 @@ class CronRegistryCompareTests(unittest.TestCase):
         live = {
             "recurring-job": live_recurring_job(),
             "one-shot-migration": {
-                "name": "MiniMax one-shot migration",
+                "name": "DeepSeek one-shot migration",
                 "enabled": True,
                 "state": "scheduled",
                 "schedule": "at 2026-05-23 12:00",
                 "deliver": "local",
-                "provider": "minimax-cn",
-                "model": "MiniMax-M2.7",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
                 "repeat": {"times": 1, "completed": 0},
             },
         }
@@ -70,13 +70,13 @@ class CronRegistryCompareTests(unittest.TestCase):
         live = {
             "recurring-job": live_recurring_job(),
             "one-shot-repeat-string": {
-                "name": "MiniMax one-shot migration",
+                "name": "DeepSeek one-shot migration",
                 "enabled": True,
                 "state": "scheduled",
                 "schedule": "at 2026-05-23 12:00",
                 "deliver": "local",
-                "provider": "minimax-cn",
-                "model": "MiniMax-M2.7",
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
                 "repeat": "1/1",
             },
         }
