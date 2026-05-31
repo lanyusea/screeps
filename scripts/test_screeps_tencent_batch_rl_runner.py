@@ -876,6 +876,8 @@ def write_post_fix_validation_remote_timeout_summary(artifact_root: Path, run_id
         failure_class="remote_training_timeout",
     )
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["startedAt"] = "2026-05-30T00:00:03Z"
+    summary["finishedAt"] = "2026-05-30T00:02:03Z"
     timeout_tail = "validation heartbeat: environmentsStarted=5 environmentsCompleted=0"
     remote_failure = summary["outputs"]["remoteTrainingFailure"]
     remote_failure["returncode"] = runner.PROCESS_TIMEOUT_RETURN_CODE
@@ -4276,14 +4278,17 @@ class TencentBatchRlRunnerTest(unittest.TestCase):
             artifact_root = Path(temp_dir) / "batch-runs"
             for index in range(runner.PAID_FAILURE_RECURRENCE_GUARD_THRESHOLD):
                 write_tencent_failure_summary(artifact_root, f"tencent-pg-room-busy-{index}")
-            write_post_fix_validation_pre_scale_admission_failure_summary(
+            pre_scale_attempt_path = write_post_fix_validation_pre_scale_admission_failure_summary(
                 artifact_root,
                 "tencent-postfix-room-busy-v1",
             )
-            write_post_fix_validation_recovery_remote_timeout_summary(
+            timeout_attempt_path = write_post_fix_validation_recovery_remote_timeout_summary(
                 artifact_root,
                 "postfix-room-busy-validation-timeout",
             )
+            pre_scale_attempt = json.loads(pre_scale_attempt_path.read_text(encoding="utf-8"))
+            timeout_attempt = json.loads(timeout_attempt_path.read_text(encoding="utf-8"))
+            self.assertGreater(timeout_attempt["finishedAt"], pre_scale_attempt["finishedAt"])
             args = runner.parse_cli_args([
                 "run-single",
                 "--run-id",
