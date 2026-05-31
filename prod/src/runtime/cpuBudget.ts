@@ -195,6 +195,10 @@ export function shouldThrottleRuntimeSummaryCadence(budget: RuntimeCpuBudget): b
   return budget.degraded;
 }
 
+export function shouldShedNonessentialCpuWork(budget: RuntimeCpuBudget): boolean {
+  return budget.critical || hasLowBucketPressure(budget);
+}
+
 export function resetRuntimeCpuTelemetryForTesting(): void {
   cpuTelemetryState = {
     lowBucketTicks: 0,
@@ -203,7 +207,7 @@ export function resetRuntimeCpuTelemetryForTesting(): void {
   };
 }
 
-function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
+export function hasLowBucketPressure(budget: RuntimeCpuBudget): boolean {
   return budget.reasons.includes('lowBucket') || budget.reasons.includes('criticalBucket');
 }
 
