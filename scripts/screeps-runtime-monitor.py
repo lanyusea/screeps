@@ -2071,7 +2071,8 @@ def is_expected_safe_rampart_decay_reason(
     delta = number_from_reason(reason, "delta")
     if current_hits is None or delta is None:
         return False
-    if delta >= RAMPART_CRITICAL_DAMAGE_DELTA:
+    # Long monitor gaps can accumulate normal decay above the raw damage delta threshold.
+    if delta >= RAMPART_CRITICAL_DAMAGE_DELTA and current_hits <= RAMPART_CRITICAL_DAMAGE_HITS_CEILING:
         return False
 
     return (
