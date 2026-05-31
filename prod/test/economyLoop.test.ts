@@ -172,6 +172,48 @@ describe('runEconomy', () => {
     expect(shouldRunCreepForCpuBudget(creep('scout'), criticalBudget)).toBe(false);
   });
 
+  it('limits unassigned local worker task probes per room under critical CPU bucket pressure', () => {
+    const criticalBudget = buildRuntimeCpuBudget({
+      tick: 126,
+      used: 21,
+      limit: 70,
+      bucket: 1,
+      tickLimit: 500
+    });
+    const roomA = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const roomB = {
+      name: 'W2N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const creep = (
+      name: string,
+      memory: Partial<CreepMemory> = {},
+      room: Room = roomA
+    ): Creep => ({ name, memory: { role: 'worker', colony: room.name, ...memory }, room }) as unknown as Creep;
+    const probedRooms = new Set<string>();
+
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('assigned', { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } }),
+        criticalBudget,
+        probedRooms
+      )
+    ).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('first-idle'), criticalBudget, probedRooms)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('second-idle'), criticalBudget, probedRooms)).toBe(false);
+    expect(shouldRunCreepForCpuBudget(creep('other-room-idle', {}, roomB), criticalBudget, probedRooms)).toBe(true);
+    expect(
+      shouldRunCreepForCpuBudget(
+        creep('spawn-support', { spawnSupport: { originRoom: 'W1N1', targetRoom: 'W3N1' } }),
+        criticalBudget,
+        probedRooms
+      )
+    ).toBe(true);
+  });
+
   it('keeps creep execution active during noncritical low-bucket recovery', () => {
     const lowBucketBudget = buildRuntimeCpuBudget({
       tick: 126,

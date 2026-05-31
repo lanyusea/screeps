@@ -47398,8 +47398,9 @@ function runEconomy(preludeTelemetryEvents = [], options = {}) {
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   const creepCpuBudget = getRuntimeCpuBudget();
+  const criticalCpuIdleWorkerProbeRooms = /* @__PURE__ */ new Set();
   for (const creep of orderCreepsForEconomyTaskPriority(creeps)) {
-    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget)) {
+    if (!shouldRunCreepForCpuBudget(creep, creepCpuBudget, criticalCpuIdleWorkerProbeRooms)) {
       continue;
     }
     if (featureGates.labManagement && shouldYieldCreepToLabManager(creep, Game.time)) {
@@ -47464,14 +47465,14 @@ function orderCreepsForEconomyTaskPriority(creeps) {
     (left, right) => left.priority - right.priority || left.index - right.index
   ).map((entry) => entry.creep);
 }
-function shouldRunCreepForCpuBudget(creep, cpuBudget) {
+function shouldRunCreepForCpuBudget(creep, cpuBudget, criticalCpuIdleWorkerProbeRooms) {
   var _a;
   if (!cpuBudget.critical) {
     return true;
   }
   const role = (_a = creep.memory) == null ? void 0 : _a.role;
   if (role === "worker") {
-    return shouldRunWorkerForCriticalCpu(creep);
+    return shouldRunWorkerForCriticalCpu(creep, criticalCpuIdleWorkerProbeRooms);
   }
   if (role === UPGRADER_ROLE) {
     return isDowngradeGuardControllerCreep(creep);
@@ -47481,13 +47482,32 @@ function shouldRunCreepForCpuBudget(creep, cpuBudget) {
   }
   return false;
 }
-function shouldRunWorkerForCriticalCpu(creep) {
-  var _a, _b;
+function shouldRunWorkerForCriticalCpu(creep, criticalCpuIdleWorkerProbeRooms) {
+  var _a, _b, _c, _d;
   const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
   if ((sustain == null ? void 0 : sustain.role) === "upgrader") {
     return true;
   }
-  return ((_b = creep.memory) == null ? void 0 : _b.territory) === void 0;
+  if (((_b = creep.memory) == null ? void 0 : _b.territory) !== void 0) {
+    return false;
+  }
+  if (((_c = creep.memory) == null ? void 0 : _c.spawnSupport) !== void 0 || ((_d = creep.memory) == null ? void 0 : _d.task) != null || criticalCpuIdleWorkerProbeRooms === void 0) {
+    return true;
+  }
+  const roomName = getWorkerCriticalCpuProbeRoomName(creep);
+  if (roomName === null) {
+    return true;
+  }
+  if (criticalCpuIdleWorkerProbeRooms.has(roomName)) {
+    return false;
+  }
+  criticalCpuIdleWorkerProbeRooms.add(roomName);
+  return true;
+}
+function getWorkerCriticalCpuProbeRoomName(creep) {
+  var _a, _b, _c;
+  const roomName = (_c = (_a = creep.room) == null ? void 0 : _a.name) != null ? _c : (_b = creep.memory) == null ? void 0 : _b.colony;
+  return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function isDowngradeGuardControllerCreep(creep) {
   var _a, _b, _c;
