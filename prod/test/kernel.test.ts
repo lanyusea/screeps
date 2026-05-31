@@ -174,6 +174,30 @@ describe('Kernel', () => {
     expect(runEconomy).toHaveBeenCalledWith([]);
   });
 
+  it('forwards recovery defense telemetry during low-bucket recovery when hostiles are present', () => {
+    const towerRepairEvent = makeDefenseEvent({
+      action: 'towerRepair',
+      reason: 'criticalStructureDamaged',
+      hostileCreepCount: 1,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 12,
+      structureId: 'tower1',
+      targetId: 'rampart1'
+    });
+    const runEconomy = jest.fn();
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense: jest.fn().mockReturnValue([towerRepairEvent]),
+      runEconomy
+    });
+
+    setGameTime(551, { used: 65, limit: 70, bucket: 101, tickLimit: 500 });
+    kernel.run();
+
+    expect(runEconomy).toHaveBeenCalledWith([towerRepairEvent]);
+  });
+
   it('forwards recovery defense telemetry when CPU bucket is healthy', () => {
     const towerRepairEvent = makeDefenseEvent({
       action: 'towerRepair',
