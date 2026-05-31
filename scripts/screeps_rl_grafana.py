@@ -25,10 +25,15 @@ DEFAULT_GRAFANA_URL = "http://127.0.0.1:3000"
 DEFAULT_GRAFANA_IMAGE = "grafana/grafana-oss:11.5.2"
 DEFAULT_GRAFANA_PLUGIN = DATASOURCE_TYPE
 DEFAULT_CONTAINER_NAME = "screeps-rl-grafana"
+DEFAULT_DOCKER_RESTART_POLICY = "unless-stopped"
 CONTAINER_DB_PATH = "/var/lib/grafana/rl-metrics/rl_metrics.sqlite"
 CONTAINER_DASHBOARD_PATH = "/var/lib/grafana/dashboards/screeps"
 CONTAINER_PROVISIONING_PATH = "/etc/grafana/provisioning"
 LOCAL_GRAFANA_HOSTS = {"127.0.0.1", "localhost", "::1"}
+TIME_SERIES_FORMAT = "time_series"
+TIME_SERIES_QUERY_TYPE = "time series"
+TABLE_QUERY_TYPE = "table"
+TIME_SERIES_TIME_COLUMNS = ["time"]
 
 REQUIRED_QUERY_COVERAGE = {
     "metric observation history": "FROM metric_observations",
@@ -140,6 +145,36 @@ def panel_queries(panels: list[JsonObject]) -> list[str]:
     return queries
 
 
+def is_time_series_target(panel: JsonObject, target: JsonObject) -> bool:
+    return panel.get("type") == "timeseries" or target.get("format") == TIME_SERIES_FORMAT
+
+
+def validate_dashboard_targets(panels: list[JsonObject]) -> list[str]:
+    errors: list[str] = []
+    for panel in panels:
+        targets = panel.get("targets", [])
+        if not isinstance(targets, list):
+            errors.append(f"panel {panel.get('id')} targets must be a list")
+            continue
+        for index, target in enumerate(targets):
+            if not isinstance(target, dict):
+                errors.append(f"panel {panel.get('id')} target {index} must be an object")
+                continue
+            target_label = f"panel {panel.get('id')} target {target.get('refId', index)}"
+            query_text = target.get("queryText")
+            if not isinstance(query_text, str) or not query_text.strip():
+                errors.append(f"{target_label} must define non-empty queryText")
+                continue
+            if target.get("rawQueryText") != query_text:
+                errors.append(f"{target_label} rawQueryText must exactly match queryText")
+            expected_query_type = TIME_SERIES_QUERY_TYPE if is_time_series_target(panel, target) else TABLE_QUERY_TYPE
+            if target.get("queryType") != expected_query_type:
+                errors.append(f"{target_label} queryType must be {expected_query_type!r}")
+            if expected_query_type == TIME_SERIES_QUERY_TYPE and target.get("timeColumns") != TIME_SERIES_TIME_COLUMNS:
+                errors.append(f"{target_label} timeColumns must be {TIME_SERIES_TIME_COLUMNS!r}")
+    return errors
+
+
 def validate_dashboard_payload(dashboard: JsonObject, path: Path) -> JsonObject:
     report: JsonObject = {"status": "PASS", "checks": [], "errors": [], "warnings": []}
 
@@ -175,6 +210,16 @@ def validate_dashboard_payload(dashboard: JsonObject, path: Path) -> JsonObject:
         "dashboard datasource binding",
         not datasource_errors,
         "; ".join(datasource_errors) if datasource_errors else "all panels use the provisioned SQLite datasource",
+    )
+
+    target_errors = validate_dashboard_targets(panels)
+    append_check(
+        report,
+        "dashboard frser SQLite target contract",
+        not target_errors,
+        "; ".join(target_errors)
+        if target_errors
+        else "all targets preserve rawQueryText, queryType, and timeColumns where required",
     )
 
     queries = "\n".join(panel_queries(panels))
@@ -410,14 +455,15 @@ def build_docker_command(
     plugin: str,
     container_name: str,
     allow_nonlocal: bool = False,
+    detach: bool = True,
+    restart_policy: str | None = DEFAULT_DOCKER_RESTART_POLICY,
 ) -> list[str]:
     validate_host_binding(host, allow_nonlocal)
     repo_root = repo_root.resolve()
     db_path = db_path.resolve()
-    return [
+    command = [
         "docker",
         "run",
-        "--rm",
         "--name",
         container_name,
         "-p",
@@ -446,6 +492,11 @@ def build_docker_command(
         f"{db_path}:{CONTAINER_DB_PATH}:ro",
         image,
     ]
+    if detach:
+        command[2:2] = ["-d"]
+    if restart_policy:
+        command[2:2] = ["--restart", restart_policy]
+    return command
 
 
 def render_command(command: list[str]) -> str:
@@ -471,6 +522,27 @@ def exit_code_for_report(report: JsonObject) -> int:
     if report["status"] == "NOT_RUNNING":
         return 2
     return 1
+
+
+def ensure_durable_container(command: list[str], container_name: str, restart_policy: str) -> int:
+    inspect = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if inspect.returncode != 0:
+        return subprocess.run(command, check=False).returncode
+
+    update = subprocess.run(["docker", "update", "--restart", restart_policy, container_name], check=False)
+    if update.returncode != 0:
+        return update.returncode
+
+    if inspect.stdout.strip().lower() == "true":
+        print(f"{container_name} already running with restart policy {restart_policy}")
+        return 0
+
+    return subprocess.run(["docker", "start", container_name], check=False).returncode
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -547,7 +619,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.print_only:
         print(render_command(command))
         return 0
-    return subprocess.run(command, check=False).returncode
+    return ensure_durable_container(command, args.container_name, DEFAULT_DOCKER_RESTART_POLICY)
 
 
 def build_parser() -> argparse.ArgumentParser:

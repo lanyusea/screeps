@@ -4,7 +4,9 @@ from __future__ import annotations
 import copy
 import io
 import json
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -36,6 +38,10 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         }
         for coverage_name in grafana.REQUIRED_QUERY_COVERAGE:
             self.assertEqual(coverage_checks[f"dashboard query coverage: {coverage_name}"], "PASS")
+        target_contract_check = next(
+            check for check in report["checks"] if check["name"] == "dashboard frser SQLite target contract"
+        )
+        self.assertEqual(target_contract_check["status"], "PASS")
 
     def test_dashboard_contract_rejects_missing_iteration_decision_query(self) -> None:
         dashboard_path = grafana.dashboard_file(REPO_ROOT)
@@ -52,6 +58,23 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             "#879 iteration decisions",
             "\n".join(error for error in report["errors"]),
         )
+
+    def test_dashboard_contract_rejects_missing_frser_sqlite_target_fields(self) -> None:
+        dashboard_path = grafana.dashboard_file(REPO_ROOT)
+        dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
+        broken_dashboard = copy.deepcopy(dashboard)
+        target = broken_dashboard["panels"][1]["targets"][0]
+        target.pop("rawQueryText", None)
+        target.pop("queryType", None)
+        target.pop("timeColumns", None)
+
+        report = grafana.validate_dashboard_payload(broken_dashboard, dashboard_path)
+
+        self.assertEqual(report["status"], "FAIL")
+        errors = "\n".join(error for error in report["errors"])
+        self.assertIn("rawQueryText", errors)
+        self.assertIn("queryType", errors)
+        self.assertIn("timeColumns", errors)
 
     def test_live_validator_reports_not_running_instead_of_pass(self) -> None:
         report = grafana.validate_live("http://127.0.0.1:9", timeout=0.1)
@@ -96,6 +119,9 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         )
         command_text = " ".join(command)
 
+        self.assertIn("-d", command)
+        self.assertIn("--restart", command)
+        self.assertIn(grafana.DEFAULT_DOCKER_RESTART_POLICY, command)
         self.assertIn("127.0.0.1:3000:3000", command)
         self.assertIn(f"GF_INSTALL_PLUGINS={grafana.DATASOURCE_TYPE}", command)
         self.assertIn(f"GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS={grafana.DATASOURCE_TYPE}", command)
@@ -104,6 +130,7 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertIn(f"{db_path.resolve()}:{grafana.CONTAINER_DB_PATH}:ro", command)
         self.assertNotIn(f"{db_path.parent.resolve()}:/var/lib/grafana/rl-metrics:ro", command)
         self.assertIn("grafana/grafana-oss:test", command)
+        self.assertNotIn("--rm", command)
         self.assertNotIn("0.0.0.0:3000:3000", command_text)
 
     def test_docker_command_mounts_custom_db_file_to_provisioned_container_path(self) -> None:
@@ -162,6 +189,52 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         )
 
         self.assertIn("[::1]:3000:3000", command)
+
+    def test_ensure_durable_container_creates_missing_container(self) -> None:
+        command = ["docker", "run", "-d", "--restart", "unless-stopped", "--name", "test"]
+
+        with patch.object(grafana.subprocess, "run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess(["docker", "inspect"], 1, stdout="", stderr="missing"),
+                subprocess.CompletedProcess(command, 0, stdout="container-id\n", stderr=""),
+            ]
+            exit_code = grafana.ensure_durable_container(command, "test", "unless-stopped")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args_list[0].args[0][:3], ["docker", "inspect", "--format"])
+        self.assertEqual(run.call_args_list[1].args[0], command)
+
+    def test_ensure_durable_container_starts_existing_container_with_restart_policy(self) -> None:
+        command = ["docker", "run", "-d", "--restart", "unless-stopped", "--name", "test"]
+
+        with patch.object(grafana.subprocess, "run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess(["docker", "inspect"], 0, stdout="false\n", stderr=""),
+                subprocess.CompletedProcess(["docker", "update"], 0, stdout="test\n", stderr=""),
+                subprocess.CompletedProcess(["docker", "start"], 0, stdout="test\n", stderr=""),
+            ]
+            exit_code = grafana.ensure_durable_container(command, "test", "unless-stopped")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args_list[1].args[0], ["docker", "update", "--restart", "unless-stopped", "test"])
+        self.assertEqual(run.call_args_list[2].args[0], ["docker", "start", "test"])
+
+    def test_run_uses_durable_container_command(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".sqlite") as db_file:
+            with patch.object(grafana.subprocess, "run") as run:
+                run.side_effect = [
+                    subprocess.CompletedProcess(["docker", "inspect"], 1, stdout="", stderr="missing"),
+                    subprocess.CompletedProcess(["docker", "run"], 0, stdout="container-id\n", stderr=""),
+                ]
+                exit_code = grafana.main(["run", "--db-path", db_file.name])
+
+        self.assertEqual(exit_code, 0)
+        docker_run = run.call_args_list[1].args[0]
+        self.assertIn("-d", docker_run)
+        self.assertIn("--restart", docker_run)
+        self.assertIn(grafana.DEFAULT_DOCKER_RESTART_POLICY, docker_run)
+        self.assertIn("127.0.0.1:3000:3000", docker_run)
+        self.assertNotIn("--rm", docker_run)
 
 
 if __name__ == "__main__":
