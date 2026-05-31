@@ -214,6 +214,30 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
         self.assertEqual(target["evidence"]["runtimeRoomNonNullRows"], 0)
         self.assertIn("path_finding_failures", target["details"])
 
+    def test_content_audit_classifies_missing_gameplay_category_as_not_instrumented(self) -> None:
+        with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (conn, db_path):
+            ingestor.record_finding(
+                conn,
+                finding_key="runtime-loop-exception",
+                category="runtime-reliability",
+                severity="warning",
+                metric_name="loop.exception_count",
+                source_artifact="runtime-summary.log",
+                recommendation="Fix tick-loop exceptions before trusting gameplay behavior metrics.",
+                tick=1,
+                room_name="W1N1",
+            )
+            conn.commit()
+
+            report = grafana.audit_content(repo_root, db_path)
+
+        panel = next(panel for panel in report["panels"] if panel["id"] == 3)
+        target = next(target for target in panel["targets"] if target["refId"] == "B")
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(target["state"], grafana.CONTENT_NOT_INSTRUMENTED)
+        self.assertEqual(target["evidence"]["gameplayBehaviorFindingCount"], 1)
+        self.assertIn("no gameplay behavior findings match for categories stalled-construction", target["details"])
+
     def test_content_audit_reports_query_errors_as_misconfigured(self) -> None:
         with isolated_static_repo() as repo_root, isolated_metrics_db(repo_root) as (_conn, db_path):
             dashboard_path = grafana.dashboard_file(repo_root)

@@ -67,6 +67,8 @@ npm run rl-grafana:content-audit
 
 The content audit runs each tracked panel query against `runtime-artifacts/rl-metrics/rl_metrics.sqlite` and emits per-panel states: `ready`, `not_instrumented`, `waiting_for_data`, or `misconfigured`. Empty panels are acceptable only when they carry one of those explicit states; SQL/schema errors are `misconfigured` and fail the audit.
 
+The command exits 0 when the aggregated report status is `PASS`, and exits nonzero when the report status is `FAIL`; automation and CI gates should treat a nonzero exit code as a content-audit failure, including any `misconfigured` panel.
+
 Validate the live Grafana service, datasource, and dashboard reachability:
 
 ```bash

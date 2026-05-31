@@ -353,9 +353,15 @@ def classify_empty_target(conn: sqlite3.Connection, query_text: str) -> tuple[st
         total_findings = table_row_count(conn, "gameplay_behavior_findings")
         category_detail = f" for categories {', '.join(categories)}" if categories else ""
         evidence["gameplayBehaviorFindingCount"] = total_findings
+        if total_findings == 0:
+            return (
+                CONTENT_WAITING_FOR_DATA,
+                f"gameplay_behavior_findings has no rows yet{category_detail}",
+                evidence,
+            )
         return (
-            CONTENT_WAITING_FOR_DATA,
-            f"no gameplay behavior findings observed{category_detail}",
+            CONTENT_NOT_INSTRUMENTED,
+            f"no gameplay behavior findings match{category_detail}; table has {total_findings} total row(s)",
             evidence,
         )
 
