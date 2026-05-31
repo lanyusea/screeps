@@ -4,12 +4,13 @@ from __future__ import annotations
 import copy
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 import urllib.error
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,18 @@ import screeps_rl_grafana as grafana
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def isolated_static_repo(*, with_metrics_db: bool = False):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        repo_root = Path(temp_dir)
+        shutil.copytree(grafana.grafana_root(REPO_ROOT), grafana.grafana_root(repo_root))
+        if with_metrics_db:
+            db_path = grafana.default_db_path(repo_root)
+            db_path.parent.mkdir(parents=True)
+            db_path.write_bytes(b"static validator only checks that this file exists\n")
+        yield repo_root
 
 
 def grafana_docker_command(db_path: Path | None = None) -> list[str]:
@@ -99,7 +112,8 @@ def grafana_inspect_payload(
 
 class ScreepsRlGrafanaContractTest(unittest.TestCase):
     def test_static_repository_contract_passes_without_running_grafana(self) -> None:
-        report = grafana.validate_static(REPO_ROOT)
+        with isolated_static_repo() as repo_root:
+            report = grafana.validate_static(repo_root)
 
         self.assertEqual(report["status"], "PASS")
         self.assertEqual(report["datasourceUid"], grafana.DATASOURCE_UID)
@@ -117,6 +131,14 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
             check for check in report["checks"] if check["name"] == "dashboard frser SQLite target contract"
         )
         self.assertEqual(target_contract_check["status"], "PASS")
+
+    def test_static_repository_contract_passes_with_local_metrics_db_present(self) -> None:
+        with isolated_static_repo(with_metrics_db=True) as repo_root:
+            report = grafana.validate_static(repo_root)
+
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["metricsDb"]["status"], "PRESENT")
+        self.assertEqual(report["metricsDb"]["path"], str(grafana.default_db_path(repo_root.resolve())))
 
     def test_dashboard_contract_rejects_missing_iteration_decision_query(self) -> None:
         dashboard_path = grafana.dashboard_file(REPO_ROOT)

@@ -774,11 +774,12 @@ export function emitRuntimeSummary(
   const cpuBudget = getRuntimeCpuBudget();
   const emitsSummary = shouldEmitRuntimeSummary(tick, events, cpuBudget);
   const shouldRefreshRuntimeTelemetry = !shouldThrottleRuntimeSummaryCadence(cpuBudget) || emitsSummary;
-  const creepsByColony = groupCreepsByColony(creeps, colonies);
+  let creepsByColony: Map<string, Creep[]> | undefined;
   let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
   let eventMetricsByRoom = cachedEventMetricsByRoom;
 
   if (emitsSummary) {
+    creepsByColony = groupCreepsByColony(creeps, colonies);
     refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
     eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
     cachedRefillTargetIdsByRoom = refillTargetIdsByRoom;
@@ -787,6 +788,7 @@ export function emitRuntimeSummary(
   }
 
   if (shouldRefreshRuntimeTelemetry) {
+    creepsByColony ??= groupCreepsByColony(creeps, colonies);
     refreshRefillTelemetry(
       colonies,
       creepsByColony,
@@ -804,6 +806,7 @@ export function emitRuntimeSummary(
     return undefined;
   }
 
+  creepsByColony ??= groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
@@ -837,6 +840,10 @@ export function shouldEmitRuntimeSummary(
   events: RuntimeTelemetryEvent[],
   cpuBudget = getRuntimeCpuBudget()
 ): boolean {
+  if (cpuBudget.critical) {
+    return hasCriticalRuntimeSummaryEvent(events);
+  }
+
   if (events.length > 0) {
     return true;
   }
@@ -845,6 +852,21 @@ export function shouldEmitRuntimeSummary(
     ? DEGRADED_RUNTIME_SUMMARY_INTERVAL
     : RUNTIME_SUMMARY_INTERVAL;
   return tick > 0 && tick % interval === 0;
+}
+
+function hasCriticalRuntimeSummaryEvent(events: RuntimeTelemetryEvent[]): boolean {
+  return events.some((event) => {
+    if (event.type !== 'defense') {
+      return false;
+    }
+
+    return (
+      event.action === 'safeMode' ||
+      event.hostileCreepCount > 0 ||
+      event.hostileStructureCount > 0 ||
+      event.damagedCriticalStructureCount > 0
+    );
+  });
 }
 
 export function resetRuntimeCpuSummaryEmissionForTesting(): void {
