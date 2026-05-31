@@ -121,11 +121,11 @@ function runTowerAttack(
     return false;
   }
 
-  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
-  if (!priorityTarget && context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
+  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
     return false;
   }
 
+  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
   const target =
     priorityTarget ??
     selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {

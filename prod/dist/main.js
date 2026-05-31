@@ -2318,10 +2318,10 @@ function runTowerAttack(tower, context, result, priorityTargetGroups) {
   if (typeof tower.attack !== "function") {
     return false;
   }
-  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
-  if (!priorityTarget && context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
+  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
     return false;
   }
+  const priorityTarget = selectPriorityTowerAttackTarget(tower, priorityTargetGroups);
   const target = priorityTarget != null ? priorityTarget : selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {
     controller: context.room.controller,
     protectedStructures: findOwnedStructures(context.room)

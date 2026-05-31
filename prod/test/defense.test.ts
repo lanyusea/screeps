@@ -290,6 +290,27 @@ describe('automatic room defense response', () => {
     expect(tower.attack).not.toHaveBeenCalled();
     expect(controller.activateSafeMode).not.toHaveBeenCalled();
   });
+
+  it('skips per-tower priority scans when no local hostile targets are visible', () => {
+    const remoteRoom = { name: 'W2N1' } as Room;
+    const remoteHostile = makeHostile('remote-hostile');
+    (remoteHostile as unknown as { room: Room }).room = remoteRoom;
+    const leftTower = makeTower('tower-left', { energy: 500, x: 10, y: 25 });
+    const rightTower = makeTower('tower-right', { energy: 500, x: 40, y: 25 });
+    const room = makeRoom({ structures: [leftTower, rightTower] });
+    attachRoom([leftTower, rightTower], room);
+
+    const events = runTowers(room, {
+      allowRecoveryActions: false,
+      priorityTargetGroups: [{ hostileCreeps: [remoteHostile], hostileStructures: [] }]
+    });
+
+    const findCalls = (room.find as jest.Mock).mock.calls as Array<[number]>;
+    expect(events).toEqual([]);
+    expect(leftTower.attack).not.toHaveBeenCalled();
+    expect(rightTower.attack).not.toHaveBeenCalled();
+    expect(findCalls.filter(([type]) => type === TEST_GLOBALS.FIND_MY_STRUCTURES)).toHaveLength(1);
+  });
 });
 
 function installSpawnPlanningRoom({
