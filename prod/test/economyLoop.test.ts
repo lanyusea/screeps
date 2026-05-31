@@ -172,6 +172,27 @@ describe('runEconomy', () => {
     expect(shouldRunCreepForCpuBudget(creep('scout'), criticalBudget)).toBe(false);
   });
 
+  it('keeps creep execution active during noncritical low-bucket recovery', () => {
+    const lowBucketBudget = buildRuntimeCpuBudget({
+      tick: 126,
+      used: 65,
+      limit: 70,
+      bucket: 101,
+      tickLimit: 500
+    });
+    const room = {
+      name: 'W1N1',
+      controller: { my: true, ticksToDowngrade: CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS + 1 } as StructureController
+    } as Room;
+    const creep = (role: string, memory: Partial<CreepMemory> = {}): Creep =>
+      ({ memory: { role, ...memory }, room }) as unknown as Creep;
+
+    expect(shouldRunCreepForCpuBudget(creep('worker'), lowBucketBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('upgrader'), lowBucketBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('claimer'), lowBucketBudget)).toBe(true);
+    expect(shouldRunCreepForCpuBudget(creep('scout'), lowBucketBudget)).toBe(true);
+  });
+
   it('spawns a worker request for an owned colony below target workers', () => {
     const room = { name: 'W1N1', energyAvailable: 300, energyCapacityAvailable: 300 } as Room;
     const spawn = {
