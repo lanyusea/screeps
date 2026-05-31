@@ -561,6 +561,34 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(report["quality_checks"]["samples_accepted"], 1)
         self.assertEqual(report["quality_checks"]["samples_rejected"], 0)
 
+    def test_run_deduplicates_input_roots_before_gate_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact_root = root / "runtime-summary-console"
+            artifact_root.mkdir()
+            artifact = artifact_root / "runtime-summary-console-20260521T025000Z.log"
+            home_room = runtime_payload(100)
+            home_room["rooms"][0]["roomName"] = "E29N55"
+            artifact.write_text(runtime_line(home_room), encoding="utf-8")
+
+            report = gate.run_gate(
+                [str(artifact_root), str(artifact_root)],
+                out_dir=root / "gates",
+                gate_id="gate-deduped-input-root",
+                created_at="2026-05-21T03:03:07Z",
+                dataset_out_dir=root / "datasets",
+                skip_shadow_report=True,
+                bot_commit="e" * 40,
+                eval_ratio_value=0,
+                repo_root=Path.cwd(),
+            )
+            source_index = read_json(root / "datasets" / report["dataset"]["runId"] / "source_index.json")
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["dataset"]["runtimeSummaryArtifactCount"], 1)
+        self.assertEqual(report["quality_checks"]["samples_total"], 1)
+        self.assertEqual(source_index["scannedFiles"], 1)
+
     def test_home_room_env_var_controls_no_owned_spawns_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
