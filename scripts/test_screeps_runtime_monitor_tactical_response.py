@@ -1642,6 +1642,79 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertFalse(report["emergency"])
         self.assertTrue(report["silent"])
 
+    def test_high_health_rampart_decay_after_monitor_gap_is_suppressed(self) -> None:
+        previous_tick = 1_613_249
+        current_tick = 1_615_205
+        current_hits = 2_414_601
+        delta = 5_700
+        previous = {
+            "baseline_established": True,
+            "tick": previous_tick,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "x": 35,
+                    "y": 27,
+                    "hits": current_hits + delta,
+                    "hitsMax": 10_000_000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": False,
+                },
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                },
+                "rampart1": {
+                    "type": "rampart",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 35,
+                    "y": 27,
+                    "hits": current_hits,
+                    "hitsMax": 10_000_000,
+                },
+            },
+            tick=current_tick,
+        )
+
+        expected_decay = monitor.expected_rampart_decay_delta(previous, current_tick)
+        self.assertGreater(delta, monitor.RAMPART_CRITICAL_DAMAGE_DELTA)
+        self.assertGreater(current_hits, monitor.RAMPART_CRITICAL_DAMAGE_HITS_CEILING)
+        self.assertLessEqual(delta, expected_decay)
+
+        emitted, suppressed, _next_state = monitor.evaluate_room_alert(
+            snapshot,
+            previous,
+            now=100,
+            debounce_seconds=300,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(len(suppressed), 1)
+        self.assertEqual(suppressed[0]["delta"], delta)
+        self.assertEqual(suppressed[0]["expected_decay_delta"], expected_decay)
+        self.assertEqual(suppressed[0]["suppression_reason"], "expected_rampart_decay")
+
     def test_unknown_or_non_advancing_rampart_decay_ticks_do_not_suppress_damage(self) -> None:
         decay = monitor.RAMPART_DECAY_HITS_PER_EVENT
         safe_floor = monitor.RAMPART_SAFE_DECAY_HITS_FLOOR
