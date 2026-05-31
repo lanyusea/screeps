@@ -27994,11 +27994,16 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOrExtensionEnergySink, constructionSites, constructionReservationContext) {
-  if (!shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+  const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
+    creep,
+    spawnOrExtensionEnergySink
+  );
+  const deferForBoundedConstruction = !deferForHealthyBuffer && shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
     creep,
     spawnOrExtensionEnergySink,
     constructionSites
-  )) {
+  );
+  if (!deferForHealthyBuffer && !deferForBoundedConstruction) {
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -28012,11 +28017,17 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(creep, spawnOr
   if (constructionSite) {
     return { type: "build", targetId: constructionSite.id };
   }
+  if (!deferForHealthyBuffer) {
+    return null;
+  }
   const repairTarget = selectRepairTarget(creep);
   return repairTarget ? { type: "repair", targetId: repairTarget.id } : null;
 }
-function shouldDeferIdleSpawnExtensionRefillForProductiveWork(creep, spawnOrExtensionEnergySink, constructionSites) {
-  return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && (hasHealthyRoomEnergyBuffer(creep.room) || constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep));
+function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(creep, spawnOrExtensionEnergySink) {
+  return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && hasHealthyRoomEnergyBuffer(creep.room);
+}
+function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(creep, spawnOrExtensionEnergySink, constructionSites) {
+  return spawnOrExtensionEnergySink !== null && !hasActiveSpawningSpawn(creep.room) && constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep);
 }
 function hasSafeStoredEnergyForBoundedConstruction(creep) {
   const energyAvailable = getRoomEnergyAvailable10(creep.room);
@@ -31844,7 +31855,9 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
   if (energyAvailable === null || energyAvailable < getConstructionSpendingEnergyThreshold(creep.room)) {
     return false;
   }
-  const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter((worker) => isSameRoomWorker2(worker, creep.room));
+  const sameRoomWorkers = getRoomOwnedCreeps2(creep.room).filter(
+    (worker) => isProductiveSameRoomWorker(worker, creep.room)
+  );
   if (sameRoomWorkers.length < SPAWN_RESERVATION_PRODUCTIVE_WORK_MIN_WORKERS2) {
     return false;
   }
@@ -31856,7 +31869,7 @@ function hasSafeStoredEnergyForBoundedConstruction2(creep, selectedTask) {
 function hasOtherSameRoomBuildAssignment(creep) {
   return getRoomOwnedCreeps2(creep.room).some((worker) => {
     var _a, _b;
-    if (isSameCreep2(worker, creep) || !isSameRoomWorker2(worker, creep.room)) {
+    if (isSameCreep2(worker, creep) || !isProductiveSameRoomWorker(worker, creep.room)) {
       return false;
     }
     return ((_b = (_a = worker.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) === "build";
@@ -32527,7 +32540,7 @@ function isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, target)
   }
   let reservedEnergy = 0;
   for (const worker of creep.room.find(FIND_MY_CREEPS)) {
-    if (isSameCreep2(worker, creep) || !isSameRoomWorkerWithEnergy2(worker, creep.room)) {
+    if (isSameCreep2(worker, creep) || !isProductiveSameRoomWorkerWithEnergy(worker, creep.room)) {
       continue;
     }
     const workerTask = (_a = worker.memory) == null ? void 0 : _a.task;
@@ -32582,9 +32595,35 @@ function isSameRoomWorkerWithEnergy2(creep, room) {
   var _a;
   return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom2(creep, room) && getUsedTransferEnergy(creep) > 0;
 }
+function isProductiveSameRoomWorkerWithEnergy(creep, room) {
+  return isSameRoomWorkerWithEnergy2(creep, room) && !willBypassNormalWorkerTaskSelectionThisTick(creep);
+}
+function isProductiveSameRoomWorker(creep, room) {
+  return isSameRoomWorker2(creep, room) && !willBypassNormalWorkerTaskSelectionThisTick(creep);
+}
 function isSameRoomWorker2(creep, room) {
   var _a;
   return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom2(creep, room);
+}
+function willBypassNormalWorkerTaskSelectionThisTick(creep) {
+  return willRunControllerSustainMovementBeforeNormalTaskSelection(creep) || willRunSpawnSupportMovementBeforeNormalTaskSelection(creep);
+}
+function willRunControllerSustainMovementBeforeNormalTaskSelection(creep) {
+  var _a, _b;
+  const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
+  if (!isControllerSustainMemory(sustain)) {
+    return false;
+  }
+  const roomName = (_b = creep.room) == null ? void 0 : _b.name;
+  if (roomName !== sustain.targetRoom) {
+    return true;
+  }
+  return sustain.role === "hauler" && getCarriedEnergy4(creep) <= 0;
+}
+function willRunSpawnSupportMovementBeforeNormalTaskSelection(creep) {
+  var _a, _b;
+  const support = (_a = creep.memory) == null ? void 0 : _a.spawnSupport;
+  return isSpawnSupportMemory(support) && ((_b = creep.room) == null ? void 0 : _b.name) !== support.targetRoom;
 }
 function isInRoom2(creep, room) {
   var _a;

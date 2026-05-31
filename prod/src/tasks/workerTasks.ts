@@ -4334,13 +4334,19 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
   constructionSites: ConstructionSite[],
   constructionReservationContext: ConstructionReservationContext
 ): ProductiveEnergySinkTask | null {
-  if (
-    !shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+  const deferForHealthyBuffer = shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
+    creep,
+    spawnOrExtensionEnergySink
+  );
+  const deferForBoundedConstruction =
+    !deferForHealthyBuffer &&
+    shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
       creep,
       spawnOrExtensionEnergySink,
       constructionSites
-    )
-  ) {
+    );
+
+  if (!deferForHealthyBuffer && !deferForBoundedConstruction) {
     return null;
   }
 
@@ -4356,11 +4362,26 @@ function selectProductiveEnergySinkBeforeIdleSpawnExtensionRefill(
     return { type: 'build', targetId: constructionSite.id };
   }
 
+  if (!deferForHealthyBuffer) {
+    return null;
+  }
+
   const repairTarget = selectRepairTarget(creep);
   return repairTarget ? { type: 'repair', targetId: repairTarget.id as Id<Structure> } : null;
 }
 
-function shouldDeferIdleSpawnExtensionRefillForProductiveWork(
+function shouldDeferIdleSpawnExtensionRefillForHealthyBuffer(
+  creep: Creep,
+  spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null
+): boolean {
+  return (
+    spawnOrExtensionEnergySink !== null &&
+    !hasActiveSpawningSpawn(creep.room) &&
+    hasHealthyRoomEnergyBuffer(creep.room)
+  );
+}
+
+function shouldDeferIdleSpawnExtensionRefillForBoundedConstruction(
   creep: Creep,
   spawnOrExtensionEnergySink: StructureSpawn | StructureExtension | null,
   constructionSites: ConstructionSite[]
@@ -4368,8 +4389,8 @@ function shouldDeferIdleSpawnExtensionRefillForProductiveWork(
   return (
     spawnOrExtensionEnergySink !== null &&
     !hasActiveSpawningSpawn(creep.room) &&
-    (hasHealthyRoomEnergyBuffer(creep.room) ||
-      (constructionSites.length > 0 && hasSafeStoredEnergyForBoundedConstruction(creep)))
+    constructionSites.length > 0 &&
+    hasSafeStoredEnergyForBoundedConstruction(creep)
   );
 }
 
