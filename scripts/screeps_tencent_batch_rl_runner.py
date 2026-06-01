@@ -1738,12 +1738,14 @@ if [ ! -s report-extract.json ] && [ -s training-summary.json ]; then
   cp training-summary.json report-extract.json
 fi
 simulator_diagnostics=()
-for simulator_run_id in "$RUN_ID" "$RUN_ID-pre-scale-smoke"; do
-  for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json; do
-    if [ -f "simulator-artifacts/$simulator_run_id/$simulator_file" ]; then
-      simulator_diagnostics+=("simulator-artifacts/$simulator_run_id/$simulator_file")
-    fi
-  done
+for simulator_dir in "simulator-artifacts/$RUN_ID" "simulator-artifacts/$RUN_ID-pre-scale-smoke" "simulator-artifacts/$RUN_ID"-r*; do
+  if [ -d "$simulator_dir" ]; then
+    for simulator_file in run_summary.json resource_guard_failure.json setup_failure.json run_failure.json owned_room_scorecard.json; do
+      if [ -f "$simulator_dir/$simulator_file" ]; then
+        simulator_diagnostics+=("$simulator_dir/$simulator_file")
+      fi
+    done
+  fi
 done
 tar -czf remote-artifacts.tar.gz \
   experiment_card.json card-validation.json training-summary.json training-stderr.log report-extract.json \
@@ -1914,7 +1916,7 @@ def default_run_id(command: str = "run-single") -> str:
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + "\n"
 
 
 def tail_text(raw: str | None, limit: int = 3000) -> str:
@@ -2199,6 +2201,10 @@ def controller_execution_summary(
     remote_training_attempted = "remote_training" in step_names
     compute_attempted = scale_out_attempted or remote_training_attempted or training_report_produced
     environments_run = training_environments_run(training_report_data)
+    if environments_run == 0:
+        partial_environments = remote_training_partial_environment_count(result)
+        if partial_environments is not None:
+            environments_run = partial_environments
     preflight_only = bool(getattr(args, "preflight_only", False))
     return {
         "command": getattr(args, "command", None),
@@ -2213,6 +2219,15 @@ def controller_execution_summary(
         "artifactCount": training_report_data.get("artifactCount"),
         "environmentsRun": environments_run,
     }
+
+
+def remote_training_partial_environment_count(result: dict[str, Any]) -> int | None:
+    remote_failure = dict_value(result.get("remoteTrainingFailure"))
+    progress = dict_value(remote_failure.get("partialSimulatorProgress")) if remote_failure is not None else None
+    if progress is None:
+        return None
+    count = scale_gates.non_negative_int(progress.get("completedEnvironmentRows"))
+    return count if count is not None and count > 0 else None
 
 
 def controller_batch_scale_summary(
@@ -2415,6 +2430,30 @@ def remote_training_diagnostic_files(run_id: str | None = None) -> tuple[str, ..
     return tuple(files)
 
 
+def remote_training_available_diagnostic_files(artifact_dir: Path, run_id: str | None = None) -> tuple[str, ...]:
+    files = list(remote_training_diagnostic_files(run_id))
+    seen = set(files)
+    if not isinstance(run_id, str) or RUN_ID_RE.match(run_id) is None:
+        return tuple(files)
+    simulator_root = artifact_dir / "remote" / "simulator-artifacts"
+    try:
+        run_dirs = sorted(
+            path
+            for path in simulator_root.glob(f"{run_id}-r*")
+            if path.is_dir()
+        )
+    except OSError:
+        return tuple(files)
+    for run_dir in run_dirs:
+        for filename in REMOTE_SIMULATOR_DIAGNOSTIC_FILES:
+            rel = f"simulator-artifacts/{run_dir.name}/{filename}"
+            if rel in seen:
+                continue
+            files.append(rel)
+            seen.add(rel)
+    return tuple(files)
+
+
 def remote_training_failure_diagnostics(
     artifact_dir: Path,
     returncode: int,
@@ -2426,7 +2465,7 @@ def remote_training_failure_diagnostics(
 ) -> dict[str, Any]:
     remote_dir = artifact_dir / "remote"
     files: dict[str, dict[str, Any]] = {}
-    for filename in remote_training_diagnostic_files(run_id):
+    for filename in remote_training_available_diagnostic_files(artifact_dir, run_id):
         path = remote_dir / filename
         entry: dict[str, Any] = {"path": str(path)}
         try:
@@ -2460,9 +2499,81 @@ def remote_training_failure_diagnostics(
     resource_guard = remote_training_resource_guard_summary(artifact_dir, run_id)
     if resource_guard is not None:
         payload["resourceGuard"] = resource_guard
+    partial_progress = remote_training_partial_simulator_progress(artifact_dir, run_id)
+    if partial_progress is not None:
+        payload["partialSimulatorProgress"] = partial_progress
     if collection_error:
         payload["collectionError"] = diagnostic_tail(collection_error)
     return payload
+
+
+def remote_training_partial_simulator_progress(artifact_dir: Path, run_id: str | None) -> dict[str, Any] | None:
+    if not isinstance(run_id, str) or RUN_ID_RE.match(run_id) is None:
+        return None
+    simulator_root = artifact_dir / "remote" / "simulator-artifacts"
+    try:
+        run_dirs = [simulator_root / run_id]
+        run_dirs.extend(
+            path
+            for path in simulator_root.glob(f"{run_id}-r*")
+            if path.is_dir()
+        )
+        run_summary_paths = sorted(path / "run_summary.json" for path in run_dirs if path.is_dir())
+    except OSError:
+        return None
+    summaries: list[dict[str, Any]] = []
+    totals = {
+        "completedEnvironmentRows": 0,
+        "successfulEnvironmentRows": 0,
+        "failedEnvironmentRows": 0,
+        "ticksRun": 0,
+        "wallClockSeconds": 0.0,
+    }
+    for path in run_summary_paths:
+        payload = read_diagnostic_json_object(path)
+        if payload is None:
+            continue
+        variants = payload.get("variants")
+        variant_count = len(variants) if isinstance(variants, list) else None
+        total_environments = scale_gates.non_negative_int(payload.get("total_environments"))
+        if total_environments is None:
+            total_environments = scale_gates.non_negative_int(payload.get("totalEnvironments"))
+        if total_environments is None:
+            total_environments = variant_count or 0
+        successful = scale_gates.non_negative_int(payload.get("successful")) or 0
+        failed = scale_gates.non_negative_int(payload.get("failed")) or 0
+        ticks_run = scale_gates.non_negative_int(payload.get("total_ticks"))
+        if ticks_run is None:
+            ticks_run = scale_gates.non_negative_int(payload.get("totalTicks")) or 0
+        wall_clock_seconds = numeric_value(payload.get("wallClockSeconds")) or 0.0
+        completed_environment_rows = successful + failed
+        summary = {
+            "runId": text_value(payload.get("runId")) or path.parent.name,
+            "summaryPath": str(path),
+            "ok": payload.get("ok") is True,
+            "totalEnvironments": total_environments,
+            "successful": successful,
+            "failed": failed,
+            "ticksRun": ticks_run,
+            "wallClockSeconds": round(wall_clock_seconds, 3),
+        }
+        summaries.append(summary)
+        totals["completedEnvironmentRows"] += completed_environment_rows
+        totals["successfulEnvironmentRows"] += successful
+        totals["failedEnvironmentRows"] += failed
+        totals["ticksRun"] += ticks_run
+        totals["wallClockSeconds"] += wall_clock_seconds
+    if not summaries:
+        return None
+    return {
+        "runSummaryCount": len(summaries),
+        "completedEnvironmentRows": totals["completedEnvironmentRows"],
+        "successfulEnvironmentRows": totals["successfulEnvironmentRows"],
+        "failedEnvironmentRows": totals["failedEnvironmentRows"],
+        "ticksRun": totals["ticksRun"],
+        "wallClockSeconds": round(totals["wallClockSeconds"], 3),
+        "runSummaries": summaries[:10],
+    }
 
 
 def classify_remote_training_failure(
@@ -2964,20 +3075,27 @@ def paid_failure_post_fix_validation_recovery_eligibility(
     if not requested:
         result["reason"] = "explicit post-fix validation signature was not requested"
         return result
-    if len(prior_attempts) != 1:
-        result["reason"] = "recovery requires exactly one prior consumed post-fix validation attempt"
-        return result
     prior_attempt = prior_attempts[0]
     if any(text_value(attempt.get("outcome")) == "completed" for attempt in prior_attempts):
         result["reason"] = "a post-fix validation already completed"
         return result
-    if any(attempt.get("recoveryAttempt") is True for attempt in prior_attempts):
-        result["reason"] = "post-fix validation recovery was already attempted"
-        return result
-    if any(paid_failure_post_fix_attempt_reached_compute_or_training(attempt) for attempt in prior_attempts):
-        result["reason"] = "a prior post-fix validation reached compute, scale, remote training, environments, or a report"
-        return result
-    if not paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(prior_attempt):
+    recovery_class = paid_failure_post_fix_validation_recovery_class_for_attempts(prior_attempts)
+    if recovery_class is None:
+        if len(prior_attempts) not in (1, 2):
+            result["reason"] = (
+                "recovery requires one prior consumed post-fix validation attempt, or one timed-out "
+                "recovery attempt after a no-compute admission failure"
+            )
+            return result
+        if any(attempt.get("recoveryAttempt") is True for attempt in prior_attempts):
+            result["reason"] = "post-fix validation recovery was already attempted"
+            return result
+        if paid_failure_post_fix_attempt_reached_compute_or_training(prior_attempt):
+            result["reason"] = (
+                "a prior post-fix validation reached compute, scale, remote training, environments, "
+                "or a report without a recoverable timeout classification"
+            )
+            return result
         result["reason"] = "prior post-fix validation was not a pre-scale no-compute admission failure"
         return result
     if not isinstance(trust_sample_request, dict):
@@ -2987,11 +3105,73 @@ def paid_failure_post_fix_validation_recovery_eligibility(
         result["reason"] = "policy-gradient requested samples are below the trust gate target"
         return result
     result["eligible"] = True
-    result["reason"] = (
-        "one recovery validation is allowed after a consumed pre-scale no-compute admission failure"
-    )
+    result["recoveryClass"] = recovery_class
+    if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
+        result["reason"] = (
+            "one recovery validation is allowed after a consumed remote-training timeout "
+            "without a completed report"
+        )
+        if recovery_class == "remote_training_timeout_after_recovery":
+            recovery_attempt = next(
+                (attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True),
+                prior_attempt,
+            )
+            result["priorRecoveryAttemptRunId"] = text_value(recovery_attempt.get("runId"))
+            result["priorAttemptRunId"] = text_value(recovery_attempt.get("runId"))
+            return result
+    else:
+        result["reason"] = (
+            "one recovery validation is allowed after a consumed pre-scale no-compute admission failure"
+        )
     result["priorAttemptRunId"] = text_value(prior_attempt.get("runId"))
     return result
+
+
+def paid_failure_post_fix_validation_recovery_class_for_attempts(
+    prior_attempts: list[dict[str, Any]],
+) -> str | None:
+    if len(prior_attempts) == 1:
+        attempt = prior_attempts[0]
+        if attempt.get("recoveryAttempt") is True:
+            return None
+        return paid_failure_post_fix_validation_recovery_class(attempt)
+    if len(prior_attempts) != 2:
+        return None
+    recovery_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True]
+    admission_attempts = [attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is not True]
+    if len(recovery_attempts) != 1 or len(admission_attempts) != 1:
+        return None
+    if not paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(admission_attempts[0]):
+        return None
+    if not paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(recovery_attempts[0]):
+        return None
+    return "remote_training_timeout_after_recovery"
+
+
+def paid_failure_post_fix_validation_recovery_class(attempt: dict[str, Any]) -> str | None:
+    if paid_failure_post_fix_attempt_is_pre_scale_no_compute_admission_failure(attempt):
+        return "pre_scale_no_compute_admission_failure"
+    if paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(attempt):
+        return "remote_training_timeout"
+    return None
+
+
+def paid_failure_post_fix_attempt_is_remote_training_timeout_without_report(
+    attempt: dict[str, Any],
+) -> bool:
+    return bool(
+        text_value(attempt.get("finalStatus")) == "failed"
+        and text_value(attempt.get("outcome")) == "not_completed"
+        and attempt.get("executionContextPresent") is True
+        and attempt.get("computeAttempted") is True
+        and attempt.get("scaleOutAttempted") is True
+        and attempt.get("remoteTrainingAttempted") is True
+        and attempt.get("trainingReportProduced") is not True
+        and attempt.get("trainingReportPresent") is not True
+        and attempt.get("remoteTrainingFailurePresent") is True
+        and text_value(attempt.get("remoteTrainingFailureClass")) == "remote_training_timeout"
+        and attempt.get("failureSignature") is None
+    )
 
 
 def paid_failure_post_fix_validation_state_with_recurrence_evidence(
@@ -3323,7 +3503,21 @@ def paid_failure_recurrence_next_action(
         )
     if status == "recovery_allowed":
         prior = dict_value(validation.get("priorAttempt")) or {}
-        run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
+        recovery = dict_value(validation.get("recoveryEligibility")) or {}
+        run_id = (
+            text_value(recovery.get("priorRecoveryAttemptRunId"))
+            or text_value(prior.get("runId"))
+            or "the prior post-fix validation"
+        )
+        if text_value(recovery.get("recoveryClass")) in {
+            "remote_training_timeout",
+            "remote_training_timeout_after_recovery",
+        }:
+            return (
+                f"{base}; one recovery validation is allowed because {run_id} timed out in remote "
+                "training without a completed report; rerun only with an explicitly sized timeout "
+                "or a smaller validation slice, and keep the guard active if room-busy recurs"
+            )
         return (
             f"{base}; one recovery validation is allowed because {run_id} failed before scale, "
             "compute, remote training, environments, or a training report; if simulator_place_spawn_room_busy "
@@ -3792,12 +3986,14 @@ def numeric_value(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
     if isinstance(value, str):
         try:
-            return float(value)
+            parsed = float(value)
         except ValueError:
             return None
+        return parsed if math.isfinite(parsed) else None
     return None
 
 
@@ -5654,6 +5850,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--allow-paid-failure-recurrence-validation",
+        "--postfix-validation-signature",
+        dest="allow_paid_failure_recurrence_validation",
         action="append",
         choices=tuple(PAID_FAILURE_RECURRENCE_KNOWN_FIXES),
         default=None,
