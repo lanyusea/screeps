@@ -462,6 +462,21 @@ describe('runtime telemetry summaries', () => {
           targetId: 'drop-1',
           energy: 50,
           range: 1
+        },
+        refillTelemetry: {
+          recentDeliveries: [
+            {
+              tick: RUNTIME_SUMMARY_INTERVAL * 5,
+              targetId: 'spawn1',
+              deliveryTicks: 4,
+              activeTicks: 3,
+              idleOrOtherTaskTicks: 1,
+              energyDelivered: 20
+            }
+          ],
+          refillActiveTicks: 3,
+          idleOrOtherTaskTicks: 1,
+          lastUpdatedAt: RUNTIME_SUMMARY_INTERVAL * 5
         }
       },
       5,
@@ -490,7 +505,9 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExpansion).toBeUndefined();
     expect(room.behavior).toBeUndefined();
     expect(room.workerEfficiency).toBeUndefined();
-    expect(room.refillTelemetry).toBeUndefined();
+    expect(room.refillDeliveryTicks).toBeUndefined();
+    expect(room.refillWorkerUtilization).toBeUndefined();
+    expect(room.workerEnergyThroughput).toBeUndefined();
     expect(onStrategyRegistryRuntimeUse).not.toHaveBeenCalled();
   });
 
