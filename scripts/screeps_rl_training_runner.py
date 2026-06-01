@@ -78,6 +78,7 @@ GRADIENT_MOMENTUM_EVIDENCE_TYPE = "screeps-rl-gradient-momentum-evidence"
 POLICY_GRADIENT_SCALAR_ESTIMATOR = "scalar_weighted_sum_score_function_reinforce_v1"
 POLICY_GRADIENT_SCALAR_REWARD = "scalar_weighted_sum"
 POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE = "gradient_estimation_only_non_promotional"
+SCALAR_WEIGHTED_SUM_AUTHORIZED_USE = "offline_private_shadow_policy_gradient_comparison"
 POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR = "lexicographic_per_tier_score_function_reinforce_v1"
 POLICY_GRADIENT_LEXICOGRAPHIC_PER_TIER_REWARD = "lexicographic_per_tier"
 POLICY_GRADIENT_LEXICOGRAPHIC_TIER_BASELINE = "anchor_candidate_mean_return"
@@ -94,6 +95,7 @@ DEFAULT_POLICY_GRADIENT_SCALAR_COMPONENT_WEIGHTS = {
     "kills": 1.0,
 }
 REWARD_TIERS = ("reliability", "territory", "resources", "kills")
+SCALAR_WEIGHTED_REWARD_TIERS = (*REWARD_TIERS, "activation")
 MULTI_TIER_ACTIVATION_PROOF_TYPE = "screeps-rl-multi-tier-activation-proof"
 MULTI_TIER_ACTIVATION_AUDIT_TYPE = "screeps-rl-multi-tier-activation-audit"
 MULTI_TIER_ACTIVATION_IMPLEMENTATION = "multi-tier-policy-activation-proof-v2"
@@ -334,8 +336,10 @@ def validate_experiment_card(card: JsonObject) -> None:
         "scalar_weighted_sum_authorized",
         reward_model.get("scalarWeightedSumAuthorized"),
     )
-    if scalar_authorized is not False:
-        raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false")
+    if scalar_authorized is True:
+        validate_scalar_weighted_reward_authorization(card, reward_model, training_approach)
+    elif scalar_authorized is not False:
+        raise TrainingCardError("reward_model.scalar_weighted_sum_authorized must be false unless explicitly authorized")
 
     validate_card_supply(card)
     validate_scenario_metadata(card, error_cls=TrainingCardError, require_presence=True)
@@ -370,6 +374,77 @@ def validate_experiment_card(card: JsonObject) -> None:
         )
     if training_approach == "policy_gradient":
         validate_policy_gradient_scale_sample_plan(card, simulation, raw_variants)
+
+
+def validate_scalar_weighted_reward_authorization(
+    card: JsonObject,
+    reward_model: JsonObject,
+    training_approach: Any,
+) -> None:
+    if training_approach != "policy_gradient":
+        raise TrainingCardError("reward_model.scalar_weighted_sum_authorized requires training_approach=policy_gradient")
+    if not card_scenario_supports_multi_tier_policy_comparison(card):
+        raise TrainingCardError("reward_model.scalar_weighted_sum_authorized requires active multi-tier scenario evidence")
+    scalar_use = first_present(reward_model, ("scalar_weighted_sum_use", "scalarWeightedSumUse"))
+    if scalar_use != SCALAR_WEIGHTED_SUM_AUTHORIZED_USE:
+        raise TrainingCardError(f"reward_model.scalar_weighted_sum_use must be {SCALAR_WEIGHTED_SUM_AUTHORIZED_USE}")
+    config = first_mapping(reward_model, ("scalar_weighted_sum", "scalarWeightedSum"))
+    if config is None:
+        raise TrainingCardError("reward_model.scalar_weighted_sum must be present when scalar reward is authorized")
+    if first_present(config, ("authorized", "scalar_weighted_sum_authorized", "scalarWeightedSumAuthorized")) is not True:
+        raise TrainingCardError("reward_model.scalar_weighted_sum.authorized must be true when authorized")
+    if first_present(config, ("use", "scalar_weighted_sum_use", "scalarWeightedSumUse")) != SCALAR_WEIGHTED_SUM_AUTHORIZED_USE:
+        raise TrainingCardError(f"reward_model.scalar_weighted_sum.use must be {SCALAR_WEIGHTED_SUM_AUTHORIZED_USE}")
+    if first_present(config, ("component_order", "componentOrder")) != list(SCALAR_WEIGHTED_REWARD_TIERS):
+        raise TrainingCardError(
+            "reward_model.scalar_weighted_sum.component_order must preserve reliability, territory, resources, kills, activation"
+        )
+    weights = first_mapping(config, ("component_weights", "componentWeights"))
+    if weights is None:
+        raise TrainingCardError("reward_model.scalar_weighted_sum.component_weights must be present")
+    required_weights = (
+        "alpha_reliability",
+        "beta_territory",
+        "gamma_resources",
+        "delta_kills",
+        "epsilon_activation",
+    )
+    for field in required_weights:
+        value = weights.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise TrainingCardError(
+                f"reward_model.scalar_weighted_sum.component_weights.{field} must be a positive integer"
+            )
+    if not (
+        weights["alpha_reliability"]
+        > weights["beta_territory"]
+        > weights["gamma_resources"]
+        > weights["delta_kills"]
+        >= weights["epsilon_activation"]
+    ):
+        raise TrainingCardError("reward_model.scalar_weighted_sum weights must preserve lexicographic dominance")
+
+
+def card_scenario_supports_multi_tier_policy_comparison(card: JsonObject) -> bool:
+    scenario = card.get("scenario", card.get("trainingScenario"))
+    if not isinstance(scenario, dict):
+        return False
+    capabilities = scenario.get("capabilities")
+    suitability = scenario.get("suitability")
+    evidence = scenario.get("evidence")
+    if not isinstance(capabilities, dict) or not isinstance(suitability, dict) or not isinstance(evidence, dict):
+        return False
+    hostile_fixture = text_or_none(first_present(evidence, ("hostile_fixture", "hostileFixture")))
+    return (
+        capabilities.get("multi_room_capable") is True
+        and capabilities.get("adjacent_room_territory_signal") is True
+        and capabilities.get("hostile_combat_signal") is True
+        and capabilities.get("multi_tier_policy_comparison") is True
+        and suitability.get("multi_tier_policy_comparison") is True
+        and suitability.get("territory_combat_differentiation") is True
+        and first_present(evidence, ("implementation_status", "implementationStatus")) == "active_fixture_validated"
+        and bool(hostile_fixture)
+    )
 
 
 def validate_policy_gradient_scale_sample_plan(
@@ -905,6 +980,26 @@ def text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def scalar_weighted_sum_authorized(raw: Any) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    return first_present(raw, ("scalar_weighted_sum_authorized", "scalarWeightedSumAuthorized")) is True
+
+
+def scalar_weighted_sum_use(raw: Any) -> str:
+    if not isinstance(raw, dict):
+        return "not_used"
+    return (
+        text_or_none(first_present(raw, ("scalar_weighted_sum_use", "scalarWeightedSumUse")))
+        or "not_used"
+    )
+
+
+def policy_gradient_scalar_weighted_sum_authorized(policy_gradient: JsonObject) -> bool:
+    reward_model = first_mapping(policy_gradient, ("reward_model", "rewardModel"))
+    return scalar_weighted_sum_authorized(reward_model)
+
+
 def runtime_parameter_transport_without_consumption_status(value: Any) -> bool:
     return text_or_none(value) in RUNTIME_PARAMETER_TRANSPORT_WITHOUT_CONSUMPTION_STATUSES
 
@@ -921,14 +1016,23 @@ def reward_options_from_card(card: JsonObject) -> JsonObject:
     normalizers = reward_model.get("normalizers")
     if not isinstance(normalizers, dict):
         normalizers = {}
-    return {
+    scalar_authorized = scalar_weighted_sum_authorized(reward_model)
+    options: JsonObject = {
         "componentOrder": list(REWARD_TIERS),
         "weights": weights,
         "resourceNormalizer": positive_float_value(
             reward_model.get("resource_normalizer", reward_model.get("resourceNormalizer", normalizers.get("resources")))
         )
         or DEFAULT_RESOURCE_NORMALIZER,
+        "scalarWeightedSumAuthorized": scalar_authorized,
+        "scalarWeightedSumUse": scalar_weighted_sum_use(reward_model) if scalar_authorized else "not_used",
     }
+    if scalar_authorized:
+        options["scalarWeightEvidence"] = policy_update_scalar_reward_weight_evidence({"rewardModel": reward_model})
+        scalar_config = first_mapping(reward_model, ("scalar_weighted_sum", "scalarWeightedSum"))
+        if scalar_config is not None:
+            options["scalarWeightedSum"] = copy.deepcopy(scalar_config)
+    return options
 
 
 def positive_float_value(value: Any) -> float | None:
@@ -1606,6 +1710,7 @@ def build_training_report(
         warnings.append(
             "experiment card scenario is classified as not suitable for multi-tier territory/combat policy comparison"
         )
+    scalar_weighted_reward = build_scalar_weighted_reward_report(scored_results, reward_options)
 
     report = {
         "type": REPORT_TYPE,
@@ -1637,18 +1742,7 @@ def build_training_report(
                 "mapSourceFile": str(config.map_source_file),
             },
         },
-        "rewardModel": {
-            "type": "lexicographic",
-            "componentOrder": list(REWARD_TIERS),
-            "resourceNormalizer": reward_options["resourceNormalizer"],
-            "formula": (
-                "compare (successful simulator run share, roomsGained - roomsLost, "
-                "(storedEnergyDelta + collectedEnergy) / resourceNormalizer, "
-                "hostileKills - ownLosses) lexicographically"
-            ),
-            "scalarWeightedSumAuthorized": False,
-            "expansionSurvival": "claimed rooms count as held only with at least one spawn and one owned creep at end",
-        },
+        "rewardModel": build_report_reward_model(reward_options),
         "strategyVariants": [variant.to_json() for variant in variants],
         "candidateStrategyIds": [variant.id for variant in variants],
         "incumbentStrategyIds": incumbent_ids,
@@ -1685,6 +1779,8 @@ def build_training_report(
         "kpiSummary": build_kpi_summary(scored_results),
         "warnings": warnings,
     }
+    if scalar_weighted_reward is not None:
+        report["scalarWeightedReward"] = scalar_weighted_reward
     if scenario is not None:
         report["scenario"] = scenario
         activation_proof = build_multi_tier_activation_proof(
@@ -1755,7 +1851,115 @@ def build_training_report(
         if isinstance(gradient_momentum, dict):
             report["gradientMomentum"] = copy.deepcopy(gradient_momentum)
         report["policyUpdate"] = policy_update
+    if scalar_weighted_reward is not None:
+        report["conclusionRegistryUpdate"] = scalar_weighted_reward_conclusion_registry_update(report)
     return report
+
+
+def build_report_reward_model(reward_options: JsonObject) -> JsonObject:
+    payload: JsonObject = {
+        "type": "lexicographic",
+        "componentOrder": list(REWARD_TIERS),
+        "resourceNormalizer": reward_options["resourceNormalizer"],
+        "formula": (
+            "compare (successful simulator run share, roomsGained - roomsLost, "
+            "(storedEnergyDelta + collectedEnergy) / resourceNormalizer, "
+            "hostileKills - ownLosses) lexicographically"
+        ),
+        "scalarWeightedSumAuthorized": reward_options.get("scalarWeightedSumAuthorized") is True,
+        "scalarWeightedSumUse": reward_options.get("scalarWeightedSumUse") or "not_used",
+        "expansionSurvival": "claimed rooms count as held only with at least one spawn and one owned creep at end",
+    }
+    if reward_options.get("scalarWeightedSumAuthorized") is True:
+        payload["scalarWeightedSum"] = {
+            "authorized": True,
+            "use": reward_options.get("scalarWeightedSumUse") or SCALAR_WEIGHTED_SUM_AUTHORIZED_USE,
+            "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+            "componentOrder": list(SCALAR_WEIGHTED_REWARD_TIERS),
+            "weightEvidence": copy.deepcopy(reward_options.get("scalarWeightEvidence")),
+            "activationScoreSource": (
+                "multiTierActivationTraces.policyActivation.activationScore; missing activation scores are zero"
+            ),
+            "promotionUse": "blocked_until_trusted_samples_and_loop_b_advantage_gate",
+            "liveEffect": False,
+            "officialMmoWrites": False,
+            "officialMmoWritesAllowed": False,
+            "safety": safety_metadata(),
+        }
+    return payload
+
+
+def build_scalar_weighted_reward_report(
+    results: Sequence[JsonObject],
+    reward_options: JsonObject,
+) -> JsonObject | None:
+    if reward_options.get("scalarWeightedSumAuthorized") is not True:
+        return None
+    variant_rewards = []
+    for result in results:
+        reward = result.get("reward") if isinstance(result.get("reward"), dict) else {}
+        scalar_reward = reward.get("scalarWeightedSum") if isinstance(reward, dict) else None
+        if not isinstance(scalar_reward, dict):
+            continue
+        variant_rewards.append({
+            "variantId": result.get("variantId"),
+            "rolloutStatus": result.get("rolloutStatus"),
+            "rewardTuple": copy.deepcopy(reward.get("tuple")),
+            "scalarReward": scalar_reward.get("scalarReward"),
+            "activationScore": scalar_reward.get("activationScore"),
+            "componentValuesByRewardTier": copy.deepcopy(scalar_reward.get("componentValuesByRewardTier")),
+            "weightedComponentsByRewardTier": copy.deepcopy(scalar_reward.get("weightedComponentsByRewardTier")),
+            "sampleCount": scalar_reward.get("sampleCount"),
+        })
+    return {
+        "type": "screeps-rl-scalar-weighted-reward-activation-report",
+        "schemaVersion": SCHEMA_VERSION,
+        "authorized": True,
+        "use": reward_options.get("scalarWeightedSumUse") or SCALAR_WEIGHTED_SUM_AUTHORIZED_USE,
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "componentOrder": list(SCALAR_WEIGHTED_REWARD_TIERS),
+        "weightEvidence": copy.deepcopy(reward_options.get("scalarWeightEvidence")),
+        "variantRewards": variant_rewards,
+        "promotionBlockedUntil": [
+            "issue_1337_trusted_samples_per_candidate",
+            "loop_b_policy_advantage_gate",
+        ],
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def scalar_weighted_reward_conclusion_registry_update(report: JsonObject) -> JsonObject:
+    promotion_gate = report.get("policyUpdatePromotionGate")
+    return {
+        "type": "screeps-rl-conclusion-registry-update",
+        "schemaVersion": SCHEMA_VERSION,
+        "sourceIssue": "#1582",
+        "registryPath": "runtime-artifacts/rl-control-loop/conclusion-registry.json",
+        "status": "blocked",
+        "classification": "scalar_weighted_reward_activation_shadow_only",
+        "newConclusionIds": ["ISSUE-1582-SCALAR-WEIGHTED-REWARD-ACTIVATION"],
+        "appendedToExisting": [],
+        "loopA": {
+            "promotionEligible": False,
+            "missingPrerequisites": ["issue_1337_trusted_samples_per_candidate", "loop_b_policy_advantage_gate"],
+        },
+        "loopB": {
+            "promotionEligible": False,
+            "missingPrerequisites": ["loop_b_policy_advantage_gate"],
+        },
+        "promotionGate": copy.deepcopy(promotion_gate) if isinstance(promotion_gate, dict) else None,
+        "reason": (
+            "scalar weighted reward activation is authorized only for offline/private/shadow comparison; "
+            "promotion remains blocked until trusted sample evidence and Loop B advantage gates pass"
+        ),
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
 
 
 def training_simulator_ticks(simulator_runs: Sequence[JsonObject]) -> int:
@@ -2108,16 +2312,25 @@ def build_reinforce_policy_update(
     bounded_integer_step = policy_update_uses_bounded_integer_step(policy_gradient)
     anchor_parameters = anchor["parameters"]
     anchor_return_baseline = policy_update_candidate_return_baseline(anchor)
-    gradient_estimation = policy_update_lexicographic_reinforce_gradient_estimation(
-        policy_gradient=policy_gradient,
-        parameter_space=parameter_space,
-        samples=samples,
-        anchor_parameters=anchor_parameters,
-        anchor_return_baseline=anchor_return_baseline,
-    )
+    scalar_weighted_authorized = policy_gradient_scalar_weighted_sum_authorized(policy_gradient)
+    if scalar_weighted_authorized:
+        gradient_estimation = policy_update_scalar_weighted_gradient_estimation(
+            policy_gradient=policy_gradient,
+            parameter_space=parameter_space,
+            samples=samples,
+            anchor_parameters=anchor_parameters,
+        )
+    else:
+        gradient_estimation = policy_update_lexicographic_reinforce_gradient_estimation(
+            policy_gradient=policy_gradient,
+            parameter_space=parameter_space,
+            samples=samples,
+            anchor_parameters=anchor_parameters,
+            anchor_return_baseline=anchor_return_baseline,
+        )
     raw_gradient = gradient_estimation["gradient"]
-    gradient_by_tier = gradient_estimation["gradientByRewardTier"]
-    selected_reward_tier_by_parameter = gradient_estimation["selectedRewardTierByParameter"]
+    gradient_by_tier = gradient_estimation.get("gradientByRewardTier", {})
+    selected_reward_tier_by_parameter = gradient_estimation.get("selectedRewardTierByParameter", {})
     gradient_momentum = policy_update_gradient_momentum_evidence(
         policy_gradient=policy_gradient,
         raw_gradient=raw_gradient,
@@ -2266,7 +2479,10 @@ def build_reinforce_policy_update(
         "promotionGate": copy.deepcopy(promotion_gate),
         "parameterEvidence": {
             "derivation": (
-                "deterministic REINFORCE score-function estimate from offline simulator Monte Carlo "
+                "deterministic REINFORCE score-function estimate from authorized scalar weighted "
+                "offline/private/shadow reward returns, preserving lexicographic ranking and promotion gates"
+                if scalar_weighted_authorized
+                else "deterministic REINFORCE score-function estimate from offline simulator Monte Carlo "
                 "reward-tuple returns, selecting the first lexicographic reward tier with per-parameter "
                 "evidence and preserving lexicographic ranking/promotion gates"
             ),
@@ -2287,6 +2503,7 @@ def build_reinforce_policy_update(
             "candidateCount": len(candidates),
             "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
             "trueGradient": True,
+            "scalarWeightedSumAuthorized": scalar_weighted_authorized,
             "gradientStable": gradient_stability["gradientStable"],
             "trustedGradientUpdate": trusted_gradient_update,
             "highVariance": gradient_stability["highVariance"],
@@ -2308,7 +2525,13 @@ def build_reinforce_policy_update(
         "iterations": 1,
         "policyUpdateAlgorithm": TRUE_GRADIENT_POLICY_UPDATE_ALGORITHM,
         "trueGradient": True,
-        "policyGradientEstimator": POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR,
+        "policyGradientEstimator": (
+            POLICY_GRADIENT_SCALAR_ESTIMATOR
+            if scalar_weighted_authorized
+            else POLICY_GRADIENT_LEXICOGRAPHIC_REINFORCE_ESTIMATOR
+        ),
+        "scalarWeightedSumAuthorized": scalar_weighted_authorized,
+        "scalarWeightedSumUse": gradient_estimation.get("scalarWeightedSumUse"),
         "gradientStable": gradient_stability["gradientStable"],
         "trustedGradientUpdate": trusted_gradient_update,
         "highVariance": gradient_stability["highVariance"],
@@ -2366,10 +2589,17 @@ def policy_update_return_sample_rows(candidates: Sequence[JsonObject]) -> list[J
         raw_samples = row.get("returnSamples")
         if not isinstance(raw_samples, list):
             continue
-        for return_tuple in raw_samples:
+        raw_scalar_samples = row.get("scalarReturnSamples")
+        scalar_samples = raw_scalar_samples if isinstance(raw_scalar_samples, list) else []
+        for sample_index, return_tuple in enumerate(raw_samples):
             if not isinstance(return_tuple, list):
                 continue
-            samples.append({"candidate": row, "returnTuple": return_tuple})
+            sample = {"candidate": row, "returnTuple": return_tuple}
+            if sample_index < len(scalar_samples):
+                scalar_value = number_or_none(scalar_samples[sample_index])
+                if scalar_value is not None:
+                    sample["scalarReturn"] = round_policy_number(float(scalar_value))
+            samples.append(sample)
     return samples
 
 
@@ -2408,18 +2638,23 @@ def first_nonzero_tier_gradient(tier_gradients: JsonObject) -> tuple[str | None,
     return None, 0
 
 
-def policy_update_scalar_gradient_scheme_identity(weight_evidence: JsonObject) -> JsonObject:
+def policy_update_scalar_gradient_scheme_identity(
+    weight_evidence: JsonObject,
+    *,
+    scalar_weighted_sum_authorized: bool = False,
+    scalar_weighted_sum_use: str = POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE,
+) -> JsonObject:
     return {
         "type": GRADIENT_ESTIMATION_SCHEME_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "estimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
         "gradientReward": POLICY_GRADIENT_SCALAR_REWARD,
         "gradientUse": "policy_gradient_estimation_only",
-        "scalarWeightedSumUse": POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE,
+        "scalarWeightedSumUse": scalar_weighted_sum_use,
         "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
-        "rewardComponentOrder": list(REWARD_TIERS),
+        "rewardComponentOrder": list(SCALAR_WEIGHTED_REWARD_TIERS),
         "lexicographicRankingPreserved": True,
-        "scalarWeightedSumAuthorized": False,
+        "scalarWeightedSumAuthorized": scalar_weighted_sum_authorized,
         "normalizedWeightsByRewardTier": copy.deepcopy(weight_evidence["normalizedWeightsByRewardTier"]),
         "normalizationCap": weight_evidence["normalizationCap"],
         "normalizationFactor": weight_evidence["normalizationFactor"],
@@ -2861,10 +3096,25 @@ def policy_update_scalar_weighted_gradient_estimation(
     anchor_parameters: JsonObject,
 ) -> JsonObject:
     weight_evidence = policy_update_scalar_reward_weight_evidence(policy_gradient)
-    scheme_identity = policy_update_scalar_gradient_scheme_identity(weight_evidence)
+    scalar_authorized = policy_gradient_scalar_weighted_sum_authorized(policy_gradient)
+    scalar_use = (
+        scalar_weighted_sum_use(first_mapping(policy_gradient, ("reward_model", "rewardModel")))
+        if scalar_authorized
+        else POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE
+    )
+    scheme_identity = policy_update_scalar_gradient_scheme_identity(
+        weight_evidence,
+        scalar_weighted_sum_authorized=scalar_authorized,
+        scalar_weighted_sum_use=scalar_use,
+    )
     scheme_key = policy_update_gradient_scheme_key(scheme_identity)
     weights = weight_evidence["normalizedWeightsByRewardTier"]
-    scalar_returns = [policy_update_scalar_reward(sample["returnTuple"], weights) for sample in samples]
+    scalar_returns = [
+        float(scalar_return)
+        if (scalar_return := number_or_none(sample.get("scalarReturn"))) is not None
+        else policy_update_scalar_reward(sample["returnTuple"], weights)
+        for sample in samples
+    ]
     scalar_baseline = statistics.fmean(scalar_returns) if scalar_returns else 0.0
     gradient: JsonObject = {}
     cap_normalized_gradient: JsonObject = {}
@@ -2915,11 +3165,11 @@ def policy_update_scalar_weighted_gradient_estimation(
         "estimator": POLICY_GRADIENT_SCALAR_ESTIMATOR,
         "gradientReward": POLICY_GRADIENT_SCALAR_REWARD,
         "gradientUse": "policy_gradient_estimation_only",
-        "scalarWeightedSumUse": POLICY_GRADIENT_SCALAR_WEIGHTED_SUM_USE,
+        "scalarWeightedSumUse": scalar_use,
         "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
-        "rewardComponentOrder": list(REWARD_TIERS),
+        "rewardComponentOrder": list(SCALAR_WEIGHTED_REWARD_TIERS),
         "lexicographicRankingPreserved": True,
-        "scalarWeightedSumAuthorized": False,
+        "scalarWeightedSumAuthorized": scalar_authorized,
         "schemeIdentity": scheme_identity,
         "schemeKey": scheme_key,
         "comparisonKey": policy_update_gradient_scheme_comparison_key(scheme_identity),
@@ -2930,6 +3180,7 @@ def policy_update_scalar_weighted_gradient_estimation(
         "normalizationCap": weight_evidence["normalizationCap"],
         "normalizationFactor": weight_evidence["normalizationFactor"],
         "scalarRewardScaleFactor": weight_evidence["scalarRewardScaleFactor"],
+        "scalarReturns": [round_policy_number(value) for value in scalar_returns],
         "gradient": gradient,
         "capNormalizedGradient": cap_normalized_gradient,
         "scalarReturnBaseline": round_policy_number(scalar_baseline),
@@ -2951,6 +3202,11 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
             component_weights = first_mapping(reward_model, ("component_weights", "componentWeights"))
             if component_weights is not None:
                 source_weights.update(policy_update_component_weights_by_tier(component_weights))
+            scalar_config = first_mapping(reward_model, ("scalar_weighted_sum", "scalarWeightedSum"))
+            if scalar_config is not None:
+                scalar_component_weights = first_mapping(scalar_config, ("component_weights", "componentWeights"))
+                if scalar_component_weights is not None:
+                    source_weights.update(policy_update_component_weights_by_tier(scalar_component_weights))
         component_weights = first_mapping(
             raw,
             (
@@ -2969,12 +3225,13 @@ def policy_update_scalar_reward_weight_evidence(policy_gradient: JsonObject) -> 
         DEFAULT_POLICY_GRADIENT_SCALAR_WEIGHT_NORMALIZATION_CAP,
     )
     scalar_reward_scale_factor = normalization_factor / max_source_weight
+    weight_tiers = [tier for tier in SCALAR_WEIGHTED_REWARD_TIERS if tier in source_weights]
     normalized = {
         tier: source_weights[tier] / normalization_factor
-        for tier in REWARD_TIERS
+        for tier in weight_tiers
     }
     return {
-        "sourceComponentWeights": {tier: round_policy_number(source_weights[tier]) for tier in REWARD_TIERS},
+        "sourceComponentWeights": {tier: round_policy_number(source_weights[tier]) for tier in weight_tiers},
         "normalizedWeightsByRewardTier": normalized,
         "sourceMaxComponentWeight": round_policy_number(max_source_weight),
         "normalizationCap": round_policy_number(
@@ -2991,6 +3248,7 @@ def policy_update_component_weights_by_tier(raw: JsonObject) -> dict[str, float]
         "territory": ("territory", "beta_territory", "betaTerritory", "territoryWeight"),
         "resources": ("resources", "gamma_resources", "gammaResources", "resourcesWeight"),
         "kills": ("kills", "delta_kills", "deltaKills", "killsWeight"),
+        "activation": ("activation", "epsilon_activation", "epsilonActivation", "activationWeight"),
     }
     weights: dict[str, float] = {}
     for tier, names in aliases.items():
@@ -3004,7 +3262,7 @@ def policy_update_component_weights_by_tier(raw: JsonObject) -> dict[str, float]
 
 def policy_update_scalar_reward(return_tuple: Sequence[Any], weights: JsonObject) -> float:
     total = 0.0
-    for index, tier in enumerate(REWARD_TIERS):
+    for index, tier in enumerate(SCALAR_WEIGHTED_REWARD_TIERS):
         if index >= len(return_tuple):
             continue
         total += float(return_tuple[index]) * float(weights.get(tier, 0))
@@ -3551,21 +3809,28 @@ def policy_update_candidate_rows(
         if parameters is None:
             continue
         return_samples = policy_update_return_samples(scored_summaries)
-        rows.append(
-            {
-                "candidatePolicyId": candidate_policy_id,
-                "strategyVariantId": candidate_match_id,
-                "sourceStrategyId": text_or_none(candidate.get("sourceStrategyId")),
-                "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
-                "parameters": parameters,
-                "rewardTuple": aggregate_policy_reward_tuple(scored_summaries),
-                "sampleCount": sum(policy_reward_tuple_sample_weight(summary) for summary in scored_summaries),
-                "returnSamples": return_samples,
-                "returnSampleCount": len(return_samples),
-                "meanReturn": mean_policy_return_tuple(return_samples),
-                "resultVariantIds": [summary["variantId"] for summary in scored_summaries if isinstance(summary.get("variantId"), str)],
-            }
-        )
+        row = {
+            "candidatePolicyId": candidate_policy_id,
+            "strategyVariantId": candidate_match_id,
+            "sourceStrategyId": text_or_none(candidate.get("sourceStrategyId")),
+            "rolloutStatus": text_or_none(candidate.get("rolloutStatus")),
+            "parameters": parameters,
+            "rewardTuple": aggregate_policy_reward_tuple(scored_summaries),
+            "sampleCount": sum(policy_reward_tuple_sample_weight(summary) for summary in scored_summaries),
+            "returnSamples": return_samples,
+            "returnSampleCount": len(return_samples),
+            "meanReturn": mean_policy_return_tuple(return_samples),
+            "resultVariantIds": [
+                summary["variantId"] for summary in scored_summaries if isinstance(summary.get("variantId"), str)
+            ],
+        }
+        scalar_return_samples = policy_update_scalar_return_samples(scored_summaries)
+        if scalar_return_samples:
+            row["scalarReturnSamples"] = scalar_return_samples
+            row["scalarReward"] = round_policy_number(
+                statistics.fmean(float(value) for value in scalar_return_samples)
+            )
+        rows.append(row)
     return rows
 
 
@@ -3644,6 +3909,32 @@ def policy_update_return_samples(summaries: Sequence[JsonObject]) -> list[list[f
             sample = policy_return_tuple_from_sequence(reward_tuple)
             if sample is not None:
                 samples.append(sample)
+    return samples
+
+
+def policy_update_scalar_return_samples(summaries: Sequence[JsonObject]) -> list[float | int]:
+    samples: list[float | int] = []
+    for summary in summaries:
+        reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+        scalar_reward = reward.get("scalarWeightedSum") if isinstance(reward, dict) else None
+        if not isinstance(scalar_reward, dict):
+            continue
+        raw_samples = scalar_reward.get("scalarReturnSamples")
+        added_samples = False
+        if isinstance(raw_samples, list):
+            for raw_sample in raw_samples:
+                value = number_or_none(raw_sample)
+                if value is not None:
+                    samples.append(round_policy_number(float(value)))
+                    added_samples = True
+        if added_samples:
+            continue
+        value = number_or_none(scalar_reward.get("scalarReward"))
+        if value is None:
+            continue
+        weight = policy_reward_tuple_sample_weight(summary)
+        for _index in range(max(0, weight)):
+            samples.append(round_policy_number(float(value)))
     return samples
 
 
@@ -3830,6 +4121,8 @@ def policy_update_candidate_summary(row: JsonObject) -> JsonObject:
         "sourceStrategyId": row.get("sourceStrategyId"),
         "rolloutStatus": row.get("rolloutStatus"),
         "rewardTuple": row.get("rewardTuple"),
+        "scalarReward": row.get("scalarReward"),
+        "scalarReturnSamples": copy.deepcopy(row.get("scalarReturnSamples")),
         "sampleCount": row.get("sampleCount"),
         "parameters": copy.deepcopy(row.get("parameters")),
         "resultVariantIds": copy.deepcopy(row.get("resultVariantIds")),
@@ -4730,6 +5023,16 @@ def summarize_variant(
         for index, run in enumerate(successful_runs)
     ]
     runtime_parameter_injection = summarize_variant_runtime_parameter_injection(variant, runs)
+    reward_sample_values = reward_samples(run_metrics_by_attempt)
+    reward_sample_stddev_values = reward_sample_stddev(run_metrics_by_attempt)
+    scalar_reward = build_scalar_weighted_reward_summary(
+        reward_tuple=reward_tuple,
+        reward_samples=reward_sample_values,
+        activation_samples=activation_samples,
+        activation_traces=activation_traces,
+        metrics_by_attempt=run_metrics_by_attempt,
+        reward_options=reward_options,
+    )
     summary: JsonObject = {
         "variantId": variant.id,
         "family": variant.family,
@@ -4742,8 +5045,8 @@ def summarize_variant(
             "type": "lexicographic",
             "componentOrder": list(REWARD_TIERS),
             "tuple": reward_tuple,
-            "samples": reward_samples(run_metrics_by_attempt),
-            "sampleStdDev": reward_sample_stddev(run_metrics_by_attempt),
+            "samples": reward_sample_values,
+            "sampleStdDev": reward_sample_stddev_values,
         },
         "metrics": metrics,
         "multiTierActivationSamples": activation_samples,
@@ -4759,6 +5062,9 @@ def summarize_variant(
             for run in runs
         ],
     }
+    if scalar_reward is not None:
+        summary["reward"]["scalarWeightedSum"] = scalar_reward
+        summary["scalarWeightedReward"] = copy.deepcopy(scalar_reward)
     if variant.policy_family:
         summary["policyFamily"] = variant.policy_family
     if variant.candidate_policy_id:
@@ -4773,6 +5079,127 @@ def summarize_variant(
     if variant.training_role:
         summary["trainingRole"] = variant.training_role
     return summary
+
+
+def build_scalar_weighted_reward_summary(
+    *,
+    reward_tuple: Sequence[Any],
+    reward_samples: Sequence[Sequence[Any]],
+    activation_samples: Sequence[JsonObject],
+    activation_traces: Sequence[JsonObject],
+    metrics_by_attempt: Sequence[JsonObject | None],
+    reward_options: JsonObject,
+) -> JsonObject | None:
+    if reward_options.get("scalarWeightedSumAuthorized") is not True:
+        return None
+    weight_evidence = reward_options.get("scalarWeightEvidence")
+    if not isinstance(weight_evidence, dict):
+        return None
+    weights = weight_evidence.get("normalizedWeightsByRewardTier")
+    if not isinstance(weights, dict):
+        return None
+
+    activation_by_attempt: list[JsonObject | None] = []
+    trace_by_sample_index: dict[int, JsonObject] = {}
+    for trace in activation_traces:
+        sample_index = int_or_none(trace.get("sampleIndex")) if isinstance(trace, dict) else None
+        if sample_index is not None:
+            trace_by_sample_index[sample_index] = trace
+    successful_index = 0
+    for metrics in metrics_by_attempt:
+        if metrics is None:
+            activation_by_attempt.append(None)
+            continue
+        activation_by_attempt.append(
+            activation_samples[successful_index] if successful_index < len(activation_samples) else None
+        )
+        successful_index += 1
+
+    activation_scores: list[float | int] = []
+    scalar_samples: list[float | int] = []
+    sample_components: list[JsonObject] = []
+    for sample_index, raw_sample in enumerate(reward_samples):
+        reward_sample = policy_return_tuple_from_sequence(list(raw_sample))
+        if reward_sample is None:
+            reward_sample = [0 for _tier in REWARD_TIERS]
+        activation_sample = (
+            activation_by_attempt[sample_index] if sample_index < len(activation_by_attempt) else None
+        )
+        trace = trace_by_sample_index.get(sample_index)
+        activation_score = scalar_activation_score(activation_sample, trace)
+        activation_scores.append(round_policy_number(activation_score))
+        components = scalar_reward_component_values(reward_sample, activation_score)
+        weighted = scalar_weighted_components(components, weights)
+        scalar_value = round_policy_number(sum(float(value) for value in weighted.values()))
+        scalar_samples.append(scalar_value)
+        sample_components.append({
+            "sampleIndex": sample_index,
+            "componentValuesByRewardTier": components,
+            "weightedComponentsByRewardTier": weighted,
+            "scalarReward": scalar_value,
+        })
+
+    aggregate_components = scalar_reward_component_values(
+        policy_return_tuple_from_sequence(list(reward_tuple)) or [0 for _tier in REWARD_TIERS],
+        statistics.fmean(float(value) for value in activation_scores) if activation_scores else 0.0,
+    )
+    aggregate_weighted = scalar_weighted_components(aggregate_components, weights)
+    scalar_reward = round_policy_number(sum(float(value) for value in aggregate_weighted.values()))
+    return {
+        "type": POLICY_GRADIENT_SCALAR_REWARD,
+        "authorized": True,
+        "use": reward_options.get("scalarWeightedSumUse") or SCALAR_WEIGHTED_SUM_AUTHORIZED_USE,
+        "rankingRewardModel": POLICY_GRADIENT_LEXICOGRAPHIC_REWARD,
+        "componentOrder": list(SCALAR_WEIGHTED_REWARD_TIERS),
+        "componentValuesByRewardTier": aggregate_components,
+        "sourceComponentWeights": copy.deepcopy(weight_evidence.get("sourceComponentWeights")),
+        "normalizedWeightsByRewardTier": copy.deepcopy(weights),
+        "weightedComponentsByRewardTier": aggregate_weighted,
+        "scalarReward": scalar_reward,
+        "scalarReturnSamples": scalar_samples,
+        "activationScore": aggregate_components["activation"],
+        "activationScoreSamples": activation_scores,
+        "sampleComponents": sample_components,
+        "sampleCount": len(scalar_samples),
+        "promotionUse": "blocked_until_trusted_samples_and_loop_b_advantage_gate",
+        "liveEffect": False,
+        "officialMmoWrites": False,
+        "officialMmoWritesAllowed": False,
+        "safety": safety_metadata(),
+    }
+
+
+def scalar_activation_score(sample: JsonObject | None, trace: JsonObject | None) -> float:
+    if isinstance(trace, dict):
+        policy_activation = trace.get("policyActivation")
+        if isinstance(policy_activation, dict):
+            score = number_or_none(policy_activation.get("activationScore"))
+            if score is not None:
+                return float(score)
+    if isinstance(sample, dict):
+        score = number_or_none(sample.get("activationScore"))
+        if score is not None:
+            return float(score)
+    return 0.0
+
+
+def scalar_reward_component_values(
+    reward_tuple: Sequence[Any],
+    activation_score: float | int,
+) -> JsonObject:
+    components: JsonObject = {}
+    for index, tier in enumerate(REWARD_TIERS):
+        value = number_or_none(reward_tuple[index]) if index < len(reward_tuple) else None
+        components[tier] = round_policy_number(float(value) if value is not None else 0.0)
+    components["activation"] = round_policy_number(float(activation_score))
+    return components
+
+
+def scalar_weighted_components(components: JsonObject, weights: JsonObject) -> JsonObject:
+    return {
+        tier: round_policy_number(float(components.get(tier, 0)) * float(weights.get(tier, 0)))
+        for tier in SCALAR_WEIGHTED_REWARD_TIERS
+    }
 
 
 def multi_tier_activation_sample_trace(
@@ -6699,6 +7126,15 @@ def policy_update_promotion_gate(
         )
 
     runtime_consumed_promotion_eligible = policy_update_generated and runtime_consumed and trusted_gradient_update
+    scalar_authorized = parameter_evidence.get("scalarWeightedSumAuthorized") is True
+    if scalar_authorized and runtime_consumed_promotion_eligible:
+        status = "blocked_loop_b_advantage_gate_pending"
+        missing_prerequisites = ["loop_b_policy_advantage_gate"]
+        reason = (
+            "scalar weighted reward is authorized only for offline/private/shadow comparison; "
+            "Loop A/Loop B promotion remains blocked until the Loop B advantage gate passes"
+        )
+        runtime_consumed_promotion_eligible = False
     payload: JsonObject = {
         "type": POLICY_UPDATE_PROMOTION_GATE_TYPE,
         "schemaVersion": SCHEMA_VERSION,
@@ -6724,6 +7160,10 @@ def policy_update_promotion_gate(
         "officialMmoWritesAllowed": False,
         "safety": safety_metadata(),
     }
+    if scalar_authorized:
+        payload["scalarWeightedSumAuthorized"] = True
+        payload["scalarWeightedSumUse"] = parameter_evidence.get("scalarWeightedSumUse")
+        payload["loopBAdvantageGate"] = parameter_evidence.get("loopBAdvantageGate") or "required_before_promotion"
     if gradient_gate_present:
         payload["gradientStable"] = gradient_stability.get("gradientStable") is True
         payload["trustedGradientUpdate"] = trusted_gradient_update
@@ -6794,6 +7234,7 @@ def policy_update_runtime_injection_ready_parameter_evidence(
         or first_present(support, ("runtime_parameter_consumption", "runtimeParameterConsumption")) is True
     )
     runtime_metadata_fallback = policy_gradient_allows_runtime_metadata_policy_update(policy_gradient)
+    scalar_authorized = policy_gradient_scalar_weighted_sum_authorized(policy_gradient)
     candidate_count_ready = len(candidates) >= policy_gradient_candidate_vector_count(policy_gradient)
     eligible = (
         scope == "runtime_injected"
@@ -6818,6 +7259,12 @@ def policy_update_runtime_injection_ready_parameter_evidence(
             else "blocked_until_runtime_parameter_evidence"
         ),
     }
+    if scalar_authorized:
+        payload["scalarWeightedSumAuthorized"] = True
+        payload["scalarWeightedSumUse"] = scalar_weighted_sum_use(
+            first_mapping(policy_gradient, ("reward_model", "rewardModel"))
+        )
+        payload["loopBAdvantageGate"] = "required_before_promotion"
     if consumption_status is not None:
         payload["runtimeParameterConsumptionStatus"] = consumption_status
     if eligible:
@@ -6945,6 +7392,8 @@ def build_generation_summary(report: JsonObject) -> JsonObject:
         "scorecardArtifactPath": report.get("scorecardArtifactPath"),
         "candidateScorecard": copy.deepcopy(report.get("candidateScorecard")),
         "candidateScorecards": copy.deepcopy(report.get("candidateScorecards")),
+        "scalarWeightedReward": copy.deepcopy(report.get("scalarWeightedReward")),
+        "conclusionRegistryUpdate": copy.deepcopy(report.get("conclusionRegistryUpdate")),
         "warnings": report["warnings"],
     }
     if "scaleValidation" in report:

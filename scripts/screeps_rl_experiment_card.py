@@ -28,6 +28,8 @@ STRATEGY_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 DRY_RUN_DATASET_RUN_ID = "rl-dry-run-000000000000"
 SAFETY_FALSE_FIELDS = ("liveEffect", "officialMmoWrites", "officialMmoWritesAllowed")
 SAFETY_TRUE_FIELDS = ("ood_rejection", "conservative_actions_only")
+SCALAR_WEIGHTED_SUM_USE = "offline_private_shadow_policy_gradient_comparison"
+SCALAR_WEIGHTED_SUM_COMPONENT_ORDER = ["reliability", "territory", "resources", "kills", "activation"]
 SCENARIO_METADATA_TYPE = "screeps-rl-training-scenario"
 DEFAULT_SCENARIO_ID = "e1s1-single-room-no-hostile"
 MULTI_TIER_SCENARIO_V0_ID = "multi-tier-territory-combat-v0"
@@ -223,8 +225,8 @@ def validate_created_at(created_at: str) -> None:
         raise CardValidationError("created_at must be an ISO UTC timestamp like 2026-05-03T00:00:00.000000Z")
 
 
-def reward_model() -> JsonObject:
-    return {
+def reward_model(*, scalar_weighted_sum_authorized: bool = False) -> JsonObject:
+    model: JsonObject = {
         "component_order": ["reliability", "territory", "resources", "kills"],
         "component_weights": {
             "alpha_reliability": 1000000000,
@@ -233,9 +235,30 @@ def reward_model() -> JsonObject:
             "delta_kills": 1,
         },
         "formula": "R = alpha*R_reliability + beta*R_territory + gamma*R_resources + delta*R_kills; alpha >> beta >> gamma >> delta",
-        "scalar_weighted_sum_authorized": False,
+        "scalar_weighted_sum_authorized": scalar_weighted_sum_authorized,
+        "scalar_weighted_sum_use": SCALAR_WEIGHTED_SUM_USE if scalar_weighted_sum_authorized else "not_used",
         "type": "lexicographic",
     }
+    if scalar_weighted_sum_authorized:
+        model["scalar_weighted_sum"] = {
+            "authorized": True,
+            "use": SCALAR_WEIGHTED_SUM_USE,
+            "component_order": list(SCALAR_WEIGHTED_SUM_COMPONENT_ORDER),
+            "component_weights": {
+                "alpha_reliability": 1000000000,
+                "beta_territory": 1000000,
+                "gamma_resources": 1000,
+                "delta_kills": 1,
+                "epsilon_activation": 1,
+            },
+            "activation_score_source": (
+                "multiTierActivationTraces.policyActivation.activationScore; "
+                "missing activation scores are treated as zero"
+            ),
+            "ranking_reward_model": "lexicographic",
+            "promotion_use": "blocked_until_trusted_samples_and_loop_b_advantage_gate",
+        }
+    return model
 
 
 def safety_block() -> JsonObject:
@@ -874,6 +897,7 @@ def build_card(
     source_gate: JsonObject | None = None,
     scenario_id: str = DEFAULT_SCENARIO_ID,
     require_multi_tier_scenario: bool = False,
+    scalar_weighted_sum_authorized: bool = False,
 ) -> JsonObject:
     validate_dataset_run_id(dataset_run_id)
     validate_code_commit(code_commit)
@@ -882,6 +906,8 @@ def build_card(
         raise CardValidationError(f"training_approach must be one of: {', '.join(TRAINING_APPROACHES)}")
     if loop_a_card_supply and training_approach != "policy_gradient":
         raise CardValidationError("Loop A card supply requires training_approach=policy_gradient")
+    if scalar_weighted_sum_authorized and training_approach != "policy_gradient":
+        raise CardValidationError("scalar weighted reward authorization requires training_approach=policy_gradient")
 
     default_ticks = POLICY_GRADIENT_SIMULATION_TICKS if training_approach == "policy_gradient" else DEFAULT_SIMULATION_TICKS
     default_repetitions = (
@@ -922,6 +948,10 @@ def build_card(
         raise CardValidationError(
             "multi-tier policy comparisons require a scenario with adjacent-room territory and hostile combat signals"
         )
+    if scalar_weighted_sum_authorized and not scenario_supports_multi_tier_policy_comparison(scenario):
+        raise CardValidationError(
+            "scalar weighted reward authorization requires the active multi-tier territory/combat scenario"
+        )
     simulation_map_source_file = scenario_simulation_map_source_file(scenario_id)
 
     commit_prefix = code_commit[:12].lower()
@@ -940,7 +970,7 @@ def build_card(
         "officialMmoWrites": False,
         "officialMmoWritesAllowed": False,
         "ood_rejection": True,
-        "reward_model": reward_model(),
+        "reward_model": reward_model(scalar_weighted_sum_authorized=scalar_weighted_sum_authorized),
         "scenario": scenario,
         "safety": safety_block(),
         "simulation": simulation_block(
@@ -1350,7 +1380,11 @@ def validate_card(raw: Any) -> None:
         raise CardValidationError(f"card_id must be {expected}")
 
     validate_safety(raw)
-    validate_reward_model(raw.get("reward_model"))
+    validate_reward_model(
+        raw.get("reward_model"),
+        training_approach=training_approach,
+        scenario=raw.get("scenario"),
+    )
     validate_card_supply(raw)
     validate_source_gate(raw)
     validate_scenario(raw)
@@ -2341,7 +2375,12 @@ def validate_safety(raw: JsonObject) -> None:
             raise CardValidationError(f"{field} must be true when present")
 
 
-def validate_reward_model(raw: Any) -> None:
+def validate_reward_model(
+    raw: Any,
+    *,
+    training_approach: str | None = None,
+    scenario: Any = None,
+) -> None:
     if not isinstance(raw, dict):
         raise CardValidationError("reward_model must be a JSON object")
     if raw.get("type") != "lexicographic":
@@ -2362,8 +2401,66 @@ def validate_reward_model(raw: Any) -> None:
         > weights["delta_kills"]
     ):
         raise CardValidationError("reward_model weights must be strictly lexicographic")
-    if raw.get("scalar_weighted_sum_authorized") is not False:
-        raise CardValidationError("reward_model.scalar_weighted_sum_authorized must be false")
+    scalar_authorized = first_present(
+        raw,
+        ("scalar_weighted_sum_authorized", "scalarWeightedSumAuthorized"),
+    )
+    if scalar_authorized is False:
+        scalar_use = first_present(raw, ("scalar_weighted_sum_use", "scalarWeightedSumUse"))
+        if scalar_use not in (None, "not_used"):
+            raise CardValidationError("reward_model.scalar_weighted_sum_use must be not_used unless authorized")
+        return
+    if scalar_authorized is not True:
+        raise CardValidationError("reward_model.scalar_weighted_sum_authorized must be false unless explicitly authorized")
+    validate_scalar_weighted_sum_authorization(raw, training_approach=training_approach, scenario=scenario)
+
+
+def validate_scalar_weighted_sum_authorization(
+    raw: JsonObject,
+    *,
+    training_approach: str | None,
+    scenario: Any,
+) -> None:
+    if training_approach != "policy_gradient":
+        raise CardValidationError("reward_model.scalar_weighted_sum_authorized requires training_approach=policy_gradient")
+    if not scenario_supports_multi_tier_policy_comparison(scenario):
+        raise CardValidationError("reward_model.scalar_weighted_sum_authorized requires active multi-tier scenario evidence")
+    scalar_use = first_present(raw, ("scalar_weighted_sum_use", "scalarWeightedSumUse"))
+    if scalar_use != SCALAR_WEIGHTED_SUM_USE:
+        raise CardValidationError(f"reward_model.scalar_weighted_sum_use must be {SCALAR_WEIGHTED_SUM_USE}")
+    config = first_present(raw, ("scalar_weighted_sum", "scalarWeightedSum"))
+    if not isinstance(config, dict):
+        raise CardValidationError("reward_model.scalar_weighted_sum must be a JSON object when authorized")
+    if first_present(config, ("authorized", "scalar_weighted_sum_authorized", "scalarWeightedSumAuthorized")) is not True:
+        raise CardValidationError("reward_model.scalar_weighted_sum.authorized must be true when authorized")
+    if first_present(config, ("use", "scalar_weighted_sum_use", "scalarWeightedSumUse")) != SCALAR_WEIGHTED_SUM_USE:
+        raise CardValidationError(f"reward_model.scalar_weighted_sum.use must be {SCALAR_WEIGHTED_SUM_USE}")
+    if first_present(config, ("component_order", "componentOrder")) != SCALAR_WEIGHTED_SUM_COMPONENT_ORDER:
+        raise CardValidationError(
+            "reward_model.scalar_weighted_sum.component_order must preserve reliability, territory, resources, kills, activation"
+        )
+    weights = first_present(config, ("component_weights", "componentWeights"))
+    if not isinstance(weights, dict):
+        raise CardValidationError("reward_model.scalar_weighted_sum.component_weights must be a JSON object")
+    required_weights = (
+        "alpha_reliability",
+        "beta_territory",
+        "gamma_resources",
+        "delta_kills",
+        "epsilon_activation",
+    )
+    for field in required_weights:
+        value = weights.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise CardValidationError(f"reward_model.scalar_weighted_sum.component_weights.{field} must be a positive integer")
+    if not (
+        weights["alpha_reliability"]
+        > weights["beta_territory"]
+        > weights["gamma_resources"]
+        > weights["delta_kills"]
+        >= weights["epsilon_activation"]
+    ):
+        raise CardValidationError("reward_model.scalar_weighted_sum weights must preserve lexicographic dominance")
 
 
 def validate_strategy_variants(raw: Any) -> None:
@@ -2842,6 +2939,12 @@ def resolve_cli_scenario_request(args: argparse.Namespace) -> tuple[str, bool]:
         if scenario_id not in MULTI_TIER_SCENARIO_IDS:
             raise CardValidationError("Loop A policy-gradient proof requires the multi-tier territory/combat scenario")
         return scenario_id, True
+    if args.authorize_scalar_weighted_reward:
+        if scenario_id is None:
+            return MULTI_TIER_SCENARIO_ID, True
+        if scenario_id not in MULTI_TIER_SCENARIO_IDS:
+            raise CardValidationError("scalar weighted reward authorization requires the multi-tier territory/combat scenario")
+        return scenario_id, True
     return scenario_id or DEFAULT_SCENARIO_ID, require_multi_tier
 
 
@@ -2930,6 +3033,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-multi-tier-scenario",
         action="store_true",
         help="Reject cards whose scenario lacks adjacent-room territory and hostile combat signals.",
+    )
+    parser.add_argument(
+        "--authorize-scalar-weighted-reward",
+        action="store_true",
+        help=(
+            "Authorize scalar weighted reward aggregation for offline/private/shadow policy-gradient "
+            "comparison only. Requires the active multi-tier territory/combat scenario."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -3156,6 +3267,7 @@ def main(
             source_gate=source_gate,
             scenario_id=scenario_id,
             require_multi_tier_scenario=require_multi_tier_scenario,
+            scalar_weighted_sum_authorized=args.authorize_scalar_weighted_reward,
         )
         if args.loop_a_local_fallback:
             output_path = args.output or repo / DEFAULT_LOOP_A_LOCAL_FALLBACK_CARD_PATH.relative_to(REPO_ROOT)

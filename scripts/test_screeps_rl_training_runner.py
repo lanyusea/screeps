@@ -3279,6 +3279,98 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(estimation["gradient"], estimation["capNormalizedGradient"])
         self.assertGreater(estimation["directionByParameter"]["combatSignalWeight"]["positiveContributionCount"], 0)
 
+    def test_authorized_scalar_policy_update_uses_scalar_samples_and_blocks_promotion(self) -> None:
+        policy_gradient = reinforce_stability_policy_gradient()
+        policy_gradient["rewardModel"] = card_helper.reward_model(scalar_weighted_sum_authorized=True)
+        results = reinforce_stability_results([[1, 0, 0, 0] for _index in range(20)])
+        for result in results:
+            scalar_value = 100 if result["variantId"] == "variant-a" else 101
+            result["reward"]["scalarWeightedSum"] = {
+                "scalarReward": scalar_value,
+                "scalarReturnSamples": [scalar_value for _index in range(result["sampleCount"])],
+            }
+
+        update = runner.build_policy_update(
+            policy_gradient=policy_gradient,
+            results=results,
+            report_id="policy-gradient-authorized-scalar",
+            generated_at="2026-06-01T16:25:00Z",
+        )
+
+        self.assertEqual(update["iterations"], 1)
+        self.assertEqual(update["policyGradientEstimator"], runner.POLICY_GRADIENT_SCALAR_ESTIMATOR)
+        self.assertTrue(update["scalarWeightedSumAuthorized"])
+        self.assertTrue(update["gradientEstimation"]["scalarWeightedSumAuthorized"])
+        self.assertEqual(
+            update["gradientEstimation"]["scalarWeightedSumUse"],
+            runner.SCALAR_WEIGHTED_SUM_AUTHORIZED_USE,
+        )
+        self.assertIn("activation", update["gradientEstimation"]["normalizedWeightsByRewardTier"])
+        self.assertGreater(update["gradientEstimation"]["scalarReturns"][-1], update["gradientEstimation"]["scalarReturns"][0])
+        self.assertEqual(update["promotionGate"]["status"], "blocked_loop_b_advantage_gate_pending")
+        self.assertFalse(update["promotionGate"]["loopAPromotionEligible"])
+        self.assertFalse(update["promotionGate"]["loopBPromotionEligible"])
+        self.assertEqual(update["promotionGate"]["loopBAdvantageGate"], "required_before_promotion")
+        self.assertFalse(update["promotionGate"]["liveEffect"])
+        self.assertFalse(update["promotionGate"]["officialMmoWrites"])
+
+    def test_authorized_scalar_training_report_surfaces_activation_reward_components(self) -> None:
+        card = base_card(["baseline", "candidate"])
+        card["training_approach"] = "policy_gradient"
+        card["reward_model"] = card_helper.reward_model(scalar_weighted_sum_authorized=True)
+        card["scenario"] = card_helper.scenario_metadata_block(scenario_id=card_helper.MULTI_TIER_SCENARIO_ID)
+        card["simulation"]["room"] = "E1S1"
+        card["simulation"]["map_source_file"] = str(card_helper.MULTI_TIER_SIMULATION_MAP_SOURCE_FILE)
+        config = runner.simulation_config_from_card(card)
+        variants = [
+            runner.StrategyVariant(id="baseline", family="test-family", parameters={}, rollout_status="incumbent"),
+            runner.StrategyVariant(id="candidate", family="test-family", parameters={}, rollout_status="shadow"),
+        ]
+        start = tick(1, [room("E1S1", energy=100)])
+        end = tick(2, [room("E1S1", energy=100)])
+        baseline_run = variant_result("baseline", [start, end])
+        candidate_run = variant_result("candidate", [start, end])
+        candidate_run["policyActivation"] = {
+            "type": "screeps-rl-multi-tier-policy-activation",
+            "policyAction": "test-activation",
+            "executionAction": "test-activation",
+            "objectiveSignalSource": "offline_shadow_projection",
+            "activationScore": 22.25,
+            "threshold": 10,
+            "reason": "deterministic scalar reward activation test",
+        }
+
+        report = runner.build_training_report(
+            card=card,
+            card_path=Path("card.json"),
+            variants=variants,
+            config=config,
+            simulator_runs=[
+                {
+                    "type": "screeps-rl-simulator-run",
+                    "runId": "scalar-activation-report",
+                    "liveEffect": False,
+                    "officialMmoWrites": False,
+                    "officialMmoWritesAllowed": False,
+                    "variants": [baseline_run, candidate_run],
+                }
+            ],
+            reward_options=runner.reward_options_from_card(card),
+            report_id="scalar-activation-report",
+            generated_at="2026-06-01T16:26:00Z",
+        )
+
+        candidate = next(item for item in report["variantResults"] if item["variantId"] == "candidate")
+        scalar = candidate["reward"]["scalarWeightedSum"]
+        self.assertTrue(report["rewardModel"]["scalarWeightedSumAuthorized"])
+        self.assertEqual(report["rewardModel"]["scalarWeightedSumUse"], runner.SCALAR_WEIGHTED_SUM_AUTHORIZED_USE)
+        self.assertEqual(scalar["activationScore"], 22.25)
+        self.assertGreater(scalar["weightedComponentsByRewardTier"]["activation"], 0)
+        self.assertEqual(report["scalarWeightedReward"]["variantRewards"][1]["activationScore"], 22.25)
+        self.assertEqual(report["conclusionRegistryUpdate"]["sourceIssue"], "#1582")
+        self.assertFalse(report["scalarWeightedReward"]["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+
     def test_policy_gradient_scalar_estimator_preserves_large_source_weight_scale(self) -> None:
         policy_gradient = {
             "policyUpdate": {
