@@ -5153,6 +5153,8 @@ def _fixture_owner_adoption_expression(
   const fixtureOwnerRefs = new Set([fixtureOwnerId, fixtureOwnerUsername].filter(value => value).map(String));
   const targetUsername = {json.dumps(target_username)};
   const objectsCollection = storage.db['rooms.objects'];
+  const objectType = object => String((object && (object.type || object.structureType)) || '');
+  const isOwnedAnchorObject = object => ['controller', 'spawn'].includes(objectType(object));
   return storage.db.users.findOne({{username: targetUsername}}).then(user => {{
     if (!user || !user._id) {{
       throw new Error(`smoke user not found: ${{targetUsername}}`);
@@ -5163,15 +5165,26 @@ def _fixture_owner_adoption_expression(
       let adoptedObjects = 0;
       let reboundControllers = 0;
       let reservationUpdates = 0;
+      let rewrittenOwnerReferences = 0;
+      let rewrittenAnchorReferences = 0;
       for (const object of objects || []) {{
         const patch = {{}};
+        const anchorObject = isOwnedAnchorObject(object);
         if (object.user != null && fixtureOwnerRefs.has(String(object.user))) {{
           patch.user = targetUserId;
           adoptedObjects += 1;
+          rewrittenOwnerReferences += 1;
+          if (anchorObject) {{
+            rewrittenAnchorReferences += 1;
+          }}
         }}
         if (object.bindUser != null && fixtureOwnerRefs.has(String(object.bindUser))) {{
           patch.bindUser = targetUserId;
           reboundControllers += 1;
+          rewrittenOwnerReferences += 1;
+          if (objectType(object) === 'controller') {{
+            rewrittenAnchorReferences += 1;
+          }}
         }}
         if (
           object.reservation
@@ -5180,6 +5193,7 @@ def _fixture_owner_adoption_expression(
         ) {{
           patch.reservation = Object.assign({{}}, object.reservation, {{user: targetUserId}});
           reservationUpdates += 1;
+          rewrittenOwnerReferences += 1;
         }}
         if (Object.keys(patch).length > 0 && object._id != null) {{
           updates.push(objectsCollection.update({{_id: object._id}}, {{$set: patch}}));
@@ -5199,6 +5213,8 @@ def _fixture_owner_adoption_expression(
         adoptedObjects,
         reboundControllers,
         reservationUpdates,
+        rewrittenOwnerReferences,
+        rewrittenAnchorReferences,
         activeUser: true,
         roomActivated: true
       }}));
@@ -5218,7 +5234,23 @@ def _launcher_cli_result_summary(result: JsonObject) -> JsonObject:
     response_excerpt = result.get("response_excerpt")
     if isinstance(response_excerpt, str):
         summary["responseExcerpt"] = _safe_text(response_excerpt, 500)
+        try:
+            parsed_response = json.loads(response_excerpt)
+        except json.JSONDecodeError:
+            parsed_response = None
+        if isinstance(parsed_response, dict):
+            summary["responsePayload"] = parsed_response
     return summary
+
+
+def _fixture_owner_adoption_rewritten_anchor_references(adoption: JsonObject) -> int:
+    result = adoption.get("result")
+    if not isinstance(result, dict):
+        return 0
+    payload = result.get("responsePayload")
+    if not isinstance(payload, dict):
+        return 0
+    return _extract_int(payload.get("rewrittenAnchorReferences")) or 0
 
 
 def _adopt_private_fixture_owner(
@@ -5340,6 +5372,8 @@ def _preinitialize_fixture_owned_room_for_spawn(
         )
         return None
     if adoption.get("classification") != "fixture_owner_adopted":
+        return None
+    if _fixture_owner_adoption_rewritten_anchor_references(adoption) <= 0:
         return None
     return {
         "phase": "place-spawn",
