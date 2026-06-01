@@ -4809,6 +4809,9 @@ def multi_tier_activation_sample_trace(
             if field in activation_metrics:
                 trace_policy_activation[field] = activation_metrics.get(field)
         trace["policyActivation"] = trace_policy_activation
+        evidence_warnings = policy_activation.get("evidenceWarnings")
+        if isinstance(evidence_warnings, list):
+            trace["evidenceWarnings"] = copy.deepcopy(evidence_warnings[:5])
     if projected_evidence is not None:
         trace["projectedEvidence"] = {
             "mode": projected_evidence.get("mode"),
@@ -6214,13 +6217,26 @@ def build_multi_tier_activation_proof(
             "classification": classification,
             "criticality": "P0",
             "evidence": evidence,
-            "action": (
-                "rerun policy-gradient multi-tier validation with an extended simulation horizon"
-                if horizon_too_short
-                else "repair local/private simulator objective activation before paid Tencent validation"
-            ),
+            "action": multi_tier_activation_blocker_action(classification),
         }
     return proof
+
+
+def multi_tier_activation_blocker_action(classification: str) -> str:
+    if classification == "SIMULATION_HORIZON_TOO_SHORT":
+        return "rerun policy-gradient multi-tier validation with an extended simulation horizon"
+    if classification == "SIMULATOR_NO_SUCCESSFUL_SAMPLES":
+        return (
+            "repair local/private simulator reliability so multi-tier activation proof has "
+            "successful samples before paid Tencent validation"
+        )
+    if classification == "SIMULATOR_OBJECTIVE_SIGNAL_NOT_ACTIVATED":
+        return (
+            "repair simulator/bot objective actuation so at least one successful local/private sample "
+            f"exceeds territory score {MULTI_TIER_TERRITORY_ACTIVATION_THRESHOLD} or hostile kills "
+            f"{MULTI_TIER_HOSTILE_KILLS_ACTIVATION_THRESHOLD} before paid Tencent validation"
+        )
+    return "repair multi-tier fixture signal transport before paid Tencent validation"
 
 
 def multi_tier_activation_variant_row(result: JsonObject) -> JsonObject:

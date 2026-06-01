@@ -1070,6 +1070,63 @@ class RlTrainingRunnerTest(unittest.TestCase):
         self.assertFalse(report["officialMmoWrites"])
         self.assertFalse(report["officialMmoWritesAllowed"])
 
+    def test_multi_tier_activation_projection_tolerates_nonfatal_evidence_warnings(self) -> None:
+        card = card_helper.build_card(
+            dataset_run_id="rl-training-multitier-nonfatal-evidence-warning",
+            code_commit="b" * 40,
+            training_approach="policy_gradient",
+            created_at="2026-05-18T10:26:30Z",
+            scenario_id=card_helper.MULTI_TIER_SCENARIO_V0_ID,
+            require_multi_tier_scenario=True,
+        )
+        simulator_results: dict[str, JsonObject] = {}
+        for variant in card["strategy_variants"]:
+            variant_id = variant["id"]
+            result = variant_result(
+                variant_id,
+                [
+                    tick(1, [room("E1S1", spawns=1, creeps=1, rcl=3, energy=300)]),
+                    tick(2, [room("E1S1", spawns=1, creeps=1, rcl=3, energy=300)]),
+                ],
+            )
+            result["metrics"] = {"territoryDelta": 0, "hostileKills": 0, "ownLosses": 4}
+            result["evidenceErrors"] = ["mongo room evidence failed: no room document returned"]
+            simulator_results[variant_id] = result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, card)
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="multi-tier-projected-warning",
+                simulator_runner=MockSimulator(simulator_results),
+            )
+
+        proof = report["activationProof"]
+        self.assertEqual(proof["status"], "passed")
+        self.assertTrue(proof["ok"])
+        self.assertIn("construction-priority.pg.territory-seed.v1", proof["passingVariants"])
+        territory_result = next(
+            result
+            for result in report["variantResults"]
+            if result["variantId"] == "construction-priority.pg.territory-seed.v1"
+        )
+        self.assertEqual(territory_result["metrics"]["kills"]["hostileKills"], 1)
+        self.assertEqual(territory_result["metrics"]["kills"]["ownLosses"], 4)
+        self.assertTrue(territory_result["multiTierActivationSamples"][0]["passesActivation"])
+        territory_trace = territory_result["multiTierActivationTraces"][0]
+        self.assertEqual(territory_trace["policyActivation"]["objectiveSignalSource"], "offline_shadow_projection")
+        self.assertEqual(territory_trace["policyActivation"]["hostileKillsSource"], "projectedEvidence")
+        self.assertEqual(
+            territory_trace["evidenceWarnings"],
+            ["mongo room evidence failed: no room document returned"],
+        )
+        self.assertFalse(report["liveEffect"])
+        self.assertFalse(report["officialMmoWrites"])
+        self.assertFalse(report["officialMmoWritesAllowed"])
+
     def test_multi_tier_activation_projection_reconstructs_metrics_only_runs(self) -> None:
         card = card_helper.build_card(
             dataset_run_id="rl-training-multitier-projected-metrics",

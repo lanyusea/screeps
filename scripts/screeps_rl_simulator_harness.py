@@ -5608,7 +5608,7 @@ def build_multi_tier_policy_activation_evidence(
     evidence_errors: Sequence[Any] = (),
     allow_offline_projection: bool = False,
 ) -> JsonObject | None:
-    if run_errors or evidence_errors or len(tick_log) < 2:
+    if run_errors or len(tick_log) < 2:
         return None
     activation = select_multi_tier_policy_activation(
         strategy_variant,
@@ -5620,6 +5620,9 @@ def build_multi_tier_policy_activation_evidence(
     target_room = activation.get("targetRoom")
     if not isinstance(target_room, str):
         return None
+    evidence_warnings = [_safe_text(error, 240) for error in (evidence_errors or ()) if str(error).strip()]
+    if evidence_warnings:
+        activation["evidenceWarnings"] = evidence_warnings[:5]
     observed = _multi_tier_policy_activation_observed_evidence(tick_log, target_room)
     if observed is not None:
         activation["objectiveSignalObserved"] = True
