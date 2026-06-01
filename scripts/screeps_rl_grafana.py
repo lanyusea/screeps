@@ -67,7 +67,7 @@ REQUIRED_QUERY_COVERAGE = {
     "E1 dataset gate metrics": "FROM rl_dataset_gate_metrics",
     "Loop A training execution metrics": "FROM rl_training_execution_metrics",
     "Loop B policy advantage metrics": "FROM rl_policy_advantage_metrics",
-    "#879 iteration decisions": "FROM metric_iteration_decisions",
+    "RL iteration decisions": "FROM metric_iteration_decisions",
     "metrics refresh proof": "source.rl_metrics_refresh.completed",
 }
 

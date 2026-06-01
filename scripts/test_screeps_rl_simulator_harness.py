@@ -151,11 +151,13 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         manifest = json.loads(first_text)
         self.assertEqual(first_summary, second_summary)
         self.assertEqual(first_text, second_text)
+        self.assertNotIn("#879", first_text)
         self.assertTrue(first_summary["ok"])
         self.assertFalse(first_summary["liveEffect"])
         self.assertFalse(first_summary["officialMmoWrites"])
         self.assertEqual(manifest["botCommit"], "b" * 40)
-        self.assertEqual(manifest["owningIssue"], "#879")
+        self.assertEqual(manifest["owningIssue"], "#1032")
+        self.assertNotEqual(manifest["owningIssue"], "#879")
         self.assertEqual(manifest["strategyVariants"]["configuredVariantCount"], 2)
         self.assertEqual(
             manifest["strategyVariants"]["defaultVariantIds"],

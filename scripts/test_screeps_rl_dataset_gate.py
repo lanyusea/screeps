@@ -835,6 +835,14 @@ class ScreepsRlDatasetGateTest(unittest.TestCase):
         self.assertEqual(conclusions["E1-GATE-STATUS"]["ownerCron"], gate.E1_OWNER_CRON)
         self.assertNotIn("E1-SHADOW-EVAL-STATUS", conclusions)
         self.assertIn("E1-CONSOLE-CAPTURE-FLOWING", conclusions)
+        e1_linked_issues = {
+            issue
+            for conclusion in conclusions.values()
+            if conclusion["conclusionId"].startswith("E1-")
+            for issue in conclusion["linkedIssues"]
+        }
+        self.assertIn("#1566", e1_linked_issues)
+        self.assertNotIn("#879", e1_linked_issues)
         self.assertEqual(saved_registry["summary"]["total"], len(conclusions))
         self.assertEqual(
             saved_summary["conclusionRegistrySummary"]["countsByStatus"],

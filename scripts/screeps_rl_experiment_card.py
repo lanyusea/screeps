@@ -1099,7 +1099,7 @@ def policy_gradient_block(registry_path: Path) -> JsonObject:
         "target_family": CONSTRUCTION_PRIORITY_FAMILY,
         "candidate_policy_id_field": "candidatePolicyId",
         "source_registry": repo_relative(registry_path),
-        "owning_issues": ["#1032", "#879", "#924"],
+        "owning_issues": ["#1032", "#1588", "#924"],
         "learnable_parameters": construction_priority_learnable_parameters(registry_path),
         "candidate_parameter_vectors": candidates,
         "policy_update": {

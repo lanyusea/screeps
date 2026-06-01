@@ -131,6 +131,8 @@ class RlExperimentCardTest(unittest.TestCase):
         self.assertTrue(card["conservative_actions_only"])
         self.assertTrue(card["ood_rejection"])
         self.assertEqual(policy_gradient["target_family"], "construction-priority")
+        self.assertEqual(policy_gradient["owning_issues"], ["#1032", "#1588", "#924"])
+        self.assertNotIn("#879", policy_gradient["owning_issues"])
         self.assertEqual(policy_gradient["policy_update"]["algorithm"], "reinforce_v1")
         self.assertEqual(policy_gradient["policy_update"]["learning_rate"], 1)
         self.assertEqual(policy_gradient["policy_update"]["estimator"], "score_function_reinforce_v1")
