@@ -72,6 +72,7 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 | `RD-0003-stuck-actionless-creeps` | `proposed` | stuck/actionless creeps | needs metric evidence; not accepted | #907, #906 |
 | `RD-V3-004-constructionNeglectPenalty` | `proposed` | `build=0` with construction backlog | needs offline/shadow replay plus future #924-compatible scorecard artifact; not accepted | #1024, #907, #906, #924 |
 | `RD-V3-005-onlineReliabilityRollbackPenalty` | `proposed` | online/shadow reliability rollback over threshold | candidate admission/#924 scorecard gate proposal only; not accepted | #1558, #907, #924, #1536, #1548 |
+| `RD-V3-006-workerTransportEfficiency` | `proposed` | low-load worker transport micro-hauls | hold for #1554 telemetry; no reward experiment accepted | #1555, #907, #906, #924 |
 | `RD-0005-expansion-without-spawn` | `proposed` | claim/expansion room with 0 spawns after grace window | needs metric evidence; not accepted | #907, #906 |
 | `RD-0006-metric-and-reliability-gates` | `proposed` | CPU, reliability, or missing metrics | needs metric evidence; not accepted | #907, #906 |
 
@@ -135,6 +136,23 @@ The JSON template is `docs/ops/templates/rl-reward-decision.template.json`.
 - Post-gate experiment plan: after #1536, #1548, and Tencent recurrence gates clear, create an offline/shadow experiment card comparing the incumbent baseline against these candidate families or successor family IDs, with `rollbackThresholdPct`, baseline/candidate reliability, reliability delta, #924 scorecard status, CPU/room safety, territory, resources, and kills recorded before any reward-shaping or scenario-weighting variant.
 - Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize learned-policy live writes or paid Tencent validation.
 - Acceptance status: not accepted; proposal only.
+
+### RD-V3-006-workerTransportEfficiency
+
+- State: `proposed`
+- Linked issue: https://github.com/lanyusea/screeps/issues/1555
+- Change-control reference: https://github.com/lanyusea/screeps/issues/907
+- Linked metric taxonomy: https://github.com/lanyusea/screeps/issues/906
+- Linked scorecard gate: https://github.com/lanyusea/screeps/issues/924
+- Telemetry prerequisite: issue #1554 or an equivalent artifact must first prove repeated avoidable low-load micro-hauls.
+- Evidence: the 2026-06-01 Gameplay Evolution Review observed transfer-task workers around 0-6/100 carried energy. The 2026-06-02 review archive `/root/.hermes/cron/output/c7b3dda8f1ac/2026-06-02_01-21-18.md` reported E29N56 low-load returns at 9/100 and 16/100 with reason `noReachableEnergy`, while E29N57 evidence was dominated by spawn-reservation/build-deadlock behavior.
+- Problem: low-load worker transport can waste travel, CPU, and worker ticks when the trip was avoidable, but current samples may be legitimate no-reachable-energy or dispatch-deadlock symptoms.
+- Possible Act choice: after telemetry proves avoidable cases, add a shadow/offline `worker_transport_efficiency` penalty for non-emergency trips below 20% carry load only when reachable energy existed and no higher-priority reliability, territory, controller-safety, or refill exception applies.
+- Decision: hold for telemetry. The evidence is sufficient for a #1555 reward-decision record, but insufficient for a reward experiment.
+- Validation metric: #1554/equivalent telemetry must expose low-load reason distribution, carried/free capacity, source reachability, target saturation, room buffer, spawn-reservation state, delivered energy per trip, CPU, and stuck/pathing impact. A later #924-compatible scorecard must show fewer avoidable low-load returns and higher delivered energy per trip or return load factor without regressions.
+- Rollback/rejection criteria: reject if most low-load returns are `noReachableEnergy`, emergency refill, controller safety, hostile retreat, or starvation exceptions; if spawn/refill latency, controller safety, construction progress, CPU, stuck/pathing, reliability, territory, or resources regress; or if any live official MMO learned-policy write/control surface is enabled.
+- Safety flags: `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`; this decision does not authorize training, reward defaults, or learned-policy live writes.
+- Acceptance status: not accepted; proposal and telemetry hold only.
 
 ### RD-0005-expansion-without-spawn
 

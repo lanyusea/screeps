@@ -8,7 +8,7 @@ Canonical PDCA Act-loop registry for RL reward components, weights, penalties, v
 - **Previous reward-decision issue:** #907, closed after PR #961 merged
 - **Historical context:** #879 (quarantined; not an active reward-decision container or progress proxy)
 - **Machine-readable schema:** `docs/ops/rl-reward-schema.yaml` (v1, #967)
-- **Last updated:** 2026-06-01
+- **Last updated:** 2026-06-02
 
 ## Purpose
 
@@ -80,6 +80,8 @@ Source for the first three pending records: Gameplay Evolution Review output `20
 Source for `RD-V3-004-constructionNeglectPenalty`: issue #1024 and Gameplay Evolution Review 2026-05-14 08:07, following the #907 change-control framework and #924 as the source scorecard contract. A future generated #924-compatible scorecard artifact is still required for #1024 acceptance.
 
 Source for `RD-V3-005-onlineReliabilityRollbackPenalty`: issue #1558 and the 2026-05-31 Loop B policy online advantage rollback evidence. The artifact path is `runtime-artifacts/rl-control-loop/20260531T194800Z-policy-advantage.json`; newer policy advantage reports may reference the same rollback window. Runtime console ticks 1623386-1623404 disabled `construction-priority.territory-shadow.v1` and `expansion-remote.territory-shadow.v1` after reliability dropped about 17.0-18.4% versus the configured 10.0% rollback threshold. The first implementation recommendation is #924 candidate admission/scorecard gating only. Reward shaping and scenario weighting remain future shadow-only follow-ups.
+
+Source for `RD-V3-006-workerTransportEfficiency`: issue #1555, the 2026-06-01 Gameplay Evolution Review low-load transport observation, and the 2026-06-02 Gameplay Evolution Review archive `/root/.hermes/cron/output/c7b3dda8f1ac/2026-06-02_01-21-18.md`. The observed evidence includes transfer-task workers around 0-6/100 carried energy, E29N56 low-load returns at 9/100 and 16/100 with `noReachableEnergy`, and E29N57 spawn-reservation/build-deadlock context. This is enough to register a decision, but not enough to start a reward experiment; #1554 or equivalent telemetry must first separate avoidable micro-hauls from valid starvation, emergency, or dispatch-deadlock cases.
 
 ### RD-V3-001-workerLoadEfficiency
 
@@ -156,6 +158,21 @@ Source for `RD-V3-005-onlineReliabilityRollbackPenalty`: issue #1558 and the 202
 | `rollback_conditions` | Owner-independent rejection if reliability drop exceeds threshold; if #924 reliability fields or windows are missing; if candidate gains are bought with reliability, CPU, room survival, spawn survival, loop exception, telemetry freshness, territory, or resource regression; if reward shaping/scenario weighting is implemented before admission gating; if paid Tencent compute is required while #1536/#1548/Tencent recurrence gates are blocked; or if any live learned-policy write/control surface is enabled. |
 | `implementation_tracking` | Issue #1558; previous reward-decision container #907; candidate-vs-baseline scorecard contract #924; Tencent/compute blockers #1536 and #1548; decision JSON `docs/ops/examples/rl-reward-decisions/RD-V3-005-onlineReliabilityRollbackPenalty.json`; post-gate experiment card TBD after compute gates clear. |
 
+### RD-V3-006-workerTransportEfficiency
+
+| Field | Value |
+| --- | --- |
+| `decision_id` | `RD-V3-006-workerTransportEfficiency` |
+| `component_id` | `worker-transport-efficiency` |
+| `status` | `PROPOSED` |
+| `source` | Issue #1555; Gameplay Evolution Review 2026-06-01 low-load transfer-task observations; Gameplay Evolution Review 2026-06-02 01:21 archive `c7b3dda8f1ac`. |
+| `hypothesis` | A future offline/shadow `worker_transport_efficiency` penalty for avoidable low-load micro-hauls should increase useful delivered energy per trip and reduce wasted transfer/upgrade travel, but only when telemetry proves the low-load trip was avoidable and no emergency, starvation, controller-safety, hostile, or higher-priority gate applies. |
+| `current_metric_coverage` | Partial and insufficient for a reward experiment. Runtime summaries expose `workerEfficiency.lowLoadReturnCount`, `avoidableLowLoadReturnCount`, `lowLoadReturnReasons`, carried/free capacity samples, and trip energy summaries. The available E29N56 samples are tagged `noReachableEnergy`, and E29N57 evidence points at spawn-reservation/build-deadlock behavior. Validation still needs a per-trip join across source energy reachability, target saturation, task intent, path distance, room buffer state, spawn reservation state, delivered energy, CPU, and stuck/pathing outcome. |
+| `required_code_changes` | No reward implementation yet. First close the #1554 telemetry gap or produce an equivalent artifact that separates avoidable low-load micro-hauls from valid no-reachable-energy, emergency refill, controller-safety, hostile-retreat, and starvation cases. If that gate passes, add only an offline/shadow reward candidate with `liveEffect=false`, `officialMmoWrites=false`, and `officialMmoWritesAllowed=false`. |
+| `validation_criteria` | Telemetry readiness requires repeated low-load transport windows over at least 8 hours, reason distribution, carried/free capacity and capacity load factor, source reachability, target saturation, room buffer, spawn-reservation active/idle state, deliveredEnergyPerTrip or returnLoadFactor, CPU bucket, and stuck/pathing evidence. A later #924-compatible scorecard must show avoidable low-load return count decreases and deliveredEnergyPerTrip or returnLoadFactor improves versus baseline, with no regression to spawn/refill latency, controller safety, construction progress, CPU, reliability, territory, or resources. |
+| `rollback_conditions` | Reject if telemetry shows most low-load returns are `noReachableEnergy`, emergency refill, controller safety, hostile retreat, or genuine starvation exceptions; if fuller-load behavior delays urgent refill or controller safety; if it improves load factor by increasing path CPU, stuck ticks, pathFindingFailures, or hostile exposure; if #924 scorecard dimensions regress; or if any live learned-policy write/control surface is enabled. |
+| `implementation_tracking` | Issue #1555; previous reward-decision container #907; metric taxonomy link #906; candidate-vs-baseline scorecard contract #924; telemetry prerequisite #1554 or equivalent artifact; decision JSON `docs/ops/examples/rl-reward-decisions/RD-V3-006-workerTransportEfficiency.json`. Steward disposition: hold for telemetry, no reward experiment accepted. |
+
 ## Registered Components
 
 These are registry entries from v2 or this v3 Act container. `PROPOSED` entries are not accepted reward defaults.
@@ -167,6 +184,7 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 | `stuck-penalty` | `RD-V3-003-verifyStuckPenalty` | penalty | `-0.02` per stuck tick candidate from v2 | reliability | `PROPOSED` | Pending v3 verification and possible implementation. |
 | `construction-neglect-penalty` | `RD-V3-004-constructionNeglectPenalty` | penalty | proportional to `constructionSiteCount`, coefficient TBD | resources | `PROPOSED` | Pending offline/shadow replay and future #924-compatible scorecard artifact; no live writes. |
 | `online-reliability-rollback-penalty` | `RD-V3-005-onlineReliabilityRollbackPenalty` | gate | fail closed above configured rollback threshold, currently 10.0% reliability drop | reliability | `PROPOSED` | Candidate admission/#924 scorecard gate proposal only; reward shaping and scenario weighting deferred to future shadow-only decisions; no paid Tencent while gates are blocked; no live writes. |
+| `worker-transport-efficiency` | `RD-V3-006-workerTransportEfficiency` | penalty | TBD; hold for telemetry | logistics | `PROPOSED` | Telemetry hold only; #1554/equivalent evidence required before any offline/shadow reward experiment; no live writes. |
 | `territory-expansion-reward` | TBD | reward | TBD | territory | `PROPOSED` | Placeholder from v2 linked to #958; outside the 2026-05-12 pending Act batch. |
 
 ## Integration Points
@@ -188,6 +206,8 @@ These are registry entries from v2 or this v3 Act container. `PROPOSED` entries 
 - #1024 - P1 construction-neglect reward decision for `build=0` with construction sites
 - #1536 - Tencent recurrence gate blocker
 - #1548 - Tencent validation/compute gate blocker
+- #1554 - Telemetry prerequisite for low-load transport attribution and deadlock reason coverage
+- #1555 - P1 worker transport efficiency reward decision
 - #1558 - P0 reliability rollback reward decision
 - #958 - Expansion initiation gap and territory reward placeholder
 - #959 - RL reward decision registry v2 issue
