@@ -26239,7 +26239,17 @@ function selectUncoveredRoutineRampartMaintenanceTask(creep, constructionSites) 
   return { type: "repair", targetId: rampartMaintenanceTarget.id };
 }
 function shouldYieldControllerSustainUpgradeToConstruction(creep, sustain) {
-  return sustain.homeRoom !== sustain.targetRoom && hasVisibleOwnedConstructionDemand(creep.room);
+  if (!hasVisibleOwnedConstructionDemand(creep.room)) {
+    return false;
+  }
+  if (sustain.homeRoom !== sustain.targetRoom) {
+    return true;
+  }
+  return shouldYieldLocalControllerSustainUpgradeToConstruction(creep);
+}
+function shouldYieldLocalControllerSustainUpgradeToConstruction(creep) {
+  var _a;
+  return ((_a = creep.room.controller) == null ? void 0 : _a.my) === true && !isControllerDowngradeImminentForLowLoadReturn(creep.room.controller) && !hasVisibleHostilePresence3(creep.room) && !hasActiveSpawningSpawn(creep.room) && !hasSameRoomWorkerAssignedToTask(creep.room, creep, "build") && hasMinimumProductiveWorkerCoverageForBoundedConstruction(creep) && hasSpendableConstructionBacklog(creep);
 }
 function hasVisibleOwnedConstructionDemand(room) {
   if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof (room == null ? void 0 : room.find) !== "function") {
