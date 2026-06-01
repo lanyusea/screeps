@@ -7331,7 +7331,7 @@ def build_harness_manifest(
         "type": MANIFEST_TYPE,
         "schemaVersion": SCHEMA_VERSION,
         "manifestId": resolved_manifest_id,
-        "owningIssue": "#879",
+        "owningIssue": "#1032",
         "milestone": "P1: RL strategy flywheel gate",
         "roadmap": {
             "path": "docs/ops/rl-domain-roadmap.md",

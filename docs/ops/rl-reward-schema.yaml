@@ -1,11 +1,12 @@
 # RL Reward Component Schema v1
 # Machine-readable schema for reward components in the Screeps RL training pipeline.
 # Container issue: #967 (#907 replacement)
-# Umbrella: #879 (ALL IN RL)
+# Historical context only: #879 (ALL IN RL), not an active reward schema owner.
 # Human-readable registry: docs/ops/rl-reward-decision-registry.md
 
 schema: 1
-source_issues: [967, 879, 1024]
+source_issues: [967, 1024]
+historical_context_issues: [879]
 last_updated: "2026-05-16"
 
 # Reward components are additive: total_reward = sum(component_reward * weight)

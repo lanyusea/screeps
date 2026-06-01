@@ -264,9 +264,11 @@ class ScreepsRlGrafanaContractTest(unittest.TestCase):
 
         report = grafana.validate_dashboard_payload(broken_dashboard, dashboard_path)
 
+        self.assertNotIn("#879", grafana.REQUIRED_QUERY_COVERAGE)
+        self.assertNotIn("#879", json.dumps(dashboard, sort_keys=True))
         self.assertEqual(report["status"], "FAIL")
         self.assertIn(
-            "#879 iteration decisions",
+            "RL iteration decisions",
             "\n".join(error for error in report["errors"]),
         )
 

@@ -2384,11 +2384,11 @@ def project_gate_summary(
     all_stages_ok = all(status == "OK" for status in stage_statuses.values())
     return [
         {
-            "issue": "#879",
-            "gate": "recurring RL flywheel",
+            "issue": "#1576",
+            "gate": "RL stage proof observability",
             "status": "OK" if all_stages_ok else "BLOCKED",
             "evidence": ", ".join(f"{key}={value}" for key, value in stage_statuses.items()),
-            "nextAction": "clear blocked flywheel stages" if not all_stages_ok else "keep evidence fresh",
+            "nextAction": "clear blocked stage-proof evidence" if not all_stages_ok else "keep evidence fresh",
         },
         {
             "issue": "#1032",
@@ -2920,7 +2920,7 @@ def render_live_html(summary: JsonObject, config: LiveDashboardConfig) -> str:
   </section>
 
   <div class="grid two">
-    <section class="panel"><h2>#879 Flywheel Stage Proof</h2>{table(("Stage", "Status", "Evidence"), stage_rows)}</section>
+    <section class="panel"><h2>RL Flywheel Stage Proof</h2>{table(("Stage", "Status", "Evidence"), stage_rows)}</section>
     <section class="panel"><h2>Project Gate Status</h2>{table(("Issue", "Gate", "Status", "Evidence", "Next action"), project_gate_rows)}</section>
   </div>
 
