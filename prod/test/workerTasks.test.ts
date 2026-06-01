@@ -12238,6 +12238,111 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-worn' });
   });
 
+  it('keeps idle spawn refill before repairs when bounded construction has no selectable site', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeEnergySinkWithEnergy(
+      'storage1',
+      'storage' as StructureConstant,
+      1_200,
+      10_000
+    ) as unknown as StructureStorage;
+    const spentSite = {
+      id: 'spent-site1',
+      structureType: 'road',
+      progress: 100,
+      progressTotal: 100
+    } as ConstructionSite;
+    const road = makeStructure('road-worn', 'road' as StructureConstant, 4_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [spentSite],
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 1_800,
+      myStructures: [spawn as AnyOwnedStructure, storage as unknown as AnyOwnedStructure],
+      structures: [road, storage as unknown as AnyStructure]
+    }) as Room & { storage: StructureStorage };
+    room.storage = storage;
+    const creep = {
+      name: 'BoundedBuilder',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const reserveWorker = {
+      name: 'ReserveWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ BoundedBuilder: creep, ReserveWorker: reserveWorker });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it.each([
+    [
+      'outbound spawn-support worker',
+      { spawnSupport: { originRoom: 'W1N1', targetRoom: 'W2N1' } }
+    ],
+    [
+      'in-transit controller-sustain worker',
+      { controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'hauler' } }
+    ]
+  ] as Array<[string, Partial<CreepMemory>]>)(
+    'keeps idle spawn refill before bounded construction when only an %s appears to cover recovery',
+    (_workerKind, assignmentMemory) => {
+      const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+      const storage = makeEnergySinkWithEnergy(
+        'storage1',
+        'storage' as StructureConstant,
+        1_200,
+        10_000
+      ) as unknown as StructureStorage;
+      const site = {
+        id: 'road-site1',
+        structureType: 'road',
+        progress: 0,
+        progressTotal: 5_000
+      } as ConstructionSite;
+      const controller = {
+        id: 'controller1',
+        my: true,
+        level: 5,
+        ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+      } as StructureController;
+      const room = makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 300,
+        energyCapacityAvailable: 1_800,
+        myStructures: [spawn as AnyOwnedStructure, storage as unknown as AnyOwnedStructure],
+        structures: [storage as unknown as AnyStructure]
+      }) as Room & { storage: StructureStorage };
+      room.storage = storage;
+      const creep = {
+        name: 'LocalBuilder',
+        memory: { role: 'worker', colony: 'W1N1' },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      } as unknown as Creep;
+      const apparentCoverageWorker = {
+        name: 'ApparentCoverage',
+        memory: { role: 'worker', colony: 'W1N1', ...assignmentMemory },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+        room
+      } as unknown as Creep;
+      setGameCreeps({ LocalBuilder: creep, ApparentCoverage: apparentCoverageWorker });
+
+      expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    }
+  );
+
   it('builds follow-up-ready capacity construction before fallback territory upgrading', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
