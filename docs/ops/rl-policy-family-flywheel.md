@@ -1,6 +1,6 @@
 # RL Policy-Family Flywheel
 
-Status: canonical policy-family routing contract for the #879 RL flywheel.
+Status: canonical policy-family routing contract for the RL flywheel. Active work is selected from Project `screeps` atomic issues with `Domain = RL flywheel`; #879 is historical context only, and #1589 is migration-only while the no-umbrella contract lands.
 
 ## No-New-Cron Rule
 

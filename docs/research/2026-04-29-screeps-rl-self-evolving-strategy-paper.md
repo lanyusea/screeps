@@ -2,7 +2,7 @@
 
 # Toward RL-Assisted Self-Evolving Strategy for Hermes Screeps
 
-Status: full autoresearch paper for GitHub issue #262; corrects the #232 completion scope, where PR #234 delivered the strategy-evolution vision and this paper's scaffold but not the completed autoresearch. Operational update: `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md` is now the canonical current RL strategy/PM paper for the active #879 flywheel reset; this 2026-04-29 paper remains the research foundation.
+Status: full autoresearch paper for GitHub issue #262; corrects the #232 completion scope, where PR #234 delivered the strategy-evolution vision and this paper's scaffold but not the completed autoresearch. Operational update: `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md` remains the strategy foundation, while `docs/ops/rl-progress-management-v2.md` is the active no-umbrella Project-management contract; this 2026-04-29 paper remains the research foundation.
 Date: 2026-04-29
 
 ## Abstract

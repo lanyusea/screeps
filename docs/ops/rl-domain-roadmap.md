@@ -15,9 +15,9 @@ runtime data -> offline/shadow evaluation -> accelerated simulator/training
 
 This domain exists to change game strategy, not merely to produce papers. The paper, registry, Overmind-RL audit, and first dataset exporter are foundation inputs; they are not the endpoint.
 
-Canonical current strategy paper: `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md`. The older `docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md` remains the research foundation, but the 2026-05-19 paper is the operational source of truth for active #879 flywheel design, safety gates, observability, scale thresholds, and maintenance expectations.
+Canonical current strategy paper: `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md`. The older `docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md` remains the research foundation. Active project management is now governed by `docs/ops/rl-progress-management-v2.md`: Project `screeps` + `Domain = RL flywheel` + atomic Issues/PRs, not by #879 membership.
 
-Canonical policy-family routing contract: `docs/ops/rl-policy-family-flywheel.md`. #879 remains on the existing cron and GitHub Project machinery while findings, Act-loop deltas, Loop A, Loop B, steward decisions, continuation work, scorecards, canaries, and feedback preserve `policyFamily` metadata for the multi-agent hierarchy.
+Canonical policy-family routing contract: `docs/ops/rl-policy-family-flywheel.md`. Findings, Act-loop deltas, Loop A, Loop B, steward decisions, continuation work, scorecards, canaries, and feedback must preserve `policyFamily` metadata, but the steward queue is the live Project query over atomic issues. #879 is historical context only.
 
 ## Safety boundary
 
@@ -46,26 +46,28 @@ Until then, outputs are offline/shadow/high-level recommendation only: construct
 ## Implementation status
 
 - L4: Training framework — implemented 2026-05-03 — `scripts/screeps_rl_training_runner.py` runs JSON/YAML experiment cards through the private simulator harness, computes lexicographic territory/resources/kills rewards with expansion-survival penalties, emits shadow-compatible JSON reports, and is covered by `scripts/test_screeps_rl_training_runner.py`. Supporting artifacts: `scripts/screeps_rl_experiment_card.py`, `docs/ops/rl-training-reward-workflow.md`, `docs/research/2026-05-03-rl-training-approaches.md`.
-- 2026-05-19 PM reset: #879 is no longer allowed to behave as a loose umbrella. It now requires product-stage evidence for runtime candidate injection, 8c16g-scale utilization, #924 scorecard, owner-facing Grafana/SQLite observability, safe canary/rollback, online feedback-to-Act, autonomous cadence, and canonical strategy-paper maintenance.
+- 2026-06 PM correction: the #879 reset did not go far enough. The active RL queue is now the Project `screeps` query for `Domain = RL flywheel` atomic issues. #879 and any broad replacement issue are historical/governance-only, never progress proxies.
 
-## 2026-05-19 #879 product-stage gates
+## Active atomic progress contract
 
-These gates are the active roadmap mapping for the current RL flywheel reset. A gate is not Done because foundation code exists; it is Done only when its evidence artifact is current and linked from the corresponding GitHub Project item.
+The active roadmap mapping is defined by `docs/ops/rl-progress-management-v2.md`. A lane is not Done because an umbrella was updated; it is Done only when its atomic issue's evidence artifact is current and linked from that issue/PR Project item.
 
-| Gate | Issue | Domain | Required evidence | Blocks |
+Current lane identities include:
+
+| Lane | Issue | Domain | Required evidence | Blocks |
 | --- | --- | --- | --- | --- |
-| G0 Product stage ownership | #1235 | RL flywheel | This roadmap names every product gate, #879 Project fields point to leaf blockers, and steward reports distinguish construction/training/online/self-iteration state | #879 closure |
-| G1 Runtime candidate injection | #1228/#1229 | RL flywheel | Candidate policy parameters are consumed by offline/private runtime and affect behavior, not merely metadata | #1032, #1238 |
-| G2 Scale-first utilization | #1236 | RL flywheel | Tencent/private runs report env rows, simulator ticks, wall time, ASG active time, batch class, utilization, cost, and scale-down proof | #1032 |
-| G3 Candidate scorecard | #1238 | RL flywheel | A #924-compatible candidate-vs-baseline scorecard exists for the runtime-injected candidate and is not `INCONCLUSIVE` for any improvement claim | #1239 |
-| G4 Owner-facing observability | #1237 | RL flywheel | Grafana or equivalent dashboard exposes SQLite freshness, E1, Loop A, Loop B, Tencent utilization, scorecard, safety, feedback, and blockers | #879 owner visibility |
-| G5 Safe canary/rollback | #1239 | RL flywheel | Bounded live influence surface, baseline/candidate/rollback refs, rollout-manager dry-run/rollback-check/compare artifacts | official MMO influence |
-| G6 Feedback-to-Act loop | #1240 | RL flywheel | Online/gameplay finding is traced to reward/scenario/policy decision, experiment-card delta, training run, and scorecard outcome | self-iteration |
-| G7 Canonical strategy maintenance | #1241 | RL flywheel | `docs/research/2026-05-19-screeps-rl-flywheel-strategy-paper.md` is published and future strategy changes update it or explicitly state why not | agent continuity |
+| First bounded live canary | #1583 | RL flywheel | Canary plan, rollback dry-run, live health gate, post-rollout KPI evidence for a bounded high-level policy surface | official MMO influence |
+| Role-scoped policies | #1585 | RL flywheel | Separate worker/harvester/defender policy-family data, training, scorecards, and gates | role-policy claims |
+| Fresh candidate differentiation | #1588 | RL flywheel | Fresh Loop A candidate-vs-baseline evidence showing non-identical policy behavior or a concrete blocker | canary candidate readiness |
+| Objective activation proof | #1566 | RL flywheel | Trusted multi-tier objective evidence before paid validation | paid validation |
+| Conclusion registry hygiene | #1543 | RL flywheel | Stale/open conclusions routed to atomic issues or closed with evidence | steward clarity |
+| Scale / compute cadence | #1032/#1233 | RL flywheel | Validation-scale rows/ticks/utilization/cost/scale-down evidence and safe autonomous dispatch | large-campaign training |
+| Owner-facing observability | #1576 and dashboard issues | RL flywheel | Grafana/dashboard freshness and acceptance evidence | owner-visible Check/Act |
+| Reward decisions | #1555 and decision issues | RL flywheel | Explicit decision record plus scorecard impact | reward changes |
 
-Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape is smoke-only; validation requires >=200 env rows and >=200k ticks, and #1236 owns the minimum acceptable 8c16g utilization ladder.
+Smoke-scale evidence cannot close scale-first training work. The current `5 workers x 5 repetitions x 500 ticks = 25 env rows / 12,500 simulator ticks` shape is smoke-only; validation requires >=200 env rows and >=200k ticks, and the scale/cadence atomic issues own the minimum acceptable 8c16g utilization ladder.
 
-Policy-family-aware #879 execution starts with `top.construction` as the existing `construction-priority` bridge and `role.worker-task` as the first lower-level surface. These labels are routing metadata only; reward, scorecard, canary, rollout, and feedback gates remain unchanged.
+Policy-family-aware execution starts with `top.construction` as the existing `construction-priority` bridge and `role.worker-task` as the first lower-level surface. These labels are routing metadata only; reward, scorecard, canary, rollout, and feedback gates remain unchanged.
 
 ## Current issue map
 
@@ -88,22 +90,18 @@ Active/next P1 roadmap:
 - #418 — KPI-gated rollout, rollback, online feedback ingestion.
 - #266 — offline RL / hierarchical recommendation prototype; must wait for enough L1-L5 evidence and must remain offline-only initially.
 
-Active #879 product-closure roadmap:
+Active atomic RL roadmap:
 
-- #879 — execution umbrella; remains open until the product-stage flywheel repeats without owner prompting.
-- #1032 — scale-first training campaign; cannot close from smoke-only batches.
-- #1228/#1229 — runtime parameter injection for candidate policy consumption.
-- #1231 — Loop A must consume fresh accepted E1 gates, not stale gate windows.
-- #1232 — small policy gradients must not be rounded away.
-- #1233 — steward/autonomous Tencent compute cadence after runtime injection and safety blockers clear.
-- #1234 — metadata-only zero-iteration/no-op candidate updates must be accepted when safe, not false-fail successful compute.
-- #1235 — productize #879 closure gates and stage ownership.
-- #1236 — enforce 8c16g scale-first utilization gates and batch classification.
-- #1237 — restore owner-facing Grafana/SQLite observability.
-- #1238 — produce runtime-injected #924 candidate scorecard.
-- #1239 — wire safe RL candidate canary and rollback path for official MMO.
-- #1240 — close online feedback to reward/scenario/policy iteration loop.
-- #1241 — publish and maintain the canonical Screeps RL strategy paper.
+- #1583 — first bounded live canary; top-level/high-level canary only.
+- #1585 — role-scoped worker/harvester/defender policy lanes; cannot be satisfied by the #1583 top-level canary.
+- #1588 — fresh Loop A candidate differentiation.
+- #1566 — objective activation proof before paid validation.
+- #1543 — conclusion registry hygiene and atomic routing.
+- #1032/#1233 — scale-first training and safe autonomous compute cadence.
+- #1576 and dashboard issues — owner-facing RL observability.
+- #1555 and future decision issues — explicit reward decisions.
+- #879 — historical context only; not a queue, parent epic, completion gate, steward target, or progress proxy.
+- #1589 — short-lived PM-contract migration only; not an RL progress tracker.
 
 ## Data contract
 
@@ -172,14 +170,15 @@ A strategy candidate can advance only in this order:
 6. **Rollout gate** — limited high-level strategy rollout with rollback trigger and owner-visible KPI plan.
 7. **Feedback gate** — post-rollout data is ingested into the next dataset/experiment window.
 
-Productized #879 closure adds these stronger management requirements:
+Atomic RL progress management adds these stronger requirements:
 
-- A candidate cannot leave training if #1229 runtime-parameter injection has not proven that policy parameters are consumed by the evaluated runtime.
-- #1032 cannot close from smoke-only batches; #1236 scale class must be validation, normal-scale, or large-campaign according to explicit env-row/tick thresholds.
-- A rollout claim requires #1238 scorecard evidence, not only Loop A training evidence or a merged code PR.
-- Owner-visible observability is a gate: #1237 must expose Grafana or equivalent SQLite-backed dashboard state before #879 can claim a mature flywheel.
-- Official MMO live influence requires #1239 canary/rollback artifacts and remains limited to bounded high-level strategy knobs.
-- Self-iteration requires #1240 to trace at least one online/gameplay finding through reward/scenario/policy decision, experiment-card delta, training, and scorecard outcome.
+- A candidate cannot leave training if runtime-parameter injection has not proven that policy parameters are consumed by the evaluated runtime.
+- Scale-first training cannot close from smoke-only batches; the relevant scale/cadence issue must classify scale as validation, normal-scale, or large-campaign according to explicit env-row/tick thresholds.
+- A rollout claim requires candidate-vs-baseline scorecard evidence, not only Loop A training evidence or a merged code PR.
+- Owner-visible observability is a gate: the dashboard issue must expose Grafana or equivalent SQLite-backed dashboard state before owner-facing Check/Act claims.
+- Official MMO live influence requires canary/rollback artifacts and remains limited to bounded high-level strategy knobs.
+- Self-iteration requires an atomic issue or artifact to trace at least one online/gameplay finding through reward/scenario/policy decision, experiment-card delta, training, and scorecard outcome.
+- No umbrella issue, including #879 or #1589, can be used as the Done evidence for any of the above.
 
 ## First three landing slices
 
@@ -268,13 +267,10 @@ RL progress:
 - the RL flywheel steward prompt is updated to enforce lane selection and report format;
 - #task-queue and #research-notes receive the refresh summary.
 
-2026-05-19 #879 reset is complete only when:
+2026-06 no-umbrella correction is complete only when:
 
-- #1235 records the stage-gate contract in this roadmap and #879 Project fields point at the active leaf blockers;
-- #1241 publishes the canonical strategy paper and future RL strategy changes must update it or justify why it remains current;
-- #1237 provides owner-facing Grafana/SQLite/dashboard evidence, not just local static artifacts;
-- #1236 classifies training scale and prevents 5x5x500 smoke evidence from closing scale-first work;
-- #1238 produces a runtime-injected #924 scorecard;
-- #1239 proves canary/rollback readiness before any official MMO influence;
-- #1240 proves at least one online feedback-to-Act iteration;
-- #879 remains open until the whole train/evaluate/scorecard/rollout/feedback cycle repeats without owner prompting.
+- `docs/ops/rl-progress-management-v2.md` is merged to `main`;
+- steward/report prompts select from Project `screeps` + `Domain = RL flywheel` atomic issues and explicitly exclude #879 plus migration-only #1589;
+- #879 Project fields remain historical/backlog-only;
+- #1589 closes as a migration ticket rather than receiving routine RL progress;
+- future RL progress reports name atomic issue evidence instead of umbrella progress.
