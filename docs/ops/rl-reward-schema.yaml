@@ -48,10 +48,14 @@ components:
       controller-safety, hostile, starvation, and dispatch-deadlock exceptions.
     predicate:
       carried_load_ratio_lt: 0.20
+      task_kind_in:
+        - transfer
+        - upgrade
       reachable_energy_at_acquisition: true
       target_saturation_explains_low_load: false
       no_reachable_energy_reason: false
       emergency_refill_or_controller_safety: false
+      hostile_or_survival_exception: false
     validation:
       status: HOLD_FOR_TELEMETRY
       telemetry_issue: 1554
