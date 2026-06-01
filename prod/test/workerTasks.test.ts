@@ -12848,6 +12848,60 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('refills an empty E29N57 source-container builder during low-bucket shedding when stored energy protects recovery', () => {
+    const source = makeSource('source1', 20, 20, 'E29N57');
+    const site = {
+      id: 'container-site1',
+      structureType: 'container',
+      progress: 500,
+      progressTotal: 5_000,
+      pos: {
+        ...makeRoomPosition(20, 21, 'E29N57'),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'stored-container1' ? 1 : 99))
+      }
+    } as unknown as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
+    const storedContainer = makeStoredEnergyContainerWithCapacity('stored-container1', 2_217, 2_500, {
+      pos: makeRoomPosition(20, 22, 'E29N57')
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 5,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      name: 'E29N57',
+      constructionSites: [site],
+      controller,
+      energyAvailable: 909,
+      energyCapacityAvailable: 1_800,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [storedContainer as AnyStructure]
+    });
+    const creep = {
+      name: 'LowBucketBuilder',
+      memory: { role: 'worker', colony: 'E29N57' },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'stored-container1' ? 1 : 99)) },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    const idleWorker = {
+      name: 'IdleWorker',
+      memory: { role: 'worker', colony: 'E29N57' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LowBucketBuilder: creep, IdleWorker: idleWorker });
+    setCpuBucket(948);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'stored-container1' });
+  });
+
   it('does not count the current build-assigned worker as uncovered construction coverage', () => {
     const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 317, {
