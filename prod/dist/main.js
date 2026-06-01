@@ -31590,7 +31590,7 @@ function runWorker(creep) {
   executeAssignedTask(creep, selectedTask);
 }
 function recordWorkerDispatchDiagnostic(creep, context) {
-  if (isRuntimeCpuBucketCritical()) {
+  if (isRuntimeCpuBucketLow()) {
     return;
   }
   const memory = creep.memory;
@@ -37875,7 +37875,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   creepsByColony != null ? creepsByColony : creepsByColony = groupCreepsByColony(creeps, colonies);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
-  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !cpuBudget.critical;
+  const includeOptionalSummary = !cpuBudget.lowCpuLimit && !shouldShedNonessentialCpuWork(cpuBudget);
   const rooms = colonies.map(
     (colony) => {
       var _a, _b;
@@ -37903,8 +37903,14 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   return summary;
 }
 function shouldEmitRuntimeSummary(tick, events, cpuBudget = getRuntimeCpuBudget()) {
-  if (cpuBudget.critical) {
-    return hasCriticalRuntimeSummaryEvent(events);
+  if (shouldShedNonessentialCpuWork(cpuBudget)) {
+    if (hasCriticalRuntimeSummaryEvent(events)) {
+      return true;
+    }
+    if (cpuBudget.critical) {
+      return false;
+    }
+    return tick > 0 && tick % DEGRADED_RUNTIME_SUMMARY_INTERVAL === 0;
   }
   if (events.length > 0) {
     return true;

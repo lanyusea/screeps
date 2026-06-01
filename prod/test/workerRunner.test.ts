@@ -145,6 +145,44 @@ describe('runWorker', () => {
     expect(harvest).toHaveBeenCalledWith(source);
   });
 
+  it('suppresses worker dispatch diagnostics during low-bucket recovery', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([source])
+    } as unknown as Room;
+    const creep = {
+      name: 'Worker1',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 124,
+      creeps: { Worker1: creep },
+      cpu: {
+        getUsed: jest.fn().mockReturnValue(18),
+        limit: 70,
+        bucket: 500,
+        tickLimit: 500
+      } as unknown as CPU,
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null)) as unknown as Game['getObjectById']
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.workerDispatchDiagnostic).toBeUndefined();
+  });
+
   it('keeps an executable assigned repair under critical CPU bucket without full task reselection', () => {
     const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
     const room = {
