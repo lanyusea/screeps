@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from screeps_rl_experiment_card import (
     POLICY_GRADIENT_MIN_SIMULATION_TICKS,
+    policy_gradient_trust_sample_plan,
     scenario_supports_multi_tier_policy_comparison,
     validate_scenario_metadata,
 )
@@ -366,6 +367,38 @@ def validate_experiment_card(card: JsonObject) -> None:
     if training_approach == "policy_gradient" and (ticks is None or ticks < POLICY_GRADIENT_MIN_SIMULATION_TICKS):
         raise TrainingCardError(
             f"policy_gradient cards require simulation.ticks >= {POLICY_GRADIENT_MIN_SIMULATION_TICKS}"
+        )
+    if training_approach == "policy_gradient":
+        validate_policy_gradient_scale_sample_plan(card, simulation, raw_variants)
+
+
+def validate_policy_gradient_scale_sample_plan(
+    card: JsonObject,
+    simulation: JsonObject,
+    raw_variants: Sequence[Any],
+) -> None:
+    scale_environments = positive_int_value(first_present(simulation, ("scale_environments", "scaleEnvironments")))
+    if scale_environments is None:
+        return
+    repetitions = positive_int_value(simulation.get("repetitions")) or DEFAULT_RUN_REPETITIONS
+    policy_gradient = card.get("policy_gradient", card.get("policyGradient"))
+    required_samples = DEFAULT_GRADIENT_TRUST_MIN_SAMPLES_PER_CANDIDATE
+    if isinstance(policy_gradient, dict):
+        required_samples = int(policy_update_gradient_stability_config(policy_gradient)["minimumSamplesPerCandidate"])
+    sample_plan = policy_gradient_trust_sample_plan(
+        repetitions=repetitions,
+        scale_environments=scale_environments,
+        variant_count=len(raw_variants),
+        required_samples_per_candidate=required_samples,
+    )
+    if sample_plan["minimumSamplesPerCandidate"] < required_samples:
+        raise TrainingCardError(
+            "policy_gradient scale validation requires "
+            f"requested samples per candidate >= {required_samples}; "
+            f"planned minimum is {sample_plan['minimumSamplesPerCandidate']} with "
+            f"{sample_plan['variantCount']} variant(s), {sample_plan['expandedRowCount']} expanded row(s), "
+            f"and {sample_plan['repetitions']} repetition(s); "
+            f"requires simulation.repetitions >= {sample_plan['requiredRepetitions']}"
         )
 
 
