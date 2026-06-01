@@ -2903,7 +2903,14 @@ def build_paid_failure_recurrence_launch_guard(
         elif validation.get("status") == "allowed":
             reason += "; allowing one explicit post-fix validation attempt"
         elif validation.get("status") == "recovery_allowed":
-            reason += "; allowing one explicit recovery validation after a pre-scale no-compute admission failure"
+            recovery = dict_value(validation.get("recoveryEligibility")) or {}
+            if text_value(recovery.get("recoveryClass")) in {
+                "remote_training_timeout",
+                "remote_training_timeout_after_recovery",
+            }:
+                reason += "; allowing one explicit recovery validation after a remote-training timeout without a completed report"
+            else:
+                reason += "; allowing one explicit recovery validation after a pre-scale no-compute admission failure"
         elif validation.get("status") == "consumed":
             reason += "; a post-fix validation attempt already ran without completing successfully"
     next_action = None
@@ -3072,14 +3079,20 @@ def paid_failure_post_fix_validation_recovery_eligibility(
     if fix_status.get("present") is not True:
         result["reason"] = "registered room-busy fix is not verified in the current checkout"
         return result
+    recovery_class = paid_failure_post_fix_validation_recovery_class_for_attempts(prior_attempts)
     if not requested:
+        if recovery_class is not None:
+            paid_failure_post_fix_validation_recovery_metadata(
+                result,
+                recovery_class,
+                prior_attempts,
+            )
         result["reason"] = "explicit post-fix validation signature was not requested"
         return result
     prior_attempt = prior_attempts[0]
     if any(text_value(attempt.get("outcome")) == "completed" for attempt in prior_attempts):
         result["reason"] = "a post-fix validation already completed"
         return result
-    recovery_class = paid_failure_post_fix_validation_recovery_class_for_attempts(prior_attempts)
     if recovery_class is None:
         if len(prior_attempts) not in (1, 2):
             result["reason"] = (
@@ -3105,26 +3118,41 @@ def paid_failure_post_fix_validation_recovery_eligibility(
         result["reason"] = "policy-gradient requested samples are below the trust gate target"
         return result
     result["eligible"] = True
-    result["recoveryClass"] = recovery_class
+    paid_failure_post_fix_validation_recovery_metadata(
+        result,
+        recovery_class,
+        prior_attempts,
+    )
     if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
         result["reason"] = (
             "one recovery validation is allowed after a consumed remote-training timeout "
             "without a completed report"
         )
         if recovery_class == "remote_training_timeout_after_recovery":
-            recovery_attempt = next(
-                (attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True),
-                prior_attempt,
-            )
-            result["priorRecoveryAttemptRunId"] = text_value(recovery_attempt.get("runId"))
-            result["priorAttemptRunId"] = text_value(recovery_attempt.get("runId"))
             return result
     else:
         result["reason"] = (
             "one recovery validation is allowed after a consumed pre-scale no-compute admission failure"
         )
-    result["priorAttemptRunId"] = text_value(prior_attempt.get("runId"))
     return result
+
+
+def paid_failure_post_fix_validation_recovery_metadata(
+    result: dict[str, Any],
+    recovery_class: str,
+    prior_attempts: list[dict[str, Any]],
+) -> None:
+    result["recoveryClass"] = recovery_class
+    prior_attempt = prior_attempts[0]
+    if recovery_class == "remote_training_timeout_after_recovery":
+        recovery_attempt = next(
+            (attempt for attempt in prior_attempts if attempt.get("recoveryAttempt") is True),
+            prior_attempt,
+        )
+        result["priorRecoveryAttemptRunId"] = text_value(recovery_attempt.get("runId"))
+        result["priorAttemptRunId"] = text_value(recovery_attempt.get("runId"))
+        return
+    result["priorAttemptRunId"] = text_value(prior_attempt.get("runId"))
 
 
 def paid_failure_post_fix_validation_recovery_class_for_attempts(
@@ -3531,6 +3559,32 @@ def paid_failure_recurrence_next_action(
         )
     if status == "consumed":
         prior = dict_value(validation.get("priorAttempt")) or {}
+        recovery = dict_value(validation.get("recoveryEligibility")) or {}
+        recovery_class = text_value(recovery.get("recoveryClass"))
+        if recovery_class in {"remote_training_timeout", "remote_training_timeout_after_recovery"}:
+            run_id = (
+                text_value(recovery.get("priorRecoveryAttemptRunId"))
+                or text_value(recovery.get("priorAttemptRunId"))
+                or text_value(prior.get("runId"))
+                or "the prior post-fix validation"
+            )
+            return (
+                f"{base}; {run_id} timed out in remote training without a completed report, "
+                "but this launch did not request the explicit post-fix validation signature; "
+                "inspect collected partial diagnostics, then only launch a recovery with that "
+                "signature plus an explicitly sized timeout or a smaller validation slice"
+            )
+        if recovery_class == "pre_scale_no_compute_admission_failure":
+            run_id = (
+                text_value(recovery.get("priorAttemptRunId"))
+                or text_value(prior.get("runId"))
+                or "the prior post-fix validation"
+            )
+            return (
+                f"{base}; {run_id} failed before scale, compute, remote training, environments, "
+                "or a training report, but this launch did not request the explicit post-fix "
+                "validation signature; only launch a recovery with that signature"
+            )
         run_id = text_value(prior.get("runId")) or "the prior post-fix validation"
         return (
             f"{base}; post-fix validation was already attempted in {run_id} without a completed report, "
