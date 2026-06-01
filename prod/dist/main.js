@@ -32110,7 +32110,7 @@ function fallbackToEnergyOnNullSelectionLoop(creep, selectedTask) {
     delete creep.memory.workerTaskSelectionNullLoop;
     return selectedTask;
   }
-  if (getRuntimeCpuBudget().critical) {
+  if (shouldShedNonessentialCpuWork(getRuntimeCpuBudget())) {
     return null;
   }
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
