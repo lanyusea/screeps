@@ -307,6 +307,10 @@ interface SourceContainerWithdrawalContext {
   sources: Source[];
 }
 
+interface ControllerDowngradeGuardOptions {
+  allowConstructionBacklogYield?: boolean;
+}
+
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
@@ -348,7 +352,7 @@ function selectCriticalCpuWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (
     controller &&
-    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
     canUpgradeController(controller)
   ) {
     return { type: 'upgrade', targetId: controller.id };
@@ -526,7 +530,7 @@ function selectCriticalCpuEnergyAcquisitionTask(
   const controller = creep.room.controller;
   if (
     controller &&
-    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller, { allowConstructionBacklogYield: false }) &&
     canUpgradeController(controller)
   ) {
     return selectWorkerEnergyCriticalAcquisitionTask(creep);
@@ -1930,13 +1934,17 @@ function isWorkerRefillBoundOrReservableForSpawnExtensionDelivery(
 
 function shouldGuardControllerDowngradeForWorkerLoad(
   creep: Creep,
-  controller: StructureController | undefined
+  controller: StructureController | undefined,
+  options: ControllerDowngradeGuardOptions = {}
 ): boolean {
   if (!shouldGuardControllerDowngrade(controller)) {
     return false;
   }
 
-  if (shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller)) {
+  if (
+    (options.allowConstructionBacklogYield ?? true) &&
+    shouldYieldControllerDowngradeGuardToConstructionBacklog(creep, controller)
+  ) {
     return false;
   }
 
